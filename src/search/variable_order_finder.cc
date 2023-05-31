@@ -15,11 +15,11 @@ using namespace std;
 using utils::ExitCode;
 
 
-VariableOrderFinder::VariableOrderFinder(const shared_ptr<AbstractTask> task,
-                                         VariableOrderType variable_order_type)
+VariableOrderFinder::VariableOrderFinder(const shared_ptr<AbstractTask> task, VariableOrderType variable_order_type, bool is_pdb)
     : task(task),
       task_proxy(*task),
-      variable_order_type(variable_order_type) {
+      variable_order_type(variable_order_type), 
+      is_pdb(is_pdb) {
     int var_count = task_proxy.get_variables().size();
     if (variable_order_type == REVERSE_LEVEL) {
         for (int i = 0; i < var_count; ++i)
@@ -96,6 +96,9 @@ int VariableOrderFinder::next() {
         int var_no = remaining_vars[0];
         select_next(0, var_no);
         return var_no;
+    }
+    if (is_pdb) {
+        return -1; // Avoiding derived variables in PDB, as they are not causaly conneted.
     }
     cerr << "Relevance analysis has not been performed." << endl;
     utils::exit_with(ExitCode::INPUT_ERROR);

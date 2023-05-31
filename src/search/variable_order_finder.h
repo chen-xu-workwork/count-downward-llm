@@ -23,11 +23,12 @@ class VariableOrderFinder {
     std::vector<int> remaining_vars;
     std::vector<bool> is_goal_variable;
     std::vector<bool> is_causal_predecessor;
+    bool is_pdb;
 
     void select_next(int position, int var_no);
 public:
     VariableOrderFinder(const std::shared_ptr<AbstractTask> task,
-                        VariableOrderType variable_order_type);
+                        VariableOrderType variable_order_type, bool is_pdb = false);
     ~VariableOrderFinder() = default;
     bool done() const;
     int next();

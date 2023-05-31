@@ -541,7 +541,7 @@ fast_downward_plugin(
         operator_counting/operator_counting_heuristic.cc
         operator_counting/pho_constraints.cc
         operator_counting/state_equation_constraints.cc
-  DEPENDS LP_SOLVER LANDMARK_CUT_HEURISTIC PDBS
+  DEPENDS LP_SOLVER LANDMARK_CUT_HEURISTIC PDBS NUMERIC_PDBS
 )
 
 #fast_downward_plugin(
@@ -588,6 +588,23 @@ fast_downward_plugin(
         pdbs/validation.cc
         pdbs/zero_one_pdbs.cc
         pdbs/zero_one_pdbs_heuristic.cc
+)
+
+fast_downward_plugin(
+    NAME NUMERIC_PDBS
+    HELP "PDBs for the Numeric variant NFD"
+    SOURCES
+        numeric_pdbs/match_tree.cc
+        numeric_pdbs/max_additive_pdb_sets.cc
+        numeric_pdbs/max_cliques.cc
+        numeric_pdbs/pattern_collection_information.cc
+        numeric_pdbs/numeric_pattern_database.cc
+        numeric_pdbs/pattern_generator_greedy.cc
+        numeric_pdbs/pattern_generator_manual.cc
+        numeric_pdbs/pattern_generator.cc
+        numeric_pdbs/numeric_pdb_heuristic.cc
+        numeric_pdbs/types.cc
+        numeric_pdbs/validation.cc
 )
 
 fast_downward_plugin(

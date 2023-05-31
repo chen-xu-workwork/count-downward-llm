@@ -1,2 +1,11 @@
 driver/*.pyc
+driver/__pycache__/
 builds/
+src/search/bliss-0.73/bliss
+src/search/bliss-0.73/libbliss.a
+src/search/bliss-0.73/*.o
+.vscode/
+*.pddl
+output
+output.sas
+sas_plan
