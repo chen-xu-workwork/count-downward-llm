@@ -24,42 +24,41 @@ namespace numeric_pdbs {
 AbstractOperator::AbstractOperator(const vector<pair<int, int>> &prev_pairs,
                                    const vector<pair<int, int>> &pre_pairs,
                                    const vector<pair<int, int>> &eff_pairs,
+                                   int op_id,
                                    int cost,
                                    const vector<size_t> &hash_multipliers)
-    : cost(cost),
-      regression_preconditions(prev_pairs) {
-    regression_preconditions.insert(regression_preconditions.end(),
-                                    eff_pairs.begin(),
-                                    eff_pairs.end());
+    : op_id(op_id),
+      cost(cost),
+      preconditions(prev_pairs) {
+    preconditions.insert(preconditions.end(),
+                         pre_pairs.begin(),
+                         pre_pairs.end());
     // Sort preconditions for MatchTree construction.
-    sort(regression_preconditions.begin(), regression_preconditions.end());
-    for (size_t i = 1; i < regression_preconditions.size(); ++i) {
-        assert(regression_preconditions[i].first !=
-               regression_preconditions[i - 1].first);
+    sort(preconditions.begin(), preconditions.end());
+    for (size_t i = 1; i < preconditions.size(); ++i) {
+        assert(preconditions[i].first !=
+               preconditions[i - 1].first);
     }
     hash_effect = 0;
     assert(pre_pairs.size() == eff_pairs.size());
-    for (size_t i = 0; i < pre_pairs.size(); ++i) {
-        int var = pre_pairs[i].first;
+    for (size_t i = 0; i < eff_pairs.size(); ++i) {
+        int var = eff_pairs[i].first;
         assert(var == eff_pairs[i].first);
-        int old_val = eff_pairs[i].second;
-        int new_val = pre_pairs[i].second;
+        int old_val = pre_pairs[i].second;
+        int new_val = eff_pairs[i].second;
         assert(new_val != -1);
         size_t effect = (new_val - old_val) * hash_multipliers[var];
         hash_effect += effect;
     }
 }
 
-AbstractOperator::~AbstractOperator() {
-}
-
 void AbstractOperator::dump(const Pattern &pattern,
                             const TaskProxy &task_proxy) const {
     cout << "AbstractOperator:" << endl;
-    cout << "Regression preconditions:" << endl;
-    for (size_t i = 0; i < regression_preconditions.size(); ++i) {
-        int var_id = regression_preconditions[i].first;
-        int val = regression_preconditions[i].second;
+    cout << "Preconditions:" << endl;
+    for (size_t i = 0; i < preconditions.size(); ++i) {
+        int var_id = preconditions[i].first;
+        int val = preconditions[i].second;
         cout << "Variable: " << var_id << " (True name: "
              << task_proxy.get_variables()[pattern[var_id]].get_name()
              << ", Index: " << i << ") Value: " << val << endl;
@@ -74,7 +73,7 @@ PatternDatabase::PatternDatabase(
     const vector<int> &operator_costs)
     : task_proxy(task_proxy),
       pattern(pattern) {
-    // verify_no_axioms(task_proxy);
+    // verify_no_axioms(task_proxy); // TODO adapt the function to ignore the numeric axioms
     verify_no_conditional_effects(task_proxy);
     assert(operator_costs.empty() ||
            operator_costs.size() == task_proxy.get_operators().size());
@@ -101,7 +100,7 @@ PatternDatabase::PatternDatabase(
 }
 
 void PatternDatabase::multiply_out(
-    int pos, int cost, vector<pair<int, int>> &prev_pairs,
+    int pos, int op_id, int cost, vector<pair<int, int>> &prev_pairs,
     vector<pair<int, int>> &pre_pairs,
     vector<pair<int, int>> &eff_pairs,
     const vector<pair<int, int>> &effects_without_pre,
@@ -109,9 +108,8 @@ void PatternDatabase::multiply_out(
     if (pos == static_cast<int>(effects_without_pre.size())) {
         // All effects without precondition have been checked: insert op.
         if (!eff_pairs.empty()) {
-            operators.push_back(
-                AbstractOperator(prev_pairs, pre_pairs, eff_pairs, cost,
-                                 hash_multipliers));
+            operators.emplace_back(prev_pairs, pre_pairs, eff_pairs, op_id, cost,
+                                 hash_multipliers);
         }
     } else {
         // For each possible value for the current variable, build an
@@ -121,12 +119,12 @@ void PatternDatabase::multiply_out(
         VariableProxy var = task_proxy.get_variables()[pattern[var_id]];
         for (int i = 0; i < var.get_domain_size(); ++i) {
             if (i != eff) {
-                pre_pairs.push_back(make_pair(var_id, i));
-                eff_pairs.push_back(make_pair(var_id, eff));
+                pre_pairs.emplace_back(var_id, i);
+                eff_pairs.emplace_back(var_id, eff);
             } else {
-                prev_pairs.push_back(make_pair(var_id, i));
+                prev_pairs.emplace_back(var_id, i);
             }
-            multiply_out(pos + 1, cost, prev_pairs, pre_pairs, eff_pairs,
+            multiply_out(pos + 1, op_id, cost, prev_pairs, pre_pairs, eff_pairs,
                          effects_without_pre, operators);
             if (i != eff) {
                 pre_pairs.pop_back();
@@ -165,9 +163,9 @@ void PatternDatabase::build_abstract_operators(
         if (pattern_var_id != -1) {
             if (has_precondition_on_var[var_id]) {
                 has_precond_and_effect_on_var[var_id] = true;
-                eff_pairs.push_back(make_pair(pattern_var_id, val));
+                eff_pairs.emplace_back(pattern_var_id, val);
             } else {
-                effects_without_pre.push_back(make_pair(pattern_var_id, val));
+                effects_without_pre.emplace_back(pattern_var_id, val);
             }
         }
     }
@@ -177,13 +175,13 @@ void PatternDatabase::build_abstract_operators(
         int val = pre.get_value();
         if (pattern_var_id != -1) { // variable occurs in pattern
             if (has_precond_and_effect_on_var[var_id]) {
-                pre_pairs.push_back(make_pair(pattern_var_id, val));
+                pre_pairs.emplace_back(pattern_var_id, val);
             } else {
-                prev_pairs.push_back(make_pair(pattern_var_id, val));
+                prev_pairs.emplace_back(pattern_var_id, val);
             }
         }
     }
-    multiply_out(0, cost, prev_pairs, pre_pairs, eff_pairs, effects_without_pre,
+    multiply_out(0, op.get_id(), cost, prev_pairs, pre_pairs, eff_pairs, effects_without_pre,
                  operators);
 }
 

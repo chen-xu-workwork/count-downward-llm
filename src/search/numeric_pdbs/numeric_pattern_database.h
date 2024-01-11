@@ -19,17 +19,17 @@ class AbstractOperator {
       abstract state.
     */
 
+    int op_id;
+
     int cost;
 
     /*
-      Preconditions for the regression search, corresponds to normal
-      effects and prevail of concrete operators.
+      Preconditions for the search.
     */
-    std::vector<std::pair<int, int>> regression_preconditions;
+    std::vector<std::pair<int, int>> preconditions;
 
     /*
-      Effect of the operator during regression search on a given
-      abstract state number.
+      Effect of the operator during search on a given abstract state number.
     */
     std::size_t hash_effect;
 public:
@@ -42,16 +42,16 @@ public:
     AbstractOperator(const std::vector<std::pair<int, int>> &prevail,
                      const std::vector<std::pair<int, int>> &preconditions,
                      const std::vector<std::pair<int, int>> &effects,
+                     int op_id,
                      int cost,
                      const std::vector<std::size_t> &hash_multipliers);
-    ~AbstractOperator();
 
     /*
       Returns variable value pairs which represent the preconditions of
-      the abstract operator in a regression search
+      the abstract operator in a search
     */
-    const std::vector<std::pair<int, int>> &get_regression_preconditions() const {
-        return regression_preconditions;
+    const std::vector<std::pair<int, int>> &get_preconditions() const {
+        return preconditions;
     }
 
     /*
@@ -64,7 +64,14 @@ public:
       Returns the cost of the abstract operator (same as the cost of
       the original concrete operator)
     */
-    int get_cost() const {return cost; }
+    int get_cost() const {
+        return cost;
+    }
+
+    int get_op_id() const {
+        return op_id;
+    }
+
     void dump(const Pattern &pattern,
               const TaskProxy &task_proxy) const;
 };
@@ -95,7 +102,7 @@ class PatternDatabase {
       abstract operator with a concrete value (!= -1) is computed.
     */
     void multiply_out(
-        int pos, int cost,
+        int pos, int op_id, int cost,
         std::vector<std::pair<int, int>> &prev_pairs,
         std::vector<std::pair<int, int>> &pre_pairs,
         std::vector<std::pair<int, int>> &eff_pairs,
