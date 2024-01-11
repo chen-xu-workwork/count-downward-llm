@@ -178,10 +178,16 @@ Please use Python 2.7.x. Currently, Python 3.x is not supported.
 
 Quick summary:
 ```
-fast-downward.py --build=release64 domain.pddl problem.pddl --search "astar(blind)
+python2.7 fast-downward.py --build=release64 domain.pddl problem.pddl --search "astar(blind)"
 ```
 
 ### Numeric Heuristics
+
+#### Numeric PDB
+```
+python2.7 fast-downward.py --build=release64 domain.pddl problem.pddl --search "astar(numeric_pdb())"
+```
+
 #### Linear Numeric LM-cut exploiting SOSE (h^{LM-cut}_2) (Kuroiwa et al. 2022)
 ```
 fast-downward.py --build=release64 domain.pddl problem.pddl --search "astar(lmcutnumeric(use_linear_effects=true, use_second_order_simple=true))"
