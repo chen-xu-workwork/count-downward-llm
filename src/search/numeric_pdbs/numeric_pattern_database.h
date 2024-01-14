@@ -12,7 +12,7 @@ namespace numeric_pdbs {
 class AbstractOperator {
     /*
       This class represents an abstract operator how it is needed for
-      the regression search performed during the PDB-construction. As
+      the search performed during the PDB-construction. As
       all abstract states are represented as a number, abstract
       operators don't have "usual" effects but "hash effects", i.e. the
       change (as number) the abstract operator implies on a given
@@ -122,7 +122,7 @@ class PatternDatabase {
 
     /*
       Computes all abstract operators, builds the match tree (successor
-      generator) and then does a Dijkstra regression search to compute
+      generator) and then does a Uniform Cost Search to compute
       all final h-values (stored in distances). operator_costs can
       specify individual operator costs for each operator for action
       cost partitioning. If left empty, default operator costs are used.

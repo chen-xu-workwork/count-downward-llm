@@ -160,7 +160,7 @@ void PatternDatabase::build_abstract_operators(
         int var_id = eff.get_fact().get_variable().get_id();
         int pattern_var_id = variable_to_index[var_id];
         int val = eff.get_fact().get_value();
-        if (pattern_var_id != -1) {
+        if (pattern_var_id != -1) { // variable occurs in pattern
             if (has_precondition_on_var[var_id]) {
                 has_precond_and_effect_on_var[var_id] = true;
                 eff_pairs.emplace_back(pattern_var_id, val);
@@ -220,41 +220,60 @@ void PatternDatabase::create_pdb(const std::vector<int> &operator_costs) {
         }
     }
 
-    distances.reserve(num_states);
     // first implicit entry: priority, second entry: index for an abstract state
     AdaptiveQueue<size_t> pq;
 
-    // initialize queue
-    for (size_t state_index = 0; state_index < num_states; ++state_index) {
+    // initialize g_values and pq
+    std::vector<int> g_values(num_states,numeric_limits<int>::max());
+    size_t initial_state_index = hash_index(task_proxy.get_initial_state()); // adapt to numeric vars
+    g_values[initial_state_index] = 0;
+    pq.push(0, initial_state_index);
+    int distance_to_goal = numeric_limits<int>::max();
+
+    // Uniform Cost Search in the abstract state space
+    while (!pq.empty()) {
+        pair<int, size_t> node = pq.pop();
+        int g_value = node.first;
+        size_t state_index = node.second;
+
         if (is_goal_state(state_index, abstract_goals)) {
-            pq.push(0, state_index);
-            distances.push_back(0);
-        } else {
+            distance_to_goal = g_value;
+            break;
+        }
+
+        if (g_value > g_values[state_index]) { // if we have already found a better path to this node
+            continue;
+        }
+
+        vector<const AbstractOperator *> applicable_operators;
+        match_tree.get_applicable_operators(state_index, applicable_operators); // this checks only the classic part
+        // need to check applicability of operators w.r.t. to numeric part
+        for (const AbstractOperator *op : applicable_operators) { // generate successors
+            size_t successor_index = state_index + op->get_hash_effect(); // unified hash effect
+            int alternative_cost = g_value + op->get_cost();
+            if (alternative_cost < g_values[successor_index]) {
+                g_values[successor_index] = alternative_cost;
+                pq.push(alternative_cost, successor_index);
+            }
+        }
+    }
+
+    // set heuristic values for all states
+    distances.reserve(num_states);
+    if (distance_to_goal != numeric_limits<int>::max()) {
+        for (size_t i = 0; i < num_states; ++i) {
+            if (g_values[i] < distance_to_goal) { 
+                distances.push_back(distance_to_goal - g_values[i]); // nodes that are in the CLOSED list
+            } else {
+                distances.push_back(0); // nodes that are still in the OPEN list and unseen nodes
+            }
+        }
+    } else { // no goal reachable from initial state.
+        for (size_t i = 0; i < num_states; ++i) {
             distances.push_back(numeric_limits<int>::max());
         }
     }
 
-    // Dijkstra loop
-    while (!pq.empty()) {
-        pair<int, size_t> node = pq.pop();
-        int distance = node.first;
-        size_t state_index = node.second;
-        if (distance > distances[state_index]) {
-            continue;
-        }
-
-        // regress abstract_state
-        vector<const AbstractOperator *> applicable_operators;
-        match_tree.get_applicable_operators(state_index, applicable_operators);
-        for (const AbstractOperator *op : applicable_operators) {
-            size_t predecessor = state_index + op->get_hash_effect();
-            int alternative_cost = distances[state_index] + op->get_cost();
-            if (alternative_cost < distances[predecessor]) {
-                distances[predecessor] = alternative_cost;
-                pq.push(alternative_cost, predecessor);
-            }
-        }
-    }
 }
 
 bool PatternDatabase::is_goal_state(
