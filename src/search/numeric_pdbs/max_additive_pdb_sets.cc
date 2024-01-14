@@ -11,8 +11,8 @@ namespace numeric_pdbs {
 bool are_patterns_additive(const Pattern &pattern1,
                            const Pattern &pattern2,
                            const VariableAdditivity &are_additive) {
-    for (int v1 : pattern1) {
-        for (int v2 : pattern2) {
+    for (int v1 : pattern1.regular) {
+        for (int v2 : pattern2.regular) {
             if (!are_additive[v1][v2]) {
                 return false;
             }

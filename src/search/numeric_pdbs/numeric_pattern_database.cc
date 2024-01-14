@@ -60,7 +60,7 @@ void AbstractOperator::dump(const Pattern &pattern,
         int var_id = preconditions[i].first;
         int val = preconditions[i].second;
         cout << "Variable: " << var_id << " (True name: "
-             << task_proxy.get_variables()[pattern[var_id]].get_name()
+             << task_proxy.get_variables()[pattern.regular[var_id]].get_name()
              << ", Index: " << i << ") Value: " << val << endl;
     }
     cout << "Hash effect:" << hash_effect << endl;
@@ -77,12 +77,12 @@ PatternDatabase::PatternDatabase(
     verify_no_conditional_effects(task_proxy);
     assert(operator_costs.empty() ||
            operator_costs.size() == task_proxy.get_operators().size());
-    assert(utils::is_sorted_unique(pattern));
+    assert(utils::is_sorted_unique(pattern.regular));
 
     utils::Timer timer;
-    hash_multipliers.reserve(pattern.size());
+    hash_multipliers.reserve(pattern.regular.size());
     num_states = 1;
-    for (int pattern_var_id : pattern) {
+    for (int pattern_var_id : pattern.regular) {
         hash_multipliers.push_back(num_states);
         VariableProxy var = task_proxy.get_variables()[pattern_var_id];
         if (utils::is_product_within_limit(num_states, var.get_domain_size(),
@@ -90,7 +90,7 @@ PatternDatabase::PatternDatabase(
             num_states *= var.get_domain_size();
         } else {
             cerr << "Given pattern is too large! (Overflow occured): " << endl;
-            cerr << pattern << endl;
+            cerr << pattern.regular << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
@@ -116,7 +116,7 @@ void PatternDatabase::multiply_out(
         // abstract operator.
         int var_id = effects_without_pre[pos].first;
         int eff = effects_without_pre[pos].second;
-        VariableProxy var = task_proxy.get_variables()[pattern[var_id]];
+        VariableProxy var = task_proxy.get_variables()[pattern.regular[var_id]];
         for (int i = 0; i < var.get_domain_size(); ++i) {
             if (i != eff) {
                 pre_pairs.emplace_back(var_id, i);
@@ -188,8 +188,8 @@ void PatternDatabase::build_abstract_operators(
 void PatternDatabase::create_pdb(const std::vector<int> &operator_costs) {
     VariablesProxy vars = task_proxy.get_variables();
     vector<int> variable_to_index(vars.size(), -1);
-    for (size_t i = 0; i < pattern.size(); ++i) {
-        variable_to_index[pattern[i]] = i;
+    for (size_t i = 0; i < pattern.regular.size(); ++i) {
+        variable_to_index[pattern.regular[i]] = i;
     }
 
     // compute all abstract operators
@@ -281,7 +281,7 @@ bool PatternDatabase::is_goal_state(
     const vector<pair<int, int>> &abstract_goals) const {
     for (pair<int, int> abstract_goal : abstract_goals) {
         int pattern_var_id = abstract_goal.first;
-        int var_id = pattern[pattern_var_id];
+        int var_id = pattern.regular[pattern_var_id];
         VariableProxy var = task_proxy.get_variables()[var_id];
         int temp = state_index / hash_multipliers[pattern_var_id];
         int val = temp % var.get_domain_size();
@@ -294,8 +294,8 @@ bool PatternDatabase::is_goal_state(
 
 size_t PatternDatabase::hash_index(const State &state) const {
     size_t index = 0;
-    for (size_t i = 0; i < pattern.size(); ++i) {
-        index += hash_multipliers[i] * state[pattern[i]].get_value();
+    for (size_t i = 0; i < pattern.regular.size(); ++i) {
+        index += hash_multipliers[i] * state[pattern.regular[i]].get_value();
     }
     return index;
 }
@@ -323,7 +323,7 @@ double PatternDatabase::compute_mean_finite_h() const {
 bool PatternDatabase::is_operator_relevant(const OperatorProxy &op) const {
     for (EffectProxy effect : op.get_effects()) {
         int var_id = effect.get_fact().get_variable().get_id();
-        if (binary_search(pattern.begin(), pattern.end(), var_id)) {
+        if (binary_search(pattern.regular.begin(), pattern.regular.end(), var_id)) {
             return true;
         }
     }

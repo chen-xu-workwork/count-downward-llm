@@ -43,12 +43,12 @@ Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> task) {
         if (!utils::is_product_within_limit(size, next_var_size, max_states))
             break;
 
-        pattern.push_back(next_var_id);
+        pattern.regular.push_back(next_var_id);
         size *= next_var_size;
     }
 
     validate_and_normalize_pattern(task_proxy, pattern);
-    cout << "Greedy pattern: " << pattern << endl;
+    cout << "Greedy pattern: " << pattern.regular << endl;
     return pattern;
 }
 

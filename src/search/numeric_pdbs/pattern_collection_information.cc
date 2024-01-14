@@ -34,7 +34,7 @@ bool PatternCollectionInformation::information_is_valid() const {
             return false;
         }
         for (int i = 0; i < num_patterns; ++i) {
-            if ((*patterns)[i] != (*pdbs)[i]->get_pattern()) {
+            if ((*patterns)[i].regular != (*pdbs)[i]->get_pattern().regular) {
                 return false;
             }
         }

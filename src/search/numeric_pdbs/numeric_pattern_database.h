@@ -1,9 +1,9 @@
 #ifndef NUMERIC_PDBS_NUMERIC_PATTERN_DATABASE_H
 #define NUMERIC_PDBS_NUMERIC_PATTERN_DATABASE_H
 
-#include "types.h"
-
 #include "../task_proxy.h"
+
+#include "types.h"
 
 #include <utility>
 #include <vector>

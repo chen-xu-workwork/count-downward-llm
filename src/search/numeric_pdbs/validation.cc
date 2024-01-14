@@ -18,20 +18,20 @@ void validate_and_normalize_pattern(const TaskProxy &task_proxy,
       - Warn if duplicate variables exist.
       - Error if patterns contain out-of-range variable numbers.
     */
-    sort(pattern.begin(), pattern.end());
-    auto it = unique(pattern.begin(), pattern.end());
-    if (it != pattern.end()) {
-        pattern.erase(it, pattern.end());
+    sort(pattern.regular.begin(), pattern.regular.end());
+    auto it = unique(pattern.regular.begin(), pattern.regular.end());
+    if (it != pattern.regular.end()) {
+        pattern.regular.erase(it, pattern.regular.end());
         cout << "Warning: duplicate variables in pattern have been removed"
              << endl;
     }
-    if (!pattern.empty()) {
-        if (pattern.front() < 0) {
+    if (!pattern.regular.empty()) {
+        if (pattern.regular.front() < 0) {
             cerr << "Variable number too low in pattern" << endl;
             utils::exit_with(ExitCode::CRITICAL_ERROR);
         }
         int num_variables = task_proxy.get_variables().size();
-        if (pattern.back() >= num_variables) {
+        if (pattern.regular.back() >= num_variables) {
             cerr << "Variable number too high in pattern" << endl;
             utils::exit_with(ExitCode::CRITICAL_ERROR);
         }

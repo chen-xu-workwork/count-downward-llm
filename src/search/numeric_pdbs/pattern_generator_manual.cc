@@ -13,14 +13,14 @@
 using namespace std;
 
 namespace numeric_pdbs {
-PatternGeneratorManual::PatternGeneratorManual(const Options &opts)
-    : pattern(opts.get_list<int>("pattern")) {
+PatternGeneratorManual::PatternGeneratorManual(const Options &opts) {
+        pattern.regular = opts.get_list<int>("pattern");
 }
 
 Pattern PatternGeneratorManual::generate(shared_ptr<AbstractTask> task) {
     TaskProxy task_proxy(*task);
     validate_and_normalize_pattern(task_proxy, pattern);
-    cout << "Manual pattern: " << pattern << endl;
+    cout << "Manual pattern: " << pattern.regular << endl;
     return pattern;
 }
 
