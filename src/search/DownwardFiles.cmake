@@ -594,6 +594,7 @@ fast_downward_plugin(
     NAME NUMERIC_PDBS
     HELP "PDBs for the Numeric variant NFD"
     SOURCES
+        numeric_pdbs/numeric_helper_pdb.cc
         numeric_pdbs/match_tree.cc
         numeric_pdbs/max_additive_pdb_sets.cc
         numeric_pdbs/max_cliques.cc
