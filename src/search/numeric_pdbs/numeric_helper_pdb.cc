@@ -646,6 +646,21 @@ void NumericTaskProxy::generate_possible_achievers(const TaskProxy &task) {
   }
 }
 
+RegularNumericCondition NumericTaskProxy::get_regular_numeric_condition(const FactProxy &condition) const {
+    // TODO implement this
+    return RegularNumericCondition(0, comp_operator::eq, 0);
+}
+
+ap_float NumericTaskProxy::get_additive_numeric_effect(const OperatorProxy &op, int num_var_id) const {
+    // TODO implement this
+    return 0;
+}
+
+vector<RegularNumericCondition> NumericTaskProxy::get_numeric_goals() const {
+    // TODO implement this
+    return vector<RegularNumericCondition>();
+}
+
 void NumericTaskProxy::build_numeric_goals(const TaskProxy &task) {
   // check other axioms
   numeric_goals.assign(task.get_goals().size(), *(new list<int>()));

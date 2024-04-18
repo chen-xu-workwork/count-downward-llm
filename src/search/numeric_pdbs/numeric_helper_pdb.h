@@ -108,6 +108,19 @@ struct NumericVariable {
   NumericVariable(int id_, int id_at, double lb_, double ub_);
 };
 
+struct RegularNumericCondition {
+    int var_id; // this is always a regular numeric variable
+    comp_operator c_op;
+    ap_float _const;
+    RegularNumericCondition(int var_id,
+                            comp_operator c_op,
+                            ap_float _const) : var_id(var_id), c_op(c_op), _const(_const) {};
+    bool is_applicable(ap_float /*value*/) {
+        // TODO implement this
+        return false;
+    }
+};
+
 /* NumericTaskProxy */
 class NumericTaskProxy {
  public:
@@ -219,6 +232,10 @@ class NumericTaskProxy {
   set<int> &get_mutex_actions(int op_id) { return mutex_actions[op_id]; }
   bool get_dominance(int i, int j) { return dominance_conditions[i][j]; }
   static bool redundant_constraints;
+
+    RegularNumericCondition get_regular_numeric_condition(const FactProxy &condition) const;
+    ap_float get_additive_numeric_effect(const OperatorProxy &op, int num_var_id) const;
+    vector<RegularNumericCondition> get_numeric_goals() const;
 
  private:
   // TaskProxy task;
