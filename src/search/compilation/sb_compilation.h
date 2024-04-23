@@ -26,8 +26,8 @@ namespace operator_counting {
         
     private:
         //std::vector<vector<int>> index_opt;
-        std::vector<vector<int>> index_fact;
-        std::vector<vector<int>> index_noop_fact;
+        std::vector<std::vector<int>> index_fact;
+        std::vector<std::vector<int>> index_noop_fact;
         std::vector<int> goal_index;
         numeric_helper::NumericTaskProxy numeric_task;
         

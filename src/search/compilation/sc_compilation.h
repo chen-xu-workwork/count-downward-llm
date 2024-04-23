@@ -25,15 +25,15 @@ namespace operator_counting {
                                         std::vector<lp::LPVariable> &variables,
                                         double infinity,std::vector<lp::LPConstraint> & constraints);
     private:
-        //std::vector<vector<int>> index_opt;
-        std::vector<vector<int>> index_a;
-        std::vector<vector<int>> index_pa;
-        std::vector<vector<int>> index_pd;
-        std::vector<vector<int>> index_mant;
+        //std::vector<std::vector<int>> index_opt;
+        std::vector<std::vector<int>> index_a;
+        std::vector<std::vector<int>> index_pa;
+        std::vector<std::vector<int>> index_pd;
+        std::vector<std::vector<int>> index_mant;
         std::vector<int> goal_index;
-        std::vector<set<int>> pnd;
-        std::vector<set<int>> anp;
-        std::vector<set<int>> pd;
+        std::vector<std::set<int>> pnd;
+        std::vector<std::set<int>> anp;
+        std::vector<std::set<int>> pd;
         numeric_helper::NumericTaskProxy numeric_task;
         void add_variables(const std::shared_ptr<AbstractTask> task,
                            std::vector<lp::LPVariable> &variables,

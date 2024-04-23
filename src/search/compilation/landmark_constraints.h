@@ -27,7 +27,7 @@ namespace operator_counting {
                                         double infinity,std::vector<lp::LPConstraint> & constraints);
         
     private:
-        std::vector<vector<int>> index_numeric_var;
+        std::vector<std::vector<int>> index_numeric_var;
         std::vector<int> goal_index;
 
         numeric_helper::NumericTaskProxy numeric_task;
@@ -36,8 +36,8 @@ namespace operator_counting {
         void landmark_constraints(const std::shared_ptr<AbstractTask> task,
                                   std::vector<lp::LPConstraint> &constraints,
                                   double infinity, int t_max);
-        set<int> fact_landmarks;
-        set<int> action_landmarks;
+        std::set<int> fact_landmarks;
+        std::set<int> action_landmarks;
         std::vector<int> landmark_constraints_index;
  public:
         void print_solution(std::vector<double> &solution, const std::shared_ptr<AbstractTask> task){ };

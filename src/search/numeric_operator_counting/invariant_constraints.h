@@ -23,7 +23,7 @@ class InvariantConstraints : public ConstraintGenerator {
     void build_propositions(const TaskProxy &task_proxy);
     void add_constraints(std::vector<lp::LPConstraint> &constraints, double infinity);
     void add_indices_to_constraint(lp::LPConstraint &constraint,
-                                   const set<int> &indices,
+                                   const std::set<int> &indices,
                                    double coefficient);
     std::vector<std::vector<std::set<int>>> index_constraints;
     std::vector<std::vector<std::set<int>>> index_sometimes_deleted;

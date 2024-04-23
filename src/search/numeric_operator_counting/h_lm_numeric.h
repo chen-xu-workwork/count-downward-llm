@@ -24,12 +24,12 @@ namespace operator_counting {
         // copy from delete task
         // TODO: move these in landmark factory
         //
-        void build_first_achiever(vector<set<int>> &landmarks_table);
-        std::vector<vector<bool>> fadd; // first time it is added: first index action, second index condition, value: true or false
-        std::vector<set<int>> first_achievers; // first index condition, value: set of actions
-        std::vector<vector<bool>> action_landmarks; // first index action, value: set of fact landmarks
+        void build_first_achiever(std::vector<std::set<int>> &landmarks_table);
+        std::vector<std::vector<bool>> fadd; // first time it is added: first index action, second index condition, value: true or false
+        std::vector<std::set<int>> first_achievers; // first index condition, value: set of actions
+        std::vector<std::vector<bool>> action_landmarks; // first index action, value: set of fact landmarks
         ///
-        vector<lp::LPConstraint> constraints;
+        std::vector<lp::LPConstraint> constraints;
 
     public:
         

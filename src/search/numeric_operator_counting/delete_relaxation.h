@@ -60,12 +60,12 @@ class DeleteRelaxationConstraints : public ConstraintGenerator {
       std::vector<lp::LPConstraint> &constraints, double infinity);
 
   void iterative_variable_elimination(const State &state,
-                                      vector<bool> &fact_eliminated,
-                                      vector<bool> &action_eliminated);
+                                      std::vector<bool> &fact_eliminated,
+                                      std::vector<bool> &action_eliminated);
 
   void inverse_action_detection();
 
-  bool set_include(set<int> &first, set<int> &second);
+  bool set_include(std::set<int> &first, std::set<int> &second);
 
   // update fact and action eliminated, return true if something is change,
   // false if not;
@@ -79,7 +79,7 @@ class DeleteRelaxationConstraints : public ConstraintGenerator {
 
   bool relevant_action_reduction(const State &state);
 
-  void build_first_achiever(vector<set<int>> &landmarks_table);
+  void build_first_achiever(std::vector<std::set<int>> &landmarks_table);
   void build_achiever();
 
   std::vector<int> indices_m_a;
@@ -95,21 +95,21 @@ class DeleteRelaxationConstraints : public ConstraintGenerator {
   // elimination
   std::vector<bool> fact_eliminated;
   std::vector<bool> action_eliminated;
-  std::vector<vector<bool>>
+  std::vector<std::vector<bool>>
       fadd;  // first time it is added: first index action, second index
              // condition, value: true or false
-  std::vector<set<int>>
+  std::vector<std::set<int>>
       first_achievers;  // first index condition, value: set of actions
-  std::vector<vector<bool>>
+  std::vector<std::vector<bool>>
       action_landmarks;  // first index action, value: set of fact landmarks
 
-  set<int> goals;
+    std::set<int> goals;
   std::unique_ptr<landmarks::LandmarkFactoryScala> factory;
-  vector<set<int>>
+    std::vector<std::set<int>>
       inverse_actions;  // index: action, value: set of inverse actions
 
-  vector<bool> relevant_actions;
-  vector<bool> relevant_facts;
+    std::vector<bool> relevant_actions;
+    std::vector<bool> relevant_facts;
   bool numeric_condition_satisfied(int n, const State &state);
 
  public:

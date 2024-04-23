@@ -5,6 +5,7 @@
 #include "timer.h"
 
 #include <ostream>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -44,6 +45,18 @@ ostream &operator<<(ostream &stream, const vector<T> &vec) {
         stream << vec[i];
     }
     stream << "]";
+    return stream;
+}
+
+template<class T>
+ostream &operator<<(ostream &stream, const set<T> &s) {
+    stream << "{";
+    for (const T &e : s) {
+        if (e != *s.begin())
+            stream << ", ";
+        stream << e;
+    }
+    stream << "}";
     return stream;
 }
 }

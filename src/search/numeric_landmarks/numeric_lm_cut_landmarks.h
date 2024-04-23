@@ -44,11 +44,11 @@ namespace numeric_lm_cut_heuristic {
         ap_float h_max_supporter_cost; // h_max_cost of h_max_supporter
         RelaxedProposition *h_max_supporter;
         
-        string name;
+        std::string name;
         
         RelaxedOperator(int id, std::vector<RelaxedProposition *> &&pre,
                         std::vector<RelaxedProposition *> &&eff,
-                        int op_id, ap_float base, string &n)
+                        int op_id, ap_float base, std::string &n)
         : id(id),
           original_op_id_1(-1),
           original_op_id_2(op_id),
@@ -63,7 +63,7 @@ namespace numeric_lm_cut_heuristic {
 
         RelaxedOperator(int id, std::vector<RelaxedProposition *> &&pre_1,
                         const std::vector<RelaxedProposition *> &pre_2,
-                        int op_id_1, int op_id_2, ap_float base_1, ap_float base_2, string &n_1, string& n_2)
+                        int op_id_1, int op_id_2, ap_float base_1, ap_float base_2, std::string &n_1, std::string& n_2)
         : id(id),
           original_op_id_1(op_id_1),
           original_op_id_2(op_id_2),
@@ -77,7 +77,7 @@ namespace numeric_lm_cut_heuristic {
         }
 
         RelaxedOperator(int id, std::vector<RelaxedProposition *> &&pre, int infinite_lhs, bool plus_infinity, int op_id, int base,
-                        string &n)
+                        std::string &n)
         : id(id),
           original_op_id_1(-1),
           original_op_id_2(op_id),
@@ -102,7 +102,7 @@ namespace numeric_lm_cut_heuristic {
         bool is_numeric_condition;
         int id_numeric_condition;
         ap_float h_max_cost;
-        string name;
+        std::string name;
     };
     
     class LandmarkCutLandmarks {
@@ -127,7 +127,7 @@ namespace numeric_lm_cut_heuristic {
         ap_float precision;
         ap_float epsilon;
         std::vector<ap_float> numeric_initial_state;
-        std::vector<vector<RelaxedOperator *>> original_to_relaxed_operators;
+        std::vector<std::vector<RelaxedOperator *>> original_to_relaxed_operators;
         
         HeapQueue<RelaxedProposition *> priority_queue;
         
@@ -135,16 +135,16 @@ namespace numeric_lm_cut_heuristic {
         void build_relaxed_operator(const OperatorProxy &op, size_t op_id);
         void add_relaxed_operator(std::vector<RelaxedProposition *> &&precondition,
                                   std::vector<RelaxedProposition *> &&effects,
-                                  int op_id, ap_float base_cost, string &n);
+                                  int op_id, ap_float base_cost, std::string &n);
         void build_linear_operators(const TaskProxy &task_proxy, const OperatorProxy &op);
         void add_second_order_simple_operator(std::vector<RelaxedProposition *> &&precondition_1,
                                               const std::vector<RelaxedProposition *> precondition_2,
                                               int op_id_1, int op_id_2, ap_float base_cost_1, ap_float base_cost_2,
-                                              string &n_1, string &n_2);
+                                              std::string &n_1, std::string &n_2);
         void add_infinite_operators(const std::vector<RelaxedProposition *> &precondition, const std::vector<ap_float> &coeff,
-                                    ap_float constant, int infinite_lhs, int op_id, ap_float base_cost, string &n);
+                                    ap_float constant, int infinite_lhs, int op_id, ap_float base_cost, std::string &n);
         void add_infinite_operator(const std::vector<RelaxedProposition *> &precondiiton, numeric_helper::LinearNumericCondition &&lnc,
-                                   int lhs, bool plus_infinity, int op_id, ap_float base_cost, string &n);
+                                   int lhs, bool plus_infinity, int op_id, ap_float base_cost, std::string &n);
         void build_composite_conditions(const TaskProxy &task_proxy);
         void build_numeric_effects();
         RelaxedProposition *get_proposition(const FactProxy &fact);
@@ -175,7 +175,7 @@ namespace numeric_lm_cut_heuristic {
         void mark_goal_plateau(const State &state, RelaxedProposition *subgoal);
         void validate_h_max() const;
     public:
-        using Landmark = std::vector<pair<ap_float,int>>;
+        using Landmark = std::vector<std::pair<ap_float,int>>;
         using CostCallback = std::function<void (ap_float)>;
         using LandmarkCallback = std::function<void (const Landmark &, int)>;
         

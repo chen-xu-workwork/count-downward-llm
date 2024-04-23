@@ -26,14 +26,14 @@ class SASStateChangeModel : public IPConstraintGenerator {
 
  private:
   // std::vector<vector<int>> index_opt;
-  std::vector<vector<vector<vector<int>>>>
+  std::vector<std::vector<std::vector<std::vector<int>>>>
       index_var;  // first index var, second val in, third val out, fourth time
-  std::vector<vector<vector<set<int>>>> sc_actions;
-  std::vector<vector<set<int>>> add_actions;
-  std::vector<vector<pair<int, set<int>>>> effs_actions;
-  std::vector<vector<set<int>>> pre_actions;
+  std::vector<std::vector<std::vector<std::set<int>>>> sc_actions;
+  std::vector<std::vector<std::set<int>>> add_actions;
+  std::vector<std::vector<std::pair<int, std::set<int>>>> effs_actions;
+  std::vector<std::vector<std::set<int>>> pre_actions;
   std::vector<int> goal_index;
-  std::vector<vector<bool>> sc_facts;
+  std::vector<std::vector<bool>> sc_facts;
 
   void create_sets(const std::shared_ptr<AbstractTask> task);
 
