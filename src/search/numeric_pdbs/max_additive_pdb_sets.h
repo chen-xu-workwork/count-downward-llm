@@ -8,6 +8,8 @@
 
 class TaskProxy;
 
+// TODO adapt all this so it uses the regular PDB code; the differences are minimal
+
 namespace numeric_pdbs {
 using VariableAdditivity = std::vector<std::vector<bool>>;
 

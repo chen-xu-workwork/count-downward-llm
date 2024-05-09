@@ -690,12 +690,10 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condit
 
     int var_id = condition.get_variable().get_id();
 
-    if (var_id >= regular_numeric_conditions.size()){
-//        cout << task_proxy.get_variables().size() << endl;
-//        cout << regular_numeric_conditions.size() << endl;
+    if (static_cast<size_t>(var_id) >= regular_numeric_conditions.size()){
         regular_numeric_conditions.resize(task_proxy.get_variables().size());
     }
-    if (condition.get_value() >= regular_numeric_conditions[var_id].size()){
+    if (static_cast<size_t>(condition.get_value()) >= regular_numeric_conditions[var_id].size()){
         regular_numeric_conditions[var_id].resize(task_proxy.get_variables()[var_id].get_domain_size());
     }
     if (regular_numeric_conditions[var_id][condition.get_value()]){
@@ -719,11 +717,9 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condit
     ap_float const_ = numeric_limits<double>::max();
     switch (c_op.get_right_variable().get_var_type()) {
 //        case regular:
+//            // this does not seem to happen due to the normal form of the translated task
 //            num_var_id = c_op.get_left_variable().get_id();
 //            break;
-////        case derived:
-////
-////            break;
         case constant:
             const_ = c_op.get_right_variable().get_initial_state_value();
             break;
@@ -744,11 +740,7 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condit
             num_condition = make_shared<RegularNumericConditionVar>(num_var_id,
                                                                     c_op.get_comparison_operator_type(),
                                                                     const_);
-//            cout << num_var_id << endl;
-//            cout << c_op.get_comparison_operator_type() << endl;
-//            cout << const_ << endl;
             break;
-//    } else if (c_op.get_left_variable().get_var_type() == derived) {
         case derived: {
             int assgn_op_id = get_achieving_assgn_axiom(task_proxy,
                                                         c_op.get_left_variable().get_id());
@@ -758,13 +750,6 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condit
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
             }
             AssignmentAxiomProxy assgn_ax = task_proxy.get_assignment_axioms()[assgn_op_id];
-
-//            cout << endl << "found assignment op: " << endl
-//                 << assgn_ax.get_left_variable().get_name() << endl
-//                 << assgn_ax.get_right_variable().get_name() << endl
-//                 << assgn_ax.get_arithmetic_operator_type() << endl
-//                 << assgn_ax.get_assignment_variable().get_name() << endl
-//                 << endl;
 
             ap_float op_const;
             comp_operator new_c_op;
@@ -783,10 +768,10 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condit
                 new_c_op = get_mirror_op(c_op.get_comparison_operator_type());
                 const_ = -const_;
             } else {
-                cout << assgn_ax.get_left_variable().get_name()
+                cerr << assgn_ax.get_left_variable().get_name()
                      << assgn_ax.get_arithmetic_operator_type()
                      << assgn_ax.get_right_variable().get_name() << endl;
-                cerr << "ERROR: not sure what to do here1; no regular numeric variable in assignment axiom "
+                cerr << "ERROR: not sure what to do here; no regular numeric variable in assignment axiom "
                      << assgn_ax.get_id() << endl;
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
             }
@@ -796,18 +781,10 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condit
                                                                        op_const,
                                                                        new_c_op,
                                                                        const_);
-//            cout << num_var_id << endl;
-//            cout << arth_op << endl;
-//            cout << op_const << endl;
-//            cout << c_op.get_comparison_operator_type() << endl;
-//            cout << const_ << endl;
             break;
         }
-//        } else if (c_op.get_left_variable().get_var_type() == constant) {
-
         case constant:
             l_const = c_op.get_left_variable().get_initial_state_value();
-//        cout << "constant on left hand side: " << c_op.get_left_variable().get_name() << " = " << l_const << endl;
             num_var_id = c_op.get_left_variable().get_id();
             num_condition = make_shared<RegularNumericConditionConst>(num_var_id,
                                                                       l_const,
@@ -815,26 +792,12 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condit
                                                                       const_);
 
             break;
-//    } else {
         default: // could be instrumentation or unkonwn
             cerr << "ERROR: not sure what to do here2; got numeric variable of type " << c_op.get_left_variable().get_var_type() << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-//                return RegularNumericCondition(0,c_op.get_comparison_operator_type(),0);
     }
 
-//    cout << "parsed condition: " << num_condition->get_name() << endl;
     regular_numeric_conditions[var_id][condition.get_value()] = num_condition;
-
-//    if (num_var_id != -1) {
-//        if (op_const == numeric_limits<double>::max()) {
-//            cout << "\t" << task_proxy.get_numeric_variables()[num_var_id].get_name() << " "
-//                 << c_op.get_comparison_operator_type() << " " << const_ << endl;
-//        } else {
-//            cout << "\t" << task_proxy.get_numeric_variables()[num_var_id].get_name() << " " << arth_op << " "
-//                 << op_const << " "
-//                 << c_op.get_comparison_operator_type() << " " << const_ << endl;
-//        }
-//    }
 
     return regular_numeric_conditions[var_id][condition.get_value()];
 }
@@ -845,32 +808,15 @@ const vector<shared_ptr<RegularNumericCondition>> &NumericTaskProxy::get_numeric
         return regular_numeric_goals;
     }
 
-//    Fact derived_goal_fact(-1, -1);
-    cout << "numeric goals:" << endl;
     for (auto axiom : task_proxy.get_axioms()){
         if (!axiom.get_preconditions().empty()) {
-            cout << axiom.get_name() << endl;
-            cout << "num pre " << axiom.get_preconditions().size() << endl;
             for (auto pre: axiom.get_preconditions()) {
                 regular_numeric_goals.push_back(get_regular_numeric_condition(pre));
-                cout << pre.get_name() << endl;
             }
-            cout << "num eff " << axiom.get_effects().size() << endl;
             assert(axiom.get_effects().size() == 1);
-            cout << axiom.get_effects()[0].get_fact().get_name() << endl;
-//            derived_goal_fact = Fact(axiom.get_effects()[0].get_fact().get_variable().get_id(),
-//                                     axiom.get_effects()[0].get_fact().get_value());
         }
     }
 
-//    for (auto goal : task_proxy.get_goals()){
-//        cout << goal.get_name();
-//        if (derived_goal_fact.var == goal.get_variable().get_id() &&
-//            derived_goal_fact.value == goal.get_value()){
-//            cout << " is numeric goal";
-//        }
-//        cout << endl;
-//    }
     return regular_numeric_goals;
 }
 

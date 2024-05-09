@@ -1,24 +1,25 @@
 #include "numeric_pattern_database.h"
 
 #include "match_tree.h"
+#include "numeric_condition.h"
+#include "numeric_helper.h"
 
 #include "../priority_queue.h"
-#include "../task_tools.h"
 
-#include "../utils/collections.h"
 #include "../utils/logging.h"
 #include "../utils/math.h"
-#include "../utils/timer.h"
 
 #include <algorithm>
 #include <cassert>
-#include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 using namespace std;
+using namespace numeric_condition;
+using namespace numeric_pdb_helper;
 
 namespace numeric_pdbs {
 AbstractOperator::AbstractOperator(const vector<pair<int, int>> &prev_pairs,
@@ -66,50 +67,91 @@ void AbstractOperator::dump(const Pattern &pattern,
     cout << "Hash effect:" << hash_effect << endl;
 }
 
+struct NumericState {
+    size_t prop_hash;
+    vector<ap_float> num_state;
+    NumericState(size_t prop_hash,
+                 const vector<ap_float> &num_state) : prop_hash(prop_hash),
+                                                      num_state(num_state) {}
+
+    string get_name(const TaskProxy &proxy, const Pattern &pattern) const {
+        stringstream ss;
+        ss << "NumericState {" << endl;
+        ss << "\tprop: " << prop_hash << endl;
+        ss << "\tnum: ";
+        int i = 0;
+        for (int var : pattern.numeric){
+            ss << proxy.get_numeric_variables()[var].get_name() << " = " << num_state[i++] << "; ";
+        }
+        ss << endl << "}" << endl;
+        return ss.str();
+    }
+
+    bool operator==(const NumericState &other) const {
+        return prop_hash == other.prop_hash && num_state == other.num_state;
+    }
+};
+
+struct NumericStateHash {
+    size_t operator()(const NumericState &s) const {
+        std::hash<ap_float> hasher;
+        size_t seed = s.prop_hash;
+        for (ap_float i : s.num_state) {
+            seed ^= hasher(i) + 0x9e3779b9 + (seed<<6) + (seed>>2);
+        }
+        return seed;
+    }
+};
+
 PatternDatabase::PatternDatabase(
     const TaskProxy &task_proxy,
     const Pattern &pattern,
+    size_t max_number_states,
     bool dump,
     const vector<int> &operator_costs)
     : task_proxy(task_proxy),
-      pattern(pattern) {
-    // verify_no_axioms(task_proxy); // TODO adapt the function to ignore the numeric axioms
+      pattern(pattern),
+      exhausted_abstract_state_space(false) {
+    // verify_no_axioms(task_proxy); // TODO adapt the function to ignore the numeric axioms + dummy axioms
     verify_no_conditional_effects(task_proxy);
     assert(operator_costs.empty() ||
            operator_costs.size() == task_proxy.get_operators().size());
     assert(utils::is_sorted_unique(pattern.regular));
 
+    NumericTaskProxy num_task_proxy(task_proxy);
+
     utils::Timer timer;
-    hash_multipliers.reserve(pattern.regular.size());
+    prop_hash_multipliers.reserve(pattern.regular.size());
     num_states = 1;
     for (int pattern_var_id : pattern.regular) {
-        hash_multipliers.push_back(num_states);
+        prop_hash_multipliers.push_back(num_states);
         VariableProxy var = task_proxy.get_variables()[pattern_var_id];
         if (utils::is_product_within_limit(num_states, var.get_domain_size(),
                                            numeric_limits<int>::max())) {
             num_states *= var.get_domain_size();
         } else {
-            cerr << "Given pattern is too large! (Overflow occured): " << endl;
+            cerr << "Given pattern is too large only on propositional variables! (Overflow occured): " << endl;
             cerr << pattern.regular << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
-    create_pdb(operator_costs);
+    create_pdb(num_task_proxy, max_number_states, operator_costs);
     if (dump)
         cout << "PDB construction time: " << timer << endl;
 }
 
 void PatternDatabase::multiply_out(
-    int pos, int op_id, int cost, vector<pair<int, int>> &prev_pairs,
+    int pos, int op_id, ap_float cost, vector<pair<int, int>> &prev_pairs,
     vector<pair<int, int>> &pre_pairs,
     vector<pair<int, int>> &eff_pairs,
     const vector<pair<int, int>> &effects_without_pre,
     vector<AbstractOperator> &operators) {
+
     if (pos == static_cast<int>(effects_without_pre.size())) {
         // All effects without precondition have been checked: insert op.
         if (!eff_pairs.empty()) {
             operators.emplace_back(prev_pairs, pre_pairs, eff_pairs, op_id, cost,
-                                 hash_multipliers);
+                                   prop_hash_multipliers);
         }
     } else {
         // For each possible value for the current variable, build an
@@ -137,9 +179,10 @@ void PatternDatabase::multiply_out(
 }
 
 void PatternDatabase::build_abstract_operators(
-    const OperatorProxy &op, int cost,
+    const OperatorProxy &op, ap_float cost,
     const std::vector<int> &variable_to_index,
     vector<AbstractOperator> &operators) {
+
     // All variable value pairs that are a prevail condition
     vector<pair<int, int>> prev_pairs;
     // All variable value pairs that are a precondition (value != -1)
@@ -185,107 +228,322 @@ void PatternDatabase::build_abstract_operators(
                  operators);
 }
 
-void PatternDatabase::create_pdb(const std::vector<int> &operator_costs) {
+bool PatternDatabase::is_applicable(const NumericState &state,
+                                    OperatorProxy op,
+                                    NumericTaskProxy &num_task_proxy,
+                                    const vector<int> &num_variable_to_index) const {
+    for (auto pre : op.get_preconditions()){
+        if (!task_proxy.is_derived_variable(pre.get_variable()) && num_task_proxy.is_numeric_variable(pre.get_variable())) {
+            shared_ptr<RegularNumericCondition> num_pre = num_task_proxy.get_regular_numeric_condition(pre);
+            int num_index = num_variable_to_index[num_pre->get_var_id()];
+            if (num_index != -1){
+                if (!num_pre->is_applicable(state.num_state[num_index])){
+//                    cout << "not applicable " << num_pre->get_name() << endl;
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+vector<ap_float> PatternDatabase::get_numeric_successor(vector<ap_float> state,
+                                                        int op_id,
+                                                        NumericTaskProxy &num_task_proxy,
+                                                        const vector<int> &num_variable_to_index,
+                                                        vector<set<ap_float>> &reached_numeric_values) const {
+    const vector<ap_float> &num_effs = num_task_proxy.get_action_eff_list(op_id);
+    for (int var: pattern.numeric) {
+        int num_index = num_variable_to_index[var];
+        state[num_index] += num_effs[num_task_proxy.get_regular_var_id(var)];
+        reached_numeric_values[var].insert(state[num_index]);
+    }
+    return state;
+}
+
+void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
+                                 size_t max_number_states,
+                                 const std::vector<int> &operator_costs) {
     VariablesProxy vars = task_proxy.get_variables();
     vector<int> variable_to_index(vars.size(), -1);
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
         variable_to_index[pattern.regular[i]] = i;
     }
+    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+    vector<int> num_variable_to_index(num_vars.size(), -1);
+    for (size_t i = 0; i < pattern.numeric.size(); ++i) {
+        num_variable_to_index[pattern.numeric[i]] = i;
+    }
+
+    ap_float min_action_cost = numeric_limits<double>::max();
 
     // compute all abstract operators
     vector<AbstractOperator> operators;
+    vector<int> num_operators;
     for (OperatorProxy op : task_proxy.get_operators()) {
-        int op_cost;
+        ap_float op_cost;
         if (operator_costs.empty()) {
             op_cost = op.get_cost();
         } else {
             op_cost = operator_costs[op.get_id()];
         }
+        size_t size_before = operators.size();
         build_abstract_operators(op, op_cost, variable_to_index, operators);
+        if (size_before == operators.size()){
+            const vector<ap_float> &effs = num_task_proxy.get_action_eff_list(op.get_id());
+            for (int var : pattern.numeric){
+                int regular_var_id = num_task_proxy.get_regular_var_id(var);
+                if (effs[regular_var_id] != 0){
+//                    cout << "numeric operator: " << op.get_name() << endl;
+                    num_operators.push_back(op.get_id());
+                    min_action_cost = min(min_action_cost, op_cost);
+                    break;
+                }
+            }
+        } else {
+            min_action_cost = min(min_action_cost, op_cost);
+        }
     }
 
     // build the match tree
-    MatchTree match_tree(task_proxy, pattern, hash_multipliers);
+    MatchTree match_tree(task_proxy, pattern, prop_hash_multipliers);
     for (const AbstractOperator &op : operators) {
         match_tree.insert(op);
     }
 
     // compute abstract goal var-val pairs
-    vector<pair<int, int>> abstract_goals;
+    vector<pair<int, int>> propositional_goals;
     for (FactProxy goal : task_proxy.get_goals()) {
         int var_id = goal.get_variable().get_id();
         int val = goal.get_value();
         if (variable_to_index[var_id] != -1) {
-            abstract_goals.push_back(make_pair(variable_to_index[var_id], val));
+            propositional_goals.emplace_back(variable_to_index[var_id], val);
         }
     }
 
-    // first implicit entry: priority, second entry: index for an abstract state
-    AdaptiveQueue<size_t> pq;
-
-    // initialize g_values and pq
-    std::vector<int> g_values(num_states,numeric_limits<int>::max());
-    size_t initial_state_index = hash_index(task_proxy.get_initial_state()); // adapt to numeric vars
-    g_values[initial_state_index] = 0;
-    pq.push(0, initial_state_index);
-    int distance_to_goal = numeric_limits<int>::max();
-
-    // Uniform Cost Search in the abstract state space
-    while (!pq.empty()) {
-        pair<int, size_t> node = pq.pop();
-        int g_value = node.first;
-        size_t state_index = node.second;
-
-        if (is_goal_state(state_index, abstract_goals)) {
-            distance_to_goal = g_value;
-            break;
+    vector<shared_ptr<RegularNumericCondition>> numeric_goals;
+    for (const shared_ptr<RegularNumericCondition> &num_goal : num_task_proxy.get_numeric_goals()){
+        if (num_variable_to_index[num_goal->get_var_id()] != -1){
+//            cout << "relevant numeric goal: " << num_goal->get_name() << endl;
+            numeric_goals.push_back(num_goal);
         }
+    }
 
-        if (g_value > g_values[state_index]) { // if we have already found a better path to this node
+    unordered_set<NumericState, NumericStateHash> closed;
+    unordered_map<NumericState, vector<pair<ap_float, NumericState>>, NumericStateHash> parent_pointers;
+    vector<NumericState> goal_states;
+
+    vector<set<ap_float>> reached_numeric_values(task_proxy.get_numeric_variables().size());
+
+    // first implicit entry: priority, second entry: index for an abstract state
+    AdaptiveQueue<NumericState> open;
+
+    // initialize queue
+    size_t prop_init = 0;
+    for (size_t i = 0; i < pattern.regular.size(); ++i){
+        prop_init += prop_hash_multipliers[i] * task_proxy.get_initial_state()[pattern.regular[i]].get_value();
+    }
+    vector<ap_float> num_init(pattern.numeric.size());
+    for (int var : pattern.numeric){
+        num_init[num_variable_to_index[var]] = num_vars[var].get_initial_state_value();
+        reached_numeric_values[var].insert(num_vars[var].get_initial_state_value());
+    }
+    open.push(0, NumericState(prop_init, num_init));
+
+    /*
+     * A) forward exploration:
+     *
+     * 1) pop state s from open:                        (repeat until open is empty or limit on number of states is reached => number of states in open + closed)
+     * 1.1) check if it's goal using method is_goal(s) => store goal states in some vector & don't expand them
+     * 2) use MatchTree to obtain applicable operators as before (only propositional preconditions are checked in match tree)
+     * 2.1) for mixed (propositional+numeric) operators: go over ops from 2) and check numeric precondition in s
+     *      use pointer to original operator => remove ops not applicable in numeric part of s (check this using NumericHelper)
+     * 2.2) add all purely numeric operators that are applicable in s (check this using NumericHelper)
+     * => vector of applicable operators in s: app_ops
+     * 3) apply app_ops to s
+     * 3.1) propositional part: hash_effect from AbstractOperator
+     * 3.2) numeric part: use the NumericHelper to apply numeric effects to numeric part of s
+     * 4) add successor states s' to open list (check if they were previously closed, i.e. have some entry in closed list; possibly update parent)
+     *    add s as parent node of s' in parent_pointers
+     *
+     *
+     * B) distance computation: store result in distances
+     *
+     * 0.5) iterate over states in open and check if they are goal states; if yes, add to goal state vector
+     * 1) start from vector of goal+fringe states (if open list not empty)
+     * 1.1) put goal states into (new!) open with cost 0; move fringe states into open with cost *minimum action cost of entire task*
+     * 2) pop state s from open
+     * 3) follow parent pointers to compute cost for all states
+     *
+     */
+
+    size_t num_reached_states = 0;
+    while (!open.empty() && num_reached_states < max_number_states){
+        auto [cost, state] = open.pop();
+        assert(cost >= 0 && cost < numeric_limits<double>::max());
+
+        if (closed.count(state) > 0){
+            // we don't do duplicate checking in the open list
             continue;
+        }
+//        cout << endl << "expand " << state.get_name(task_proxy, pattern) << endl;
+        closed.insert(state);
+
+        if (is_goal_state(state, propositional_goals, numeric_goals, num_variable_to_index)){
+//            cout << "is goal state" << endl;
+            goal_states.push_back(state);
         }
 
         vector<const AbstractOperator *> applicable_operators;
-        match_tree.get_applicable_operators(state_index, applicable_operators); // this checks only the classic part
-        // need to check applicability of operators w.r.t. to numeric part
-        for (const AbstractOperator *op : applicable_operators) { // generate successors
-            size_t successor_index = state_index + op->get_hash_effect(); // unified hash effect
-            int alternative_cost = g_value + op->get_cost();
-            if (alternative_cost < g_values[successor_index]) {
-                g_values[successor_index] = alternative_cost;
-                pq.push(alternative_cost, successor_index);
+        match_tree.get_applicable_operators(state.prop_hash, applicable_operators);
+
+        for (auto op : applicable_operators){
+            if (!is_applicable(state,
+                               task_proxy.get_operators()[op->get_op_id()],
+                               num_task_proxy,
+                               num_variable_to_index)){
+//                cout << "op not applicable: " << task_proxy.get_operators()[op->get_op_id()].get_name() << endl;
+                continue;
+            }
+
+//            cout << "applying " << task_proxy.get_operators()[op->get_op_id()].get_name() << endl;
+
+            size_t prop_successor = state.prop_hash + op->get_hash_effect();
+
+            vector<ap_float> num_successor = get_numeric_successor(state.num_state,
+                                                                   op->get_op_id(),
+                                                                   num_task_proxy,
+                                                                   num_variable_to_index,
+                                                                   reached_numeric_values);
+
+            NumericState successor(prop_successor, num_successor);
+            parent_pointers[successor].emplace_back(op->get_cost(), state);
+            if (closed.count(successor) == 0){
+                ++num_reached_states;
+                open.push(cost + op->get_cost(), successor);
+//                cout << "adding successor " << successor.get_name(task_proxy, pattern) << endl;
+            }
+        }
+
+        for (auto op_id : num_operators){
+            if (!is_applicable(state,
+                               task_proxy.get_operators()[op_id],
+                               num_task_proxy,
+                               num_variable_to_index)){
+//                cout << "num op not applicable: " << task_proxy.get_operators()[op_id].get_name() << endl;
+                continue;
+            }
+
+//            cout << "applying " << task_proxy.get_operators()[op_id].get_name() << endl;
+
+            vector<ap_float> num_successor = get_numeric_successor(state.num_state,
+                                                                   op_id,
+                                                                   num_task_proxy,
+                                                                   num_variable_to_index,
+                                                                   reached_numeric_values);
+            NumericState successor(state.prop_hash, num_successor);
+            ap_float op_cost = task_proxy.get_operators()[op_id].get_cost();
+            parent_pointers[successor].emplace_back(op_cost, state);
+            if (closed.count(successor) == 0){
+                ++num_reached_states;
+                open.push(cost + op_cost, successor);
+//                cout << "adding numeric successor " << successor.get_name(task_proxy, pattern) << endl;
             }
         }
     }
 
-    // set heuristic values for all states
-    distances.reserve(num_states);
-    if (distance_to_goal != numeric_limits<int>::max()) {
-        for (size_t i = 0; i < num_states; ++i) {
-            if (g_values[i] < distance_to_goal) { 
-                distances.push_back(distance_to_goal - g_values[i]); // nodes that are in the CLOSED list
-            } else {
-                distances.push_back(0); // nodes that are still in the OPEN list and unseen nodes
-            }
+    closed.clear(); // TODO does this release all memory?
+
+    num_hash_multipliers.resize(pattern.numeric.size());
+    num_hash_values.resize(pattern.numeric.size());
+    for (int var : pattern.numeric){
+        num_hash_multipliers[num_variable_to_index[var]] = num_states;
+
+        vector<ap_float> values(reached_numeric_values[var].begin(), reached_numeric_values[var].end());
+        sort(values.begin(), values.end());
+        if (utils::is_product_within_limit(num_states, values.size(),
+                                           numeric_limits<int>::max())) {
+            num_states *= values.size();
+        } else {
+            // TODO if we use a bound on the number of abstract states that is <= int-max, then this should never happen
+            cerr << "Given pattern is too large on numeric variables after exploration! (Overflow occured): " << endl;
+            cerr << pattern.numeric << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
-    } else { // no goal reachable from initial state.
-        for (size_t i = 0; i < num_states; ++i) {
-            distances.push_back(numeric_limits<int>::max());
+
+        size_t i = 0;
+        for (auto value : values){
+            num_hash_values[num_variable_to_index[var]][value] = i++;
         }
     }
 
+    assert(distances.empty());
+    distances.resize(num_states, numeric_limits<ap_float>::max());
+    AdaptiveQueue<NumericState> pq;
+
+    cout << "Reached abstract goal states: " << goal_states.size() << endl;
+    cout << "Generated abstract states: " << num_reached_states << endl;
+
+    for (const auto &goal_state : goal_states) {
+        pq.push(0, goal_state);
+        distances[hash_index(goal_state)] = 0;
+    }
+    while (!open.empty()){
+        NumericState state = open.pop().second;
+        pq.push(min_action_cost, state);
+        distances[hash_index(state)] = min_action_cost;
+    }
+
+    // Dijkstra loop
+    while (!pq.empty()) {
+        auto [distance, state] = pq.pop();
+        assert(distance >= 0);
+        size_t hash = hash_index(state);
+        if (distance > distances[hash]) {
+            continue;
+        }
+
+        // regress abstract_state
+        for (const auto &[op_cost, parent_state] : parent_pointers[state]) {
+            size_t parent_hash = hash_index(parent_state);
+            ap_float alternative_cost = distance + op_cost;
+            if (alternative_cost < distances[parent_hash]) {
+                distances[parent_hash] = alternative_cost;
+                pq.push(alternative_cost, parent_state);
+            }
+        }
+    }
+
+    if (num_reached_states >= max_number_states) {
+        for (size_t i = 0; i < distances.size(); ++i) {
+            if (distances[i] == numeric_limits<ap_float>::max()) {
+                distances[i] = 0;
+            }
+        }
+    } else {
+        exhausted_abstract_state_space = true;
+    }
 }
 
 bool PatternDatabase::is_goal_state(
-    const size_t state_index,
-    const vector<pair<int, int>> &abstract_goals) const {
-    for (pair<int, int> abstract_goal : abstract_goals) {
+        const NumericState &state,
+        const vector<pair<int, int>> &propositional_goals,
+        const vector<shared_ptr<RegularNumericCondition>> &numeric_goals,
+        const vector<int> &num_variable_to_index) const {
+    for (pair<int, int> abstract_goal : propositional_goals) {
         int pattern_var_id = abstract_goal.first;
         int var_id = pattern.regular[pattern_var_id];
         VariableProxy var = task_proxy.get_variables()[var_id];
-        int temp = state_index / hash_multipliers[pattern_var_id];
+        int temp = state.prop_hash / prop_hash_multipliers[pattern_var_id];
         int val = temp % var.get_domain_size();
         if (val != abstract_goal.second) {
+            return false;
+        }
+    }
+    for (const shared_ptr<RegularNumericCondition> &num_goal : numeric_goals){
+        int num_index = num_variable_to_index[num_goal->get_var_id()];
+        assert(num_index != -1);
+        if (!num_goal->is_applicable(state.num_state[num_index])){
             return false;
         }
     }
@@ -295,16 +553,44 @@ bool PatternDatabase::is_goal_state(
 size_t PatternDatabase::hash_index(const State &state) const {
     size_t index = 0;
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
-        index += hash_multipliers[i] * state[pattern.regular[i]].get_value();
+        index += prop_hash_multipliers[i] * state[pattern.regular[i]].get_value();
+    }
+    for (size_t i = 0; i < pattern.numeric.size(); ++i){
+        if (num_hash_values[i].count(state.nval(pattern.numeric[i])) == 0){
+            return numeric_limits<size_t>::max();
+        }
+        index += num_hash_multipliers[i] * num_hash_values[i].at(state.nval(pattern.numeric[i]));
     }
     return index;
 }
 
-int PatternDatabase::get_value(const State &state) const {
-    return distances[hash_index(state)];
+size_t PatternDatabase::hash_index(const NumericState &state) const {
+    size_t index = state.prop_hash;
+    for (size_t i = 0; i < pattern.numeric.size(); ++i){
+        if (num_hash_values[i].count(state.num_state[i]) == 0){
+            cout << "something went terribly wrong, have state with value " << state.num_state[i] << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
+        index += num_hash_multipliers[i] * num_hash_values[i].at(state.num_state[i]);
+    }
+    return index;
+}
+
+ap_float PatternDatabase::get_value(const State &state) const {
+    auto hash = hash_index(state);
+    if (hash == numeric_limits<size_t>::max()) {
+        if (exhausted_abstract_state_space){
+            return numeric_limits<ap_float>::max();
+        } else {
+            return 0;
+        }
+    }
+    return distances[hash];
 }
 
 double PatternDatabase::compute_mean_finite_h() const {
+    cerr << "Not yet implemented: numeric PatternDatabase::compute_mean_finite_h()" << endl;
+    utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
     double sum = 0;
     int size = 0;
     for (size_t i = 0; i < distances.size(); ++i) {
@@ -321,6 +607,8 @@ double PatternDatabase::compute_mean_finite_h() const {
 }
 
 bool PatternDatabase::is_operator_relevant(const OperatorProxy &op) const {
+    cerr << "Not yet implemented: numeric PatternDatabase::is_operator_relevant()" << endl;
+    utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
     for (EffectProxy effect : op.get_effects()) {
         int var_id = effect.get_fact().get_variable().get_id();
         if (binary_search(pattern.regular.begin(), pattern.regular.end(), var_id)) {

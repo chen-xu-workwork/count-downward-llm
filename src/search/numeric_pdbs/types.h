@@ -1,9 +1,10 @@
 #ifndef NUMERIC_PDBS_TYPES_H
 #define NUMERIC_PDBS_TYPES_H
 
+#include "../utils/hash.h"
+
 #include <memory>
 #include <vector>
-#include "../task_proxy.h" // required for the implementation of hash<std::vector<int>>
 
 namespace numeric_pdbs {
 class PatternDatabase;

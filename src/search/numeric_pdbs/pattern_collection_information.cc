@@ -14,10 +14,12 @@ using namespace std;
 namespace numeric_pdbs {
 PatternCollectionInformation::PatternCollectionInformation(
     shared_ptr<AbstractTask> task,
-    shared_ptr<PatternCollection> patterns)
+    shared_ptr<PatternCollection> patterns,
+    size_t max_number_states)
     : task(task),
       task_proxy(*task),
       patterns(patterns),
+      max_number_states(max_number_states),
       pdbs(nullptr),
       max_additive_subsets(nullptr) {
     assert(patterns);
@@ -74,7 +76,7 @@ void PatternCollectionInformation::create_pdbs_if_missing() {
         pdbs = make_shared<PDBCollection>();
         for (const Pattern &pattern : *patterns) {
             shared_ptr<PatternDatabase> pdb =
-                make_shared<PatternDatabase>(task_proxy, pattern);
+                make_shared<PatternDatabase>(task_proxy, pattern, max_number_states);
             pdbs->push_back(pdb);
         }
     }

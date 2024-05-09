@@ -15,6 +15,8 @@ using namespace std;
 namespace numeric_pdbs {
 PatternGeneratorManual::PatternGeneratorManual(const Options &opts) {
         pattern.regular = opts.get_list<int>("pattern");
+	cout << "not adapted to numeric variables: PatternGeneratorManual" << endl;
+	utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
 }
 
 Pattern PatternGeneratorManual::generate(shared_ptr<AbstractTask> task) {

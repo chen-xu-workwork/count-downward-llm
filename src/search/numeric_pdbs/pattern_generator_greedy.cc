@@ -3,9 +3,10 @@
 #include "validation.h"
 
 #include "../option_parser.h"
+#include "numeric_helper.h"
 #include "../plugin.h"
 #include "../task_proxy.h"
-#include "../variable_order_finder.h"
+#include "variable_order_finder.h"
 
 #include "../utils/logging.h"
 #include "../utils/math.h"
@@ -25,30 +26,44 @@ PatternGeneratorGreedy::PatternGeneratorGreedy(int max_states)
 
 Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> task) {
     TaskProxy task_proxy(*task);
+    shared_ptr<numeric_pdb_helper::NumericTaskProxy> num_task_proxy = make_shared<numeric_pdb_helper::NumericTaskProxy>(task_proxy);
     Pattern pattern;
-    VariableOrderFinder order(task, GOAL_CG_LEVEL, true);
+    VariableOrderFinder order(task, num_task_proxy, GOAL_CG_LEVEL, true);
     VariablesProxy variables = task_proxy.get_variables();
+//    NumericVariablesProxy num_variables = task_proxy.get_numeric_variables();
 
     int size = 1;
     while (true) {
         if (order.done())
             break;
-        int next_var_id = order.next();
+        auto [next_var_id, is_numeric] = order.next();
         if (next_var_id == -1) {
             break; // No more regular variables to add, only derived variables left.
         }
-        VariableProxy next_var = variables[next_var_id];
-        int next_var_size = next_var.get_domain_size();
+
+        int next_var_size;
+        if (is_numeric) {
+            // TODO approximate domain size based on the constants which are related to this variable
+            next_var_size = 100;
+        } else {
+            VariableProxy next_var = variables[next_var_id];
+            next_var_size = next_var.get_domain_size();
+        }
 
         if (!utils::is_product_within_limit(size, next_var_size, max_states))
             break;
 
-        pattern.regular.push_back(next_var_id);
+        if (is_numeric) {
+            pattern.numeric.push_back(next_var_id);
+        } else {
+            pattern.regular.push_back(next_var_id);
+        }
+
         size *= next_var_size;
     }
 
     validate_and_normalize_pattern(task_proxy, pattern);
-    cout << "Greedy pattern: " << pattern.regular << endl;
+    cout << "Greedy pattern: propositional " << pattern.regular << "; numeric " << pattern.numeric << endl;
     return pattern;
 }
 
@@ -66,5 +81,5 @@ static shared_ptr<PatternGenerator> _parse(OptionParser &parser) {
     return make_shared<PatternGeneratorGreedy>(opts);
 }
 
-static PluginShared<PatternGenerator> _plugin("greedy", _parse);
+static PluginShared<PatternGenerator> _plugin("greedy_numeric", _parse);
 }

@@ -12,10 +12,11 @@ namespace numeric_pdbs {
 class AbstractOperator;
 
 // Successor Generator for abstract operators.
+// TODO make this a sub-class of the regular PDB MatchTree; most of the code is identical
 class MatchTree {
     TaskProxy task_proxy;
     struct Node;
-    // See PatternDatabase for documentation on pattern and hash_multipliers.
+    // See PatternDatabase for documentation on pattern and prop_hash_multipliers.
     Pattern pattern;
     std::vector<size_t> hash_multipliers;
     Node *root;

@@ -16,6 +16,7 @@ namespace numeric_condition {
 class RegularNumericCondition;
 }
 
+// TODO cleanup this entire file and keep only what is strictly needed for numeric PDBs
 namespace numeric_pdb_helper {
 
 /* An action is an operator where effects are espressed as add and eff of
@@ -88,9 +89,9 @@ struct LinearNumericCondition {
     }
 
     bool simple_condition(int v) {
-        assert(v < coefficients.size());
+        assert(v>= 0 && v < coefficients.size());
         for (size_t c_id = 0; c_id < coefficients.size(); ++c_id) {
-            if (v != c_id && fabs(coefficients[c_id]) > 0.00001)
+            if (static_cast<size_t>(v) != c_id && fabs(coefficients[c_id]) > 0.00001)
                 return false;
         }
         return true;

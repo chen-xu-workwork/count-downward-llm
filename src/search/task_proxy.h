@@ -39,6 +39,10 @@ class VariablesProxy;
 class NumericVariableProxy;
 class NumericVariablesProxy;
 
+namespace numeric_pdbs {
+class CausalGraph;
+}
+
 /*
   Overview of the task interface.
 
@@ -566,7 +570,6 @@ class ComparisonAxiomsProxy {
 public:
     using ItemType = ComparisonAxiomProxy;
     ComparisonAxiomsProxy(const AbstractTask &task) : task(&task) {}
-    ~ComparisonAxiomsProxy() = default;
 
     std::size_t size() const {
         return task->get_num_cmp_axioms();
@@ -616,7 +619,6 @@ class AssignmentAxiomsProxy {
 public:
     using ItemType = AssignmentAxiomProxy;
     AssignmentAxiomsProxy(const AbstractTask &task) : task(&task) {}
-    ~AssignmentAxiomsProxy() = default;
 
     std::size_t size() const {
         return task->get_num_ass_axioms();
@@ -730,7 +732,6 @@ class GoalsProxy : public ConditionsProxy {
 public:
     explicit GoalsProxy(const AbstractTask &task)
         : ConditionsProxy(task) {}
-    ~GoalsProxy() = default;
 
     std::size_t size() const override {
         return task->get_num_goals();
@@ -777,9 +778,9 @@ public:
         assert(static_cast<int>(num_values.size()) == this->task->get_num_numeric_variables());
     }
 
-    State &operator=(const State &&other) {
+    State &operator=(const State &other) {
         if (this != &other) {
-            values = std::move(other.values);
+            values = other.values;
         }
         return *this;
     }
@@ -863,7 +864,6 @@ public:
         return NumericVariablesProxy(*task);
     }
 
-
     OperatorsProxy get_operators() const {
         return OperatorsProxy(*task);
     }
@@ -894,7 +894,11 @@ public:
         return State(*task, task->get_state_values(global_state), task->get_numeric_state_values(global_state));
     }
 
+    bool is_derived_variable(VariableProxy var) const;
+
     const CausalGraph &get_causal_graph() const;
+
+    const numeric_pdbs::CausalGraph &get_numeric_causal_graph() const;
 };
 
 

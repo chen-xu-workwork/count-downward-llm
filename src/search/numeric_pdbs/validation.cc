@@ -11,6 +11,26 @@ using namespace std;
 using utils::ExitCode;
 
 namespace numeric_pdbs {
+void inline validate_and_normalize_variable_list(vector<int> &vars, int num_variables) {
+    sort(vars.begin(), vars.end());
+    auto it = unique(vars.begin(), vars.end());
+    if (it != vars.end()) {
+        vars.erase(it, vars.end());
+        cout << "Warning: duplicate variables in pattern have been removed"
+             << endl;
+    }
+    if (!vars.empty()) {
+        if (vars.front() < 0) {
+            cerr << "Variable number too low in pattern" << endl;
+            utils::exit_with(ExitCode::CRITICAL_ERROR);
+        }
+        if (vars.back() >= num_variables) {
+            cerr << "Variable number too high in pattern" << endl;
+            utils::exit_with(ExitCode::CRITICAL_ERROR);
+        }
+    }
+}
+
 void validate_and_normalize_pattern(const TaskProxy &task_proxy,
                                     Pattern &pattern) {
     /*
@@ -18,24 +38,8 @@ void validate_and_normalize_pattern(const TaskProxy &task_proxy,
       - Warn if duplicate variables exist.
       - Error if patterns contain out-of-range variable numbers.
     */
-    sort(pattern.regular.begin(), pattern.regular.end());
-    auto it = unique(pattern.regular.begin(), pattern.regular.end());
-    if (it != pattern.regular.end()) {
-        pattern.regular.erase(it, pattern.regular.end());
-        cout << "Warning: duplicate variables in pattern have been removed"
-             << endl;
-    }
-    if (!pattern.regular.empty()) {
-        if (pattern.regular.front() < 0) {
-            cerr << "Variable number too low in pattern" << endl;
-            utils::exit_with(ExitCode::CRITICAL_ERROR);
-        }
-        int num_variables = task_proxy.get_variables().size();
-        if (pattern.regular.back() >= num_variables) {
-            cerr << "Variable number too high in pattern" << endl;
-            utils::exit_with(ExitCode::CRITICAL_ERROR);
-        }
-    }
+    validate_and_normalize_variable_list(pattern.regular, task_proxy.get_variables().size());
+    validate_and_normalize_variable_list(pattern.numeric, task_proxy.get_numeric_variables().size());
 }
 
 void validate_and_normalize_patterns(const TaskProxy &task_proxy,

@@ -305,13 +305,13 @@ fast_downward_plugin(
     DEPENDS DOMAIN_TRANSITION_GRAPH
 )
 
-# fast_downward_plugin(
-#     NAME CG_HEURISTIC
-#     HELP "The causal graph heuristic"
-#     SOURCES heuristics/cg_heuristic.cc
-#             heuristics/cg_cache.cc
-#     DEPENDS DOMAIN_TRANSITION_GRAPH
-# )
+ fast_downward_plugin(
+     NAME CG_HEURISTIC
+     HELP "The causal graph heuristic"
+     SOURCES heuristics/cg_heuristic.cc
+             heuristics/cg_cache.cc
+     DEPENDS DOMAIN_TRANSITION_GRAPH
+ )
 
 fast_downward_plugin(
     NAME DOMAIN_TRANSITION_GRAPH
@@ -461,17 +461,17 @@ fast_downward_plugin(
     HELP "Heuristics for the Numeric variant NFD"
     SOURCES
         numeric/interval.cc
-	numeric/relaxed_interval_helper.cc
-	numeric/interval_relaxation_heuristic.cc
-	numeric/interval_max_heuristic.cc
-	numeric/interval_add_heuristic.cc
-	numeric/interval_FF_heuristic.cc
-	numeric/repetition_relaxation_heuristic.cc
-	numeric/repetition_max_heuristic.cc
-	numeric/repetition_add_heuristic.cc
-	numeric/repetition_FF_heuristic.cc
-	numeric/rmax_heuristic.cc
-	numeric/generalized_subgoaling_heuristic.cc
+		numeric/relaxed_interval_helper.cc
+		numeric/interval_relaxation_heuristic.cc
+		numeric/interval_max_heuristic.cc
+		numeric/interval_add_heuristic.cc
+		numeric/interval_FF_heuristic.cc
+		numeric/repetition_relaxation_heuristic.cc
+		numeric/repetition_max_heuristic.cc
+		numeric/repetition_add_heuristic.cc
+		numeric/repetition_FF_heuristic.cc
+		numeric/rmax_heuristic.cc
+		numeric/generalized_subgoaling_heuristic.cc
    DEPENDS LP_SOLVER
 )
 
@@ -516,10 +516,10 @@ fast_downward_plugin(
         numeric_operator_counting/delete_relaxation.cc
         #numeric_operator_counting/delete_test.cc
         numeric_operator_counting/numeric_state_equation_constraints.cc
-	numeric_operator_counting/invariant_constraints.cc
+		numeric_operator_counting/invariant_constraints.cc
         numeric_operator_counting/numeric_helper.cc
-  	numeric_operator_counting/h_lm_numeric.cc
-  	numeric_operator_counting/lm_cut_numeric_constraints.cc
+		numeric_operator_counting/h_lm_numeric.cc
+		numeric_operator_counting/lm_cut_numeric_constraints.cc
     DEPENDS LP_SOLVER
 )
 
@@ -541,7 +541,7 @@ fast_downward_plugin(
         operator_counting/operator_counting_heuristic.cc
         operator_counting/pho_constraints.cc
         operator_counting/state_equation_constraints.cc
-  DEPENDS LP_SOLVER LANDMARK_CUT_HEURISTIC PDBS NUMERIC_PDBS
+  DEPENDS LP_SOLVER LANDMARK_CUT_HEURISTIC PDBS
 )
 
 #fast_downward_plugin(
@@ -594,18 +594,21 @@ fast_downward_plugin(
     NAME NUMERIC_PDBS
     HELP "PDBs for the Numeric variant NFD"
     SOURCES
-        numeric_pdbs/numeric_helper_pdb.cc
+		numeric_pdbs/causal_graph.cc
         numeric_pdbs/match_tree.cc
         numeric_pdbs/max_additive_pdb_sets.cc
         numeric_pdbs/max_cliques.cc
-        numeric_pdbs/pattern_collection_information.cc
+		numeric_pdbs/numeric_condition.cc
+        numeric_pdbs/numeric_helper.cc
         numeric_pdbs/numeric_pattern_database.cc
+        numeric_pdbs/pattern_collection_information.cc
         numeric_pdbs/pattern_generator_greedy.cc
         numeric_pdbs/pattern_generator_manual.cc
         numeric_pdbs/pattern_generator.cc
         numeric_pdbs/numeric_pdb_heuristic.cc
         numeric_pdbs/types.cc
         numeric_pdbs/validation.cc
+		numeric_pdbs/variable_order_finder.cc
 )
 
 fast_downward_plugin(
