@@ -1,11 +1,11 @@
 #ifndef SYMMETRIES_GRAPH_CREATOR_H
 #define SYMMETRIES_GRAPH_CREATOR_H
 
-//#include "../bliss-0.5/graph.hh"
-#include <graph.hh>
 #include "group.h"
 #include "../plugin.h"
 #include "../task_proxy.h"
+
+#include <graph.hh>
 
 enum SymmetryBasedSearchType {
     NO_SYMMETRIES,

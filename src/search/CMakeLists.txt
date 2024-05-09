@@ -23,10 +23,6 @@ add_executable(downward ${PLANNER_SOURCES})
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/ext)
 
-if (PLUGIN_SYMMETRIES_ENABLED)
-    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/bliss-0.73)
-endif()
-
 ## == Libraries ==
 
 # On Linux, find the rt library for clock_gettime().
@@ -37,10 +33,6 @@ endif()
 # On Windows, find the psapi library for determining peak memory.
 if(WIN32)
     target_link_libraries(downward psapi)
-endif()
-
-if (PLUGIN_SYMMETRIES_ENABLED)
-    target_link_libraries(downward ${CMAKE_CURRENT_SOURCE_DIR}/bliss-0.73/libbliss.a)
 endif()
 
 # If any enabled plugin requires an LP solver, compile with all
@@ -95,4 +87,19 @@ if(PLUGIN_GUROBI_IP_COMPILATION_ENABLED)
         include_directories(downward ${GUROBI_INCLUDE_DIRS})
         target_link_libraries(downward ${GUROBI_LIBRARIES})
     endif()
+endif()
+
+if(PLUGIN_SYMMETRIES_ENABLED)
+    include(ExternalProject)
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/bliss-0.73)
+    ExternalProject_add(
+            bliss
+            SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bliss-0.73/
+            CONFIGURE_COMMAND ""
+            BUILD_COMMAND make
+            INSTALL_COMMAND ""
+            BUILD_IN_SOURCE 1
+    )
+    add_dependencies(downward bliss)
+    target_link_libraries(downward ${CMAKE_CURRENT_SOURCE_DIR}/bliss-0.73/libbliss.a)
 endif()
