@@ -19,9 +19,9 @@ PatternCollectionInformation::PatternCollectionInformation(
     : task(task),
       task_proxy(*task),
       patterns(patterns),
-      max_number_states(max_number_states),
       pdbs(nullptr),
-      max_additive_subsets(nullptr) {
+      max_additive_subsets(nullptr),
+      max_number_states(max_number_states) {
     assert(patterns);
     validate_and_normalize_patterns(task_proxy, *patterns);
 }
