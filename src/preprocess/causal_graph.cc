@@ -349,8 +349,8 @@ void CausalGraph::calculate_important_vars() {
 	// also set instrumentation variables necessary (but only use the parents from assignment axioms, not from operators)
 	set_variable_instrumentation_necessary(metric_var);
 	// now set constants necessary which are required to compute the metric
-	for (const auto op : operators) {
-		for (const auto num_eff: op.get_num_eff()) {
+	for (const auto &op : operators) {
+		for (const auto &num_eff: op.get_num_eff()) {
 			if (num_eff.var->get_type() == instrumentation) {
 				assert(num_eff.var->is_necessary());
 				set_variable_instrumentation_necessary(num_eff.foperand);
