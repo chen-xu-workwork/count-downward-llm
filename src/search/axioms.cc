@@ -13,9 +13,10 @@ PropositionalAxiom::PropositionalAxiom(istream &in) : layer(-1){
     check_magic(in, "begin_rule");
     int cond_count;
     in >> cond_count;
-    for(int i = 0; i < cond_count; i++)
+    for(int i = 0; i < cond_count; i++){
         conditions.push_back(GlobalCondition(in));
-        int old_value, new_value;
+    }
+    int old_value, new_value;
     in >> affected_variable >> old_value >> new_value;
     	effects.push_back(GlobalEffect(affected_variable, new_value, vector<GlobalCondition>()));
     check_magic(in, "end_rule");
