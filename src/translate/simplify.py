@@ -24,7 +24,7 @@ example, operators that have preconditions on pruned facts are
 removed, too. (See also the docstring of
 filter_unreachable_propositions.)
 """
-from __future__ import print_function
+
 
 from collections import defaultdict
 from itertools import count
@@ -394,7 +394,7 @@ class VarValueRenaming(object):
             return None
         new_prevail = sorted(
             (var, value)
-            for (var, value) in conditions_dict.items()
+            for (var, value) in list(conditions_dict.items())
             if var in new_prevail_vars)
         return sas_tasks.SASOperator(
             name=op.name, prevail=new_prevail, pre_post=new_pre_post, assign_effect=new_assign_effect,

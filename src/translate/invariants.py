@@ -74,7 +74,7 @@ def ensure_conjunction_sat(system, *parts):
             else:
                 pos[literal.predicate].add(literal)
 
-    for pred, posatoms in pos.items():
+    for pred, posatoms in list(pos.items()):
         if pred in neg:
             for posatom in posatoms:
                 for negatom in neg[pred]:
@@ -159,7 +159,7 @@ class InvariantPart:
         other_arg_to_pos = invert_list(other_literal.args)
         factored_mapping = []
 
-        for key, other_positions in other_arg_to_pos.items():
+        for key, other_positions in list(other_arg_to_pos.items()):
             own_positions = arg_to_ordered_pos.get(key, [])
             len_diff = len(own_positions) - len(other_positions)
             if len_diff >= 1 or len_diff <= -2 or len_diff == -1 and not allowed_omissions:
@@ -393,7 +393,7 @@ class Invariant:
 
     def lhs_satisfiable(self, renaming, lhs_by_pred):
         system = renaming.copy()
-        ensure_conjunction_sat(system, *itertools.chain(lhs_by_pred.values()))
+        ensure_conjunction_sat(system, *itertools.chain(list(lhs_by_pred.values())))
         return system.is_solvable()
 
     def imply_del_effect(self, del_effect, lhs_by_pred):

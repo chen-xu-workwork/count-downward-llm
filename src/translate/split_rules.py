@@ -17,7 +17,7 @@ def get_connected_conditions(conditions):
                 var_to_conditions[var].append(cond)
 
     # Connect conditions with a common variable
-    for var, conds in var_to_conditions.items():
+    for var, conds in list(var_to_conditions.items()):
         for cond in conds[1:]:
             agraph.connect(conds[0], cond)
     return sorted(map(sorted, agraph.connected_components()))

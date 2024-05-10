@@ -18,7 +18,7 @@ def axiom_by_PNE(axioms):
 
 def identify_constants(axioms, axiom_by_pne):
     def is_constant(axiom):
-        if DEBUG: print ("Testing if %s is constant" % axiom)
+        if DEBUG: print("Testing if %s is constant" % axiom)
         if isinstance(axiom, pddl.PrimitiveNumericExpression):
             if axiom in axiom_by_pne:
                 axiom = axiom_by_pne[axiom]
@@ -112,7 +112,7 @@ def compute_axiom_layers(axioms, constant_axioms, axiom_by_pne):
 
 def identify_equivalent_axioms(axioms_by_layer, axiom_by_pne):
     axiom_map = {} 
-    for layer, axioms in axioms_by_layer.iteritems():
+    for layer, axioms in axioms_by_layer.items():
         key_to_unique = {}
         for ax in axioms:
             mapped_args = []

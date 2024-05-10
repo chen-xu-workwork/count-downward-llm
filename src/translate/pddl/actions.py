@@ -1,10 +1,10 @@
-from __future__ import print_function
+
 
 import copy
 
 from . import conditions
 from . import effects
-from effects import NumericEffect
+from .effects import NumericEffect
 from . import pddl_types
 from . import f_expression
 
@@ -27,7 +27,7 @@ class Action(object):
         self.cost = cost # cost is an effects.NumericEffect increase effect of fluent total-cost  
         self.uniquify_variables() # TODO: uniquify variables in cost?
     def __repr__(self):
-        return "<Action %s %s>" % (self.name,map(str, self.parameters))
+        return "<Action %s %s>" % (self.name,list(map(str, self.parameters)))
     def parse(alist):
         iterator = iter(alist)
         action_tag = next(iterator)
@@ -183,5 +183,5 @@ class PropositionalAction:
         for cond, fact in self.del_effects:
             print("DEL: %s -> %s" % (", ".join(map(str, cond)), fact))
         for cond, fact in self.assign_effects:
-            print ("ASS: %s -> %s" % (", ".join(map(str, cond)), fact))            
+            print("ASS: %s -> %s" % (", ".join(map(str, cond)), fact))            
         print("cost:", self.cost)

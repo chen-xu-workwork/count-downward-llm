@@ -41,13 +41,13 @@ def test_commandline_args():
 
 
 def test_aliases():
-    for alias, config in ALIASES.items():
+    for alias, config in list(ALIASES.items()):
         cmd = ["./fast-downward.py", "--alias", alias, "output"]
         assert run_driver(cmd) == 0
 
 
 def test_portfolios():
-    for name, portfolio in PORTFOLIOS.items():
+    for name, portfolio in list(PORTFOLIOS.items()):
         cmd = ["./fast-downward.py", "--portfolio", portfolio,
                "--search-time-limit", "30m", "output"]
         assert run_driver(cmd) in [

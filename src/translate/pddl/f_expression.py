@@ -1,4 +1,4 @@
-from __future__ import print_function
+
 #import string 
 
 #import pddl
@@ -49,7 +49,7 @@ class FunctionalExpression(object):
         return (typed_vars,conjunction_parts,self.__class__(new_parts))    
     def  instantiate(self, var_mapping, fluent_functions, 
                         init_function_vals, task, new_axioms=[]):
-        print (self.__class__.__name__)
+        print(self.__class__.__name__)
         raise ValueError("Cannot instantiate condition: not normalized")
 
 class ArithmeticExpression(FunctionalExpression):

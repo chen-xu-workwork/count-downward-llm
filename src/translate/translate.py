@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from __future__ import print_function
+
 
 import sys
 
@@ -63,7 +63,7 @@ def strips_to_sas_dictionary(groups, num_axioms, num_axiom_map, num_fluents, ass
             dictionary.setdefault(atom, []).append((var_no, val_no))
     if assert_partial:
         assert all(len(sas_pairs) == 1
-                   for sas_pairs in dictionary.values())
+                   for sas_pairs in list(dictionary.values()))
     ranges = [len(group) + 1 for group in groups]
     
     num_count = 0
@@ -213,12 +213,12 @@ def translate_strips_conditions_aux(conditions, dictionary, ranges, numeric_dict
                 # this atom. So we need to introduce a new condition:
                 # We can select any from new_condition and currently prefer the
                 # smallest one.
-                candidates = sorted(new_condition.items(), key=number_of_values)
+                candidates = sorted(list(new_condition.items()), key=number_of_values)
                 var, vals = candidates[0]
                 condition[var] = vals
 
     def multiply_out(condition):  # destroys the input
-        sorted_conds = sorted(condition.items(), key=number_of_values)
+        sorted_conds = sorted(list(condition.items()), key=number_of_values)
         flat_conds = [{}]
         for var, vals in sorted_conds:
             if len(vals) == 1:
@@ -351,7 +351,7 @@ def translate_strips_operator_aux(operator, dictionary, ranges, numeric_dictiona
         if no_add_effect_condition is None:  # there is always an add effect
             continue
         none_of_those = ranges[var] - 1
-        for val, conds in del_effects_by_variable[var].items():
+        for val, conds in list(del_effects_by_variable[var].items()):
             for cond in conds:
                 # add guard
                 if var in cond and cond[var] != val:
@@ -370,7 +370,7 @@ def translate_strips_operator_aux(operator, dictionary, ranges, numeric_dictiona
                     # to re-compute no_add_effect_condition for every delete
                     # effect and to unfold the product(*condition) in
                     # negate_and_translate_condition to allow an early break.
-                    for cvar, cval in no_add_cond.items():
+                    for cvar, cval in list(no_add_cond.items()):
                         if cvar in new_cond and new_cond[cvar] != cval:
                             # the del effect condition plus the deleted atom
                             # imply that some add effect on the variable
@@ -389,7 +389,7 @@ def build_sas_operator(name, condition, effects_by_variable, ass_effects_by_vari
 #    if DEBUG: print("Building SAS Operator %s with %d logic and %d numeric effects" % (name, len(effects_by_variable),len(ass_effects_by_variable)))  
     if options.add_implied_preconditions:
         implied_precondition = set()
-        for fact in condition.items():
+        for fact in list(condition.items()):
             implied_precondition.update(implied_facts[fact])
     prevail_and_pre = dict(condition)
     pre_post = []
@@ -397,7 +397,7 @@ def build_sas_operator(name, condition, effects_by_variable, ass_effects_by_vari
     for var in effects_by_variable:
         orig_pre = condition.get(var, -1)
         added_effect = False
-        for post, eff_conditions in effects_by_variable[var].items():
+        for post, eff_conditions in list(effects_by_variable[var].items()):
             pre = orig_pre
             # if the effect does not change the variable value, we ignore it
             if pre == post:
@@ -443,7 +443,7 @@ def build_sas_operator(name, condition, effects_by_variable, ass_effects_by_vari
 #        assert orig_pre == -1 # numeric variables cannot occur in preconditions (instead propositional variables are derived by axioms)
 #    numeric variables and logic variables are not stored in the same data structures, but they *do* can have the same index within their
 #    respective arrays
-        for (ass_op, post_var), eff_conditions in ass_effects_by_variable[numvar].items():
+        for (ass_op, post_var), eff_conditions in list(ass_effects_by_variable[numvar].items()):
 #            if DEBUG: print("assignment operator : >%s<" % ass_op)
 #            if DEBUG: print("post condition variable : %d" % post_var)
             # otherwise the condition on numvar is not a prevail condition but a
@@ -515,7 +515,7 @@ def translate_strips_axiom(axiom, dictionary, ranges, num_dict, mutex_dict, mute
         [effect] = dictionary[axiom.effect]
     axioms = []
     for condition in conditions:
-        axioms.append(sas_tasks.SASAxiom(condition.items(), effect))
+        axioms.append(sas_tasks.SASAxiom(list(condition.items()), effect))
     return axioms
 
 def translate_numeric_axiom(axiom, prop_dictionary, num_dictionary):
@@ -579,7 +579,7 @@ def dump_task(init, goals, actions, axioms, axiom_layer_dict):
             axiom.dump()
         print()
         print("Axiom layers")
-        for atom, layer in axiom_layer_dict.items():
+        for atom, layer in list(axiom_layer_dict.items()):
             print("%s: layer %d" % (atom, layer))
     sys.stdout = old_stdout
 
@@ -597,7 +597,7 @@ def translate_task(strips_to_sas, ranges, translation_key, numeric_strips_to_sas
     init = init + axiom_init    
     if options.dump_task:
         # Remove init facts that don't occur in strips_to_sas: they're constant.
-        nonconstant_init = filter(strips_to_sas.get, init)
+        nonconstant_init = list(filter(strips_to_sas.get, init))
         dump_task(nonconstant_init, goal_list, actions, axioms, axiom_layer_dict)
 
     init_values = [rang - 1 for rang in ranges]
@@ -689,7 +689,7 @@ def translate_task(strips_to_sas, ranges, translation_key, numeric_strips_to_sas
 
     for axiom in comparison_axioms[1]:
         axiom_layers[axiom.effect] = num_axiom_layer
-    for atom, layer in axiom_layer_dict.iteritems():
+    for atom, layer in axiom_layer_dict.items():
         assert layer >= 0
         [(var, val)] = strips_to_sas[atom]
         axiom_layers[var] = layer + num_axiom_layer + 1
@@ -735,7 +735,7 @@ def translate_task(strips_to_sas, ranges, translation_key, numeric_strips_to_sas
 
     return sas_tasks.SASTask(variables, numeric_variables, mutexes, sas_init, sas_goal,
                              operators, axioms, comparison_axioms[1], sas_num_axioms,
-							 global_constraint_dict_list[0].items()[0], sas_metric,
+							 list(global_constraint_dict_list[0].items())[0], sas_metric,
                              init_constant_predicates, init_constant_numerics)
 
 def trivial_task(solvable):

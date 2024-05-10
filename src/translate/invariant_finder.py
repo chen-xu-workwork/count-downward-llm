@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 
-from __future__ import print_function
+
 
 from collections import deque, defaultdict
 import itertools
@@ -48,7 +48,7 @@ class BalanceChecker(object):
         if reachable_action_params is None or len(action.parameters) < 2:
             return action
         inequal_params = []
-        combs = itertools.combinations(range(len(action.parameters)), 2)
+        combs = itertools.combinations(list(range(len(action.parameters))), 2)
         for pos1, pos2 in combs:
             for params in reachable_action_params[action]:
                 if params[pos1] == params[pos2]:

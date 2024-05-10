@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import print_function
+
 
 import itertools
 
@@ -62,7 +62,7 @@ class Assignment(object):
         # element in its equivalence class (with objects being
         # smaller than variables)
         mapping = {}
-        for eq_class in self.eq_classes.values():
+        for eq_class in list(self.eq_classes.values()):
             variables = [item for item in eq_class if item.startswith("?")]
             constants = [item for item in eq_class if not item.startswith("?")]
             if len(constants) >= 2:
