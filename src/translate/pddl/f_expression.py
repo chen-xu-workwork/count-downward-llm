@@ -71,8 +71,10 @@ class ArithmeticExpression(FunctionalExpression):
 class Difference(ArithmeticExpression):
     op = "-"
     def __init__(self,parts):
-        assert len(parts)==2
-        ArithmeticExpression.__init__(self,parts)
+        assert len(parts) == 2
+        ArithmeticExpression.__init__(self, parts)
+    def __hash__(self):
+        return hash((self.__class__, self.parts))
     def _simplified(self, parts):
         if isinstance(parts[1], NumericConstant) and parts[1].value == 0:
             return parts[0]
@@ -136,6 +138,8 @@ class NumericConstant(FunctionalExpression):
         self.value = value
     def __eq__(self, other):
         return (self.__class__ == other.__class__ and self.value == other.value)
+    def __hash__(self):
+        return hash((self.__class__, self.value))
     def __str__(self):
         return "%s %s" % (self.__class__.__name__, self.value)
     def _dump(self):

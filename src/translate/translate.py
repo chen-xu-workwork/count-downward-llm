@@ -82,7 +82,7 @@ def strips_to_sas_dictionary(groups, num_axioms, num_axiom_map, num_fluents, ass
 #         print("List of all numeric fluents:")
 #         for element in fluent_list:
 #             print("   %s" % element)
-        fluent_list.sort(lambda x,y: cmp(str(x), str(y)))
+        fluent_list.sort(key=str)
         for fluent in fluent_list: # are partially contained in num_axiom
             if fluent not in numeric_dictionary:
 #                print("Num-Variable #%d \t-> %s" % (num_count, fluent))
@@ -674,7 +674,7 @@ def translate_task(strips_to_sas, ranges, translation_key, numeric_strips_to_sas
     num_axiom_layers = [-1] * num_count
     num_axiom_layer = 0
     for layer in num_axioms_by_layer:
-        num_axioms_by_layer[layer].sort(lambda x,y: cmp(x.name,y.name))
+        num_axioms_by_layer[layer].sort(key=lambda x: x.name)
         for axiom in num_axioms_by_layer[layer]:
             if axiom.effect not in num_axiom_map:
                 var = numeric_strips_to_sas[axiom.effect]

@@ -333,6 +333,8 @@ class FunctionComparison(Condition): # NFD class yielding the truth value of a f
                 self.__class__ is other.__class__ and
                 self.comparator == other.comparator and
                 self.parts == other.parts)
+    def __hash__(self):
+        return self.hash
     def __str__(self):
         return "%s (%s %s)" % (self.__class__.__name__, self.comparator,
                               ", ".join(map(str, self.parts)))
