@@ -450,7 +450,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         }
     }
 
-    closed.clear(); // TODO does this release all memory?
+    unordered_set<NumericState, NumericStateHash>().swap(closed); // save memory
 
     num_hash_multipliers.resize(pattern.numeric.size());
     num_hash_values.resize(pattern.numeric.size());
@@ -458,12 +458,12 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         num_hash_multipliers[num_variable_to_index[var]] = num_states;
 
         vector<ap_float> values(reached_numeric_values[var].begin(), reached_numeric_values[var].end());
-        sort(values.begin(), values.end());
         if (utils::is_product_within_limit(num_states, values.size(),
                                            numeric_limits<int>::max())) {
             num_states *= values.size();
         } else {
-            // TODO if we use a bound on the number of abstract states that is <= int-max, then this should never happen
+            // TODO not sure what to do here.. we could (1) forget about perfect hashing, or
+            //  (2) impose the *reached* domain size product to be <= int-max
             cerr << "Given pattern is too large on numeric variables after exploration! (Overflow occured): " << endl;
             cerr << pattern.numeric << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
@@ -486,6 +486,8 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         pq.push(0, goal_state);
         distances[hash_index(goal_state)] = 0;
     }
+    vector<NumericState>().swap(goal_states); // save memory
+
     while (!open.empty()){
         NumericState state = open.pop().second;
         pq.push(min_action_cost, state);
