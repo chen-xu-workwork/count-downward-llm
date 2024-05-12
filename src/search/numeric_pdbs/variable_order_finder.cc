@@ -2,48 +2,54 @@
 
 #include "causal_graph.h"
 #include "numeric_condition.h"
+#include "../utils/rng.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
 #include <iostream>
-#include <random>
 #include <vector>
 
 using namespace std;
 using utils::ExitCode;
 
 namespace numeric_pdbs {
-VariableOrderFinder::VariableOrderFinder(const shared_ptr<AbstractTask> task,
-                                         shared_ptr<numeric_pdb_helper::NumericTaskProxy> num_task_proxy,
-                                         VariableOrderType variable_order_type,
-                                         bool is_pdb)
-        : task(task),
-          variable_order_type(variable_order_type),
-          is_pdb(is_pdb) {
+inline void add_numeric_vars(const TaskProxy &task_proxy, vector<pair<int, bool>> &remaining_vars) {
+    for (auto var : task_proxy.get_numeric_variables()){
+        if (var.get_var_type() == regular){
+            remaining_vars.emplace_back(var.get_id(), true);
+        }
+    }
+}
 
-    // TODO: add options that determine the order of variable types, i.e. first prop, then numeric or vice versa
-    //  this should then be used for numeric CG predecessors and for goals
+VariableOrderFinder::VariableOrderFinder(shared_ptr<AbstractTask> task_,
+                                         const shared_ptr<numeric_pdb_helper::NumericTaskProxy> &num_task_proxy,
+                                         VariableOrderType variable_order_type,
+                                         bool numeric_variables_first,
+                                         const shared_ptr<utils::RandomNumberGenerator> &rng)
+        : task(std::move(task_)),
+          variable_order_type(variable_order_type) {
 
     TaskProxy task_proxy(*task);
+    if (numeric_variables_first){
+        add_numeric_vars(task_proxy, remaining_vars);
+    }
     for (auto var : task_proxy.get_variables()){
         if (!num_task_proxy->is_numeric_variable(var) &&
             !task_proxy.is_derived_variable(var)){
             remaining_vars.emplace_back(var.get_id(), false);
         }
     }
-    for (auto var : task_proxy.get_numeric_variables()){
-        if (var.get_var_type() == regular){
-            remaining_vars.emplace_back(var.get_id(), true);
-        }
+    if (!numeric_variables_first){
+        add_numeric_vars(task_proxy, remaining_vars);
     }
 
-    if (variable_order_type == REVERSE_LEVEL) {
-        reverse(remaining_vars.begin(), remaining_vars.end());
-    } else if (variable_order_type == CG_GOAL_RANDOM ||
-        variable_order_type == RANDOM) {
-        // TODO add random to options
-        shuffle(remaining_vars.begin(), remaining_vars.end(), std::mt19937(std::random_device()()));
+//    if (variable_order_type == REVERSE_LEVEL) {
+//        reverse(remaining_vars.begin(), remaining_vars.end());
+//    } else
+    if (variable_order_type == CG_GOAL_RANDOM //|| variable_order_type == RANDOM
+        ) {
+        rng->shuffle(remaining_vars);
     }
 
     is_causal_predecessor.resize(task->get_num_variables() + task->get_num_numeric_variables(), false);
@@ -59,7 +65,7 @@ VariableOrderFinder::VariableOrderFinder(const shared_ptr<AbstractTask> task,
     }
 }
 
-void VariableOrderFinder::select_next(int position, int var_no, bool is_numeric) {
+void VariableOrderFinder::select_next(size_t position, int var_no, bool is_numeric) {
     assert(remaining_vars[position].first == var_no && remaining_vars[position].second == is_numeric);
     remaining_vars.erase(remaining_vars.begin() + position);
     selected_vars.push_back(var_no);
@@ -69,11 +75,11 @@ void VariableOrderFinder::select_next(int position, int var_no, bool is_numeric)
         for (int var: cg.get_num_eff_to_prop_pre(var_no)){
             is_causal_predecessor[var] = true;
         }
-        for (int var: cg.get_num_eff_to_num_pre(var_no)){
+        for (int var: cg.get_num_eff_to_num_pre(var_no)) {
             is_causal_predecessor[task->get_num_variables() + var] = true;
         }
     } else {
-        for (int var: cg.get_prop_eff_to_prop_pre(var_no)){
+        for (int var: cg.get_prop_eff_to_prop_pre(var_no)) {
             is_causal_predecessor[var] = true;
         }
         for (int var: cg.get_prop_eff_to_num_pre(var_no)){
@@ -88,8 +94,7 @@ bool VariableOrderFinder::done() const {
 
 pair<int, bool> VariableOrderFinder::next() {
     assert(!done());
-    if (variable_order_type == CG_GOAL_LEVEL || variable_order_type
-                                                == CG_GOAL_RANDOM) {
+    if (variable_order_type == CG_GOAL_LEVEL || variable_order_type == CG_GOAL_RANDOM) {
         // First run: Try to find a causally connected variable.
         for (size_t i = 0; i < remaining_vars.size(); ++i) {
             auto [var_no, is_num] = remaining_vars[i];
@@ -133,18 +138,14 @@ pair<int, bool> VariableOrderFinder::next() {
                 return {var_no, is_num};
             }
         }
-    } else if (variable_order_type == RANDOM ||
+    } /*else if (variable_order_type == RANDOM ||
                variable_order_type == LEVEL ||
                variable_order_type == REVERSE_LEVEL) {
         auto [var_no, is_num] = remaining_vars[0];
         select_next(0, var_no, is_num);
         return {var_no, is_num};
-    }
-    if (is_pdb) {
-        return {-1, false}; // Avoiding derived variables in PDB, as they are not causally connected.
-    }
-    cerr << "Relevance analysis has not been performed." << endl;
-    utils::exit_with(ExitCode::INPUT_ERROR);
+    }*/
+    return {-1, false};
 }
 
 void VariableOrderFinder::dump() const {
@@ -159,15 +160,15 @@ void VariableOrderFinder::dump() const {
         case GOAL_CG_LEVEL:
             cout << "GOAL/CG, tie breaking on level";
             break;
-        case RANDOM:
-            cout << "random";
-            break;
-        case LEVEL:
-            cout << "by level";
-            break;
-        case REVERSE_LEVEL:
-            cout << "by reverse level";
-            break;
+//        case RANDOM:
+//            cout << "random";
+//            break;
+//        case LEVEL:
+//            cout << "by level";
+//            break;
+//        case REVERSE_LEVEL:
+//            cout << "by reverse level";
+//            break;
         default:
             ABORT("Unknown variable order type.");
     }
