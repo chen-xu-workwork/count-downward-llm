@@ -77,7 +77,7 @@ public:
     /* Use the factory function get_causal_graph to create causal graphs
        to avoid creating more than one causal graph per AbstractTask. */
     explicit CausalGraph(const TaskProxy &task_proxy,
-                         std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> num_task);
+                         const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &num_task);
 
     /*
       All below methods querying neighbors (of some sort or other) of

@@ -111,7 +111,7 @@ struct CausalGraphBuilder {
               eff_eff_builder(prop_var_count+num_var_count),
               succ_builder(prop_var_count+num_var_count),
               pred_builder(prop_var_count+num_var_count),
-              num_task(num_task),
+              num_task(std::move(num_task)),
               prop_var_id_to_glob_var_id(prop_var_id_to_glob_var_id),
               num_var_id_to_glob_var_id(num_var_id_to_glob_var_id) {
     }
@@ -196,7 +196,7 @@ struct CausalGraphBuilder {
 };
 
 CausalGraph::CausalGraph(const TaskProxy &task_proxy,
-                         shared_ptr<numeric_pdb_helper::NumericTaskProxy> num_task) {
+                         const shared_ptr<numeric_pdb_helper::NumericTaskProxy> &num_task) {
     utils::Timer timer;
     cout << "building causal graph..." << flush;
     int num_prop_variables = 0;
@@ -297,8 +297,9 @@ vector<int> CausalGraph::get_prop_eff_to_prop_pre(int prop_var) const {
 }
 
 vector<int> CausalGraph::get_prop_eff_to_num_pre(int prop_var) const {
+    assert(first_num_var_index >= 0);
     int mapped_var = prop_var_id_to_glob_var_id[prop_var];
-    if (mapped_var == -1 || first_num_var_index == glob_var_id_to_var_id.size()){
+    if (mapped_var == -1 || static_cast<size_t>(first_num_var_index) == glob_var_id_to_var_id.size()){
         return {};
     } else {
         vector<int> num_pre;
@@ -327,8 +328,9 @@ vector<int> CausalGraph::get_num_eff_to_prop_pre(int num_var) const {
 }
 
 vector<int> CausalGraph::get_num_eff_to_num_pre(int num_var) const {
+    assert(first_num_var_index >= 0);
     int mapped_var = num_var_id_to_glob_var_id[num_var];
-    if (mapped_var == -1 || first_num_var_index == glob_var_id_to_var_id.size()){
+    if (mapped_var == -1 || static_cast<size_t>(first_num_var_index) == glob_var_id_to_var_id.size()){
         return {};
     } else {
         vector<int> num_pre;
