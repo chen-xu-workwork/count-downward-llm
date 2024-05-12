@@ -78,7 +78,7 @@ def instantiate(task, model):
     for i in init_facts:
         if isinstance(i, pddl.Atom):  # do NOT consider PNEs, etc.
             if i not in fluent_facts:   # only consider non-fluents
-                if i.predicate is not "=":    # hack to remove the intermediate '=' fluents
+                if i.predicate != "=":    # hack to remove the intermediate '=' fluents
                     init_constant_predicate_facts.add(i)
     
     type_to_objects = get_objects_by_type(task.objects, task.types)

@@ -160,17 +160,17 @@ class DerivedFunctionAdministrator(object):
         self.functions = dict() 
            
     def dump(self,indent = "  "):
-        for axiom in list(self.functions.values()):
+        for axiom in self.functions.values():
             axiom.dump(indent)
     def get_all_axioms(self):
-        return list(self.functions.values()) 
+        return list(self.functions.values())
     def get_derived_function(self,exp):
         def get_default_variables(nr):
             varlist = [("?v%s" % varnr) for varnr in range(nr)]
             return varlist
         def get_new_symbol(key):
             # introduce new derived function symbol
-            used_names = [axiom.name for axiom in list(self.functions.values())]
+            used_names = [axiom.name for axiom in self.functions.values()]
             for counter in itertools.count(1):
                 assert counter == 1
                 addition = ''.join("%s_" % prettyprint(part) for part in key)

@@ -63,21 +63,21 @@ def strips_to_sas_dictionary(groups, num_axioms, num_axiom_map, num_fluents, ass
             dictionary.setdefault(atom, []).append((var_no, val_no))
     if assert_partial:
         assert all(len(sas_pairs) == 1
-                   for sas_pairs in list(dictionary.values()))
+                   for sas_pairs in dictionary.values())
     ranges = [len(group) + 1 for group in groups]
     
     num_count = 0
-    if include_numeric:    
+    if include_numeric:
         redundant_axioms = []
         for axiom in num_axioms:
             if axiom.effect in num_axiom_map:
                 redundant_axioms.append(axiom.effect)
             else:
 #                print("AE adding %s -> %d" % (axiom.effect, num_count))
-                numeric_dictionary[axiom.effect]= num_count
+                numeric_dictionary[axiom.effect] = num_count
                 num_count += 1
         for axiom_effect in redundant_axioms:
-                numeric_dictionary[axiom_effect] = numeric_dictionary[num_axiom_map[axiom_effect].effect]        
+            numeric_dictionary[axiom_effect] = numeric_dictionary[num_axiom_map[axiom_effect].effect]
         fluent_list = list(num_fluents)
 #         print("List of all numeric fluents:")
 #         for element in fluent_list:
@@ -86,7 +86,7 @@ def strips_to_sas_dictionary(groups, num_axioms, num_axiom_map, num_fluents, ass
         for fluent in fluent_list: # are partially contained in num_axiom
             if fluent not in numeric_dictionary:
 #                print("Num-Variable #%d \t-> %s" % (num_count, fluent))
-                numeric_dictionary[fluent]=num_count
+                numeric_dictionary[fluent] = num_count
                 num_count += 1
     # ranges: the range of each FDR variable in groups (including "none of those")
     # dictionary: mapping from grounded facts to the index of the corresponding FDR variable-value pair
@@ -351,7 +351,7 @@ def translate_strips_operator_aux(operator, dictionary, ranges, numeric_dictiona
         if no_add_effect_condition is None:  # there is always an add effect
             continue
         none_of_those = ranges[var] - 1
-        for val, conds in list(del_effects_by_variable[var].items()):
+        for val, conds in del_effects_by_variable[var].items():
             for cond in conds:
                 # add guard
                 if var in cond and cond[var] != val:
@@ -370,7 +370,7 @@ def translate_strips_operator_aux(operator, dictionary, ranges, numeric_dictiona
                     # to re-compute no_add_effect_condition for every delete
                     # effect and to unfold the product(*condition) in
                     # negate_and_translate_condition to allow an early break.
-                    for cvar, cval in list(no_add_cond.items()):
+                    for cvar, cval in no_add_cond.items():
                         if cvar in new_cond and new_cond[cvar] != cval:
                             # the del effect condition plus the deleted atom
                             # imply that some add effect on the variable
@@ -389,7 +389,7 @@ def build_sas_operator(name, condition, effects_by_variable, ass_effects_by_vari
 #    if DEBUG: print("Building SAS Operator %s with %d logic and %d numeric effects" % (name, len(effects_by_variable),len(ass_effects_by_variable)))  
     if options.add_implied_preconditions:
         implied_precondition = set()
-        for fact in list(condition.items()):
+        for fact in condition.items():
             implied_precondition.update(implied_facts[fact])
     prevail_and_pre = dict(condition)
     pre_post = []
@@ -397,7 +397,7 @@ def build_sas_operator(name, condition, effects_by_variable, ass_effects_by_vari
     for var in effects_by_variable:
         orig_pre = condition.get(var, -1)
         added_effect = False
-        for post, eff_conditions in list(effects_by_variable[var].items()):
+        for post, eff_conditions in effects_by_variable[var].items():
             pre = orig_pre
             # if the effect does not change the variable value, we ignore it
             if pre == post:
@@ -443,7 +443,7 @@ def build_sas_operator(name, condition, effects_by_variable, ass_effects_by_vari
 #        assert orig_pre == -1 # numeric variables cannot occur in preconditions (instead propositional variables are derived by axioms)
 #    numeric variables and logic variables are not stored in the same data structures, but they *do* can have the same index within their
 #    respective arrays
-        for (ass_op, post_var), eff_conditions in list(ass_effects_by_variable[numvar].items()):
+        for (ass_op, post_var), eff_conditions in ass_effects_by_variable[numvar].items():
 #            if DEBUG: print("assignment operator : >%s<" % ass_op)
 #            if DEBUG: print("post condition variable : %d" % post_var)
             # otherwise the condition on numvar is not a prevail condition but a
@@ -579,7 +579,7 @@ def dump_task(init, goals, actions, axioms, axiom_layer_dict):
             axiom.dump()
         print()
         print("Axiom layers")
-        for atom, layer in list(axiom_layer_dict.items()):
+        for atom, layer in axiom_layer_dict.items():
             print("%s: layer %d" % (atom, layer))
     sys.stdout = old_stdout
 
@@ -735,7 +735,7 @@ def translate_task(strips_to_sas, ranges, translation_key, numeric_strips_to_sas
 
     return sas_tasks.SASTask(variables, numeric_variables, mutexes, sas_init, sas_goal,
                              operators, axioms, comparison_axioms[1], sas_num_axioms,
-							 list(global_constraint_dict_list[0].items())[0], sas_metric,
+                             list(global_constraint_dict_list[0].items())[0], sas_metric,
                              init_constant_predicates, init_constant_numerics)
 
 def trivial_task(solvable):

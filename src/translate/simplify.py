@@ -394,7 +394,7 @@ class VarValueRenaming(object):
             return None
         new_prevail = sorted(
             (var, value)
-            for (var, value) in list(conditions_dict.items())
+            for var, value in conditions_dict.items()
             if var in new_prevail_vars)
         return sas_tasks.SASOperator(
             name=op.name, prevail=new_prevail, pre_post=new_pre_post, assign_effect=new_assign_effect,

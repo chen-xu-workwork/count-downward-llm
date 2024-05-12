@@ -47,7 +47,7 @@ def parse_args():
 
 def copy_args_to_module(args):
     module_dict = sys.modules[__name__].__dict__
-    for key, value in list(vars(args).items()):
+    for key, value in vars(args).items():
         module_dict[key] = value
 
 

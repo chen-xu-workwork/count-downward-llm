@@ -189,7 +189,7 @@ class SASVariables:
                 axiom_str = " [axiom layer %d]" % axiom_layer
             else:
                 axiom_str = ""
-            print("v%d in {%s}%s" % (var, list("%d:%s"% t for t in zip(list(range(rang)),names)), axiom_str))
+            print("v%d in {%s}%s" % (var, list("%d:%s"% t for t in zip(range(rang),names)), axiom_str))
 
     def output(self, stream):
         print(len(self.ranges), file=stream)
@@ -332,9 +332,9 @@ class SASOperator:
         def listify(entry):
             var, pre, post, cond = entry
             return var, pre, post, list(cond)
-        pre_post = list(map(tuplify, pre_post))
+        pre_post = [tuplify(x) for x in pre_post]
         pre_post = sorted(set(pre_post))
-        pre_post = list(map(listify, pre_post))
+        pre_post = [listify(x) for x in pre_post]
         return pre_post
 
     def validate(self, variables):

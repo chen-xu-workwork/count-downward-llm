@@ -1,9 +1,5 @@
-try:
-    # Python 2
-    from io import StringIO
-except ImportError:
-    # Python 3
-    from io import StringIO
+
+from io import StringIO
 
 import pddl
 from pddl_to_prolog import Rule, PrologProgram
