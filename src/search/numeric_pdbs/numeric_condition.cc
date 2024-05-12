@@ -14,7 +14,7 @@ string RegularNumericConditionVar::get_name() const {
     return s.str();
 }
 
-bool RegularNumericConditionVar::is_applicable(ap_float value) const {
+bool RegularNumericConditionVar::satisfied(ap_float value) const {
     switch (c_op){
         case lt:
             return value < _const;
@@ -38,7 +38,7 @@ string RegularNumericConditionConst::get_name() const {
     return s.str();
 }
 
-bool RegularNumericConditionConst::is_applicable(ap_float /*value*/) const {
+bool RegularNumericConditionConst::satisfied(ap_float /*value*/) const {
     switch (c_op){
         case lt:
             return const_l < _const;
@@ -62,7 +62,7 @@ string RegularNumericConditionVarOpC::get_name() const {
     return s.str();
 }
 
-bool RegularNumericConditionVarOpC::is_applicable(ap_float value) const {
+bool RegularNumericConditionVarOpC::satisfied(ap_float value) const {
     ap_float lh_value;
     switch (cal_op){
         case sum:

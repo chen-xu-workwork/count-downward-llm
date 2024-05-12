@@ -237,7 +237,7 @@ bool PatternDatabase::is_applicable(const NumericState &state,
             shared_ptr<RegularNumericCondition> num_pre = num_task_proxy.get_regular_numeric_condition(pre);
             int num_index = num_variable_to_index[num_pre->get_var_id()];
             if (num_index != -1){
-                if (!num_pre->is_applicable(state.num_state[num_index])){
+                if (!num_pre->satisfied(state.num_state[num_index])){
 //                    cout << "not applicable " << num_pre->get_name() << endl;
                     return false;
                 }
@@ -275,7 +275,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         num_variable_to_index[pattern.numeric[i]] = i;
     }
 
-    ap_float min_action_cost = numeric_limits<double>::max();
+    min_action_cost = numeric_limits<double>::max();
 
     // compute all abstract operators
     vector<AbstractOperator> operators;
@@ -312,7 +312,6 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
     }
 
     // compute abstract goal var-val pairs
-    vector<pair<int, int>> propositional_goals;
     for (FactProxy goal : task_proxy.get_goals()) {
         int var_id = goal.get_variable().get_id();
         int val = goal.get_value();
@@ -321,7 +320,6 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         }
     }
 
-    vector<shared_ptr<RegularNumericCondition>> numeric_goals;
     for (const shared_ptr<RegularNumericCondition> &num_goal : num_task_proxy.get_numeric_goals()){
         if (num_variable_to_index[num_goal->get_var_id()] != -1){
 //            cout << "relevant numeric goal: " << num_goal->get_name() << endl;
@@ -389,7 +387,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
 //        cout << endl << "expand " << state.get_name(task_proxy, pattern) << endl;
         closed.insert(state);
 
-        if (is_goal_state(state, propositional_goals, numeric_goals, num_variable_to_index)){
+        if (is_goal_state(state, num_variable_to_index)){
 //            cout << "is goal state" << endl;
             goal_states.push_back(state);
         }
@@ -517,6 +515,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
     if (num_reached_states >= max_number_states) {
         for (size_t i = 0; i < distances.size(); ++i) {
             if (distances[i] == numeric_limits<ap_float>::max()) {
+                // TODO check if it's a goal state and store min_action_cost if not
                 distances[i] = 0;
             }
         }
@@ -527,8 +526,6 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
 
 bool PatternDatabase::is_goal_state(
         const NumericState &state,
-        const vector<pair<int, int>> &propositional_goals,
-        const vector<shared_ptr<RegularNumericCondition>> &numeric_goals,
         const vector<int> &num_variable_to_index) const {
     for (pair<int, int> abstract_goal : propositional_goals) {
         int pattern_var_id = abstract_goal.first;
@@ -543,7 +540,22 @@ bool PatternDatabase::is_goal_state(
     for (const shared_ptr<RegularNumericCondition> &num_goal : numeric_goals){
         int num_index = num_variable_to_index[num_goal->get_var_id()];
         assert(num_index != -1);
-        if (!num_goal->is_applicable(state.num_state[num_index])){
+        if (!num_goal->satisfied(state.num_state[num_index])){
+            return false;
+        }
+    }
+    return true;
+}
+
+bool PatternDatabase::is_goal_state(const State &state) const {
+    for (pair<int, int> abstract_goal : propositional_goals) {
+        int var_id = pattern.regular[abstract_goal.first];
+        if (state[var_id].get_value() != abstract_goal.second) {
+            return false;
+        }
+    }
+    for (const shared_ptr<RegularNumericCondition> &num_goal : numeric_goals){
+        if (!num_goal->satisfied(state.nval(num_goal->get_var_id()))){
             return false;
         }
     }
@@ -580,9 +592,13 @@ ap_float PatternDatabase::get_value(const State &state) const {
     auto hash = hash_index(state);
     if (hash == numeric_limits<size_t>::max()) {
         if (exhausted_abstract_state_space){
+            // here we can guarantee that state is indeed a deadend
             return numeric_limits<ap_float>::max();
-        } else {
+        } else if (is_goal_state(state)) {
+            // abstract goals are satisfied
             return 0;
+        } else {
+            return min_action_cost;
         }
     }
     return distances[hash];

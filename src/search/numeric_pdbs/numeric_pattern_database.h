@@ -107,6 +107,11 @@ class PatternDatabase {
     std::vector<std::size_t> num_hash_multipliers;
     std::vector<std::unordered_map<ap_float, std::size_t>> num_hash_values;
 
+    std::vector<std::pair<int, int>> propositional_goals;
+    std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>> numeric_goals;
+
+    ap_float min_action_cost;
+
     bool exhausted_abstract_state_space;
 
     /*
@@ -176,9 +181,9 @@ class PatternDatabase {
     */
     bool is_goal_state(
             const NumericState &state,
-            const std::vector<std::pair<int, int>> &propositional_goals,
-            const std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>> &numeric_goals,
             const std::vector<int> &num_variable_to_index) const;
+
+    bool is_goal_state(const State &state) const;
 
     /*
       The given concrete state is used to calculate the index of the

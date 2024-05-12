@@ -22,7 +22,7 @@ public:
 
     virtual std::string get_name() const = 0;
 
-    virtual bool is_applicable(ap_float value) const = 0;
+    virtual bool satisfied(ap_float value) const = 0;
 };
 
 class RegularNumericConditionVar : public RegularNumericCondition {
@@ -33,7 +33,7 @@ public:
 
     std::string get_name() const override;
 
-    bool is_applicable(ap_float value) const override;
+    bool satisfied(ap_float value) const override;
 };
 
 class RegularNumericConditionConst : public RegularNumericCondition {
@@ -47,7 +47,7 @@ public:
 
     std::string get_name() const override;
 
-    bool is_applicable(ap_float value) const override;
+    bool satisfied(ap_float value) const override;
 };
 
 class RegularNumericConditionVarOpC : public RegularNumericCondition {
@@ -64,7 +64,7 @@ public:
 
     std::string get_name() const override;
 
-    bool is_applicable(ap_float value) const override;
+    bool satisfied(ap_float value) const override;
 };
 }
 
