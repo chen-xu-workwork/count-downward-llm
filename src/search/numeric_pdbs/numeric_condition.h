@@ -37,17 +37,20 @@ public:
 };
 
 class RegularNumericConditionConst : public RegularNumericCondition {
+    bool is_satisfied;
     ap_float const_l;
 public:
     RegularNumericConditionConst(int var_id,
                                  ap_float const_l,
                                  comp_operator c_op,
-                                 ap_float const_r) : RegularNumericCondition(var_id, c_op, const_r),
-                                                     const_l(const_l) {};
+                                 ap_float const_r);
 
     std::string get_name() const override;
 
-    bool satisfied(ap_float value) const override;
+    bool satisfied(ap_float /*value*/) const override {
+        // this is a constant condition that is evaluated on creation
+        return is_satisfied;
+    }
 };
 
 class RegularNumericConditionVarOpC : public RegularNumericCondition {

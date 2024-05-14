@@ -32,28 +32,38 @@ bool RegularNumericConditionVar::satisfied(ap_float value) const {
     }
 }
 
-string RegularNumericConditionConst::get_name() const {
-    ostringstream s;
-    s << const_l << c_op << _const << endl;
-    return s.str();
-}
-
-bool RegularNumericConditionConst::satisfied(ap_float /*value*/) const {
+RegularNumericConditionConst::RegularNumericConditionConst(
+        int var_id,
+        ap_float const_l,
+        comp_operator c_op,
+        ap_float const_r) : RegularNumericCondition(var_id, c_op, const_r),
+                            const_l(const_l) {
     switch (c_op){
         case lt:
-            return const_l < _const;
+            is_satisfied = const_l < _const;
+            break;
         case le:
-            return const_l <= _const;
+            is_satisfied = const_l <= _const;
+            break;
         case eq:
-            return const_l == _const;
+            is_satisfied = const_l == _const;
+            break;
         case ge:
-            return const_l >= _const;
+            is_satisfied = const_l >= _const;
+            break;
         case gt:
-            return const_l > _const;
+            is_satisfied = const_l > _const;
+            break;
         default:
             cerr << "ERROR: unsupported comparison operator " << c_op << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
     }
+}
+
+string RegularNumericConditionConst::get_name() const {
+    ostringstream s;
+    s << const_l << c_op << _const << endl;
+    return s.str();
 }
 
 string RegularNumericConditionVarOpC::get_name() const {
