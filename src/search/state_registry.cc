@@ -448,48 +448,48 @@ ap_float StateRegistry::assign_effect(ap_float aff_value, f_operator fop, ap_flo
   return result;
 }
 
-std::vector<ap_float> StateRegistry::get_numeric_vars(const GlobalState &state) const {
-  vector<ap_float> result = vector<ap_float>();
+vector<ap_float> StateRegistry::get_numeric_vars(const GlobalState &state) const {
+    vector<ap_float> result(g_numeric_var_types.size());
 //	if(DEBUG) cout << "Retrieving numeric state variables from StateRegistry" <<endl;
-    vector<ap_float> instrumentation_variables = g_cost_information[state];
+    const vector<ap_float> &instrumentation_variables = g_cost_information[state];
 //    if(DEBUG) cout << "instrumentation variables " << instrumentation_variables << endl;
     assert(g_initial_state_numeric.size() == g_numeric_var_types.size());
     assert(g_initial_state_numeric.size() == numeric_indices.size());
     const PackedStateBin *buffer = state.get_packed_buffer();
     for (size_t i = 0; i < g_numeric_var_types.size(); ++i) {
-      assert(i < numeric_indices.size());
-      switch (g_numeric_var_types[i]) {
-      case instrumentation:
+        assert(i < numeric_indices.size());
+        switch (g_numeric_var_types[i]) {
+            case instrumentation:
 //    		if (DEBUG) cout << "instrumentation_variables.size()" << instrumentation_variables.size()
 //    				<< "numeric_indices["<<i<<"] " << numeric_indices[i]<< endl;
-        assert((int) instrumentation_variables.size() > numeric_indices[i]);
-        result.push_back(instrumentation_variables[numeric_indices[i]]);
-        break;
-      case constant:
-        assert((int) numeric_constants.size() > numeric_indices[i]);
-        result.push_back(numeric_constants[numeric_indices[i]]);
-        break;
-      case derived:
-        result.push_back(0); // default value, axioms will be evaluated right after this for loop
-        break;
-      case unknown:
-        assert(false);
-        break;
-      case regular:
+                assert((int) instrumentation_variables.size() > numeric_indices[i]);
+                result[i] = instrumentation_variables[numeric_indices[i]];
+                break;
+            case constant:
+                assert((int) numeric_constants.size() > numeric_indices[i]);
+                result[i] = numeric_constants[numeric_indices[i]];
+                break;
+            case derived:
+                //result[i] = 0; // default value, axioms will be evaluated right after this for loop
+                break;
+            case unknown:
+                assert(false);
+                break;
+            case regular:
 //    		if (DEBUG) cout << "variable #" << i << " has buffer index " << numeric_indices[i] << endl;
 //    		cout << "unpacked double is " << g_state_packer->getDouble(buffer, numeric_indices[i]) << endl;
-        result.push_back(g_state_packer->getDouble(buffer, numeric_indices[i]));
-        break;
-      default:
-        assert(false);
-        break;
-      }
+                result[i] = g_state_packer->getDouble(buffer, numeric_indices[i]);
+                break;
+            default:
+                assert(false);
+                break;
+        }
     }
     assert(result.size() == g_initial_state_numeric.size());
 //    if (DEBUG) cout << "numeric vars before evaluating axioms\n"<< result << endl;
     if(has_numeric_axioms()) {
 //    	if (DEBUG) cout << "evaluating numeric axioms..." << endl;
-      g_axiom_evaluator->evaluate_arithmetic_axioms(result);
+        g_axiom_evaluator->evaluate_arithmetic_axioms(result);
     }
 //    if (DEBUG) cout << "numeric vars after evaluating axioms\n"<< result << endl;
     return result;
