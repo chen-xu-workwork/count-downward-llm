@@ -85,7 +85,7 @@ static shared_ptr<PatternGenerator> _parse(OptionParser &parser) {
     parser.add_option<bool>(
             "numeric_variables_first",
             "When selecting the next variable, should it be numeric or propositional?",
-            "true");
+            "false");
     vector<string> variable_order_types = {"CG_GOAL_LEVEL", "CG_GOAL_RANDOM", "GOAL_CG_LEVEL"};
     parser.add_enum_option(
             "variable_order_type",
