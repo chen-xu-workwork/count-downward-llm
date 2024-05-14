@@ -18,7 +18,7 @@ class NumericTaskProxy;
 
 namespace numeric_pdbs {
 
-class NumericState;
+struct NumericState;
 
 class AbstractOperator {
     /*
@@ -35,12 +35,12 @@ class AbstractOperator {
     ap_float cost;
 
     /*
-      Preconditions for the search.
+      Propositional preconditions for the search.
     */
     std::vector<std::pair<int, int>> preconditions;
 
     /*
-      Effect of the operator during search on a given abstract state number.
+      Propositional effect of the operator during search on a given abstract state number.
     */
     std::size_t hash_effect;
 public:
@@ -94,18 +94,14 @@ class PatternDatabase {
     Pattern pattern;
 
     // size of the PDB
-    std::size_t num_states;
+    std::size_t num_reached_states;
+    std::size_t num_prop_states;
 
-    /*
-      final h-values for abstract-states.
-      dead-ends are represented by numeric_limits<int>::max()
-    */
-    std::vector<ap_float> distances;
+    // final h-values for abstract-states
+    std::vector<std::unordered_map<std::vector<ap_float>, ap_float>> distances;
 
-    // multipliers for each variable for perfect hash function
+    // multipliers for each propositional variable for perfect hash function
     std::vector<std::size_t> prop_hash_multipliers;
-    std::vector<std::size_t> num_hash_multipliers;
-    std::vector<std::unordered_map<ap_float, std::size_t>> num_hash_values;
 
     std::vector<std::pair<int, int>> propositional_goals;
     std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>> numeric_goals;
@@ -148,8 +144,7 @@ class PatternDatabase {
     std::vector<ap_float> get_numeric_successor(std::vector<ap_float> state,
                                                 int op_id,
                                                 numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
-                                                const std::vector<int> &num_variable_to_index,
-                                                std::vector<std::set<ap_float>> &reached_numeric_values) const;
+                                                const std::vector<int> &num_variable_to_index) const;
 
     /*
       Computes all abstract operators, builds the match tree (successor
@@ -183,16 +178,17 @@ class PatternDatabase {
             const NumericState &state,
             const std::vector<int> &num_variable_to_index) const;
 
-    bool is_goal_state(const State &state) const;
+    bool is_abstract_goal_state(const State &state) const;
 
     /*
       The given concrete state is used to calculate the index of the
       according abstract state. This is only used for table lookup
       (distances) during search.
     */
-    std::size_t hash_index(const State &state) const;
+    std::size_t prop_hash_index(const State &state) const;
 
-    std::size_t hash_index(const NumericState &state) const;
+    const std::vector<ap_float> &get_abstract_numeric_state(const State &state) const;
+
 public:
     /*
       Important: It is assumed that the pattern (passed via Options) is
@@ -210,6 +206,7 @@ public:
         std::size_t max_number_states,
         bool dump = false,
         const std::vector<int> &operator_costs = std::vector<int>());
+
     ~PatternDatabase() = default;
 
     ap_float get_value(const State &state) const;
@@ -221,7 +218,7 @@ public:
 
     // Returns the size (number of abstract states) of the PDB
     std::size_t get_size() const {
-        return num_states;
+        return num_reached_states;
     }
 
     /*
