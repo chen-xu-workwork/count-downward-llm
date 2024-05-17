@@ -1,16 +1,16 @@
 #ifndef NUMERIC_PDBS_NUMERIC_HELPER
 #define NUMERIC_PDBS_NUMERIC_HELPER
 
+#include "../option_parser.h"
+#include "../plugin.h"
+#include "../task_tools.h"
+
 #include <cmath>
 #include <iostream>
 #include <list>
 #include <set>
 #include <unordered_map>
 #include <vector>
-
-#include "../option_parser.h"
-#include "../plugin.h"
-#include "../task_tools.h"
 
 namespace numeric_condition {
 class RegularNumericCondition;
@@ -122,10 +122,6 @@ public:
     size_t get_n_conditions() const { return n_conditions; }
     size_t get_n_numeric_variables() const { return n_numeric_variables; }
     int get_proposition(int var, int val) { return propositions[var][val]; }
-
-    std::set<int> &get_action_num_list(int op_id) {
-        return actions[op_id].num_list;
-    }
 
     std::vector<double> &get_action_eff_list(int op_id) {
         return actions[op_id].eff_list;
