@@ -601,6 +601,7 @@ fast_downward_plugin(
 		numeric_pdbs/numeric_condition.cc
         numeric_pdbs/numeric_helper.cc
         numeric_pdbs/numeric_pattern_database.cc
+		numeric_pdbs/numeric_state_registry.cc
         numeric_pdbs/pattern_collection_information.cc
         numeric_pdbs/pattern_generator_greedy.cc
         numeric_pdbs/pattern_generator_manual.cc

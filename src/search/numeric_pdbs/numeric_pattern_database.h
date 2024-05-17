@@ -1,9 +1,10 @@
 #ifndef NUMERIC_PDBS_NUMERIC_PATTERN_DATABASE_H
 #define NUMERIC_PDBS_NUMERIC_PATTERN_DATABASE_H
 
-#include "../task_proxy.h"
-
+#include "numeric_state_registry.h"
 #include "types.h"
+
+#include "../task_proxy.h"
 
 #include <utility>
 #include <vector>
@@ -17,8 +18,6 @@ class NumericTaskProxy;
 }
 
 namespace numeric_pdbs {
-
-struct NumericState;
 
 class AbstractOperator {
     /*
@@ -97,8 +96,10 @@ class PatternDatabase {
     std::size_t num_reached_states;
     std::size_t num_prop_states;
 
+    std::unique_ptr<NumericStateRegistry> state_registry;
+
     // final h-values for abstract-states
-    std::vector<std::unordered_map<std::vector<ap_float>, ap_float>> distances;
+    std::vector<ap_float> distances;
 
     // multipliers for each propositional variable for perfect hash function
     std::vector<std::size_t> prop_hash_multipliers;

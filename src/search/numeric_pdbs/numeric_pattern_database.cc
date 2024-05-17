@@ -5,7 +5,6 @@
 #include "numeric_helper.h"
 
 #include "../priority_queue.h"
-#include "../segmented_vector.h"
 
 #include "../utils/logging.h"
 #include "../utils/math.h"
@@ -68,93 +67,6 @@ void AbstractOperator::dump(const Pattern &pattern,
     cout << "Hash effect:" << hash_effect << endl;
 }
 
-struct NumericState {
-    size_t prop_hash;
-    vector<ap_float> num_state;
-    NumericState(size_t prop_hash,
-                 vector<ap_float> num_state) : prop_hash(prop_hash),
-                                               num_state(std::move(num_state)) {}
-
-    string get_name(const TaskProxy &proxy, const Pattern &pattern) const {
-        stringstream ss;
-        ss << "NumericState {" << endl;
-        ss << "\tprop: " << prop_hash << endl;
-        ss << "\tnum: ";
-        int i = 0;
-        for (int var : pattern.numeric){
-            ss << proxy.get_numeric_variables()[var].get_name() << " = " << num_state[i++] << "; ";
-        }
-        ss << endl << "}" << endl;
-        return ss.str();
-    }
-
-    bool operator==(const NumericState &other) const {
-        return prop_hash == other.prop_hash && num_state == other.num_state;
-    }
-};
-
-struct NumericStateHash {
-    size_t operator()(const NumericState &s) const {
-        std::hash<ap_float> hasher;
-        size_t seed = s.prop_hash;
-        for (ap_float i : s.num_state) {
-            seed ^= hasher(i) + 0x9e3779b9 + (seed<<6) + (seed>>2);
-        }
-        return seed;
-    }
-};
-
-class NumericStateRegistry {
-    struct StateIDSemanticHash {
-        const SegmentedVector<NumericState> &state_data_pool;
-        explicit StateIDSemanticHash(const SegmentedVector<NumericState> &state_data_pool_)
-                : state_data_pool(state_data_pool_) {
-        }
-        size_t operator()(size_t id) const {
-            return NumericStateHash{}(state_data_pool[id]);
-        }
-    };
-
-    struct StateIDSemanticEqual {
-        const SegmentedVector<NumericState> &state_data_pool;
-        explicit StateIDSemanticEqual(const SegmentedVector<NumericState> &state_data_pool_)
-                : state_data_pool(state_data_pool_) {
-        }
-
-        bool operator()(size_t lhs, size_t rhs) const {
-            const NumericState &lhs_data = state_data_pool[lhs];
-            const NumericState &rhs_data = state_data_pool[rhs];
-            return lhs_data == rhs_data;
-        }
-    };
-
-    typedef std::unordered_set<size_t,
-                               StateIDSemanticHash,
-                               StateIDSemanticEqual> StateIDSet;
-    SegmentedVector<NumericState> state_data_pool;
-    StateIDSet registered_states;
-
-public:
-    NumericStateRegistry() : registered_states(0,
-                                               StateIDSemanticHash(state_data_pool),
-                                               StateIDSemanticEqual(state_data_pool)){}
-    size_t insert_state(const NumericState &state) {
-        state_data_pool.push_back(state);
-        size_t id(state_data_pool.size() - 1);
-        pair<StateIDSet::iterator, bool> result = registered_states.insert(id);
-        bool is_new_entry = result.second;
-        if (!is_new_entry) {
-            state_data_pool.pop_back();
-        }
-        assert(registered_states.size() == state_data_pool.size());
-        return *result.first;
-    }
-
-    const NumericState &lookup_state(size_t state_id) const {
-        assert(state_id < state_data_pool.size());
-        return state_data_pool[state_id];
-    }
-};
 
 PatternDatabase::PatternDatabase(
     const TaskProxy &task_proxy,
@@ -164,6 +76,7 @@ PatternDatabase::PatternDatabase(
     const vector<int> &operator_costs)
     : task_proxy(task_proxy),
       pattern(pattern),
+      state_registry(make_unique<NumericStateRegistry>()),
       min_action_cost(numeric_limits<double>::max()),
       exhausted_abstract_state_space(false) {
     // verify_no_axioms(task_proxy); // TODO adapt the function to ignore the numeric axioms + dummy axioms
@@ -377,7 +290,6 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         }
     }
 
-    NumericStateRegistry state_registry;
     vector<bool> closed;
     vector<vector<pair<int, size_t>>> parent_pointers;
     vector<size_t> goal_states;
@@ -394,7 +306,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
     for (int var : pattern.numeric){
         num_init[num_variable_to_index[var]] = num_vars[var].get_initial_state_value();
     }
-    size_t init_state_id = state_registry.insert_state(NumericState(prop_init, std::move(num_init)));
+    size_t init_state_id = state_registry->insert_state(NumericState(prop_init, std::move(num_init)));
     open.push(0, init_state_id);
 
     /*
@@ -437,7 +349,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         }
         closed[state_id] = true;
 
-        const NumericState &state = state_registry.lookup_state(state_id);
+        const NumericState &state = state_registry->lookup_state(state_id);
 
         if (is_goal_state(state, num_variable_to_index)){
             goal_states.push_back(state_id);
@@ -461,7 +373,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                                                                    num_task_proxy,
                                                                    num_variable_to_index);
 
-            size_t succ_id = state_registry.insert_state(NumericState(prop_successor, std::move(num_successor)));
+            size_t succ_id = state_registry->insert_state(NumericState(prop_successor, std::move(num_successor)));
             if (parent_pointers.size() <= succ_id){
                 parent_pointers.resize(succ_id + 1);
             }
@@ -485,7 +397,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                                                                    num_task_proxy,
                                                                    num_variable_to_index);
 
-            size_t succ_id = state_registry.insert_state(NumericState(state.prop_hash, std::move(num_successor)));
+            size_t succ_id = state_registry->insert_state(NumericState(state.prop_hash, std::move(num_successor)));
             if (parent_pointers.size() <= succ_id){
                 parent_pointers.resize(succ_id + 1);
             }
@@ -504,26 +416,22 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
     cout << "Generated abstract states: " << num_reached_states << endl;
 
     assert(distances.empty());
-    distances.resize(num_prop_states);
+    distances.resize(state_registry->size(), numeric_limits<ap_float>::max());
     AdaptiveQueue<size_t> pq;
 
     for (const auto &goal_state_id : goal_states) {
         pq.push(0, goal_state_id);
-        const NumericState &goal_state = state_registry.lookup_state(goal_state_id);
-        distances[goal_state.prop_hash][goal_state.num_state] = 0;
     }
     vector<size_t>().swap(goal_states); // save memory
 
     while (!open.empty()){
         size_t state_id = open.pop().second;
-        const NumericState &state = state_registry.lookup_state(state_id);
+        const NumericState &state = state_registry->lookup_state(state_id);
         if (is_goal_state(state, num_variable_to_index)){
             // we have not checked this for states in open
             pq.push(0, state_id);
-            distances[state.prop_hash][state.num_state] = 0;
         } else {
             pq.push(min_action_cost, state_id);
-            distances[state.prop_hash][state.num_state] = min_action_cost;
         }
     }
 
@@ -531,24 +439,15 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
     while (!pq.empty()) {
         auto [distance, state_id] = pq.pop();
         assert(distance >= 0);
-        const NumericState &state = state_registry.lookup_state(state_id);
-        size_t hash = state.prop_hash;
-        auto found_state_it = distances[hash].find(state.num_state);
-        if (found_state_it != distances[hash].end() && distance > found_state_it->second) {
+        if (distance >= distances[state_id]) {
             continue;
         }
+        distances[state_id] = distance;
 
         // regress state
         for (const auto &[op_id, parent_state_id] : parent_pointers[state_id]) {
-            const NumericState &parent_state = state_registry.lookup_state(parent_state_id);
-            size_t parent_hash = parent_state.prop_hash;
             ap_float alternative_cost = distance + task_proxy.get_operators()[op_id].get_cost();
-            found_state_it = distances[parent_hash].find(parent_state.num_state);
-            if (found_state_it == distances[parent_hash].end()) {
-                distances[parent_hash][parent_state.num_state] = alternative_cost;
-                pq.push(alternative_cost, parent_state_id);
-            } else if (alternative_cost < found_state_it->second) {
-                found_state_it->second = alternative_cost;
+            if (alternative_cost < distances[parent_state_id]) {
                 pq.push(alternative_cost, parent_state_id);
             }
         }
@@ -556,6 +455,19 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
 
     if (num_reached_states < max_number_states) {
         exhausted_abstract_state_space = true;
+    } else {
+        for (size_t i = 0; i < distances.size(); ++i){
+            // we cannot assume that unreached states are deadends
+            if (distances[i] == numeric_limits<ap_float>::max()) {
+                if (is_goal_state(state_registry->lookup_state(i), num_variable_to_index)) {
+                    // abstract goals are satisfied
+                    distances[i] = 0;
+                } else {
+                    // we don't know any better
+                    distances[i] = min_action_cost;
+                }
+            }
+        }
     }
 }
 
@@ -616,9 +528,8 @@ const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State 
 }
 
 ap_float PatternDatabase::get_value(const State &state) const {
-    size_t prop_hash = prop_hash_index(state);
-    auto found_state_it = distances[prop_hash].find(get_abstract_numeric_state(state));
-    if (found_state_it == distances[prop_hash].end()) {
+    size_t abs_state_id = state_registry->get_id(NumericState(prop_hash_index(state), get_abstract_numeric_state(state)));
+    if (abs_state_id == numeric_limits<size_t>::max()) {
         // we have not seen an abstract state that corresponds to state
         if (exhausted_abstract_state_space) {
             // here we can guarantee that state is indeed a deadend
@@ -631,7 +542,7 @@ ap_float PatternDatabase::get_value(const State &state) const {
             return min_action_cost;
         }
     }
-    return found_state_it->second;
+    return distances[abs_state_id];
 }
 
 double PatternDatabase::compute_mean_finite_h() const {
