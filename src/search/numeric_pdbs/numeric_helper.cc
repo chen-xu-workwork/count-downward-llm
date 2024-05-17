@@ -672,8 +672,9 @@ bool NumericTaskProxy::is_numeric_variable(const VariableProxy &var_proxy) const
 }
 
 int NumericTaskProxy::get_regular_var_id(int num_var_id) const {
+    // TODO precompute and cache this
     int i = 0;
-    for (auto num_var: task_proxy.get_numeric_variables()) {
+    for (const auto &num_var: task_proxy.get_numeric_variables()) {
         if (num_var.get_id() == num_var_id){
             assert(num_var.get_var_type() == regular);
             return i;
