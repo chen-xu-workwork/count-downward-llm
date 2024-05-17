@@ -4,6 +4,10 @@
 #include "../globals.h"
 
 namespace numeric_condition {
+
+// TODO simplify all of these and compile everything to the base case
+//  + probably a constant true/false class for static conditions
+
 class RegularNumericCondition {
 protected:
     int var_id; // this is always a regular numeric variable
@@ -26,6 +30,7 @@ public:
 };
 
 class RegularNumericConditionVar : public RegularNumericCondition {
+    // this class encodes expressions of the form: var_id c_op _const; e.g. var >= 0
 public:
     RegularNumericConditionVar(int var_id,
                                comp_operator c_op,
@@ -37,6 +42,8 @@ public:
 };
 
 class RegularNumericConditionConst : public RegularNumericCondition {
+    // this class encodes expressions of the form: const_l c_op _const; e.g. 2 >= 0
+    // the expression is evaluated once on construction and the result stored in is_satisfied
     bool is_satisfied;
     ap_float const_l;
 public:
@@ -54,6 +61,7 @@ public:
 };
 
 class RegularNumericConditionVarOpC : public RegularNumericCondition {
+    // this class encodes expressions of the form: var_id cal_op op_const c_op _const; e.g. var - 2 >= 0
     cal_operator cal_op;
     ap_float op_const;
 public:
