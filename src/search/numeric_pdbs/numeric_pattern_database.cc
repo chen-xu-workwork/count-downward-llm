@@ -320,14 +320,13 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
 
     for (const shared_ptr<RegularNumericCondition> &num_goal : num_task_proxy.get_numeric_goals()){
         if (num_variable_to_index[num_goal->get_var_id()] != -1){
-//            cout << "relevant numeric goal: " << num_goal->get_name() << endl;
             numeric_goals.push_back(num_goal);
         }
     }
 
-    // TODO change the set and map to a vector of set/map indexed by the propositional hash
-    unordered_set<NumericState, NumericStateHash> closed;
-    unordered_map<NumericState, vector<pair<int, NumericState>>, NumericStateHash> parent_pointers;
+    // TODO introduce a simple variant of the state registry to optimize all this
+    vector<unordered_set<vector<ap_float>>> closed(num_prop_states);
+    vector<unordered_map<vector<ap_float>, vector<pair<int, NumericState>>>> parent_pointers(num_prop_states);
     vector<NumericState> goal_states;
 
     // first implicit entry: priority, second entry: index for an abstract state
@@ -376,15 +375,13 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         auto [cost, state] = open.pop();
         assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 
-        if (closed.count(state) > 0){
+        if (closed[state.prop_hash].count(state.num_state) > 0){
             // we don't do duplicate checking in the open list
             continue;
         }
-//        cout << endl << "expand " << state.get_name(task_proxy, pattern) << endl;
-        closed.insert(state);
+        closed[state.prop_hash].insert(state.num_state);
 
         if (is_goal_state(state, num_variable_to_index)){
-//            cout << "is goal state" << endl;
             goal_states.push_back(state);
         }
 
@@ -396,11 +393,8 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                                task_proxy.get_operators()[op->get_op_id()],
                                num_task_proxy,
                                num_variable_to_index)){
-//                cout << "op not applicable: " << task_proxy.get_operators()[op->get_op_id()].get_name() << endl;
                 continue;
             }
-
-//            cout << "applying " << task_proxy.get_operators()[op->get_op_id()].get_name() << endl;
 
             size_t prop_successor = state.prop_hash + op->get_hash_effect();
 
@@ -410,11 +404,10 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                                                                    num_variable_to_index);
 
             NumericState successor(prop_successor, std::move(num_successor));
-            parent_pointers[successor].emplace_back(op->get_op_id(), state);
-            if (closed.count(successor) == 0){
+            parent_pointers[prop_successor][successor.num_state].emplace_back(op->get_op_id(), state);
+            if (closed[prop_successor].count(successor.num_state) == 0){
                 ++num_reached_states;
                 open.push(cost + op->get_cost(), successor);
-//                cout << "adding successor " << successor.get_name(task_proxy, pattern) << endl;
             }
         }
 
@@ -423,28 +416,25 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                                task_proxy.get_operators()[op_id],
                                num_task_proxy,
                                num_variable_to_index)){
-//                cout << "num op not applicable: " << task_proxy.get_operators()[op_id].get_name() << endl;
                 continue;
             }
-
-//            cout << "applying " << task_proxy.get_operators()[op_id].get_name() << endl;
 
             vector<ap_float> num_successor = get_numeric_successor(state.num_state,
                                                                    op_id,
                                                                    num_task_proxy,
                                                                    num_variable_to_index);
+
             NumericState successor(state.prop_hash, std::move(num_successor));
-            parent_pointers[successor].emplace_back(op_id, state);
-            if (closed.count(successor) == 0){
+            parent_pointers[successor.prop_hash][successor.num_state].emplace_back(op_id, state);
+            if (closed[successor.prop_hash].count(successor.num_state) == 0){
                 ++num_reached_states;
                 ap_float op_cost = task_proxy.get_operators()[op_id].get_cost();
                 open.push(cost + op_cost, successor);
-//                cout << "adding numeric successor " << successor.get_name(task_proxy, pattern) << endl;
             }
         }
     }
 
-    unordered_set<NumericState, NumericStateHash>().swap(closed); // save memory
+    vector<unordered_set<vector<ap_float>>>().swap(closed); // save memory
 
     cout << "Reached abstract goal states: " << goal_states.size() << endl;
     cout << "Generated abstract states: " << num_reached_states << endl;
@@ -482,7 +472,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         }
 
         // regress state
-        for (const auto &[op_id, parent_state] : parent_pointers[state]) {
+        for (const auto &[op_id, parent_state] : parent_pointers[state.prop_hash][state.num_state]) {
             size_t parent_hash = parent_state.prop_hash;
             ap_float alternative_cost = distance + task_proxy.get_operators()[op_id].get_cost();
             found_state_it = distances[parent_hash].find(parent_state.num_state);
