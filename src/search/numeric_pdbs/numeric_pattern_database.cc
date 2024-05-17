@@ -325,8 +325,9 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         }
     }
 
+    // TODO change the set and map to a vector of set/map indexed by the propositional hash
     unordered_set<NumericState, NumericStateHash> closed;
-    unordered_map<NumericState, vector<pair<ap_float, NumericState>>, NumericStateHash> parent_pointers;
+    unordered_map<NumericState, vector<pair<int, NumericState>>, NumericStateHash> parent_pointers;
     vector<NumericState> goal_states;
 
     // first implicit entry: priority, second entry: index for an abstract state
@@ -409,7 +410,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                                                                    num_variable_to_index);
 
             NumericState successor(prop_successor, std::move(num_successor));
-            parent_pointers[successor].emplace_back(op->get_cost(), state);
+            parent_pointers[successor].emplace_back(op->get_op_id(), state);
             if (closed.count(successor) == 0){
                 ++num_reached_states;
                 open.push(cost + op->get_cost(), successor);
@@ -433,10 +434,10 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                                                                    num_task_proxy,
                                                                    num_variable_to_index);
             NumericState successor(state.prop_hash, std::move(num_successor));
-            ap_float op_cost = task_proxy.get_operators()[op_id].get_cost();
-            parent_pointers[successor].emplace_back(op_cost, state);
+            parent_pointers[successor].emplace_back(op_id, state);
             if (closed.count(successor) == 0){
                 ++num_reached_states;
+                ap_float op_cost = task_proxy.get_operators()[op_id].get_cost();
                 open.push(cost + op_cost, successor);
 //                cout << "adding numeric successor " << successor.get_name(task_proxy, pattern) << endl;
             }
@@ -481,9 +482,9 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         }
 
         // regress state
-        for (const auto &[op_cost, parent_state] : parent_pointers[state]) {
+        for (const auto &[op_id, parent_state] : parent_pointers[state]) {
             size_t parent_hash = parent_state.prop_hash;
-            ap_float alternative_cost = distance + op_cost;
+            ap_float alternative_cost = distance + task_proxy.get_operators()[op_id].get_cost();
             found_state_it = distances[parent_hash].find(parent_state.num_state);
             if (found_state_it == distances[parent_hash].end()) {
                 distances[parent_hash][parent_state.num_state] = alternative_cost;
