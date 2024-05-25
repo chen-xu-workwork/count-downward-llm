@@ -39,7 +39,7 @@ Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> task) {
     Pattern pattern;
     VariableOrderFinder order(task, num_task_proxy, var_order_type, numeric_variables_first, rng);
     VariablesProxy variables = task_proxy.get_variables();
-//    NumericVariablesProxy num_variables = task_proxy.get_numeric_variables();
+    NumericVariablesProxy num_variables = task_proxy.get_numeric_variables();
 
     int size = 1;
     while (true) {
@@ -52,8 +52,8 @@ Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> task) {
 
         int next_var_size;
         if (is_numeric) {
-            // TODO approximate domain size based on the constants which are related to this variable
-            next_var_size = 100;
+            NumericVariableProxy next_var = num_variables[next_var_id];
+            next_var_size = max(1, num_task_proxy->get_approximate_domain_size(next_var));
         } else {
             VariableProxy next_var = variables[next_var_id];
             next_var_size = next_var.get_domain_size();

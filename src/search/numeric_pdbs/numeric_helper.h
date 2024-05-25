@@ -123,7 +123,7 @@ public:
     size_t get_n_numeric_variables() const { return n_numeric_variables; }
     int get_proposition(int var, int val) { return propositions[var][val]; }
 
-    std::vector<double> &get_action_eff_list(int op_id) {
+    std::vector<ap_float> &get_action_eff_list(int op_id) {
         return actions[op_id].eff_list;
     }
 
@@ -143,6 +143,8 @@ public:
     std::shared_ptr<numeric_condition::RegularNumericCondition> get_regular_numeric_condition(const FactProxy &condition);
 
     const std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>> &get_numeric_goals();
+
+    int get_approximate_domain_size(NumericVariableProxy num_var);
 
     std::list<int> &get_numeric_goals(int id_goal) { return numeric_goals[id_goal]; }
 
@@ -181,6 +183,8 @@ private:
     const TaskProxy task_proxy;
     std::vector<std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>>> regular_numeric_conditions;
     std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>> regular_numeric_goals;
+
+    std::vector<int> approximate_num_var_domain_sizes;
 
     // numeric variables
     size_t n_numeric_variables;  // number of real numeric variables

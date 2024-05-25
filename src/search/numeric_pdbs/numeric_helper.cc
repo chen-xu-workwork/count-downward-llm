@@ -688,6 +688,7 @@ int NumericTaskProxy::get_regular_var_id(int num_var_id) const {
 }
 
 shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condition(const FactProxy &condition) /*const*/ {
+    assert(!task_proxy.is_derived_variable(condition.get_variable()) && is_numeric_variable(condition.get_variable()));
 
     int var_id = condition.get_variable().get_id();
 
@@ -819,6 +820,53 @@ const vector<shared_ptr<RegularNumericCondition>> &NumericTaskProxy::get_numeric
     }
 
     return regular_numeric_goals;
+}
+
+int NumericTaskProxy::get_approximate_domain_size(NumericVariableProxy num_var) {
+    assert(g_numeric_var_types[num_var.get_id()] == numType::regular);
+    if (approximate_num_var_domain_sizes.empty()){
+        approximate_num_var_domain_sizes.resize(task_proxy.get_numeric_variables().size(), -1);
+    }
+    if (approximate_num_var_domain_sizes[num_var.get_id()] == -1){
+        // TODO precompute this on construction
+        ap_float min_increment = numeric_limits<ap_float>::max();
+        ap_float min_const = numeric_limits<ap_float>::max();
+        ap_float max_const = numeric_limits<ap_float>::lowest();
+
+        for (const auto &op : task_proxy.get_operators()){
+            for (const auto &pre : op.get_preconditions()){
+                if (!task_proxy.is_derived_variable(pre.get_variable()) && is_numeric_variable(pre.get_variable())) {
+                    const auto &num_cond = get_regular_numeric_condition(pre);
+                    if (num_cond->has_constant()) {
+                        ap_float c = num_cond->get_constant();
+                        min_const = min(min_const, c);
+                        max_const = max(max_const, c);
+                    }
+                }
+            }
+            const auto &num_effs = get_action_eff_list(op.get_id());
+            ap_float eff = num_effs[get_regular_var_id(num_var.get_id())];
+            if (eff != 0) {
+                min_increment = min(min_increment, abs(num_effs[get_regular_var_id(num_var.get_id())]));
+            }
+        }
+
+        ap_float ini_val = g_initial_state_numeric[num_var.get_id()];
+        min_const = min(min_const, ini_val);
+        max_const = max(max_const, ini_val);
+
+        for (const auto & goal : get_numeric_goals()){
+            if (num_var.get_id() == goal->get_var_id() && goal->has_constant()){
+                ap_float c = goal->get_constant();
+                min_const = min(min_const, c);
+                max_const = max(max_const, c);
+            }
+        }
+
+        assert(abs((max_const - min_const) / min_increment) <= numeric_limits<int>::max());
+        approximate_num_var_domain_sizes[num_var.get_id()] = static_cast<int>(abs((max_const - min_const) / min_increment));
+    }
+    return approximate_num_var_domain_sizes[num_var.get_id()];
 }
 
 void NumericTaskProxy::build_numeric_goals() {
