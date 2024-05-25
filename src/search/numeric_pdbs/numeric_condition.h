@@ -27,6 +27,10 @@ public:
     virtual std::string get_name() const = 0;
 
     virtual bool satisfied(ap_float value) const = 0;
+
+    virtual bool has_constant() const = 0;
+
+    virtual ap_float get_constant() const = 0;
 };
 
 class RegularNumericConditionVar : public RegularNumericCondition {
@@ -39,6 +43,12 @@ public:
     std::string get_name() const override;
 
     bool satisfied(ap_float value) const override;
+
+    bool has_constant() const override {
+        return true;
+    }
+
+    ap_float get_constant() const override;
 };
 
 class RegularNumericConditionConst : public RegularNumericCondition {
@@ -58,6 +68,14 @@ public:
         // this is a constant condition that is evaluated on creation
         return is_satisfied;
     }
+
+    bool has_constant() const override {
+        return false;
+    }
+
+    ap_float get_constant() const override {
+        return 0;
+    }
 };
 
 class RegularNumericConditionVarOpC : public RegularNumericCondition {
@@ -76,6 +94,12 @@ public:
     std::string get_name() const override;
 
     bool satisfied(ap_float value) const override;
+
+    bool has_constant() const override {
+        return true;
+    }
+
+    ap_float get_constant() const override;
 };
 }
 

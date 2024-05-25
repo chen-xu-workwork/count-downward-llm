@@ -32,6 +32,10 @@ bool RegularNumericConditionVar::satisfied(ap_float value) const {
     }
 }
 
+ap_float RegularNumericConditionVar::get_constant() const {
+    return _const;
+}
+
 RegularNumericConditionConst::RegularNumericConditionConst(
         int var_id,
         ap_float const_l,
@@ -98,6 +102,20 @@ bool RegularNumericConditionVarOpC::satisfied(ap_float value) const {
             return lh_value > _const;
         default:
             cerr << "ERROR: unsupported comparison operator " << c_op << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    }
+}
+
+ap_float RegularNumericConditionVarOpC::get_constant() const {
+    switch (cal_op){
+        case sum:
+            // we need to invert the operator
+            return _const - op_const;
+        case diff:
+            // we need to invert the operator
+            return _const + op_const;
+        default:
+            cerr << "ERROR: unsupported cal_operator " << cal_op << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
     }
 }
