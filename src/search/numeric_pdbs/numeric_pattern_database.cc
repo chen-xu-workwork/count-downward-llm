@@ -229,6 +229,14 @@ vector<ap_float> PatternDatabase::get_numeric_successor(vector<ap_float> state,
 void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                                  size_t max_number_states,
                                  const std::vector<int> &operator_costs) {
+
+    // TODO: implement specialized efficient variants for the nice cases, e.g.
+    //  1) no numeric variables => default to regular PatternDatabase
+    //  2) no non-goal numeric variables => we can do regression in this case, as there are finitely many abstract goal states
+
+    // TODO: if we manage to exhaust the state space, it is probably more efficient to do perfect hashing, where we map
+    //  the reached values of numeric variables to indices 0..N-1
+
     VariablesProxy vars = task_proxy.get_variables();
     vector<int> variable_to_index(vars.size(), -1);
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
