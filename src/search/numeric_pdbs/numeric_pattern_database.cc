@@ -237,6 +237,10 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
     // TODO: if we manage to exhaust the state space, it is probably more efficient to do perfect hashing, where we map
     //  the reached values of numeric variables to indices 0..N-1
 
+    // TODO: we could try perfect hashing in all cases, where we sort reached numeric values such that the PDB vector
+    //  is as dense as possible, and only having it just large enough to fit the abstract state with highest ID that has
+    //  a finite heuristic value, with all others being deadends or mapped to min_action_cost by convention.
+
     VariablesProxy vars = task_proxy.get_variables();
     vector<int> variable_to_index(vars.size(), -1);
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
