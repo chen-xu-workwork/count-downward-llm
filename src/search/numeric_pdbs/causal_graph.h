@@ -111,23 +111,13 @@ public:
 
     std::vector<int> get_num_eff_to_num_pre(int num_var) const;
 
-    const std::vector<int> &get_eff_to_eff(int var) const {
-        std::cerr << "ERROR: not implemented in numeric CG" << std::endl;
-        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-        return eff_to_eff[var];
-    }
+    std::vector<int> get_prop_predecessors_of_prop_var(int prop_var) const;
 
-    const std::vector<int> &get_successors(int var) const {
-        std::cerr << "ERROR: not implemented in numeric CG" << std::endl;
-        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-        return successors[var];
-    }
+    std::vector<int> get_prop_predecessors_of_num_var(int num_var) const;
 
-    const std::vector<int> &get_predecessors(int var) const {
-        std::cerr << "ERROR: not implemented in numeric CG" << std::endl;
-        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-        return predecessors[var];
-    }
+    std::vector<int> get_num_predecessors_of_prop_var(int prop_var) const;
+
+    std::vector<int> get_num_predecessors_of_num_var(int num_var) const;
 };
 }
 /* Create or retrieve a causal graph from cache. If causal graphs are created

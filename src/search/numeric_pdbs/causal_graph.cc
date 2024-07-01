@@ -297,7 +297,6 @@ vector<int> CausalGraph::get_prop_eff_to_prop_pre(int prop_var) const {
 }
 
 vector<int> CausalGraph::get_prop_eff_to_num_pre(int prop_var) const {
-    assert(first_num_var_index >= 0);
     int mapped_var = prop_var_id_to_glob_var_id[prop_var];
     if (mapped_var == -1 || static_cast<size_t>(first_num_var_index) == glob_var_id_to_var_id.size()){
         return {};
@@ -328,7 +327,6 @@ vector<int> CausalGraph::get_num_eff_to_prop_pre(int num_var) const {
 }
 
 vector<int> CausalGraph::get_num_eff_to_num_pre(int num_var) const {
-    assert(first_num_var_index >= 0);
     int mapped_var = num_var_id_to_glob_var_id[num_var];
     if (mapped_var == -1 || static_cast<size_t>(first_num_var_index) == glob_var_id_to_var_id.size()){
         return {};
@@ -340,6 +338,66 @@ vector<int> CausalGraph::get_num_eff_to_num_pre(int num_var) const {
             }
         }
         return num_pre;
+    }
+}
+
+vector<int> CausalGraph::get_prop_predecessors_of_prop_var(int prop_var) const {
+    int mapped_var = prop_var_id_to_glob_var_id[prop_var];
+    if (mapped_var == -1 || first_num_var_index == 0){
+        return {};
+    } else {
+        vector<int> prop_pred;
+        for (int var : predecessors[mapped_var]){
+            if (var < first_num_var_index) {
+                prop_pred.push_back(glob_var_id_to_var_id[var]);
+            }
+        }
+        return prop_pred;
+    }
+}
+
+vector<int> CausalGraph::get_prop_predecessors_of_num_var(int num_var) const {
+    int mapped_var = num_var_id_to_glob_var_id[num_var];
+    if (mapped_var == -1 || static_cast<size_t>(first_num_var_index) == glob_var_id_to_var_id.size()){
+        return {};
+    } else {
+        vector<int> prop_pred;
+        for (int var : predecessors[mapped_var]){
+            if (var < first_num_var_index) {
+                prop_pred.push_back(glob_var_id_to_var_id[var]);
+            }
+        }
+        return prop_pred;
+    }
+}
+
+vector<int> CausalGraph::get_num_predecessors_of_prop_var(int prop_var) const {
+    int mapped_var = prop_var_id_to_glob_var_id[prop_var];
+    if (mapped_var == -1 || first_num_var_index == 0){
+        return {};
+    } else {
+        vector<int> num_pred;
+        for (int var : predecessors[mapped_var]){
+            if (var >= first_num_var_index) {
+                num_pred.push_back(glob_var_id_to_var_id[var]);
+            }
+        }
+        return num_pred;
+    }
+}
+
+vector<int> CausalGraph::get_num_predecessors_of_num_var(int num_var) const {
+    int mapped_var = num_var_id_to_glob_var_id[num_var];
+    if (mapped_var == -1 || static_cast<size_t>(first_num_var_index) == glob_var_id_to_var_id.size()){
+        return {};
+    } else {
+        vector<int> num_pred;
+        for (int var : predecessors[mapped_var]){
+            if (var >= first_num_var_index) {
+                num_pred.push_back(glob_var_id_to_var_id[var]);
+            }
+        }
+        return num_pred;
     }
 }
 }
