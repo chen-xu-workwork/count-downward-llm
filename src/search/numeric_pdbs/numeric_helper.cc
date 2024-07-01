@@ -76,6 +76,16 @@ NumericTaskProxy::NumericTaskProxy(const TaskProxy &task, bool additional,
     if (additional) {
         if (numeric) calculates_dominance();
     }
+
+    // reconstruct regular numeric goals
+    for (auto axiom : task_proxy.get_axioms()){
+        if (!axiom.get_preconditions().empty()) {
+            for (auto pre: axiom.get_preconditions()) {
+                regular_numeric_goals.push_back(get_regular_numeric_condition(pre));
+            }
+            assert(axiom.get_effects().size() == 1);
+        }
+    }
 }
 
 void NumericTaskProxy::calculates_dominance() {
@@ -687,6 +697,28 @@ int NumericTaskProxy::get_regular_var_id(int num_var_id) const {
     utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
 }
 
+int NumericTaskProxy::get_number_propositional_variables() const {
+    // TODO precompute and cache this
+    int num_prop_variables = 0;
+    for (auto var: task_proxy.get_variables()) {
+        if (!is_numeric_variable(var) && !task_proxy.is_derived_variable(var)) {
+            ++num_prop_variables;
+        }
+    }
+    return num_prop_variables;
+}
+
+int NumericTaskProxy::get_number_regular_numeric_variables() const {
+    // TODO precompute and cache this
+    int num_regular_num_vars = 0;
+    for (auto var: task_proxy.get_numeric_variables()) {
+        if (var.get_var_type() == numType::regular) {
+            ++num_regular_num_vars;
+        }
+    }
+    return num_regular_num_vars;
+}
+
 shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condition(const FactProxy &condition) /*const*/ {
     assert(!task_proxy.is_derived_variable(condition.get_variable()) && is_numeric_variable(condition.get_variable()));
 
@@ -804,21 +836,8 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condit
     return regular_numeric_conditions[var_id][condition.get_value()];
 }
 
-const vector<shared_ptr<RegularNumericCondition>> &NumericTaskProxy::get_numeric_goals() /*const*/ {
-
-    if (!regular_numeric_goals.empty()){
-        return regular_numeric_goals;
-    }
-
-    for (auto axiom : task_proxy.get_axioms()){
-        if (!axiom.get_preconditions().empty()) {
-            for (auto pre: axiom.get_preconditions()) {
-                regular_numeric_goals.push_back(get_regular_numeric_condition(pre));
-            }
-            assert(axiom.get_effects().size() == 1);
-        }
-    }
-
+const vector<shared_ptr<RegularNumericCondition>> &NumericTaskProxy::get_numeric_goals() const {
+    assert(!regular_numeric_goals.empty());
     return regular_numeric_goals;
 }
 

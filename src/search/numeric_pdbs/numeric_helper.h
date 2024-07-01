@@ -140,9 +140,13 @@ public:
 
     int get_regular_var_id(int num_var_id) const;
 
+    int get_number_propositional_variables() const;
+
+    int get_number_regular_numeric_variables() const;
+
     std::shared_ptr<numeric_condition::RegularNumericCondition> get_regular_numeric_condition(const FactProxy &condition);
 
-    const std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>> &get_numeric_goals();
+    const std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>> &get_numeric_goals() const;
 
     int get_approximate_domain_size(NumericVariableProxy num_var);
 
