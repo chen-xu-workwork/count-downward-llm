@@ -10,7 +10,7 @@ using namespace std;
 namespace numeric_condition {
 string RegularNumericConditionVar::get_name() const {
     ostringstream s;
-    s << "var" << var_id << c_op << _const << endl;
+    s << "var" << var_id << c_op << _const;
     return s.str();
 }
 
@@ -66,13 +66,13 @@ RegularNumericConditionConst::RegularNumericConditionConst(
 
 string RegularNumericConditionConst::get_name() const {
     ostringstream s;
-    s << const_l << c_op << _const << endl;
+    s << const_l << c_op << _const;
     return s.str();
 }
 
 string RegularNumericConditionVarOpC::get_name() const {
     ostringstream s;
-    s << "var" << var_id << cal_op << op_const << c_op << _const << endl;
+    s << "var" << var_id << cal_op << op_const << c_op << _const;
     return s.str();
 }
 

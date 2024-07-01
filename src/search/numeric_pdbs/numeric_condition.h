@@ -31,6 +31,8 @@ public:
     virtual bool has_constant() const = 0;
 
     virtual ap_float get_constant() const = 0;
+
+    virtual bool is_constant() const = 0;
 };
 
 class RegularNumericConditionVar : public RegularNumericCondition {
@@ -49,6 +51,10 @@ public:
     }
 
     ap_float get_constant() const override;
+
+    bool is_constant() const override {
+        return false;
+    }
 };
 
 class RegularNumericConditionConst : public RegularNumericCondition {
@@ -76,6 +82,10 @@ public:
     ap_float get_constant() const override {
         return 0;
     }
+
+    bool is_constant() const override {
+        return true;
+    }
 };
 
 class RegularNumericConditionVarOpC : public RegularNumericCondition {
@@ -100,6 +110,10 @@ public:
     }
 
     ap_float get_constant() const override;
+
+    bool is_constant() const override {
+        return false;
+    }
 };
 }
 
