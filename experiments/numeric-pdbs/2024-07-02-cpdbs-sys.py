@@ -20,10 +20,11 @@ ENV = TetralithEnvironment(
     email="daniel.gnad@liu.se",
 #    time_limit_per_task="24:00:00",
 #    memory_per_cpu="8300M",
-    extra_options="#SBATCH -A naiss2023-5-236", # parground
+#   extra_options="#SBATCH -A naiss2023-5-236", # parground
+    extra_options="#SBATCH -A naiss2023-5-314", # Learning Dynamic Algorithms for Automated Planning
 )
 
-REVISION = "3e29d959920432e22710f7d5a96cca201153409e"
+REVISION = "db1506f154721fb675ad26e57953562d2b044183"
 
 CONFIGS = [
     #("blind", ["--search", f"astar(blind())"]),
@@ -83,6 +84,8 @@ exp.add_step("build", exp.build)
 exp.add_step("start", exp.start_runs)
 exp.add_step("parse", exp.parse)
 exp.add_fetcher(name="fetch")
+
+exp.add_fetcher("data/2024-07-02-fix-max-size-eval/", name="fetch-greedy-baselines", merge=True)
 
 
 project.add_absolute_report(exp, attributes=ATTRIBUTES)

@@ -20,10 +20,11 @@ ENV = TetralithEnvironment(
     email="daniel.gnad@liu.se",
 #    time_limit_per_task="24:00:00",
 #    memory_per_cpu="8300M",
-    extra_options="#SBATCH -A naiss2023-5-236", # parground
+#    extra_options="#SBATCH -A naiss2023-5-236", # parground
+    extra_options="#SBATCH -A naiss2023-5-314", # Learning Dynamic Algorithms for Automated Planning
 )
 
-REVISION = "3e29d959920432e22710f7d5a96cca201153409e"
+REVISION = "db1506f154721fb675ad26e57953562d2b044183"
 
 CONFIGS = [
     ("blind", ["--search", f"astar(blind())"]),
