@@ -12,13 +12,13 @@
 using namespace std;
 
 namespace numeric_pdbs {
-PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> task,
+PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
                                      const Options &opts) {
     auto pattern_generator =
         opts.get<shared_ptr<PatternGenerator>>("pattern");
     Pattern pattern = pattern_generator->generate(task);
     TaskProxy task_proxy(*task);
-    return PatternDatabase(task_proxy, pattern, opts.get<int>("max_number_states"), true);
+    return {task_proxy, pattern, pattern_generator->get_max_number_pdb_states(), true};
 }
 
 NumericPDBHeuristic::NumericPDBHeuristic(const Options &opts)
@@ -34,13 +34,6 @@ ap_float NumericPDBHeuristic::compute_heuristic(const GlobalState &global_state)
 ap_float NumericPDBHeuristic::compute_heuristic(const State &state) const {
     ap_float h = pdb.get_value(state);
     if (h == numeric_limits<ap_float>::max()) {
-//        cout << "dead end" << endl;
-//        for (auto var : task_proxy.get_variables()) {
-//            cout << "\t" << state[var].get_name() << endl;
-//        }
-//        for (auto var : task_proxy.get_numeric_variables()) {
-//            cout << "\t" << var.get_name() << " = " << state.nval(var.get_id()) << endl;
-//        }
         return DEAD_END;
     }
     return h;
@@ -60,9 +53,6 @@ static Heuristic *_parse(OptionParser &parser) {
         "pattern",
         "pattern generation method",
         "greedy_numeric()");
-    parser.add_option<int>("max_number_states",
-                           "maximum number of constructed abstract states in PDB construction",
-                           "100000");
 
     Heuristic::add_options_to_parser(parser);
 

@@ -837,7 +837,6 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condit
 }
 
 const vector<shared_ptr<RegularNumericCondition>> &NumericTaskProxy::get_numeric_goals() const {
-    assert(!regular_numeric_goals.empty());
     return regular_numeric_goals;
 }
 

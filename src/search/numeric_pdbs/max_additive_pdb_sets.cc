@@ -1,6 +1,7 @@
 #include "max_additive_pdb_sets.h"
 
 #include "max_cliques.h"
+#include "numeric_helper.h"
 #include "numeric_pattern_database.h"
 
 #include "../task_proxy.h"
@@ -10,10 +11,27 @@ using namespace std;
 namespace numeric_pdbs {
 bool are_patterns_additive(const Pattern &pattern1,
                            const Pattern &pattern2,
-                           const VariableAdditivity &are_additive) {
+                           const NumericVariableAdditivity &are_additive) {
     for (int v1 : pattern1.regular) {
         for (int v2 : pattern2.regular) {
-            if (!are_additive[v1][v2]) {
+            if (!are_additive.prop_to_prop[v1][v2]) {
+                return false;
+            }
+        }
+        for (int v2 : pattern2.numeric) {
+            if (!are_additive.prop_to_num[v1][v2]) {
+                return false;
+            }
+        }
+    }
+    for (int v1 : pattern1.numeric) {
+        for (int v2 : pattern2.numeric) {
+            if (!are_additive.num_to_num[v1][v2]) {
+                return false;
+            }
+        }
+        for (int v2 : pattern2.regular) {
+            if (!are_additive.num_to_prop[v1][v2]) {
                 return false;
             }
         }
@@ -21,16 +39,51 @@ bool are_patterns_additive(const Pattern &pattern1,
     return true;
 }
 
-VariableAdditivity compute_additive_vars(TaskProxy task_proxy) {
-    VariableAdditivity are_additive;
-    int num_vars = task_proxy.get_variables().size();
-    are_additive.resize(num_vars, vector<bool>(num_vars, true));
+NumericVariableAdditivity compute_additive_vars(TaskProxy task_proxy) {
+    NumericVariableAdditivity are_additive;
+    numeric_pdb_helper::NumericTaskProxy num_task_proxy(task_proxy);
+    int num_prop_vars = task_proxy.get_variables().size();
+    int num_num_vars = task_proxy.get_numeric_variables().size();
+    are_additive.prop_to_prop.resize(num_prop_vars, vector<bool>(num_prop_vars, true));
+    are_additive.prop_to_num.resize(num_prop_vars, vector<bool>(num_num_vars, true));
+    are_additive.num_to_prop.resize(num_num_vars, vector<bool>(num_prop_vars, true));
+    are_additive.num_to_num.resize(num_num_vars, vector<bool>(num_num_vars, true));
     for (OperatorProxy op : task_proxy.get_operators()) {
+        const vector<ap_float> &num_effs = num_task_proxy.get_action_eff_list(op.get_id());
         for (EffectProxy e1 : op.get_effects()) {
+            auto var1 = e1.get_fact().get_variable();
+            if (task_proxy.is_derived_variable(var1) || num_task_proxy.is_numeric_variable(var1)){
+                continue;
+            }
+            int e1_var_id = var1.get_id();
             for (EffectProxy e2 : op.get_effects()) {
-                int e1_var_id = e1.get_fact().get_variable().get_id();
+                auto var2 = e1.get_fact().get_variable();
+                if (task_proxy.is_derived_variable(var2) || num_task_proxy.is_numeric_variable(var2)){
+                    continue;
+                }
                 int e2_var_id = e2.get_fact().get_variable().get_id();
-                are_additive[e1_var_id][e2_var_id] = false;
+                are_additive.prop_to_prop[e1_var_id][e2_var_id] = false;
+            }
+            for (int num_var = 0; num_var < num_num_vars; ++num_var){
+                if (task_proxy.get_numeric_variables()[num_var].get_var_type() == regular) {
+                    if (num_effs[num_task_proxy.get_regular_var_id(num_var)] != 0) {
+                        are_additive.prop_to_num[e1_var_id][num_var] = false;
+                        are_additive.num_to_prop[num_var][e1_var_id] = false;
+                    }
+                }
+            }
+        }
+        for (int num_var1 = 0; num_var1 < num_num_vars; ++num_var1) {
+            if (task_proxy.get_numeric_variables()[num_var1].get_var_type() == regular) {
+                if (num_effs[num_task_proxy.get_regular_var_id(num_var1)] != 0) {
+                    for (int num_var2 = 0; num_var2 < num_num_vars; ++num_var2) {
+                        if (task_proxy.get_numeric_variables()[num_var2].get_var_type() == regular) {
+                            if (num_effs[num_task_proxy.get_regular_var_id(num_var2)] != 0) {
+                                are_additive.num_to_num[num_var1][num_var2] = false;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -38,7 +91,7 @@ VariableAdditivity compute_additive_vars(TaskProxy task_proxy) {
 }
 
 shared_ptr<MaxAdditivePDBSubsets> compute_max_additive_subsets(
-    const PDBCollection &pdbs, const VariableAdditivity &are_additive) {
+    const PDBCollection &pdbs, const NumericVariableAdditivity &are_additive) {
     // Initialize compatibility graph.
     vector<vector<int>> cgraph;
     cgraph.resize(pdbs.size());
@@ -76,7 +129,7 @@ shared_ptr<MaxAdditivePDBSubsets> compute_max_additive_subsets(
 MaxAdditivePDBSubsets compute_max_additive_subsets_with_pattern(
     const MaxAdditivePDBSubsets &known_additive_subsets,
     const Pattern &new_pattern,
-    const VariableAdditivity &are_additive) {
+    const NumericVariableAdditivity &are_additive) {
     MaxAdditivePDBSubsets subsets_additive_with_pattern;
     for (const auto &known_subset : known_additive_subsets) {
         // Take all patterns which are additive to new_pattern.

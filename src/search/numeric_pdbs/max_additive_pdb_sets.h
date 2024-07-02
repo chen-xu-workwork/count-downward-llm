@@ -4,6 +4,7 @@
 #include "types.h"
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 class TaskProxy;
@@ -11,21 +12,28 @@ class TaskProxy;
 // TODO adapt all this so it uses the regular PDB code; the differences are minimal
 
 namespace numeric_pdbs {
-using VariableAdditivity = std::vector<std::vector<bool>>;
+struct NumericVariableAdditivity {
+    using VariableAdditivity = std::vector<std::vector<bool>>;
 
-extern VariableAdditivity compute_additive_vars(TaskProxy task_proxy);
+    VariableAdditivity prop_to_prop;
+    VariableAdditivity prop_to_num;
+    VariableAdditivity num_to_prop;
+    VariableAdditivity num_to_num;
+};
+
+extern NumericVariableAdditivity compute_additive_vars(TaskProxy task_proxy);
 
 /* Returns true iff the two patterns are additive i.e. there is no operator
    which affects variables in pattern one as well as in pattern two. */
 extern bool are_patterns_additive(const Pattern &pattern1,
                                   const Pattern &pattern2,
-                                  const VariableAdditivity &are_additive);
+                                  const NumericVariableAdditivity &are_additive);
 
 /*
   Computes maximal additive subsets of patterns.
 */
 extern std::shared_ptr<MaxAdditivePDBSubsets> compute_max_additive_subsets(
-    const PDBCollection &pdbs, const VariableAdditivity &are_additive);
+    const PDBCollection &pdbs, const NumericVariableAdditivity &are_additive);
 
 /*
   We compute additive pattern sets S with the property that we could
@@ -75,7 +83,7 @@ extern std::shared_ptr<MaxAdditivePDBSubsets> compute_max_additive_subsets(
 extern MaxAdditivePDBSubsets compute_max_additive_subsets_with_pattern(
     const MaxAdditivePDBSubsets &max_additive_subsets,
     const Pattern &new_pattern,
-    const VariableAdditivity &are_additive);
+    const NumericVariableAdditivity &are_additive);
 }
 
 #endif

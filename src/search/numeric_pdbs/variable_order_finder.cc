@@ -23,7 +23,7 @@ inline void add_numeric_vars(const TaskProxy &task_proxy, vector<pair<int, bool>
 }
 
 VariableOrderFinder::VariableOrderFinder(shared_ptr<AbstractTask> task_,
-                                         const shared_ptr<numeric_pdb_helper::NumericTaskProxy> &num_task_proxy,
+                                         const numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
                                          VariableOrderType variable_order_type,
                                          bool numeric_variables_first,
                                          const shared_ptr<utils::RandomNumberGenerator> &rng)
@@ -35,7 +35,7 @@ VariableOrderFinder::VariableOrderFinder(shared_ptr<AbstractTask> task_,
         add_numeric_vars(task_proxy, remaining_vars);
     }
     for (auto var : task_proxy.get_variables()){
-        if (!num_task_proxy->is_numeric_variable(var) &&
+        if (!num_task_proxy.is_numeric_variable(var) &&
             !task_proxy.is_derived_variable(var)){
             remaining_vars.emplace_back(var.get_id(), false);
         }
@@ -60,7 +60,7 @@ VariableOrderFinder::VariableOrderFinder(shared_ptr<AbstractTask> task_,
         }
     }
     is_numeric_goal_variable.resize(task->get_num_numeric_variables(), false);
-    for (const auto &n_goal : num_task_proxy->get_numeric_goals()){
+    for (const auto &n_goal : num_task_proxy.get_numeric_goals()){
         is_numeric_goal_variable[n_goal->get_var_id()] = true;
     }
 }

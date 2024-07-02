@@ -36,7 +36,7 @@ class VariableOrderFinder {
 
 public:
     VariableOrderFinder(std::shared_ptr<AbstractTask> task,
-                        const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &num_proxy,
+                        const numeric_pdb_helper::NumericTaskProxy &num_proxy,
                         VariableOrderType variable_order_type,
                         bool numeric_variables_first,
                         const std::shared_ptr<utils::RandomNumberGenerator> &rng);

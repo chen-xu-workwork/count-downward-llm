@@ -14,16 +14,15 @@ class RandomNumberGenerator;
 
 namespace numeric_pdbs {
 class PatternGeneratorGreedy : public PatternGenerator {
-    int max_states;
-    bool numeric_variables_first;
+    bool prefer_numeric_variables;
     VariableOrderType var_order_type;
     std::shared_ptr<utils::RandomNumberGenerator> rng;
 public:
     explicit PatternGeneratorGreedy(const options::Options &opts);
-    explicit PatternGeneratorGreedy(int max_states,
-                                    bool numeric_variables_first,
-                                    VariableOrderType var_order_type,
-                                    std::shared_ptr<utils::RandomNumberGenerator> rng);
+    PatternGeneratorGreedy(std::size_t max_number_pdb_states,
+                           bool numeric_variables_first,
+                           VariableOrderType var_order_type,
+                           std::shared_ptr<utils::RandomNumberGenerator> rng);
     virtual ~PatternGeneratorGreedy() = default;
 
     Pattern generate(std::shared_ptr<AbstractTask> task) override;

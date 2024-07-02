@@ -594,7 +594,10 @@ fast_downward_plugin(
     NAME NUMERIC_PDBS
     HELP "PDBs for the Numeric variant NFD"
     SOURCES
+		numeric_pdbs/canonical_pdbs.cc
+		numeric_pdbs/canonical_pdbs_heuristic.cc
 		numeric_pdbs/causal_graph.cc
+		numeric_pdbs/dominance_pruning.cc
         numeric_pdbs/match_tree.cc
         numeric_pdbs/max_additive_pdb_sets.cc
         numeric_pdbs/max_cliques.cc
@@ -602,6 +605,7 @@ fast_downward_plugin(
         numeric_pdbs/numeric_helper.cc
         numeric_pdbs/numeric_pattern_database.cc
 		numeric_pdbs/numeric_state_registry.cc
+		numeric_pdbs/pattern_collection_generator_systematic.cc
         numeric_pdbs/pattern_collection_information.cc
         numeric_pdbs/pattern_generator_greedy.cc
         numeric_pdbs/pattern_generator_manual.cc

@@ -24,7 +24,8 @@ class PatternCollectionInformation {
     std::shared_ptr<PDBCollection> pdbs;
     std::shared_ptr<MaxAdditivePDBSubsets> max_additive_subsets;
 
-    size_t max_number_states;
+    // approximate upper bound on the number of abstract states per PDB possibly reachable within the pattern
+    size_t max_number_pdb_states;
 
     void create_pdbs_if_missing();
     void create_max_additive_subsets_if_missing();
@@ -34,7 +35,7 @@ public:
     PatternCollectionInformation(
         std::shared_ptr<AbstractTask> task,
         std::shared_ptr<PatternCollection> patterns,
-        size_t max_number_states);
+        size_t max_number_pdb_states);
     ~PatternCollectionInformation() = default;
 
     void set_pdbs(std::shared_ptr<PDBCollection> pdbs);

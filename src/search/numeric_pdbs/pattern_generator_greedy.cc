@@ -17,27 +17,27 @@ using namespace std;
 
 namespace numeric_pdbs {
 PatternGeneratorGreedy::PatternGeneratorGreedy(const Options &opts)
-    : PatternGeneratorGreedy(opts.get<int>("max_states"),
-                             opts.get<bool>("numeric_variables_first"),
+    : PatternGeneratorGreedy(opts.get<int>("max_number_pdb_states"),
+                             opts.get<bool>("prefer_numeric_variables"),
                              VariableOrderType(opts.get_enum("variable_order_type")),
                              utils::parse_rng_from_options(opts)) {
 }
 
-PatternGeneratorGreedy::PatternGeneratorGreedy(int max_states,
-                                               bool numeric_variables_first,
+PatternGeneratorGreedy::PatternGeneratorGreedy(size_t max_number_pdb_states,
+                                               bool prefer_numeric_variables,
                                                VariableOrderType var_order_type,
                                                shared_ptr<utils::RandomNumberGenerator> rng)
-    : max_states(max_states),
-      numeric_variables_first(numeric_variables_first),
+    : PatternGenerator(max_number_pdb_states),
+      prefer_numeric_variables(prefer_numeric_variables),
       var_order_type(var_order_type),
       rng(std::move(rng)) {
 }
 
 Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> task) {
     TaskProxy task_proxy(*task);
-    shared_ptr<numeric_pdb_helper::NumericTaskProxy> num_task_proxy = make_shared<numeric_pdb_helper::NumericTaskProxy>(task_proxy);
+    numeric_pdb_helper::NumericTaskProxy num_task_proxy(task_proxy);
     Pattern pattern;
-    VariableOrderFinder order(task, num_task_proxy, var_order_type, numeric_variables_first, rng);
+    VariableOrderFinder order(task, num_task_proxy, var_order_type, prefer_numeric_variables, rng);
     VariablesProxy variables = task_proxy.get_variables();
     NumericVariablesProxy num_variables = task_proxy.get_numeric_variables();
 
@@ -53,13 +53,13 @@ Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> task) {
         int next_var_size;
         if (is_numeric) {
             NumericVariableProxy next_var = num_variables[next_var_id];
-            next_var_size = max(1, num_task_proxy->get_approximate_domain_size(next_var));
+            next_var_size = max(1, num_task_proxy.get_approximate_domain_size(next_var));
         } else {
             VariableProxy next_var = variables[next_var_id];
             next_var_size = next_var.get_domain_size();
         }
 
-        if (!utils::is_product_within_limit(size, next_var_size, max_states))
+        if (!utils::is_product_within_limit(size, next_var_size, max_number_pdb_states))
             break;
 
         if (is_numeric) {
@@ -78,12 +78,12 @@ Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> task) {
 
 static shared_ptr<PatternGenerator> _parse(OptionParser &parser) {
     parser.add_option<int>(
-            "max_states",
+            "max_number_pdb_states",
             "maximal number of abstract states in the pattern database.",
             "1000000",
             Bounds("1", "infinity"));
     parser.add_option<bool>(
-            "numeric_variables_first",
+            "prefer_numeric_variables",
             "When selecting the next variable, should it be numeric or propositional?",
             "false");
     vector<string> variable_order_types = {"CG_GOAL_LEVEL", "CG_GOAL_RANDOM", "GOAL_CG_LEVEL"};

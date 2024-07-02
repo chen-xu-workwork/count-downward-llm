@@ -13,10 +13,11 @@
 using namespace std;
 
 namespace numeric_pdbs {
-PatternGeneratorManual::PatternGeneratorManual(const Options &opts) {
-        pattern.regular = opts.get_list<int>("pattern");
-	cout << "not adapted to numeric variables: PatternGeneratorManual" << endl;
-	utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+PatternGeneratorManual::PatternGeneratorManual(const Options &opts) :
+        PatternGenerator(numeric_limits<int>::max()){
+    pattern.regular = opts.get_list<int>("pattern");
+    cout << "not adapted to numeric variables: PatternGeneratorManual" << endl;
+    utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
 }
 
 Pattern PatternGeneratorManual::generate(shared_ptr<AbstractTask> task) {
@@ -39,5 +40,5 @@ static shared_ptr<PatternGenerator> _parse(OptionParser &parser) {
     return make_shared<PatternGeneratorManual>(opts);
 }
 
-static PluginShared<PatternGenerator> _plugin("manual", _parse);
+static PluginShared<PatternGenerator> _plugin("manual_numeric", _parse);
 }
