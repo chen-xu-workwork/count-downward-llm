@@ -1,7 +1,7 @@
 #ifndef NUMERIC_PDBS_NUMERIC_PDB_HEURISTIC_H
 #define NUMERIC_PDBS_NUMERIC_PDB_HEURISTIC_H
 
-#include "numeric_pattern_database.h"
+#include "pattern_database.h"
 
 #include "../heuristic.h"
 

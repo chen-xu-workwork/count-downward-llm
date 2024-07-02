@@ -1,7 +1,7 @@
 #include "canonical_pdbs.h"
 
 #include "dominance_pruning.h"
-#include "numeric_pattern_database.h"
+#include "pattern_database.h"
 
 #include <algorithm>
 #include <cassert>

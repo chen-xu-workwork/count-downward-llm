@@ -603,14 +603,14 @@ fast_downward_plugin(
         numeric_pdbs/max_cliques.cc
 		numeric_pdbs/numeric_condition.cc
         numeric_pdbs/numeric_helper.cc
-        numeric_pdbs/numeric_pattern_database.cc
 		numeric_pdbs/numeric_state_registry.cc
 		numeric_pdbs/pattern_collection_generator_systematic.cc
         numeric_pdbs/pattern_collection_information.cc
+		numeric_pdbs/pattern_database.cc
+		numeric_pdbs/pattern_generator.cc
         numeric_pdbs/pattern_generator_greedy.cc
         numeric_pdbs/pattern_generator_manual.cc
-        numeric_pdbs/pattern_generator.cc
-        numeric_pdbs/numeric_pdb_heuristic.cc
+        numeric_pdbs/pdb_heuristic.cc
         numeric_pdbs/types.cc
         numeric_pdbs/validation.cc
 		numeric_pdbs/variable_order_finder.cc

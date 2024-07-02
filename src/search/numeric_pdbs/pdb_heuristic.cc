@@ -1,4 +1,4 @@
-#include "numeric_pdb_heuristic.h"
+#include "pdb_heuristic.h"
 
 #include "pattern_generator.h"
 

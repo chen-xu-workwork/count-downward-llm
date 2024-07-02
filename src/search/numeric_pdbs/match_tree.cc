@@ -1,6 +1,6 @@
 #include "match_tree.h"
 
-#include "numeric_pattern_database.h"
+#include "pattern_database.h"
 
 #include <cassert>
 #include <iostream>

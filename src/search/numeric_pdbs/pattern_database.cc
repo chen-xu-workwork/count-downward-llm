@@ -1,4 +1,4 @@
-#include "numeric_pattern_database.h"
+#include "pattern_database.h"
 
 #include "match_tree.h"
 #include "numeric_condition.h"

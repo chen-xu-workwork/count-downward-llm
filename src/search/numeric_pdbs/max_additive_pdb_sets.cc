@@ -2,7 +2,7 @@
 
 #include "max_cliques.h"
 #include "numeric_helper.h"
-#include "numeric_pattern_database.h"
+#include "pattern_database.h"
 
 #include "../task_proxy.h"
 
