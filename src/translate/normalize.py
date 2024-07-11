@@ -7,7 +7,7 @@ import pddl
 
 import sys # Warning
 
-class ConditionProxy(object):
+class ConditionProxy:
     def clone_owner(self):
         clone = copy.copy(self)
         clone.owner = copy.copy(clone.owner)

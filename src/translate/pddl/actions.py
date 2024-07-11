@@ -8,7 +8,7 @@ from . import pddl_types
 from . import f_expression
 
 
-class Action(object):
+class Action:
     def __init__(self, name, parameters, num_external_parameters,
                  precondition, effects, cost):
         assert 0 <= num_external_parameters <= len(parameters)

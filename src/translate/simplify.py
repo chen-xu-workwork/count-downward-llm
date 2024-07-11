@@ -39,7 +39,7 @@ DEBUG = False
 # working with int pairs is awkward.
 
 
-class DomainTransitionGraph(object):
+class DomainTransitionGraph:
     """Domain transition graphs.
 
     Attributes:
@@ -167,7 +167,7 @@ class TriviallySolvable(Exception):
 class DoesNothing(Exception):
     pass
 
-class VarValueRenaming(object):
+class VarValueRenaming:
     def __init__(self):
         self.new_var_nos = []   # indexed by old var_no
         self.new_values = []    # indexed by old var_no and old value

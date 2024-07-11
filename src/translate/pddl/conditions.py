@@ -11,7 +11,7 @@ DEBUG = False
 #
 # Careful: Most other classes (e.g. Effects, Axioms, Actions) are not!
 
-class Condition(object):
+class Condition:
     def __init__(self, parts):
         self.parts = tuple(parts)
         self.hash = hash((self.__class__, self.parts))

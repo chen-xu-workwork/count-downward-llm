@@ -11,7 +11,7 @@ import options
 import pddl
 import timers
 
-class BalanceChecker(object):
+class BalanceChecker:
     def __init__(self, task, reachable_action_params):
 #        print("*'*'*'*DEBUG invariant_finder.BalanceChecker.__init__*'*'*'*")
         self.predicates_to_add_actions = defaultdict(set)

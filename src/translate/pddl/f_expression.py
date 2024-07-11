@@ -3,7 +3,7 @@
 
 #import pddl
 
-class FunctionalExpression(object):
+class FunctionalExpression:
     def __init__(self, parts):
         self.parts = tuple(parts)
         self.hash = hash((self.__class__, self.parts))
@@ -83,7 +83,7 @@ class Difference(ArithmeticExpression):
 
 class AdditiveInverse(ArithmeticExpression):
     op = "-"
-    def __init__(self,parts):
+    def __init__(self, parts):
         assert len(parts)==1
         ArithmeticExpression.__init__(self,parts)
     def _simplified(self, parts):
@@ -205,7 +205,7 @@ class PrimitiveNumericExpression(FunctionalExpression):
     def primitive_numeric_expressions(self):
         return set([self])
         
-class FunctionAssignment(object):
+class FunctionAssignment:
     def __init__(self, fluent, expression):
         self.fluent = fluent
         self.expression = expression

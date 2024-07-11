@@ -1,4 +1,4 @@
-class Function(object):
+class Function:
     def __init__(self, name, arguments, type_name):
 #        print("name = %s, args= %s, type = %s" %(name,arguments,type_name))
 #        assert False

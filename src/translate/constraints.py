@@ -4,7 +4,7 @@
 
 import itertools
 
-class NegativeClause(object):
+class NegativeClause:
     # disjunction of inequalities
     def __init__(self, parts):
         self.parts = parts
@@ -26,7 +26,7 @@ class NegativeClause(object):
         return NegativeClause(new_parts)
 
 
-class Assignment(object):
+class Assignment:
     def __init__(self, equalities):
         self.equalities = tuple(equalities)
         # represents a conjunction of expressions ?x = ?y or ?x = d
@@ -89,7 +89,7 @@ class Assignment(object):
         return self.mapping
 
 
-class ConstraintSystem(object):
+class ConstraintSystem:
     def __init__(self):
         self.combinatorial_assignments = []
         self.neg_clauses = []

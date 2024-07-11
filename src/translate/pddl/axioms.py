@@ -93,7 +93,7 @@ class PropositionalAxiom:
         return '<PropositionalAxiom %s %s -> %s>' % (self.name, self.condition, self.effect)
 
 
-class NumericAxiom(object):
+class NumericAxiom:
     def __init__(self, name, parameters, op, parts):
         self.name = name
         self.parameters = parameters
@@ -132,7 +132,7 @@ class NumericAxiom(object):
         return InstantiatedNumericAxiom(name, self.op, parts, effect)
 
 
-class InstantiatedNumericAxiom(object):
+class InstantiatedNumericAxiom:
     def __init__(self, name, op, parts, effect):
         self.name = name
         self.op = op

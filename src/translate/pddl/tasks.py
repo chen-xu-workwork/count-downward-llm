@@ -13,7 +13,7 @@ from . import f_expression
 
 DEBUG = False
 
-class Task(object):
+class Task:
     FUNCTION_SYMBOLS = dict()     
     def __init__(self, domain_name, task_name, requirements,
                  types, objects, predicates, functions, init, num_init, goal, actions, axioms, metric):
@@ -117,7 +117,7 @@ class Task(object):
         print(self.metric)
             
 SEEN_WARNING_PDDL_REQUIREMENT = False
-class Requirements(object):    
+class Requirements:    
     def __init__(self, requirements):
         global SEEN_WARNING_PDDL_REQUIREMENT
 #        print("Requirements contructur with arg '%s'" % requirements) 
@@ -154,7 +154,7 @@ def prettyprint(mystring):
         mystring = "quotient"       
     return mystring
 
-class DerivedFunctionAdministrator(object):
+class DerivedFunctionAdministrator:
     #TODO use hash values?
     def __init__(self):
         self.functions = dict() 
