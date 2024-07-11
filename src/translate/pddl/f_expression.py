@@ -47,7 +47,7 @@ class FunctionalExpression:
             conjunction_parts += parts
             new_parts.append(new_part)
         return (typed_vars,conjunction_parts,self.__class__(new_parts))    
-    def  instantiate(self, var_mapping, fluent_functions, 
+    def instantiate(self, var_mapping, fluent_functions,
                         init_function_vals, task, new_axioms=[]):
         print(self.__class__.__name__)
         raise ValueError("Cannot instantiate condition: not normalized")
@@ -91,6 +91,11 @@ class AdditiveInverse(ArithmeticExpression):
 
 class Sum(ArithmeticExpression):
     op = "+"
+    def __init__(self, parts):
+        assert len(parts) == 2
+        ArithmeticExpression.__init__(self, parts)
+    def __hash__(self):
+        return hash((self.__class__, self.parts))
     def _simplified(self, parts):
         result_parts = []
         for part in parts:
@@ -156,8 +161,8 @@ class PrimitiveNumericExpression(FunctionalExpression):
         self.symbol = symbol
         self.args = tuple(args)
         self.hash = hash((self.__class__, self.symbol, self.args))
-        self.ntype = ntype # 'R': regular 'C': constant 'I': instrumentation
-        assert(ntype in ['C', 'D', 'I', 'R']), "Type is %s" %ntype       
+        self.ntype = ntype  # 'R': regular 'C': constant 'I': instrumentation
+        assert ntype in ['C', 'D', 'I', 'R'], f"Type is {ntype}"
         if self.symbol == "total-cost" and ntype != 'I':
             self.ntype = 'I'
     
@@ -166,6 +171,8 @@ class PrimitiveNumericExpression(FunctionalExpression):
     def __eq__(self, other):
         return (self.__class__ == other.__class__ and self.symbol == other.symbol
                 and self.args == other.args)
+    def __lt__(self, other):
+        return self.hash < other.hash
     def __str__(self):
         return "%s %s(%s)" % ("PNE", self.symbol, ", ".join(map(str, self.args)))
     def __repr__(self, *args, **kwargs):
@@ -185,11 +192,11 @@ class PrimitiveNumericExpression(FunctionalExpression):
         pne = PrimitiveNumericExpression(self.symbol, args, self.ntype)
         # TODO check whether this PNE is fluent. Otherwise substitute it by the
         # corresponding constant
-        if fluent_functions!=None:
+        if fluent_functions is not None:
             if pne not in fluent_functions and not pne.symbol.startswith("derived!"):
                 if pne not in init_function_vals:
                     raise ValueError("Cannot instantiate non-fluent PNE: no initial value given %s" % pne)
-                constant =  init_function_vals[pne]
+                constant = init_function_vals[pne]
                 new_axiom_predicate = task.function_administrator.get_derived_function(constant)
                 new_axiom = task.function_administrator.functions[(constant.value,)]
                 new_axiom = new_axiom.instantiate(var_mapping, fluent_functions,init_function_vals,
