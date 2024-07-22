@@ -32,7 +32,6 @@ from .conditions import NegatedFunctionComparison
 
 from .effects import ConditionalEffect
 from .effects import ConjunctiveEffect
-# from .effects import CostEffect // subsumed by FunctionAssignment
 from .effects import Effect
 from .effects import SimpleEffect
 from .effects import UniversalEffect

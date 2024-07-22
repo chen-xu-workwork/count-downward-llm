@@ -1,9 +1,5 @@
-try:
-    # Python 3.x
-    from builtins import open as file_open
-except ImportError:
-    # Python 2.x
-    from codecs import open as file_open
+
+from builtins import open as file_open
 
 import options
 

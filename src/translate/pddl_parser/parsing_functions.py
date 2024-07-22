@@ -315,7 +315,7 @@ def parse_effect(alist, type_dict, predicate_dict):
 def parse_expression(exp):
     if isinstance(exp, list):
         operator_or_functionsymbol = exp[0]         
-        if operator_or_functionsymbol in ("+","/","*","-"): # NFD
+        if operator_or_functionsymbol in ("+", "/", "*", "-"): # NFD
             # TODO: print warning if only :action-cost is used in PDDL requirements, but not :numeric-fluents
             args = [parse_expression(arg) for arg in exp[1:]]
             operator = operator_or_functionsymbol
@@ -326,7 +326,6 @@ def parse_expression(exp):
         if operator == "+":
             return pddl.Sum(args)
         elif operator == "/":
-            assert len(args) == 2
             return pddl.Quotient(args)
         elif operator == "*":
             return pddl.Product(args)
@@ -334,7 +333,6 @@ def parse_expression(exp):
             if len(args) == 1:
                 return pddl.AdditiveInverse(args)
             else:
-                assert len(args) == 2
                 return pddl.Difference(args)
     elif isFloat(exp):
         # TODO: another place where a warning might be useful if only :action-costs but 
@@ -359,10 +357,10 @@ def parse_assignment(alist):
     elif op == "decrease":
         return pddl.Decrease(head, exp)
     else:
-        assert False, "Assignment operator not supported."
+        assert False, f"Assignment operator {op} not supported."
 
 def parse_action(alist, type_dict, predicate_dict):
-    if DEBUG: print ("parsing action %s" % [alist])
+    if DEBUG: print("parsing action %s" % [alist])
     iterator = iter(alist)
     action_tag = next(iterator)
     assert action_tag == ":action", "Expected ':action' got '%s'" % action_tag

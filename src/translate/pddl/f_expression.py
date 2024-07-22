@@ -1,14 +1,11 @@
 
-#import string 
-
-#import pddl
-
 class FunctionalExpression:
     def __init__(self, parts):
         self.parts = tuple(parts)
-        self.hash = hash((self.__class__, self.parts))
     def __ne__(self, other):
         return not self == other
+    def __lt__(self, other):
+        return hash(self) < hash(other)
     def free_variables(self):
         result = set()
         for part in self.parts:
@@ -17,11 +14,11 @@ class FunctionalExpression:
     def change_parts(self, parts):
         return self
     def dump(self, indent="  "):
-        print("%s%s" % (indent, self._dump()))
+        print(f"{indent}{self._dump()}")
         for part in self.parts:
             part.dump(indent + "  ")
     def __repr__(self, *args, **kwargs):
-        return "FunctExp %s" % [str(p) for p in self.parts]
+        return f"FunctExp {[str(p) for p in self.parts]}"
     def _dump(self):
         return self.__class__.__name__
     def _postorder_visit(self, method_name, *args):
@@ -41,12 +38,12 @@ class FunctionalExpression:
         conjunction_parts = []
         new_parts = []
         for part in self.parts:
-            typed,parts,new_part = part.compile_objectfunctions_aux(used_variables,
-                                                                    recurse_object_terms)
+            typed, parts, new_part = part.compile_objectfunctions_aux(used_variables,
+                                                                      recurse_object_terms)
             typed_vars += typed
             conjunction_parts += parts
             new_parts.append(new_part)
-        return (typed_vars,conjunction_parts,self.__class__(new_parts))    
+        return typed_vars, conjunction_parts, self.__class__(new_parts)
     def instantiate(self, var_mapping, fluent_functions,
                         init_function_vals, task, new_axioms=[]):
         print(self.__class__.__name__)
@@ -54,11 +51,9 @@ class FunctionalExpression:
 
 class ArithmeticExpression(FunctionalExpression):
     def __str__(self, *args, **kwargs):
-        return "ArExp " + self.op + "%s" % [str(p) for p in self.parts]
-    def __eq__(self,other):
-        return (self.hash == other.hash and
-                self.__class__ == other.__class__ and
-                self.parts == other.parts)
+        return f"ArExp {self.op} {"%s" % [str(p) for p in self.parts]}"
+    def __eq__(self, other):
+        return self.hash == other.hash and self.__class__ == other.__class__ and self.parts == other.parts
     def rename_variables(self, renamings={}):
         return self.__class__([part.rename_variables(renamings)
                                for part in self.parts])
@@ -70,7 +65,7 @@ class ArithmeticExpression(FunctionalExpression):
 
 class Difference(ArithmeticExpression):
     op = "-"
-    def __init__(self,parts):
+    def __init__(self, parts):
         assert len(parts) == 2
         ArithmeticExpression.__init__(self, parts)
     def __hash__(self):
@@ -84,8 +79,10 @@ class Difference(ArithmeticExpression):
 class AdditiveInverse(ArithmeticExpression):
     op = "-"
     def __init__(self, parts):
-        assert len(parts)==1
-        ArithmeticExpression.__init__(self,parts)
+        assert len(parts) == 1
+        ArithmeticExpression.__init__(self, parts)
+    def __hash__(self):
+        return hash((self.__class__, self.parts))
     def _simplified(self, parts):
         return self._propagate(parts)
 
@@ -111,6 +108,11 @@ class Sum(ArithmeticExpression):
 
 class Product(ArithmeticExpression):
     op = "*"
+    def __init__(self, parts):
+        assert len(parts) == 2
+        ArithmeticExpression.__init__(self, parts)
+    def __hash__(self):
+        return hash((self.__class__, self.parts))
     def _simplified(self, parts):
         result_parts = []
         for part in parts:
@@ -128,9 +130,11 @@ class Product(ArithmeticExpression):
 
 class Quotient(ArithmeticExpression):
     op = "/"
-    def __init__(self,parts):
-        assert len(parts)==2
-        ArithmeticExpression.__init__(self,parts)
+    def __init__(self, parts):
+        assert len(parts) == 2
+        ArithmeticExpression.__init__(self, parts)
+    def __hash__(self):
+        return hash((self.__class__, self.parts))
     def _simplified(self, parts):
         if isinstance(parts[1], NumericConstant) and parts[1].value == 0:
             raise ValueError('Division by Zero')
@@ -142,11 +146,11 @@ class NumericConstant(FunctionalExpression):
     def __init__(self, value):
         self.value = value
     def __eq__(self, other):
-        return (self.__class__ == other.__class__ and self.value == other.value)
+        return self.__class__ == other.__class__ and self.value == other.value
     def __hash__(self):
         return hash((self.__class__, self.value))
     def __str__(self):
-        return "%s %s" % (self.__class__.__name__, self.value)
+        return f"{self.__class__.__name__} {self.value}"
     def _dump(self):
         return str(self)
     def rename_variables(self, type_map, renamings={}):
@@ -160,25 +164,22 @@ class PrimitiveNumericExpression(FunctionalExpression):
     def __init__(self, symbol, args, ntype='R'):
         self.symbol = symbol
         self.args = tuple(args)
-        self.hash = hash((self.__class__, self.symbol, self.args))
         self.ntype = ntype  # 'R': regular 'C': constant 'I': instrumentation
         assert ntype in ['C', 'D', 'I', 'R'], f"Type is {ntype}"
         if self.symbol == "total-cost" and ntype != 'I':
             self.ntype = 'I'
     
     def __hash__(self):
-        return self.hash
+        return hash((self.__class__, self.symbol, self.args))
     def __eq__(self, other):
-        return (self.__class__ == other.__class__ and self.symbol == other.symbol
-                and self.args == other.args)
-    def __lt__(self, other):
-        return self.hash < other.hash
+        return self.__class__ == other.__class__ and self.symbol == other.symbol \
+                and self.args == other.args
     def __str__(self):
-        return "%s %s(%s)" % ("PNE", self.symbol, ", ".join(map(str, self.args)))
+        return f"PNE {self.symbol}({", ".join(map(str, self.args))})"
     def __repr__(self, *args, **kwargs):
         return self.__str__()
     def dump(self, indent="  "):
-        print("%s%s '%s'" % (indent, self._dump(), self.ntype))
+        print(f"{indent}{self._dump()} '{self.ntype}'")
     def _dump(self):
         return str(self)
     def rename_variables(self, renamings):
@@ -195,7 +196,7 @@ class PrimitiveNumericExpression(FunctionalExpression):
         if fluent_functions is not None:
             if pne not in fluent_functions and not pne.symbol.startswith("derived!"):
                 if pne not in init_function_vals:
-                    raise ValueError("Cannot instantiate non-fluent PNE: no initial value given %s" % pne)
+                    raise ValueError(f"Cannot instantiate non-fluent PNE: no initial value given {pne}")
                 constant = init_function_vals[pne]
                 new_axiom_predicate = task.function_administrator.get_derived_function(constant)
                 new_axiom = task.function_administrator.functions[(constant.value,)]
@@ -218,9 +219,11 @@ class FunctionAssignment:
         self.expression = expression
         self.hash = hash((self.__class__.__name__, self.fluent, self.expression))        
     def __str__(self):
-        return "%s %s %s" % (self.__class__.__name__, self.fluent, self.expression)
+        return f"{self.__class__.__name__} {self.fluent} {self.expression}"
+    def __hash__(self):
+        return self.hash
     def dump(self, indent="  "):
-        print("%s%s" % (indent, self._dump()))
+        print(f"{indent}{self._dump()}")
         self.fluent.dump(indent + "  ")
         self.expression.dump(indent + "  ")
     def _dump(self):
@@ -260,14 +263,14 @@ class FunctionAssignment:
             return 1.0            
     def is_cost_assignment(self):
 #         print("Checking whether %s is a cost assignment" % self.fluent.symbol) 
-        if (self.fluent.symbol == "total-cost"):
+        if self.fluent.symbol == "total-cost":
             return True 
         return False
 
 class Assign(FunctionAssignment):
     symbol = "="    
     def __str__(self):
-        return "%s := %s" % (self.fluent, self.expression)
+        return f"{self.fluent} := {self.expression}"
 
 class Increase(FunctionAssignment):
     symbol = "+"
