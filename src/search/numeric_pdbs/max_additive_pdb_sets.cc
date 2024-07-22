@@ -52,13 +52,13 @@ NumericVariableAdditivity compute_additive_vars(TaskProxy task_proxy) {
         const vector<ap_float> &num_effs = num_task_proxy.get_action_eff_list(op.get_id());
         for (EffectProxy e1 : op.get_effects()) {
             auto var1 = e1.get_fact().get_variable();
-            if (task_proxy.is_derived_variable(var1) || num_task_proxy.is_numeric_variable(var1)){
+            if (task_proxy.is_derived_variable(var1) || num_task_proxy.is_derived_numeric_variable(var1)){
                 continue;
             }
             int e1_var_id = var1.get_id();
             for (EffectProxy e2 : op.get_effects()) {
                 auto var2 = e1.get_fact().get_variable();
-                if (task_proxy.is_derived_variable(var2) || num_task_proxy.is_numeric_variable(var2)){
+                if (task_proxy.is_derived_variable(var2) || num_task_proxy.is_derived_numeric_variable(var2)){
                     continue;
                 }
                 int e2_var_id = e2.get_fact().get_variable().get_id();

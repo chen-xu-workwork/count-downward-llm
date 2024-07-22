@@ -84,6 +84,7 @@ PatternDatabase::PatternDatabase(
     assert(operator_costs.empty() ||
            operator_costs.size() == task_proxy.get_operators().size());
     assert(utils::is_sorted_unique(pattern.regular));
+    assert(utils::is_sorted_unique(pattern.numeric));
 
     NumericTaskProxy num_task_proxy(task_proxy);
 
@@ -200,7 +201,8 @@ bool PatternDatabase::is_applicable(const NumericState &state,
                                     NumericTaskProxy &num_task_proxy,
                                     const vector<int> &num_variable_to_index) const {
     for (auto pre : op.get_preconditions()){
-        if (!task_proxy.is_derived_variable(pre.get_variable()) && num_task_proxy.is_numeric_variable(pre.get_variable())) {
+        if (!task_proxy.is_derived_variable(pre.get_variable()) &&
+                num_task_proxy.is_derived_numeric_variable(pre.get_variable())) {
             shared_ptr<RegularNumericCondition> num_pre = num_task_proxy.get_regular_numeric_condition(pre);
             int num_index = num_variable_to_index[num_pre->get_var_id()];
             if (num_index != -1){

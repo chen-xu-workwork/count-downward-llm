@@ -202,7 +202,7 @@ CausalGraph::CausalGraph(const TaskProxy &task_proxy,
     int num_prop_variables = 0;
 
     for (auto var: task_proxy.get_variables()) {
-        if (!num_task->is_numeric_variable(var) && !task_proxy.is_derived_variable(var)) {
+        if (!num_task->is_derived_numeric_variable(var) && !task_proxy.is_derived_variable(var)) {
             ++num_prop_variables;
         }
     }
@@ -221,7 +221,7 @@ CausalGraph::CausalGraph(const TaskProxy &task_proxy,
     first_num_var_index = num_prop_variables;
     int i = 0;
     for (auto var: task_proxy.get_variables()) {
-        if (!num_task->is_numeric_variable(var) && !task_proxy.is_derived_variable(var)) {
+        if (!num_task->is_derived_numeric_variable(var) && !task_proxy.is_derived_variable(var)) {
             glob_var_id_to_var_id[i] = var.get_id();
             prop_var_id_to_glob_var_id[var.get_id()] = i++;
         }

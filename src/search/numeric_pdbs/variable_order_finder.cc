@@ -35,7 +35,7 @@ VariableOrderFinder::VariableOrderFinder(shared_ptr<AbstractTask> task_,
         add_numeric_vars(task_proxy, remaining_vars);
     }
     for (auto var : task_proxy.get_variables()){
-        if (!num_task_proxy.is_numeric_variable(var) &&
+        if (!num_task_proxy.is_derived_numeric_variable(var) &&
             !task_proxy.is_derived_variable(var)){
             remaining_vars.emplace_back(var.get_id(), false);
         }
