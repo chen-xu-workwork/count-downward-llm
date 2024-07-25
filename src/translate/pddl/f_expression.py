@@ -51,7 +51,7 @@ class FunctionalExpression:
 
 class ArithmeticExpression(FunctionalExpression):
     def __str__(self, *args, **kwargs):
-        return f"ArExp {self.op} {"%s" % [str(p) for p in self.parts]}"
+        return f"ArExp {self.op} {[str(p) for p in self.parts]}"
     def __eq__(self, other):
         return self.hash == other.hash and self.__class__ == other.__class__ and self.parts == other.parts
     def rename_variables(self, renamings={}):
