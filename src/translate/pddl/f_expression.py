@@ -175,7 +175,7 @@ class PrimitiveNumericExpression(FunctionalExpression):
         return self.__class__ == other.__class__ and self.symbol == other.symbol \
                 and self.args == other.args
     def __str__(self):
-        return f"PNE {self.symbol}({", ".join(map(str, self.args))})"
+        return f"PNE {self.symbol}({', '.join(map(str, self.args))})"
     def __repr__(self, *args, **kwargs):
         return self.__str__()
     def dump(self, indent="  "):
