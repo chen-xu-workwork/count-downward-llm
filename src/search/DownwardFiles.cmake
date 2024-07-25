@@ -594,6 +594,7 @@ fast_downward_plugin(
     NAME NUMERIC_PDBS
     HELP "PDBs for the Numeric variant NFD"
     SOURCES
+        numeric_pdbs/arithmetic_expression.cc
         numeric_pdbs/canonical_pdbs.cc
         numeric_pdbs/canonical_pdbs_heuristic.cc
         numeric_pdbs/causal_graph.cc

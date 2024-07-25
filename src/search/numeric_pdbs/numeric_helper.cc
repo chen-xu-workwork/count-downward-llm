@@ -1,12 +1,14 @@
 #include "numeric_helper.h"
 
-#include "../axioms.h"
+#include "arithmetic_expression.h"
 #include "numeric_condition.h"
-#include "../utils/logging.h"
+
+#include "../axioms.h"
 
 #include <sstream>
 
 using namespace std;
+using namespace arithmetic_expression;
 using namespace numeric_condition;
 
 namespace numeric_pdb_helper {
@@ -22,11 +24,32 @@ ostream &operator<<(ostream &os, const LinearNumericCondition &lnc) {
 NumericTaskProxy::NumericTaskProxy(const TaskProxy &task) :
         task_proxy(task),
         n_numeric_variables(0) {
+    verify_is_restricted_numeric_task(task_proxy);
     build_numeric_variables();
     build_artificial_variables();
     find_derived_numeric_variables();
     build_actions();
     build_numeric_goals();
+}
+
+void NumericTaskProxy::verify_is_restricted_numeric_task(const TaskProxy &task_proxy) {
+    // TODO check if all conditions are simple, i.e. contain only a single regular variable
+    if (task_proxy.get_axioms().size() > 2) {
+        cerr << "This configuration does not support non-numeric axioms."
+             << "but there are " << task_proxy.get_axioms().size() << " axioms. " << endl
+             << "Terminating." << endl;
+        utils::exit_with(utils::ExitCode::UNSUPPORTED);
+    }
+    // reconstruct regular numeric goals
+    for (auto axiom : task_proxy.get_axioms()) {
+        if (!axiom.get_preconditions().empty() && axiom.get_effects().size() > 1){
+            cerr << "This configuration does not support non-numeric axioms."
+                 << "Axiom " << axiom.get_name() << " does not look like a numeric goal axiom. " << endl
+                 << "Terminating." << endl;
+            utils::exit_with(utils::ExitCode::UNSUPPORTED);
+        }
+    }
+    verify_no_conditional_effects(task_proxy);
 }
 
 void NumericTaskProxy::build_numeric_variables() {
@@ -162,7 +185,6 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
         } else {
             switch (oper) {
                 case (assign):
-                    cout << task_proxy.get_numeric_variables()[lhs].get_name() << " := " << av.constant << endl;
                     actions[op_id].asgn_effs.emplace_back(lhs, av.constant);
                     break;
 //                case (increase): {
@@ -194,12 +216,12 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
 
 void NumericTaskProxy::build_actions() {
     OperatorsProxy ops = task_proxy.get_operators();
-    AxiomsProxy axioms = task_proxy.get_axioms();
-    actions.assign(ops.size() + axioms.size(), Action(n_numeric_variables));
+//    AxiomsProxy axioms = task_proxy.get_axioms();
+    actions.assign(ops.size(), Action(n_numeric_variables));
     for (size_t op_id = 0; op_id < ops.size(); ++op_id)
         build_action(ops[op_id], op_id);
-    for (size_t op_id = 0; op_id < axioms.size(); ++op_id)
-        build_action(axioms[op_id], ops.size() + op_id);
+//    for (size_t op_id = 0; op_id < axioms.size(); ++op_id)
+//        build_action(axioms[op_id], ops.size() + op_id);
 }
 
 inline int get_achieving_comp_axiom(const TaskProxy &proxy, const FactProxy &condition) {
@@ -229,6 +251,11 @@ int NumericTaskProxy::get_regular_var_id(int num_var_id) const {
     return glob_var_id_to_reg_num_var_id[num_var_id];
 }
 
+int NumericTaskProxy::get_global_var_id(int regular_num_var_id) const {
+    assert(reg_num_var_id_to_glob_var_id[regular_num_var_id] != -1);
+    return reg_num_var_id_to_glob_var_id[regular_num_var_id];
+}
+
 int NumericTaskProxy::get_number_propositional_variables() const {
     // TODO precompute and cache this
     int num_prop_variables = 0;
@@ -244,7 +271,35 @@ int NumericTaskProxy::get_number_regular_numeric_variables() const {
     return n_numeric_variables;
 }
 
-shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condition(const FactProxy &condition) /*const*/ {
+shared_ptr<arithmetic_expression::ArithmeticExpression> NumericTaskProxy::parse_arithmetic_expression(
+        NumericVariableProxy num_var) const {
+
+    switch (num_var.get_var_type()) {
+        case regular:
+            return make_shared<ArithmeticExpressionVar>(num_var.get_id());
+        case constant:
+            return make_shared<ArithmeticExpressionConst>(num_var.get_initial_state_value());
+        case derived: {
+            int assgn_op_id = get_achieving_assgn_axiom(task_proxy,
+                                                        num_var.get_id());
+            if (assgn_op_id == -1) {
+                cerr << "ERROR: could not find a assigment axiom that achieves this fact, is it propositional? "
+                     << num_var.get_name() << endl;
+                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+            }
+            AssignmentAxiomProxy assgn_ax = task_proxy.get_assignment_axioms()[assgn_op_id];
+
+            return make_shared<ArithmeticExpressionOp>(parse_arithmetic_expression(assgn_ax.get_left_variable()),
+                                                       assgn_ax.get_arithmetic_operator_type(),
+                                                       parse_arithmetic_expression(assgn_ax.get_right_variable()));
+        }
+        default: // could be instrumentation or unkonwn
+            cerr << "ERROR: unsupported numeric variable type " << num_var.get_var_type() << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    }
+}
+
+const RegularNumericCondition &NumericTaskProxy::get_regular_numeric_condition(const FactProxy &condition) /*const*/ {
     assert(!task_proxy.is_derived_variable(condition.get_variable()) &&
                    is_derived_numeric_variable(condition.get_variable()));
 
@@ -257,7 +312,7 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condit
         regular_numeric_conditions[var_id].resize(task_proxy.get_variables()[var_id].get_domain_size());
     }
     if (regular_numeric_conditions[var_id][condition.get_value()]){
-        return regular_numeric_conditions[var_id][condition.get_value()];
+        return *regular_numeric_conditions[var_id][condition.get_value()];
     }
 
     int c_op_id = get_achieving_comp_axiom(task_proxy, condition);
@@ -268,98 +323,28 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::get_regular_numeric_condit
     }
 
     ComparisonAxiomProxy c_op = task_proxy.get_comparison_axioms()[c_op_id];
+
 //    cout << endl << "found comparison op: " << endl
 //         << c_op.get_left_variable().get_name() << c_op.get_left_variable().get_var_type() << endl
-//         << c_op.get_right_variable().get_name() << c_op.get_right_variable().get_var_type() << endl
-//         << c_op.get_comparison_operator_type()
+//         << c_op.get_comparison_operator_type() << endl
+//         << c_op.get_right_variable().get_name() << c_op.get_right_variable().get_var_type()
 //         << endl;
 
-    ap_float const_ = numeric_limits<double>::max();
-    switch (c_op.get_right_variable().get_var_type()) {
-//        case regular:
-//            // this does not seem to happen due to the normal form of the translated task
-//            num_var_id = c_op.get_left_variable().get_id();
-//            break;
-        case constant:
-            const_ = c_op.get_right_variable().get_initial_state_value();
-            break;
+    shared_ptr<ArithmeticExpression> lhs = parse_arithmetic_expression(c_op.get_left_variable());
+    shared_ptr<ArithmeticExpression> rhs = parse_arithmetic_expression(c_op.get_right_variable());
 
-        default: // could be instrumentation or unkonwn
-            cerr << "ERROR: not sure what to do here3; got numeric variable of type " << c_op.get_right_variable().get_var_type() << endl;
-            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-    }
+//    cout << lhs->get_name() << endl;
+//    cout << c_op.get_comparison_operator_type() << endl;
+//    cout << rhs->get_name() << endl;
 
-    shared_ptr<RegularNumericCondition> num_condition;
+    assert(lhs->get_var_id() == -1 || rhs->get_var_id() == -1);
 
-    int num_var_id = -1;
-    ap_float l_const;
-    cal_operator arth_op;
-    switch(c_op.get_left_variable().get_var_type()) {
-        case regular:
-            num_var_id = c_op.get_left_variable().get_id();
-            num_condition = make_shared<RegularNumericConditionVar>(num_var_id,
-                                                                    c_op.get_comparison_operator_type(),
-                                                                    const_);
-            break;
-        case derived: {
-            int assgn_op_id = get_achieving_assgn_axiom(task_proxy,
-                                                        c_op.get_left_variable().get_id());
-            if (assgn_op_id == -1) {
-                cerr << "ERROR: could not find a assigment axiom that achieves this fact, is it propositional? "
-                     << condition.get_name() << endl;
-                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-            }
-            AssignmentAxiomProxy assgn_ax = task_proxy.get_assignment_axioms()[assgn_op_id];
-
-            ap_float op_const;
-            comp_operator new_c_op;
-            if (assgn_ax.get_left_variable().get_var_type() == regular) {
-                // var arth_op op_const c_op const_; e.g. var - 2 >= 0
-                assert(assgn_ax.get_right_variable().get_var_type() == constant);
-                num_var_id = assgn_ax.get_left_variable().get_id();
-                op_const = assgn_ax.get_right_variable().get_initial_state_value();
-                new_c_op = c_op.get_comparison_operator_type();
-            } else if (assgn_ax.get_right_variable().get_var_type() == regular) {
-                // op_const arth_op var c_op const_; e.g. 2 - var >= 1
-                // transformed to var arth_op op_const new_c_op -const_; e.g. var - 2 <= -1
-                assert(assgn_ax.get_left_variable().get_var_type() == constant);
-                num_var_id = assgn_ax.get_right_variable().get_id();
-                op_const = assgn_ax.get_left_variable().get_initial_state_value();
-                new_c_op = get_mirror_op(c_op.get_comparison_operator_type());
-                const_ = -const_;
-            } else {
-                cerr << assgn_ax.get_left_variable().get_name()
-                     << assgn_ax.get_arithmetic_operator_type()
-                     << assgn_ax.get_right_variable().get_name() << endl;
-                cerr << "ERROR: not sure what to do here; no regular numeric variable in assignment axiom "
-                     << assgn_ax.get_id() << endl;
-                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-            }
-            arth_op = assgn_ax.get_arithmetic_operator_type();
-            num_condition = make_shared<RegularNumericConditionVarOpC>(num_var_id,
-                                                                       arth_op,
-                                                                       op_const,
-                                                                       new_c_op,
-                                                                       const_);
-            break;
-        }
-        case constant:
-            l_const = c_op.get_left_variable().get_initial_state_value();
-            num_var_id = c_op.get_left_variable().get_id();
-            num_condition = make_shared<RegularNumericConditionConst>(num_var_id,
-                                                                      l_const,
-                                                                      c_op.get_comparison_operator_type(),
-                                                                      const_);
-
-            break;
-        default: // could be instrumentation or unkonwn
-            cerr << "ERROR: not sure what to do here2; got numeric variable of type " << c_op.get_left_variable().get_var_type() << endl;
-            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-    }
+    shared_ptr<RegularNumericCondition> num_condition =
+            make_shared<RegularNumericCondition>(lhs, c_op.get_comparison_operator_type(), rhs);
 
     regular_numeric_conditions[var_id][condition.get_value()] = num_condition;
 
-    return regular_numeric_conditions[var_id][condition.get_value()];
+    return *regular_numeric_conditions[var_id][condition.get_value()];
 }
 
 void NumericTaskProxy::find_derived_numeric_variables() {
@@ -370,22 +355,34 @@ void NumericTaskProxy::find_derived_numeric_variables() {
 }
 
 void NumericTaskProxy::build_numeric_goals() {
+    // there should be at most two axioms, one that is always generated is a dummy axiom that seems to do nothing (in
+    // particular, it does not have preconditions),
+    // the (optional) second one encodes the numeric goals into a single derived variable
+    assert(task_proxy.get_axioms().size() <= 2);
     // reconstruct regular numeric goals
     for (auto axiom : task_proxy.get_axioms()){
+        assert(axiom.get_preconditions().empty() || axiom.get_effects().size() == 1);
         if (!axiom.get_preconditions().empty()) {
             for (auto pre: axiom.get_preconditions()) {
-                regular_numeric_goals.push_back(get_regular_numeric_condition(pre));
+                if (task_proxy.is_derived_variable(pre.get_variable()) ||
+                    !is_derived_numeric_variable(pre.get_variable())){
+                    continue;
+                }
+                const RegularNumericCondition &goal(get_regular_numeric_condition(pre));
+                if (!goal.is_constant()){
+                    regular_numeric_goals.push_back(goal);
+                }
             }
-            assert(axiom.get_effects().size() == 1);
         }
     }
 }
 
-const vector<shared_ptr<RegularNumericCondition>> &NumericTaskProxy::get_numeric_goals() const {
+const vector<RegularNumericCondition> &NumericTaskProxy::get_numeric_goals() const {
     return regular_numeric_goals;
 }
 
 int NumericTaskProxy::get_approximate_domain_size(NumericVariableProxy num_var) {
+    // TODO: compute the ENI here instead, or maybe have different variants
     assert(g_numeric_var_types[num_var.get_id()] == numType::regular);
     if (approximate_num_var_domain_sizes.empty()){
         approximate_num_var_domain_sizes.resize(task_proxy.get_numeric_variables().size(), -1);
@@ -401,8 +398,8 @@ int NumericTaskProxy::get_approximate_domain_size(NumericVariableProxy num_var) 
                 if (!task_proxy.is_derived_variable(pre.get_variable()) &&
                         is_derived_numeric_variable(pre.get_variable())) {
                     const auto &num_cond = get_regular_numeric_condition(pre);
-                    if (num_cond->has_constant()) {
-                        ap_float c = num_cond->get_constant();
+                    if (!num_cond.is_constant()) {
+                        ap_float c = num_cond.get_constant();
                         min_const = min(min_const, c);
                         max_const = max(max_const, c);
                     }
@@ -419,9 +416,9 @@ int NumericTaskProxy::get_approximate_domain_size(NumericVariableProxy num_var) 
         min_const = min(min_const, ini_val);
         max_const = max(max_const, ini_val);
 
-        for (const auto & goal : get_numeric_goals()){
-            if (num_var.get_id() == goal->get_var_id() && goal->has_constant()){
-                ap_float c = goal->get_constant();
+        for (const auto &goal : get_numeric_goals()){
+            if (num_var.get_id() == goal.get_var_id()){
+                ap_float c = goal.get_constant();
                 min_const = min(min_const, c);
                 max_const = max(max_const, c);
             }

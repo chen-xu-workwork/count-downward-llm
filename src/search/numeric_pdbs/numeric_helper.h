@@ -1,6 +1,8 @@
 #ifndef NUMERIC_PDBS_NUMERIC_HELPER
 #define NUMERIC_PDBS_NUMERIC_HELPER
 
+#include "numeric_condition.h"
+
 #include "../option_parser.h"
 #include "../plugin.h"
 #include "../task_tools.h"
@@ -12,8 +14,8 @@
 #include <unordered_map>
 #include <vector>
 
-namespace numeric_condition {
-class RegularNumericCondition;
+namespace arithmetic_expression {
+class ArithmeticExpression;
 }
 
 namespace numeric_pdb_helper {
@@ -23,7 +25,7 @@ namespace numeric_pdb_helper {
 
 struct Action {
     std::vector<ap_float> eff_list;  // simple numeric effects
-    // list of assignment effects: first is regular numeric var id, second is assigned value
+    // list of assignment effects: first is global numeric var id, second is assigned value
     std::vector<std::pair<int, ap_float>> asgn_effs;
 
     explicit Action(int size_eff) : eff_list(size_eff, 0) {
@@ -54,19 +56,27 @@ public:
         return actions[op_id].eff_list;
     }
 
+    const std::vector<std::pair<int, ap_float>> &get_action_assign_list(int op_id) const {
+        return actions[op_id].asgn_effs;
+    }
+
     bool is_derived_numeric_variable(const VariableProxy &var_proxy) const;
 
     int get_regular_var_id(int num_var_id) const;
+
+    int get_global_var_id(int regular_num_var_id) const;
 
     int get_number_propositional_variables() const;
 
     int get_number_regular_numeric_variables() const;
 
-    std::shared_ptr<numeric_condition::RegularNumericCondition> get_regular_numeric_condition(const FactProxy &condition);
+    const numeric_condition::RegularNumericCondition &get_regular_numeric_condition(const FactProxy &condition);
 
-    const std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>> &get_numeric_goals() const;
+    const std::vector<numeric_condition::RegularNumericCondition> &get_numeric_goals() const;
 
     int get_approximate_domain_size(NumericVariableProxy num_var);
+
+    static void verify_is_restricted_numeric_task(const TaskProxy &task_proxy);
 
 private:
     void build_numeric_variables();
@@ -79,11 +89,13 @@ private:
 
     void build_numeric_goals();
 
+    std::shared_ptr<arithmetic_expression::ArithmeticExpression> parse_arithmetic_expression(NumericVariableProxy num_var) const;
+
 
     const TaskProxy task_proxy;
 
     std::vector<std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>>> regular_numeric_conditions;
-    std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>> regular_numeric_goals;
+    std::vector<numeric_condition::RegularNumericCondition> regular_numeric_goals;
 
     std::vector<int> approximate_num_var_domain_sizes;
 

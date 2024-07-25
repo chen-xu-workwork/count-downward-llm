@@ -141,7 +141,7 @@ struct CausalGraphBuilder {
         for (FactProxy pre: op.get_preconditions()) {
             int pre_var_id;
             if (prop_var_id_to_glob_var_id[pre.get_variable().get_id()] == -1) {
-                pre_var_id = num_var_id_to_glob_var_id[num_task->get_regular_numeric_condition(pre)->get_var_id()];
+                pre_var_id = num_var_id_to_glob_var_id[num_task->get_regular_numeric_condition(pre).get_var_id()];
             } else {
                 pre_var_id = prop_var_id_to_glob_var_id[pre.get_variable().get_id()];
             }

@@ -211,12 +211,10 @@ void PatternCollectionGeneratorSystematic::build_sga_patterns(
         }
     }
     for (const auto &num_goal : num_task_proxy.get_numeric_goals()) {
-        if (!num_goal->is_constant()) {
-            int var_id = num_goal->get_var_id();
-            Pattern goal_pattern;
-            goal_pattern.numeric.push_back(var_id);
-            enqueue_pattern_if_new(goal_pattern);
-        }
+        int var_id = num_goal.get_var_id();
+        Pattern goal_pattern;
+        goal_pattern.numeric.push_back(var_id);
+        enqueue_pattern_if_new(goal_pattern);
     }
 
     /*

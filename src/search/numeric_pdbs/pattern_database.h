@@ -1,6 +1,7 @@
 #ifndef NUMERIC_PDBS_NUMERIC_PATTERN_DATABASE_H
 #define NUMERIC_PDBS_NUMERIC_PATTERN_DATABASE_H
 
+#include "numeric_condition.h"
 #include "numeric_state_registry.h"
 #include "types.h"
 
@@ -9,9 +10,6 @@
 #include <utility>
 #include <vector>
 
-namespace numeric_condition {
-class RegularNumericCondition;
-}
 
 namespace numeric_pdb_helper {
 class NumericTaskProxy;
@@ -105,7 +103,7 @@ class PatternDatabase {
     std::vector<std::size_t> prop_hash_multipliers;
 
     std::vector<std::pair<int, int>> propositional_goals;
-    std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>> numeric_goals;
+    std::vector<numeric_condition::RegularNumericCondition> numeric_goals;
 
     ap_float min_action_cost;
 
@@ -144,7 +142,7 @@ class PatternDatabase {
 
     std::vector<ap_float> get_numeric_successor(std::vector<ap_float> state,
                                                 int op_id,
-                                                numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
+                                                const numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
                                                 const std::vector<int> &num_variable_to_index) const;
 
     /*

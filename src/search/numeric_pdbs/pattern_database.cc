@@ -76,11 +76,11 @@ PatternDatabase::PatternDatabase(
     const vector<int> &operator_costs)
     : task_proxy(task_proxy),
       pattern(pattern),
+      num_reached_states(0),
       state_registry(make_unique<NumericStateRegistry>()),
       min_action_cost(numeric_limits<double>::max()),
       exhausted_abstract_state_space(false) {
-    // verify_no_axioms(task_proxy); // TODO adapt the function to ignore the numeric axioms + dummy axioms
-    verify_no_conditional_effects(task_proxy);
+
     assert(operator_costs.empty() ||
            operator_costs.size() == task_proxy.get_operators().size());
     assert(utils::is_sorted_unique(pattern.regular));
@@ -203,11 +203,10 @@ bool PatternDatabase::is_applicable(const NumericState &state,
     for (auto pre : op.get_preconditions()){
         if (!task_proxy.is_derived_variable(pre.get_variable()) &&
                 num_task_proxy.is_derived_numeric_variable(pre.get_variable())) {
-            shared_ptr<RegularNumericCondition> num_pre = num_task_proxy.get_regular_numeric_condition(pre);
-            int num_index = num_variable_to_index[num_pre->get_var_id()];
+            const RegularNumericCondition &num_pre = num_task_proxy.get_regular_numeric_condition(pre);
+            int num_index = num_variable_to_index[num_pre.get_var_id()];
             if (num_index != -1){
-                if (!num_pre->satisfied(state.num_state[num_index])){
-//                    cout << "not applicable " << num_pre->get_name() << endl;
+                if (!num_pre.satisfied(state.num_state[num_index])){
                     return false;
                 }
             }
@@ -218,7 +217,7 @@ bool PatternDatabase::is_applicable(const NumericState &state,
 
 vector<ap_float> PatternDatabase::get_numeric_successor(vector<ap_float> state,
                                                         int op_id,
-                                                        NumericTaskProxy &num_task_proxy,
+                                                        const NumericTaskProxy &num_task_proxy,
                                                         const vector<int> &num_variable_to_index) const {
     const vector<ap_float> &num_effs = num_task_proxy.get_action_eff_list(op_id);
     for (int var: pattern.numeric) {
@@ -298,8 +297,8 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         }
     }
 
-    for (const shared_ptr<RegularNumericCondition> &num_goal : num_task_proxy.get_numeric_goals()){
-        if (num_variable_to_index[num_goal->get_var_id()] != -1){
+    for (const auto &num_goal : num_task_proxy.get_numeric_goals()){
+        if (num_variable_to_index[num_goal.get_var_id()] != -1){
             numeric_goals.push_back(num_goal);
         }
     }
@@ -510,10 +509,10 @@ bool PatternDatabase::is_goal_state(
             return false;
         }
     }
-    for (const shared_ptr<RegularNumericCondition> &num_goal : numeric_goals){
-        int num_index = num_variable_to_index[num_goal->get_var_id()];
+    for (const auto &num_goal : numeric_goals){
+        int num_index = num_variable_to_index[num_goal.get_var_id()];
         assert(num_index >= 0 && static_cast<size_t>(num_index) < pattern.numeric.size());
-        if (!num_goal->satisfied(state.num_state[num_index])){
+        if (!num_goal.satisfied(state.num_state[num_index])){
             return false;
         }
     }
@@ -527,8 +526,8 @@ bool PatternDatabase::is_abstract_goal_state(const State &state) const {
             return false;
         }
     }
-    for (const shared_ptr<RegularNumericCondition> &num_goal : numeric_goals){
-        if (!num_goal->satisfied(state.nval(num_goal->get_var_id()))){
+    for (const auto &num_goal : numeric_goals){
+        if (!num_goal.satisfied(state.nval(num_goal.get_var_id()))){
             return false;
         }
     }

@@ -61,7 +61,7 @@ VariableOrderFinder::VariableOrderFinder(shared_ptr<AbstractTask> task_,
     }
     is_numeric_goal_variable.resize(task->get_num_numeric_variables(), false);
     for (const auto &n_goal : num_task_proxy.get_numeric_goals()){
-        is_numeric_goal_variable[n_goal->get_var_id()] = true;
+        is_numeric_goal_variable[n_goal.get_var_id()] = true;
     }
 }
 
