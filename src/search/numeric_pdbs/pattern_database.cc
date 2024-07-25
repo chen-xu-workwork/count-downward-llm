@@ -388,6 +388,12 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                                                                    num_variable_to_index);
 
             size_t succ_id = state_registry->insert_state(NumericState(prop_successor, std::move(num_successor)));
+
+            if (succ_id == state_id){
+                // no need to keep self-loops
+                continue;
+            }
+
             if (parent_pointers.size() <= succ_id){
                 parent_pointers.resize(succ_id + 1);
             }
@@ -412,6 +418,12 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                                                                    num_variable_to_index);
 
             size_t succ_id = state_registry->insert_state(NumericState(state.prop_hash, std::move(num_successor)));
+
+            if (succ_id == state_id){
+                // no need to keep self-loops
+                continue;
+            }
+
             if (parent_pointers.size() <= succ_id){
                 parent_pointers.resize(succ_id + 1);
             }
