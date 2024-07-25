@@ -29,11 +29,11 @@ NumericTaskProxy::NumericTaskProxy(const TaskProxy &task) :
     build_artificial_variables();
     find_derived_numeric_variables();
     build_actions();
+    build_preconditions();
     build_numeric_goals();
 }
 
 void NumericTaskProxy::verify_is_restricted_numeric_task(const TaskProxy &task_proxy) {
-    // TODO check if all conditions are simple, i.e. contain only a single regular variable
     if (task_proxy.get_axioms().size() > 2) {
         cerr << "This configuration does not support non-numeric axioms."
              << "but there are " << task_proxy.get_axioms().size() << " axioms. " << endl
@@ -233,6 +233,91 @@ inline int get_achieving_comp_axiom(const TaskProxy &proxy, const FactProxy &con
     return -1;
 }
 
+shared_ptr<RegularNumericCondition> NumericTaskProxy::build_condition(FactProxy pre) {
+    assert(!task_proxy.is_derived_variable(pre.get_variable()) &&
+           is_derived_numeric_variable(pre.get_variable()));
+
+    int var_id = pre.get_variable().get_id();
+
+    if (regular_numeric_conditions[var_id][pre.get_value()]) {
+        return regular_numeric_conditions[var_id][pre.get_value()];
+    }
+
+    int c_op_id = get_achieving_comp_axiom(task_proxy, pre);
+
+    if (c_op_id == -1) {
+        cerr << "ERROR: could not find a comparison axiom that achieves this fact, is it propositional? "
+             << pre.get_name() << endl;
+        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    }
+
+    ComparisonAxiomProxy c_op = task_proxy.get_comparison_axioms()[c_op_id];
+
+//    cout << endl << "found comparison op: " << endl
+//         << c_op.get_left_variable().get_name() << c_op.get_left_variable().get_var_type() << endl
+//         << c_op.get_comparison_operator_type() << endl
+//         << c_op.get_right_variable().get_name() << c_op.get_right_variable().get_var_type()
+//         << endl;
+
+    shared_ptr<ArithmeticExpression> lhs = parse_arithmetic_expression(c_op.get_left_variable());
+    shared_ptr<ArithmeticExpression> rhs = parse_arithmetic_expression(c_op.get_right_variable());
+
+//    cout << lhs->get_name() << endl;
+//    cout << c_op.get_comparison_operator_type() << endl;
+//    cout << rhs->get_name() << endl;
+
+    if (lhs->get_var_id() != -1 && rhs->get_var_id() != -1) {
+        cerr << "ERROR: only simple numeric expressions containing a single variable are supported." << endl
+             << "[" << pre.get_name() << "] however refers to multiple numeric variables."
+             << endl;
+        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    }
+
+    return make_shared<RegularNumericCondition>(lhs, c_op.get_comparison_operator_type(), rhs);
+}
+
+void NumericTaskProxy::build_preconditions() {
+    regular_numeric_conditions.resize(task_proxy.get_variables().size());
+    for (size_t var = 0; var < task_proxy.get_variables().size(); ++var) {
+        regular_numeric_conditions[var].resize(task_proxy.get_variables()[var].get_domain_size());
+    }
+    for (OperatorProxy op : task_proxy.get_operators()) {
+        for (FactProxy pre : op.get_preconditions()) {
+            // check if proper numeric condition
+            if (!task_proxy.is_derived_variable(pre.get_variable()) &&
+                   is_derived_numeric_variable(pre.get_variable())) {
+
+                auto num_condition = build_condition(pre);
+
+                regular_numeric_conditions[pre.get_variable().get_id()][pre.get_value()] = num_condition;
+            }
+        }
+    }
+}
+
+void NumericTaskProxy::build_numeric_goals() {
+    // there should be at most two axioms, one that is always generated is a dummy axiom that seems to do nothing (in
+    // particular, it does not have preconditions),
+    // the (optional) second one encodes the numeric goals into a single derived variable
+    assert(task_proxy.get_axioms().size() <= 2);
+    // reconstruct regular numeric goals
+    for (auto axiom : task_proxy.get_axioms()){
+        assert(axiom.get_preconditions().empty() || axiom.get_effects().size() == 1);
+        if (!axiom.get_preconditions().empty()) {
+            for (auto pre: axiom.get_preconditions()) {
+                if (task_proxy.is_derived_variable(pre.get_variable()) ||
+                    !is_derived_numeric_variable(pre.get_variable())){
+                    continue;
+                }
+                shared_ptr<RegularNumericCondition> goal(build_condition(pre));
+                if (!goal->is_constant()){
+                    regular_numeric_goals.push_back(*goal);
+                }
+            }
+        }
+    }
+}
+
 inline int get_achieving_assgn_axiom(const TaskProxy &proxy, int var_id) {
     for (auto op: proxy.get_assignment_axioms()) {
         if (var_id == op.get_assignment_variable().get_id()) {
@@ -289,9 +374,19 @@ shared_ptr<arithmetic_expression::ArithmeticExpression> NumericTaskProxy::parse_
             }
             AssignmentAxiomProxy assgn_ax = task_proxy.get_assignment_axioms()[assgn_op_id];
 
-            return make_shared<ArithmeticExpressionOp>(parse_arithmetic_expression(assgn_ax.get_left_variable()),
+            auto lhs = parse_arithmetic_expression(assgn_ax.get_left_variable());
+            auto rhs = parse_arithmetic_expression(assgn_ax.get_right_variable());
+
+            if (lhs->get_var_id() != -1 && rhs->get_var_id() != -1){
+                cerr << "ERROR: only simple numeric expressions containing a single variable are supported." << endl
+                     << "[" << num_var.get_name() << "] however refers to multiple numeric variables."
+                     << endl;
+                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+            }
+
+            return make_shared<ArithmeticExpressionOp>(lhs,
                                                        assgn_ax.get_arithmetic_operator_type(),
-                                                       parse_arithmetic_expression(assgn_ax.get_right_variable()));
+                                                       rhs);
         }
         default: // could be instrumentation or unkonwn
             cerr << "ERROR: unsupported numeric variable type " << num_var.get_var_type() << endl;
@@ -299,81 +394,19 @@ shared_ptr<arithmetic_expression::ArithmeticExpression> NumericTaskProxy::parse_
     }
 }
 
-const RegularNumericCondition &NumericTaskProxy::get_regular_numeric_condition(const FactProxy &condition) /*const*/ {
+const RegularNumericCondition &NumericTaskProxy::get_regular_numeric_condition(const FactProxy &condition) const {
     assert(!task_proxy.is_derived_variable(condition.get_variable()) &&
                    is_derived_numeric_variable(condition.get_variable()));
-
-    int var_id = condition.get_variable().get_id();
-
-    if (static_cast<size_t>(var_id) >= regular_numeric_conditions.size()){
-        regular_numeric_conditions.resize(task_proxy.get_variables().size());
-    }
-    if (static_cast<size_t>(condition.get_value()) >= regular_numeric_conditions[var_id].size()){
-        regular_numeric_conditions[var_id].resize(task_proxy.get_variables()[var_id].get_domain_size());
-    }
-    if (regular_numeric_conditions[var_id][condition.get_value()]){
-        return *regular_numeric_conditions[var_id][condition.get_value()];
-    }
-
-    int c_op_id = get_achieving_comp_axiom(task_proxy, condition);
-
-    if (c_op_id == -1){
-        cerr << "ERROR: could not find a comparison axiom that achieves this fact, is it propositional? " << condition.get_name() << endl;
-        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-    }
-
-    ComparisonAxiomProxy c_op = task_proxy.get_comparison_axioms()[c_op_id];
-
-//    cout << endl << "found comparison op: " << endl
-//         << c_op.get_left_variable().get_name() << c_op.get_left_variable().get_var_type() << endl
-//         << c_op.get_comparison_operator_type() << endl
-//         << c_op.get_right_variable().get_name() << c_op.get_right_variable().get_var_type()
-//         << endl;
-
-    shared_ptr<ArithmeticExpression> lhs = parse_arithmetic_expression(c_op.get_left_variable());
-    shared_ptr<ArithmeticExpression> rhs = parse_arithmetic_expression(c_op.get_right_variable());
-
-//    cout << lhs->get_name() << endl;
-//    cout << c_op.get_comparison_operator_type() << endl;
-//    cout << rhs->get_name() << endl;
-
-    assert(lhs->get_var_id() == -1 || rhs->get_var_id() == -1);
-
-    shared_ptr<RegularNumericCondition> num_condition =
-            make_shared<RegularNumericCondition>(lhs, c_op.get_comparison_operator_type(), rhs);
-
-    regular_numeric_conditions[var_id][condition.get_value()] = num_condition;
-
-    return *regular_numeric_conditions[var_id][condition.get_value()];
+    int var = condition.get_variable().get_id();
+    int val = condition.get_value();
+    assert(regular_numeric_conditions[var][val]);
+    return *regular_numeric_conditions[var][val];
 }
 
 void NumericTaskProxy::find_derived_numeric_variables() {
     is_derived_num_var.assign(task_proxy.get_variables().size(), false);
     for (auto op : task_proxy.get_comparison_axioms()) {
         is_derived_num_var[op.get_true_fact().get_variable().get_id()] = true;
-    }
-}
-
-void NumericTaskProxy::build_numeric_goals() {
-    // there should be at most two axioms, one that is always generated is a dummy axiom that seems to do nothing (in
-    // particular, it does not have preconditions),
-    // the (optional) second one encodes the numeric goals into a single derived variable
-    assert(task_proxy.get_axioms().size() <= 2);
-    // reconstruct regular numeric goals
-    for (auto axiom : task_proxy.get_axioms()){
-        assert(axiom.get_preconditions().empty() || axiom.get_effects().size() == 1);
-        if (!axiom.get_preconditions().empty()) {
-            for (auto pre: axiom.get_preconditions()) {
-                if (task_proxy.is_derived_variable(pre.get_variable()) ||
-                    !is_derived_numeric_variable(pre.get_variable())){
-                    continue;
-                }
-                const RegularNumericCondition &goal(get_regular_numeric_condition(pre));
-                if (!goal.is_constant()){
-                    regular_numeric_goals.push_back(goal);
-                }
-            }
-        }
     }
 }
 

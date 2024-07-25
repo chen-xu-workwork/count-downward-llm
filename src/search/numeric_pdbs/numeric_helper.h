@@ -70,7 +70,7 @@ public:
 
     int get_number_regular_numeric_variables() const;
 
-    const numeric_condition::RegularNumericCondition &get_regular_numeric_condition(const FactProxy &condition);
+    const numeric_condition::RegularNumericCondition &get_regular_numeric_condition(const FactProxy &condition) const;
 
     const std::vector<numeric_condition::RegularNumericCondition> &get_numeric_goals() const;
 
@@ -84,8 +84,11 @@ private:
 
     void find_derived_numeric_variables();
 
-    void build_actions();
     void build_action(const OperatorProxy &op, size_t op_id);
+    void build_actions();
+
+    std::shared_ptr<numeric_condition::RegularNumericCondition> build_condition(FactProxy pre);
+    void build_preconditions();
 
     void build_numeric_goals();
 
