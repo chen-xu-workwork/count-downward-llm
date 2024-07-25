@@ -35,7 +35,7 @@ NumericTaskProxy::NumericTaskProxy(const TaskProxy &task) :
 
 void NumericTaskProxy::verify_is_restricted_numeric_task(const TaskProxy &task_proxy) {
     if (task_proxy.get_axioms().size() > 2) {
-        cerr << "This configuration does not support non-numeric axioms."
+        cerr << "This configuration does not support non-numeric axioms, "
              << "but there are " << task_proxy.get_axioms().size() << " axioms. " << endl
              << "Terminating." << endl;
         utils::exit_with(utils::ExitCode::UNSUPPORTED);
