@@ -224,6 +224,12 @@ vector<ap_float> PatternDatabase::get_numeric_successor(vector<ap_float> state,
         int num_index = num_variable_to_index[var];
         state[num_index] += num_effs[num_task_proxy.get_regular_var_id(var)];
     }
+    for (auto &[var_id, value] : num_task_proxy.get_action_assign_list(op_id)){
+        int pattern_id = num_variable_to_index[var_id];
+        if (pattern_id != -1){
+            state[pattern_id] = value;
+        }
+    }
     return state;
 }
 
@@ -271,7 +277,13 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
             for (int var : pattern.numeric){
                 int regular_var_id = num_task_proxy.get_regular_var_id(var);
                 if (effs[regular_var_id] != 0){
-//                    cout << "numeric operator: " << op.get_name() << endl;
+                    num_operators.push_back(op.get_id());
+                    min_action_cost = min(min_action_cost, op_cost);
+                    break;
+                }
+            }
+            for (const auto &[num_var, val] : num_task_proxy.get_action_assign_list(op.get_id())){
+                if (num_variable_to_index[num_var] != -1){
                     num_operators.push_back(op.get_id());
                     min_action_cost = min(min_action_cost, op_cost);
                     break;
