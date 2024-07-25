@@ -43,7 +43,7 @@ set(CORE_SOURCES
         successor_generator.cc
         task_proxy.cc
         task_tools.cc
-	    numeric_task_proxy.cc
+        numeric_task_proxy.cc
         variable_order_finder.cc
 
         open_lists/alternation_open_list.cc
@@ -132,7 +132,7 @@ fast_downward_plugin(
         utils/markup.cc
         utils/math.cc
         utils/memory.cc
-	utils/planvis.cc
+        utils/planvis.cc
         utils/rng.cc
         utils/rng_options.cc
         utils/system.cc
@@ -377,8 +377,8 @@ fast_downward_plugin(
     SOURCES
         transformation/tnf_exp.cc
         transformation/tnf_no_goal.cc
-	transformation/resource_transformation.cc
-	transformation/numeric_explicit_task.cc
+        transformation/resource_transformation.cc
+        transformation/numeric_explicit_task.cc
     CORE_PLUGIN
 )
 
@@ -461,17 +461,17 @@ fast_downward_plugin(
     HELP "Heuristics for the Numeric variant NFD"
     SOURCES
         numeric/interval.cc
-		numeric/relaxed_interval_helper.cc
-		numeric/interval_relaxation_heuristic.cc
-		numeric/interval_max_heuristic.cc
-		numeric/interval_add_heuristic.cc
-		numeric/interval_FF_heuristic.cc
-		numeric/repetition_relaxation_heuristic.cc
-		numeric/repetition_max_heuristic.cc
-		numeric/repetition_add_heuristic.cc
-		numeric/repetition_FF_heuristic.cc
-		numeric/rmax_heuristic.cc
-		numeric/generalized_subgoaling_heuristic.cc
+        numeric/relaxed_interval_helper.cc
+        numeric/interval_relaxation_heuristic.cc
+        numeric/interval_max_heuristic.cc
+        numeric/interval_add_heuristic.cc
+        numeric/interval_FF_heuristic.cc
+        numeric/repetition_relaxation_heuristic.cc
+        numeric/repetition_max_heuristic.cc
+        numeric/repetition_add_heuristic.cc
+        numeric/repetition_FF_heuristic.cc
+        numeric/rmax_heuristic.cc
+        numeric/generalized_subgoaling_heuristic.cc
    DEPENDS LP_SOLVER
 )
 
@@ -489,8 +489,8 @@ fast_downward_plugin(
     NAME RESOURCE_DETECTION
     HELP "Heuristics for the Numeric variant NFD"
     SOURCES
-	resource_detection/resource_detection.cc
-	resource_detection/execution_detection.cc
+        resource_detection/resource_detection.cc
+        resource_detection/execution_detection.cc
    DEPENDS LP_SOLVER
 )
 
@@ -498,14 +498,14 @@ fast_downward_plugin(
     NAME IP_COMPILATION
     HELP "IP compilations"
     SOURCES
-	compilation/ip_compilation.cc
+        compilation/ip_compilation.cc
         compilation/ip_constraint_generator.cc
-	compilation/sb_compilation.cc
-	compilation/sc_compilation.cc
-	compilation/sas_compilation.cc
+        compilation/sb_compilation.cc
+        compilation/sc_compilation.cc
+        compilation/sas_compilation.cc
         compilation/numeric_constraints.cc
-	compilation/landmark_constraints.cc
-	compilation/iterative_horizon.cc
+        compilation/landmark_constraints.cc
+        compilation/iterative_horizon.cc
    DEPENDS LP_SOLVER
 )
 
@@ -516,10 +516,10 @@ fast_downward_plugin(
         numeric_operator_counting/delete_relaxation.cc
         #numeric_operator_counting/delete_test.cc
         numeric_operator_counting/numeric_state_equation_constraints.cc
-		numeric_operator_counting/invariant_constraints.cc
+        numeric_operator_counting/invariant_constraints.cc
         numeric_operator_counting/numeric_helper.cc
-		numeric_operator_counting/h_lm_numeric.cc
-		numeric_operator_counting/lm_cut_numeric_constraints.cc
+        numeric_operator_counting/h_lm_numeric.cc
+        numeric_operator_counting/lm_cut_numeric_constraints.cc
     DEPENDS LP_SOLVER
 )
 
@@ -527,9 +527,9 @@ fast_downward_plugin(
     NAME NUMERIC_LANDMARKS_DOWNWARD
     HELP "Landmarks for the Numeric variant NFD"
     SOURCES
-    numeric_landmarks/landmark_factory_scala.cc
-	numeric_landmarks/numeric_lm_cut_landmarks.cc
-	numeric_landmarks/lm_cut_numeric_heuristic.cc
+        numeric_landmarks/landmark_factory_scala.cc
+        numeric_landmarks/numeric_lm_cut_landmarks.cc
+        numeric_landmarks/lm_cut_numeric_heuristic.cc
 )
 
 fast_downward_plugin(
@@ -594,26 +594,26 @@ fast_downward_plugin(
     NAME NUMERIC_PDBS
     HELP "PDBs for the Numeric variant NFD"
     SOURCES
-		numeric_pdbs/canonical_pdbs.cc
-		numeric_pdbs/canonical_pdbs_heuristic.cc
-		numeric_pdbs/causal_graph.cc
-		numeric_pdbs/dominance_pruning.cc
+        numeric_pdbs/canonical_pdbs.cc
+        numeric_pdbs/canonical_pdbs_heuristic.cc
+        numeric_pdbs/causal_graph.cc
+        numeric_pdbs/dominance_pruning.cc
         numeric_pdbs/match_tree.cc
         numeric_pdbs/max_additive_pdb_sets.cc
         numeric_pdbs/max_cliques.cc
-		numeric_pdbs/numeric_condition.cc
+        numeric_pdbs/numeric_condition.cc
         numeric_pdbs/numeric_helper.cc
-		numeric_pdbs/numeric_state_registry.cc
-		numeric_pdbs/pattern_collection_generator_systematic.cc
+        numeric_pdbs/numeric_state_registry.cc
+        numeric_pdbs/pattern_collection_generator_systematic.cc
         numeric_pdbs/pattern_collection_information.cc
-		numeric_pdbs/pattern_database.cc
-		numeric_pdbs/pattern_generator.cc
+        numeric_pdbs/pattern_database.cc
+        numeric_pdbs/pattern_generator.cc
         numeric_pdbs/pattern_generator_greedy.cc
         numeric_pdbs/pattern_generator_manual.cc
         numeric_pdbs/pdb_heuristic.cc
         numeric_pdbs/types.cc
         numeric_pdbs/validation.cc
-		numeric_pdbs/variable_order_finder.cc
+        numeric_pdbs/variable_order_finder.cc
 )
 
 fast_downward_plugin(
