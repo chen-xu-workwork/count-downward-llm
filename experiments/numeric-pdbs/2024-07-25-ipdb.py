@@ -25,7 +25,7 @@ ENV = TetralithEnvironment(
     extra_options="#SBATCH -A naiss2023-5-314", # Learning Dynamic Algorithms for Automated Planning
 )
 
-REVISIONS = ["6e83b47406d951ca96331f0d1d13ee9e2ede55a4"
+REVISIONS = ["01dc61f8d42c724ec38d8f3639cf9099092a0161"
             ]
 
 CONFIGS = [
@@ -37,7 +37,7 @@ CONFIGS = [
 for var_order, vo_name in [("GOAL_CG_LEVEL", "g_cg_l")]:
     for num_first, nf_name in [("false", "")]:
         for lim, lim_name in [(10000000, "10M")]:
-            CONFIGS.append((f"pdb-{lim_name}{nf_name}-{vo_name}", ["--search", f"astar(numeric_pdb(pattern=greedy_numeric(numeric_variables_first={num_first}, variable_order_type={var_order}), max_number_states={lim}))"]))
+            CONFIGS.append((f"pdb-{lim_name}{nf_name}-{vo_name}", ["--search", f"astar(numeric_pdb(pattern=greedy_numeric(prefer_numeric_variables={num_first}, variable_order_type={var_order}, max_number_pdb_states={lim})))"]))
 
 for num_vars in [1,2,3]:
     for limit in [1000, 10000, 100000]:
