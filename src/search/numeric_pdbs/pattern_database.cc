@@ -26,7 +26,7 @@ AbstractOperator::AbstractOperator(const vector<pair<int, int>> &prev_pairs,
                                    const vector<pair<int, int>> &pre_pairs,
                                    const vector<pair<int, int>> &eff_pairs,
                                    int op_id,
-                                   int cost,
+                                   ap_float cost,
                                    const vector<size_t> &hash_multipliers)
     : op_id(op_id),
       cost(cost),

@@ -51,7 +51,7 @@ public:
                      const std::vector<std::pair<int, int>> &preconditions,
                      const std::vector<std::pair<int, int>> &effects,
                      int op_id,
-                     int cost,
+                     ap_float cost,
                      const std::vector<std::size_t> &hash_multipliers);
 
     /*
@@ -72,7 +72,7 @@ public:
       Returns the cost of the abstract operator (same as the cost of
       the original concrete operator)
     */
-    int get_cost() const {
+    ap_float get_cost() const {
         return cost;
     }
 
