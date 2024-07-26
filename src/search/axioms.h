@@ -100,10 +100,13 @@ class AxiomEvaluator {
     std::vector<AxiomLiteral *> queue;
 private:
     void evaluate_comparison_axioms(PackedStateBin *buffer, std::vector<ap_float> &numeric_state);
+    void evaluate_comparison_axioms(std::vector<int> &state, std::vector<ap_float> &numeric_state);
     void evaluate_logic_axioms(PackedStateBin *buffer);
+    void evaluate_logic_axioms(std::vector<int> &state);
 public:
     AxiomEvaluator();
     void evaluate(PackedStateBin *buffer, std::vector<ap_float> &numeric_state);
+    void evaluate(std::vector<int> &state, std::vector<ap_float> &numeric_state);
     void evaluate_arithmetic_axioms(std::vector<ap_float> &numeric_state);
 };
 

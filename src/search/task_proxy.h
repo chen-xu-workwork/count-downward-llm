@@ -751,6 +751,13 @@ class State {
     const AbstractTask *task;
     std::vector<int> values;
     std::vector<ap_float> num_values;
+
+    static ap_float assign_effect(ap_float aff_value, f_operator fop, ap_float ass_value);
+
+    static void get_numeric_successor(
+            std::vector<ap_float> &new_num_state,
+            const GlobalOperator &op,
+            std::vector<int> &new_state);
 public:
     using ItemType = FactProxy;
     State(const AbstractTask &task, std::vector<int> &&values, std::vector<ap_float> &&num_vals)
@@ -817,25 +824,7 @@ public:
     	return num_values[var_id];
     }
 
-    State get_successor(OperatorProxy op) const {
-        if (task->get_num_axioms() > 0) {
-            ABORT("State::apply currently does not support axioms.");
-        }
-//        assert(!op.is_axiom());
-        //assert(is_applicable(op, state));
-        std::vector<int> new_values = values;
-        for (EffectProxy effect : op.get_effects()) {
-            if (does_fire(effect, *this)) {
-                FactProxy effect_fact = effect.get_fact();
-                new_values[effect_fact.get_variable().get_id()] = effect_fact.get_value();
-            }
-        }
-        std::vector<ap_float> new_num_values = num_values;
-        if (task->get_num_numeric_variables() > 0) {
-        	ABORT("State::apply currently does not support numeric variables.");
-        }
-        return State(*task, std::move(new_values), std::move(new_num_values));
-    }
+    State get_successor(OperatorProxy op) const;
 };
 
 

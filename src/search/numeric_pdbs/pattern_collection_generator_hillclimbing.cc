@@ -174,10 +174,6 @@ void PatternCollectionGeneratorHillclimbing::sample_states(
     int init_h = current_pdbs->get_value(
         task_proxy.get_initial_state());
 
-    samples.push_back(task_proxy.get_initial_state());
-    // TODO implement proper sampling
-    return;
-
     try {
         samples = sample_states_with_random_walks(
             task_proxy, successor_generator, num_samples, init_h,

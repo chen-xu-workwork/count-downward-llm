@@ -168,7 +168,7 @@ AxiomEvaluator::AxiomEvaluator() {
     }
 }
 
-void AxiomEvaluator::evaluate(PackedStateBin *buffer, std::vector<ap_float> &numeric_state) {
+void AxiomEvaluator::evaluate(PackedStateBin *buffer, vector<ap_float> &numeric_state) {
     if (!has_axioms()) {
     	if (DEBUG) cout << "Task has no axioms -> return" << endl;
         return;
@@ -184,7 +184,23 @@ void AxiomEvaluator::evaluate(PackedStateBin *buffer, std::vector<ap_float> &num
     }
 }
 
-void AxiomEvaluator::evaluate_arithmetic_axioms(std::vector<ap_float> &numeric_state)
+void AxiomEvaluator::evaluate(vector<int> &state, vector<ap_float> &numeric_state) {
+    if (!has_axioms()) {
+        if (DEBUG) cout << "Task has no axioms -> return" << endl;
+        return;
+    }
+    // numeric  assignment axioms are already evaluated on the fly
+    // but comparison axioms have to be evaluated now
+    if (has_numeric_axioms()) {
+        evaluate_comparison_axioms(state, numeric_state);
+    }
+    if (has_logic_axioms()) {
+//		if (DEBUG) cout << "AxEv evaluating logic axioms ..." << endl;
+        evaluate_logic_axioms(state);
+    }
+}
+
+void AxiomEvaluator::evaluate_arithmetic_axioms(vector<ap_float> &numeric_state)
 {
 //	int current_layer = -1;
 	for (const auto & ax : g_ass_axioms) {
@@ -226,7 +242,7 @@ void AxiomEvaluator::evaluate_arithmetic_axioms(std::vector<ap_float> &numeric_s
 	}
 }
 
-void AxiomEvaluator::evaluate_comparison_axioms(PackedStateBin *buffer, std::vector<ap_float> &numeric_state)
+void AxiomEvaluator::evaluate_comparison_axioms(PackedStateBin *buffer, vector<ap_float> &numeric_state)
 {
 	for(const auto & ax : g_comp_axioms) {
 		int var = ax.affected_variable; // logic variable
@@ -265,6 +281,47 @@ void AxiomEvaluator::evaluate_comparison_axioms(PackedStateBin *buffer, std::vec
 //        cout << " => var "<< var << " = " << (result?0:1) << endl;
     	g_state_packer->set(buffer,var,(result?0:1));
 	}
+}
+
+void AxiomEvaluator::evaluate_comparison_axioms(vector<int> &state, vector<ap_float> &numeric_state)
+{
+    for(const auto & ax : g_comp_axioms) {
+        int var = ax.affected_variable; // logic variable
+        assert(ax.var_lhs < (int) numeric_state.size());
+        assert(ax.var_rhs < (int) numeric_state.size());
+        ap_float left = numeric_state[ax.var_lhs];
+        ap_float right = numeric_state[ax.var_rhs];
+        bool result;
+//        cout << "evaluating comparison axiom: " << endl;
+//if(DEBUG) cout << g_variable_name[ax->affected_variable] << " := " << g_numeric_var_names[ax->var_lhs] << " " << ax->op << " " <<g_numeric_var_names[ax->var_rhs];
+        switch(ax.op) {
+            case lt:
+                result = left < right;
+                break;
+            case le:
+                result = left <= right;
+                break;
+            case eq:
+                result = left == right;
+                break;
+            case ge:
+                result = left >= right;
+                break;
+            case gt:
+                result = left > right;
+                break;
+            case ue:
+                result = left != right;
+                break;
+            default:
+                cout << "Error: No comparison operators are allowed here." << endl;
+                assert(false);
+                result = false;
+                break;
+        }
+//        cout << " => var "<< var << " = " << (result?0:1) << endl;
+        state[var] = (result?0:1);
+    }
 }
 
 
@@ -350,6 +407,94 @@ void AxiomEvaluator::evaluate_logic_axioms(PackedStateBin *buffer) {
             for (size_t i = 0; i < nbf_info.size(); ++i) {
                 int var_no = nbf_info[i].var_no;
                 if (g_state_packer->get(buffer, var_no) == g_default_axiom_values[var_no])
+                    queue.push_back(nbf_info[i].literal);
+            }
+        }
+    }
+}
+
+// TODO rethink the way this is called: see issue348.
+void AxiomEvaluator::evaluate_logic_axioms(vector<int> &state) {
+    if (!has_logic_axioms())
+        return;
+    assert(queue.empty());
+    for (size_t i = 0; i < g_axiom_layers.size(); ++i) { // g_axiom_layers[i] is the layer of the i-th variable
+
+        if (g_axiom_layers[i] == -1) {
+            // non-derived variable -> push_back immediately
+            queue.push_back(&axiom_literals[i][state[i]]);
+        } else if (g_axiom_layers[i] <= g_last_arithmetic_axiom_layer) {
+            // derived arithmetic variable
+            cerr << "Encountered logic variable in an axiom layer reserved for numeric variables" << endl;
+            cerr << "Variable #" <<i<< " is in layer " << g_axiom_layers[i] << " while numeric layers got up to layer " << g_last_arithmetic_axiom_layer << endl;
+            dump_variable(i);
+            assert(false);
+        } else if (g_axiom_layers[i] == g_comparison_axiom_layer) {
+            // variable is the result of a comparison axiom
+//        	if(DEBUG) cout << "Handling comparison axiom with value " << state[i]<< endl ;
+            queue.push_back(&axiom_literals[i][state[i]]);
+        } else if (g_axiom_layers[i] <= g_last_logic_axiom_layer) {
+            assert(g_axiom_layers[i] > g_comparison_axiom_layer);
+//        	if(DEBUG) cout << "Logic axiom is in layer" << g_axiom_layers[i] << endl ;
+//        	if(DEBUG) cout << "Set Axiom to value " << g_default_axiom_values[i] << endl;
+            state[i] = g_default_axiom_values[i];
+        } else {
+            // cannot happen
+            cout << "Error: Encountered a variable with an axiom layer exceeding "
+                 << "the maximal computed axiom layer." << endl;
+            exit(1);
+        }
+    }
+
+    for (size_t i = 0; i < rules.size(); ++i) {
+        rules[i].unsatisfied_conditions = rules[i].condition_count;
+
+        // TODO: In a perfect world, trivial axioms would have been
+        // compiled away, and we could have the following assertion
+        // instead of the following block.
+        // assert(rules[i].condition_counter != 0);
+        if (rules[i].condition_count == 0) {
+            // NOTE: This duplicates code from the main loop below.
+            // I don't mind because this is (hopefully!) going away
+            // some time.
+            if(DEBUG) cout << "Axiom Rule " << i << " triggers " << endl;
+            int var_no = rules[i].effect_var;
+            container_int val = rules[i].effect_val;
+            if (state[var_no] != val) {
+                if (DEBUG) cout << "axiom changes " << var_no << " from " << state[var_no] << " to " << val << endl;
+                state[var_no] = val;
+                queue.push_back(rules[i].effect_literal);
+            }
+        }
+    }
+
+    for (size_t layer_no = 0; layer_no < nbf_info_by_layer.size(); ++layer_no) {
+        // Apply Horn rules.
+        while (!queue.empty()) {
+            AxiomLiteral *curr_literal = queue.back();
+            queue.pop_back();
+            for (size_t i = 0; i < curr_literal->condition_of.size(); ++i) {
+                AxiomRule *rule = curr_literal->condition_of[i];
+//                if(DEBUG) cout << "Axiom Eval Queue popped literal which is a condition of [" << rule->effect_var << "][" << rule->effect_val << "]" << endl;
+                if (--rule->unsatisfied_conditions == 0) {
+                    int var_no = rule->effect_var;
+                    container_int val = rule->effect_val;
+                    if (state[var_no] != val) {
+//                    	if (DEBUG) cout << "axiom precons satisfied, it changes " << var_no << " from " << g_state_packer->get(buffer, var_no) << " to " << val << endl;
+                        state[var_no] = val;
+                        queue.push_back(rule->effect_literal);
+                    }
+                }
+            }
+        }
+
+        // Apply negation by failure rules. Skip this in last iteration
+        // to save some time (see issue420, msg3058).
+        if (layer_no != nbf_info_by_layer.size() - 1) {
+            const vector<NegationByFailureInfo> &nbf_info = nbf_info_by_layer[layer_no];
+            for (size_t i = 0; i < nbf_info.size(); ++i) {
+                int var_no = nbf_info[i].var_no;
+                if (state[var_no] == g_default_axiom_values[var_no])
                     queue.push_back(nbf_info[i].literal);
             }
         }
