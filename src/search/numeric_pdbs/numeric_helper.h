@@ -74,6 +74,8 @@ public:
 
     const std::vector<numeric_condition::RegularNumericCondition> &get_numeric_goals() const;
 
+    const std::vector<FactProxy> &get_propositional_goals() const;
+
     int get_approximate_domain_size(NumericVariableProxy num_var);
 
     static void verify_is_restricted_numeric_task(const TaskProxy &task_proxy);
@@ -90,7 +92,7 @@ private:
     std::shared_ptr<numeric_condition::RegularNumericCondition> build_condition(FactProxy pre);
     void build_preconditions();
 
-    void build_numeric_goals();
+    void build_goals();
 
     std::shared_ptr<arithmetic_expression::ArithmeticExpression> parse_arithmetic_expression(NumericVariableProxy num_var) const;
 
@@ -99,6 +101,8 @@ private:
 
     std::vector<std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>>> regular_numeric_conditions;
     std::vector<numeric_condition::RegularNumericCondition> regular_numeric_goals;
+
+    std::vector<FactProxy> propositional_goals;
 
     std::vector<int> approximate_num_var_domain_sizes;
 

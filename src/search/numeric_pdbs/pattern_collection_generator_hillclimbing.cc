@@ -386,14 +386,11 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
 
     // Generate initial collection: a pdb for each goal variable.
     PatternCollection initial_pattern_collection;
-    for (FactProxy goal : task_proxy.get_goals()) {
-        if (!task_proxy.is_derived_variable(goal.get_variable()) &&
-            !num_task_proxy.is_derived_numeric_variable(goal.get_variable())) {
-            int goal_var_id = goal.get_variable().get_id();
-            Pattern goal_pattern;
-            goal_pattern.regular.push_back(goal_var_id);
-            initial_pattern_collection.push_back(goal_pattern);
-        }
+    for (FactProxy goal : num_task_proxy.get_propositional_goals()){
+        int goal_var_id = goal.get_variable().get_id();
+        Pattern goal_pattern;
+        goal_pattern.regular.push_back(goal_var_id);
+        initial_pattern_collection.push_back(goal_pattern);
     }
     for (const auto &num_goal : num_task_proxy.get_numeric_goals()) {
         int var_id = num_goal.get_var_id();

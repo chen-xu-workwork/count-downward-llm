@@ -31,7 +31,7 @@ NumericTaskProxy::NumericTaskProxy(const TaskProxy &task) :
     find_derived_numeric_variables();
     build_actions();
     build_preconditions();
-    build_numeric_goals();
+    build_goals();
 }
 
 void NumericTaskProxy::verify_is_restricted_numeric_task(const TaskProxy &task_proxy) {
@@ -300,23 +300,37 @@ void NumericTaskProxy::build_preconditions() {
     }
 }
 
-void NumericTaskProxy::build_numeric_goals() {
+void NumericTaskProxy::build_goals() {
     // there should be at most two axioms, one that is always generated is a dummy axiom that seems to do nothing (in
     // particular, it does not have preconditions),
-    // the (optional) second one encodes the numeric goals into a single derived variable
+    // the (optional) second one encodes the numeric goals (and possibly propositional ones) into a single derived variable
     assert(task_proxy.get_axioms().size() <= 2);
+
+    for (FactProxy goal : task_proxy.get_goals()) {
+        if (!task_proxy.is_derived_variable(goal.get_variable())) {
+            assert(!is_derived_numeric_variable(goal.get_variable()));
+            propositional_goals.push_back(goal);
+        }
+    }
+
     // reconstruct regular numeric goals
     for (auto axiom : task_proxy.get_axioms()){
         assert(axiom.get_preconditions().empty() || axiom.get_effects().size() == 1);
         if (!axiom.get_preconditions().empty()) {
             for (auto pre: axiom.get_preconditions()) {
-                if (task_proxy.is_derived_variable(pre.get_variable()) ||
-                    !is_derived_numeric_variable(pre.get_variable())){
-                    continue;
-                }
-                shared_ptr<RegularNumericCondition> goal(build_condition(pre));
-                if (!goal->is_constant()){
-                    regular_numeric_goals.push_back(*goal);
+                assert(!task_proxy.is_derived_variable(pre.get_variable()));
+                if (is_derived_numeric_variable(pre.get_variable())){
+                    shared_ptr<RegularNumericCondition> goal(build_condition(pre));
+                    if (!goal->is_constant()){
+                        regular_numeric_goals.push_back(*goal);
+                    }
+                } else {
+                    assert(all_of(propositional_goals.begin(),
+                                  propositional_goals.end(),
+                                  [&pre](FactProxy a) {
+                        return a.get_variable().get_id() != pre.get_variable().get_id();
+                    }));
+                    propositional_goals.push_back(pre);
                 }
             }
         }
@@ -417,6 +431,10 @@ void NumericTaskProxy::find_derived_numeric_variables() {
 
 const vector<RegularNumericCondition> &NumericTaskProxy::get_numeric_goals() const {
     return regular_numeric_goals;
+}
+
+const vector<FactProxy> &NumericTaskProxy::get_propositional_goals() const {
+    return propositional_goals;
 }
 
 int NumericTaskProxy::get_approximate_domain_size(NumericVariableProxy num_var) {

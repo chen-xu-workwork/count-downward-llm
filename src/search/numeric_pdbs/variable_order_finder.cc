@@ -54,10 +54,8 @@ VariableOrderFinder::VariableOrderFinder(shared_ptr<AbstractTask> task_,
 
     is_causal_predecessor.resize(task->get_num_variables() + task->get_num_numeric_variables(), false);
     is_goal_variable.resize(task->get_num_variables(), false);
-    for (FactProxy goal: task_proxy.get_goals()) {
-        if (!task_proxy.is_derived_variable(goal.get_variable())) {
-            is_goal_variable[goal.get_variable().get_id()] = true;
-        }
+    for (FactProxy goal : num_task_proxy.get_propositional_goals()){
+        is_goal_variable[goal.get_variable().get_id()] = true;
     }
     is_numeric_goal_variable.resize(task->get_num_numeric_variables(), false);
     for (const auto &n_goal : num_task_proxy.get_numeric_goals()){

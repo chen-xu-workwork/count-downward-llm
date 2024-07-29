@@ -301,7 +301,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
     }
 
     // compute abstract goal var-val pairs
-    for (FactProxy goal : task_proxy.get_goals()) {
+    for (FactProxy goal : num_task_proxy.get_propositional_goals()) {
         int var_id = goal.get_variable().get_id();
         int val = goal.get_value();
         if (variable_to_index[var_id] != -1) {
