@@ -9,6 +9,7 @@ namespace arithmetic_expression {
 
 class ArithmeticExpression {
     // an arithmetic expression over a single regular numeric variable and constants
+
 public:
     virtual ~ArithmeticExpression() = default;
 
@@ -17,11 +18,18 @@ public:
     virtual std::string get_name() const = 0;
 
     virtual ap_float evaluate(ap_float value) const = 0;
+
+    virtual std::shared_ptr<ArithmeticExpression> simplify() = 0;
+
+    virtual ap_float get_multiplier() const = 0;
+
+    virtual ap_float get_summand() const = 0;
 };
 
 class ArithmeticExpressionVar : public ArithmeticExpression {
     // this class encodes the basic expressions with just a variable
     int var_id; // global id of a regular numeric variable
+
 public:
     explicit ArithmeticExpressionVar(int var_id)
             : var_id(var_id) {
@@ -33,17 +41,30 @@ public:
     }
 
     std::string get_name() const override {
-        return "var";
+        return "var" + std::to_string(var_id);
     }
 
     ap_float evaluate(ap_float value) const override {
         return value;
+    }
+
+    std::shared_ptr<ArithmeticExpression> simplify() override {
+        return std::make_shared<ArithmeticExpressionVar>(*this);
+    }
+
+    ap_float get_multiplier() const override {
+        return 1;
+    }
+
+    ap_float get_summand() const override {
+        return 0;
     }
 };
 
 class ArithmeticExpressionConst : public ArithmeticExpression {
     // this class encodes the basic expressions with just a constant
     ap_float const_;
+
 public:
     explicit ArithmeticExpressionConst(ap_float const_)
             : const_(const_) {
@@ -60,12 +81,25 @@ public:
     ap_float evaluate(ap_float /*value*/) const override {
         return const_;
     }
+
+    std::shared_ptr<ArithmeticExpression> simplify() override {
+        return std::make_shared<ArithmeticExpressionConst>(*this);
+    }
+
+    ap_float get_multiplier() const override {
+        return 1;
+    }
+
+    ap_float get_summand() const override {
+        return const_;
+    }
 };
 
 class ArithmeticExpressionOp : public ArithmeticExpression {
     std::shared_ptr<ArithmeticExpression> lhs;
     cal_operator c_op;
     std::shared_ptr<ArithmeticExpression> rhs;
+
 public:
     ArithmeticExpressionOp(std::shared_ptr<ArithmeticExpression> lhs,
                            cal_operator c_op,
@@ -86,6 +120,19 @@ public:
     std::string get_name() const override;
 
     ap_float evaluate(ap_float value) const override;
+
+    std::shared_ptr<ArithmeticExpression> simplify() override {
+        if (lhs->get_var_id() == -1 && rhs->get_var_id() == -1){
+            return std::make_shared<ArithmeticExpressionConst>(evaluate(0));
+        }
+        lhs = lhs->simplify();
+        rhs = rhs->simplify();
+        return std::make_shared<ArithmeticExpressionOp>(*this); // TODO simplify further
+    }
+
+    ap_float get_multiplier() const override;
+
+    ap_float get_summand() const override;
 };
 }
 

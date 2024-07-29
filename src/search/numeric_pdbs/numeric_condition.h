@@ -12,10 +12,11 @@ class RegularNumericCondition {
     comp_operator c_op;
     std::shared_ptr<arithmetic_expression::ArithmeticExpression> rhs;
 public:
-    RegularNumericCondition(std::shared_ptr<arithmetic_expression::ArithmeticExpression> lhs,
+    RegularNumericCondition(const std::shared_ptr<arithmetic_expression::ArithmeticExpression> &lhs,
                             comp_operator c_op,
-                            std::shared_ptr<arithmetic_expression::ArithmeticExpression> rhs)
-            : lhs(lhs), c_op(c_op), rhs(rhs) {
+                            const std::shared_ptr<arithmetic_expression::ArithmeticExpression> &rhs)
+            : lhs(lhs->simplify()), c_op(c_op), rhs(rhs->simplify()) {
+        assert(lhs->get_var_id() == -1 || rhs->get_var_id() == -1);
     }
 
     ~RegularNumericCondition() = default;
@@ -23,7 +24,6 @@ public:
     int get_var_id() const {
         int var_id = lhs->get_var_id();
         if (var_id != -1){
-            assert(rhs->get_var_id() == -1); // there can only be one variable in the expression
             return var_id;
         } else {
             return rhs->get_var_id();
@@ -35,10 +35,18 @@ public:
     bool satisfied(ap_float value) const;
 
     ap_float get_constant() const {
-        if (rhs->get_var_id() == -1){
-            return rhs->evaluate(0);
-        } else if (lhs->get_var_id() == -1){
-            return lhs->evaluate(0);
+        if (lhs->get_var_id() != -1){
+            // rhs must be constant
+            ap_float c = rhs->evaluate(0);
+            ap_float m = lhs->get_multiplier();
+            ap_float s = lhs->get_summand();
+            return c * m - s;
+        } else if (rhs->get_var_id() != -1){
+            // lhs must be constant
+            ap_float c = lhs->evaluate(0);
+            ap_float m = rhs->get_multiplier();
+            ap_float s = rhs->get_summand();
+            return c * m - s;
         }
         return 0;
     }

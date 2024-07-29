@@ -6,6 +6,7 @@
 #include "../axioms.h"
 
 #include <sstream>
+#include <unordered_set>
 
 using namespace std;
 using namespace arithmetic_expression;
@@ -273,6 +274,10 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::build_condition(FactProxy 
         utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
     }
 
+//    cout << make_shared<RegularNumericCondition>(lhs, c_op.get_comparison_operator_type(), rhs)->get_name()
+//         << "; constant = " << make_shared<RegularNumericCondition>(lhs, c_op.get_comparison_operator_type(), rhs)->get_constant()
+//         << endl;
+
     return make_shared<RegularNumericCondition>(lhs, c_op.get_comparison_operator_type(), rhs);
 }
 
@@ -415,23 +420,28 @@ const vector<RegularNumericCondition> &NumericTaskProxy::get_numeric_goals() con
 }
 
 int NumericTaskProxy::get_approximate_domain_size(NumericVariableProxy num_var) {
-    // TODO: compute the ENI here instead, or maybe have different variants
+    // TODO: maybe have different variants
     assert(g_numeric_var_types[num_var.get_id()] == numType::regular);
     if (approximate_num_var_domain_sizes.empty()){
         approximate_num_var_domain_sizes.resize(task_proxy.get_numeric_variables().size(), -1);
     }
     if (approximate_num_var_domain_sizes[num_var.get_id()] == -1){
         // TODO precompute this on construction
-        ap_float min_increment = numeric_limits<ap_float>::max();
-        ap_float min_const = numeric_limits<ap_float>::max();
-        ap_float max_const = numeric_limits<ap_float>::lowest();
+        unordered_set<ap_float> increments;
+        unordered_set<ap_float> decrements;
+        ap_float min_const = 0;
+        ap_float max_const = 0;
+
+        ap_float min_change = numeric_limits<ap_float>::max();
+        ap_float max_pos_change = 0;
+        ap_float max_neg_change = 0;
 
         for (const auto &op : task_proxy.get_operators()){
             for (const auto &pre : op.get_preconditions()){
                 if (!task_proxy.is_derived_variable(pre.get_variable()) &&
                         is_derived_numeric_variable(pre.get_variable())) {
                     const auto &num_cond = get_regular_numeric_condition(pre);
-                    if (!num_cond.is_constant()) {
+                    if (!num_cond.is_constant() && num_var.get_id() == num_cond.get_var_id()) {
                         ap_float c = num_cond.get_constant();
                         min_const = min(min_const, c);
                         max_const = max(max_const, c);
@@ -440,8 +450,21 @@ int NumericTaskProxy::get_approximate_domain_size(NumericVariableProxy num_var) 
             }
             const auto &num_effs = get_action_eff_list(op.get_id());
             ap_float eff = num_effs[get_regular_var_id(num_var.get_id())];
-            if (eff != 0) {
-                min_increment = min(min_increment, abs(num_effs[get_regular_var_id(num_var.get_id())]));
+            if (eff > 0) {
+                increments.insert(eff);
+                min_change = min(min_change, eff);
+                max_pos_change = max(max_pos_change, eff);
+            } else if (eff < 0){
+                decrements.insert(eff);
+                min_change = min(min_change, abs(eff));
+                max_neg_change = min(max_neg_change, eff);
+            }
+
+            for (const auto &[var, val] : get_action_assign_list(op.get_id())){
+                if (var == num_var.get_id()) {
+                    min_const = min(min_const, val);
+                    max_const = max(max_const, val);
+                }
             }
         }
 
@@ -457,8 +480,31 @@ int NumericTaskProxy::get_approximate_domain_size(NumericVariableProxy num_var) 
             }
         }
 
-        assert(abs((max_const - min_const) / min_increment) <= numeric_limits<int>::max());
-        approximate_num_var_domain_sizes[num_var.get_id()] = static_cast<int>(abs((max_const - min_const) / min_increment));
+        min_const += max_neg_change;
+        max_const += max_pos_change;
+
+        ap_float min_increment = numeric_limits<ap_float>::max();
+        if (!increments.empty() && !decrements.empty()) {
+            for (ap_float inc: increments) {
+                for (ap_float dec: decrements) {
+                    min_increment = min(min_increment, abs(inc + dec));
+                }
+            }
+            if (min_increment == 0){
+                min_increment = min_change;
+            }
+        } else {
+            min_increment = min_change;
+        }
+
+//        cout << "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++" << endl;
+//        cout << "ENI of " << num_var.get_name() << ":" << endl;
+//        cout << "[" << min_const << ", " << max_const << "] increment "
+//             << min_increment << " => " << static_cast<int>(abs((max_const - min_const) / min_increment) + 1)
+//             << " values" << endl;
+
+        assert(abs((max_const - min_const) / min_increment) + 1 <= numeric_limits<int>::max());
+        approximate_num_var_domain_sizes[num_var.get_id()] = static_cast<int>(abs((max_const - min_const) / min_increment) + 1);
     }
     return approximate_num_var_domain_sizes[num_var.get_id()];
 }
