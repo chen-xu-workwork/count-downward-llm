@@ -341,6 +341,21 @@ vector<int> CausalGraph::get_num_eff_to_num_pre(int num_var) const {
     }
 }
 
+vector<int> CausalGraph::get_num_eff_to_num_eff(int num_var) const {
+    int mapped_var = num_var_id_to_glob_var_id[num_var];
+    if (mapped_var == -1 || static_cast<size_t>(first_num_var_index) == glob_var_id_to_var_id.size()){
+        return {};
+    } else {
+        vector<int> num_eff;
+        for (int var : eff_to_eff[mapped_var]){
+            if (var >= first_num_var_index) {
+                num_eff.push_back(glob_var_id_to_var_id[var]);
+            }
+        }
+        return num_eff;
+    }
+}
+
 vector<int> CausalGraph::get_prop_predecessors_of_prop_var(int prop_var) const {
     int mapped_var = prop_var_id_to_glob_var_id[prop_var];
     if (mapped_var == -1 || first_num_var_index == 0){

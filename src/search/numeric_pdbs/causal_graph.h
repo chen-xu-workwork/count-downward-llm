@@ -111,6 +111,8 @@ public:
 
     std::vector<int> get_num_eff_to_num_pre(int num_var) const;
 
+    std::vector<int> get_num_eff_to_num_eff(int num_var) const;
+
     std::vector<int> get_prop_predecessors_of_prop_var(int prop_var) const;
 
     std::vector<int> get_prop_predecessors_of_num_var(int num_var) const;
