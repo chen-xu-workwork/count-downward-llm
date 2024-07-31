@@ -42,8 +42,8 @@ bool are_patterns_additive(const Pattern &pattern1,
 NumericVariableAdditivity compute_additive_vars(TaskProxy task_proxy) {
     NumericVariableAdditivity are_additive;
     numeric_pdb_helper::NumericTaskProxy num_task_proxy(task_proxy);
-    int num_prop_vars = task_proxy.get_variables().size();
-    int num_num_vars = task_proxy.get_numeric_variables().size();
+    size_t num_prop_vars = task_proxy.get_variables().size();
+    size_t num_num_vars = task_proxy.get_numeric_variables().size();
     are_additive.prop_to_prop.resize(num_prop_vars, vector<bool>(num_prop_vars, true));
     are_additive.prop_to_num.resize(num_prop_vars, vector<bool>(num_num_vars, true));
     are_additive.num_to_prop.resize(num_num_vars, vector<bool>(num_prop_vars, true));
@@ -52,19 +52,19 @@ NumericVariableAdditivity compute_additive_vars(TaskProxy task_proxy) {
         const vector<ap_float> &num_effs = num_task_proxy.get_action_eff_list(op.get_id());
         for (EffectProxy e1 : op.get_effects()) {
             auto var1 = e1.get_fact().get_variable();
-            if (task_proxy.is_derived_variable(var1) || num_task_proxy.is_derived_numeric_variable(var1)){
-                continue;
-            }
+            assert(!task_proxy.is_derived_variable(var1) &&
+                   !num_task_proxy.is_derived_numeric_variable(var1));
             int e1_var_id = var1.get_id();
+            // additivity for propositional<->propositional variables
             for (EffectProxy e2 : op.get_effects()) {
                 auto var2 = e1.get_fact().get_variable();
-                if (task_proxy.is_derived_variable(var2) || num_task_proxy.is_derived_numeric_variable(var2)){
-                    continue;
-                }
+                assert(!task_proxy.is_derived_variable(var2) &&
+                       !num_task_proxy.is_derived_numeric_variable(var2));
                 int e2_var_id = e2.get_fact().get_variable().get_id();
                 are_additive.prop_to_prop[e1_var_id][e2_var_id] = false;
             }
-            for (int num_var = 0; num_var < num_num_vars; ++num_var){
+            // additivity for propositional<->numeric variables
+            for (int num_var = 0; num_var < static_cast<int>(num_num_vars); ++num_var){
                 if (task_proxy.get_numeric_variables()[num_var].get_var_type() == regular) {
                     if (num_effs[num_task_proxy.get_regular_var_id(num_var)] != 0) {
                         are_additive.prop_to_num[e1_var_id][num_var] = false;
@@ -72,18 +72,37 @@ NumericVariableAdditivity compute_additive_vars(TaskProxy task_proxy) {
                     }
                 }
             }
+            // additivity for propositional<->numeric variables (assign effects)
+            for (const auto &[assgn_var, assgn_val] : num_task_proxy.get_action_assign_list(op.get_id())){
+                are_additive.prop_to_num[e1_var_id][assgn_var] = false;
+                are_additive.num_to_prop[assgn_var][e1_var_id] = false;
+            }
         }
-        for (int num_var1 = 0; num_var1 < num_num_vars; ++num_var1) {
+        for (int num_var1 = 0; num_var1 < static_cast<int>(num_num_vars); ++num_var1) {
             if (task_proxy.get_numeric_variables()[num_var1].get_var_type() == regular) {
                 if (num_effs[num_task_proxy.get_regular_var_id(num_var1)] != 0) {
-                    for (int num_var2 = 0; num_var2 < num_num_vars; ++num_var2) {
+                    // additivity for numeric<->numeric variables
+                    for (int num_var2 = num_var1; num_var2 < static_cast<int>(num_num_vars); ++num_var2) {
                         if (task_proxy.get_numeric_variables()[num_var2].get_var_type() == regular) {
                             if (num_effs[num_task_proxy.get_regular_var_id(num_var2)] != 0) {
                                 are_additive.num_to_num[num_var1][num_var2] = false;
+                                are_additive.num_to_num[num_var2][num_var1] = false;
                             }
                         }
                     }
+                    // additivity for numeric<->numeric variables (assign effects)
+                    for (const auto &[assgn_var, assgn_val] : num_task_proxy.get_action_assign_list(op.get_id())){
+                        are_additive.num_to_num[num_var1][assgn_var] = false;
+                        are_additive.num_to_num[assgn_var][num_var1] = false;
+                    }
                 }
+            }
+        }
+        // additivity for numeric<->numeric variables (both assign effects)
+        for (const auto &[assgn_var1, assgn_val1] : num_task_proxy.get_action_assign_list(op.get_id())){
+            for (const auto &[assgn_var2, assgn_val2] : num_task_proxy.get_action_assign_list(op.get_id())) {
+                are_additive.num_to_num[assgn_var1][assgn_var2] = false;
+                are_additive.num_to_num[assgn_var2][assgn_var1] = false;
             }
         }
     }
