@@ -77,6 +77,7 @@ PatternDatabase::PatternDatabase(
     : task_proxy(task_proxy),
       pattern(pattern),
       num_reached_states(0),
+      domain_size_product(1),
       state_registry(make_unique<NumericStateRegistry>()),
       min_action_cost(numeric_limits<double>::max()),
       exhausted_abstract_state_space(false) {
@@ -90,16 +91,27 @@ PatternDatabase::PatternDatabase(
 
     utils::Timer timer;
     prop_hash_multipliers.reserve(pattern.regular.size());
-    num_prop_states = 1;
+    domain_size_product = 1;
     for (int pattern_var_id : pattern.regular) {
-        prop_hash_multipliers.push_back(num_prop_states);
+        prop_hash_multipliers.push_back(domain_size_product);
         VariableProxy var = task_proxy.get_variables()[pattern_var_id];
-        if (utils::is_product_within_limit(num_prop_states, var.get_domain_size(),
+        if (utils::is_product_within_limit(domain_size_product, var.get_domain_size(),
                                            numeric_limits<int>::max())) {
-            num_prop_states *= var.get_domain_size();
+            domain_size_product *= var.get_domain_size();
         } else {
             cerr << "Given pattern is too large only on propositional variables! (Overflow occured): " << endl;
             cerr << pattern.regular << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
+    }
+    for (int pattern_var_id : pattern.numeric) {
+        int var_domain = num_task_proxy.get_approximate_domain_size(task_proxy.get_numeric_variables()[pattern_var_id]);
+        if (utils::is_product_within_limit(domain_size_product, var_domain,
+                                           numeric_limits<int>::max())) {
+            domain_size_product *= var_domain;
+        } else {
+            cerr << "Given pattern is too large! (Overflow occured): " << endl;
+            cerr << pattern.regular << pattern.numeric << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
@@ -452,9 +464,6 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         }
     }
 
-    vector<bool>().swap(closed); // save memory
-
-    cout << "Reached abstract goal states: " << goal_states.size() << endl;
     cout << "Generated abstract states: " << num_reached_states << endl;
 
     assert(distances.empty());
@@ -466,16 +475,24 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
     }
     vector<size_t>().swap(goal_states); // save memory
 
+    size_t num_open_goal_states = 0;
     while (!open.empty()){
         size_t state_id = open.pop().second;
+        if (state_id < closed.size() && closed[state_id]){
+            // open lists may contain closed states
+            continue;
+        }
         const NumericState &state = state_registry->lookup_state(state_id);
         if (is_goal_state(state, num_variable_to_index)){
             // we have not checked this for states in open
             pq.push(0, state_id);
+            num_open_goal_states++;
         } else {
             pq.push(min_action_cost, state_id);
         }
     }
+
+    cout << "Reached abstract goal states: " << goal_states.size() + num_open_goal_states << endl;
 
     // Dijkstra loop
     while (!pq.empty()) {
@@ -511,6 +528,8 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
             }
         }
     }
+
+    cout << "Initial state h: " << get_value(task_proxy.get_initial_state()) << endl;
 }
 
 bool PatternDatabase::is_goal_state(

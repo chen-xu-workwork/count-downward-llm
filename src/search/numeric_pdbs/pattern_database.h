@@ -92,7 +92,7 @@ class PatternDatabase {
 
     // size of the PDB
     std::size_t num_reached_states;
-    std::size_t num_prop_states;
+    std::size_t domain_size_product;
 
     std::unique_ptr<NumericStateRegistry> state_registry;
 
@@ -218,6 +218,11 @@ public:
     // Returns the size (number of abstract states) of the PDB
     std::size_t get_size() const {
         return num_reached_states;
+    }
+
+    // Returns the size (domain size product of variables in pattern) of the PDB
+    std::size_t get_domain_sizes_product() const {
+        return domain_size_product;
     }
 
     /*
