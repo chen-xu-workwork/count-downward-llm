@@ -54,7 +54,7 @@ void verify_no_conditional_effects(TaskProxy task) {
     }
 }
 
-double get_average_operator_cost(TaskProxy task_proxy) {
+ap_float get_average_operator_cost(TaskProxy task_proxy) {
     double average_operator_cost = 0;
     for (OperatorProxy op : task_proxy.get_operators()) {
         average_operator_cost += op.get_cost();

@@ -15,8 +15,8 @@ vector<State> sample_states_with_random_walks(
     TaskProxy task_proxy,
     const SuccessorGenerator &successor_generator,
     int num_samples,
-    int init_h,
-    double average_operator_cost,
+    ap_float init_h,
+    ap_float average_operator_cost,
     function<bool (State)> is_dead_end,
     const utils::CountdownTimer *timer) {
     vector<State> samples;

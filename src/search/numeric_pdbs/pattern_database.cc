@@ -73,7 +73,7 @@ PatternDatabase::PatternDatabase(
     const Pattern &pattern,
     size_t max_number_states,
     bool dump,
-    const vector<int> &operator_costs)
+    const vector<ap_float> &operator_costs)
     : task_proxy(task_proxy),
       pattern(pattern),
       num_reached_states(0),
@@ -235,7 +235,7 @@ vector<ap_float> PatternDatabase::get_numeric_successor(vector<ap_float> state,
 
 void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                                  size_t max_number_states,
-                                 const std::vector<int> &operator_costs) {
+                                 const std::vector<ap_float> &operator_costs) {
 
     // TODO: implement specialized efficient variants for the nice cases, e.g.
     //  1) no numeric variables => default to regular PatternDatabase
@@ -441,7 +441,12 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
             parent_pointers[succ_id].emplace_back(op_id, state_id);
             if (succ_id >= closed.size() || !closed[succ_id]){
                 ++num_reached_states;
-                ap_float op_cost = task_proxy.get_operators()[op_id].get_cost();
+                ap_float op_cost;
+                if (operator_costs.empty()){
+                    op_cost = task_proxy.get_operators()[op_id].get_cost();
+                } else {
+                    op_cost = operator_costs[op_id];
+                }
                 open.push(cost + op_cost, succ_id);
             }
         }
@@ -582,7 +587,7 @@ ap_float PatternDatabase::get_value(const State &state) const {
     return distances[abs_state_id];
 }
 
-double PatternDatabase::compute_mean_finite_h() const {
+ap_float PatternDatabase::compute_mean_finite_h() const {
     cerr << "Not yet implemented: numeric PatternDatabase::compute_mean_finite_h()" << endl;
     utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
 //    double sum = 0;

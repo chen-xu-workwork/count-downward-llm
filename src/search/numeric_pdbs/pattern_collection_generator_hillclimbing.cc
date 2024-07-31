@@ -171,8 +171,8 @@ size_t PatternCollectionGeneratorHillclimbing::generate_pdbs_for_candidates(
 void PatternCollectionGeneratorHillclimbing::sample_states(
     TaskProxy task_proxy, const SuccessorGenerator &successor_generator,
     vector<State> &samples, double average_operator_cost) {
-    int init_h = current_pdbs->get_value(
-        task_proxy.get_initial_state());
+    ap_float init_h = current_pdbs->get_value(
+            task_proxy.get_initial_state());
 
     try {
         samples = sample_states_with_random_walks(
@@ -233,7 +233,7 @@ std::pair<int, int> PatternCollectionGeneratorHillclimbing::find_best_improving_
         int count = 0;
         MaxAdditivePDBSubsets max_additive_subsets =
             current_pdbs->get_max_additive_subsets(pdb->get_pattern());
-        for (State &sample : samples) {
+        for (const State &sample : samples) {
             if (is_heuristic_improved(*pdb, sample, max_additive_subsets))
                 ++count;
         }
@@ -255,25 +255,27 @@ bool PatternCollectionGeneratorHillclimbing::is_heuristic_improved(
     const PatternDatabase &pdb, const State &sample,
     const MaxAdditivePDBSubsets &max_additive_subsets) {
     // h_pattern: h-value of the new pattern
-    int h_pattern = pdb.get_value(sample);
+    ap_float h_pattern = pdb.get_value(sample);
 
-    if (h_pattern == numeric_limits<int>::max()) {
+    if (h_pattern == numeric_limits<ap_float>::max()) {
         return true;
     }
 
     // h_collection: h-value of the current collection heuristic
-    int h_collection = current_pdbs->get_value(sample);
-    if (h_collection == numeric_limits<int>::max())
+    ap_float h_collection = current_pdbs->get_value(sample);
+    if (h_collection == numeric_limits<ap_float>::max()){
         return false;
+    }
 
     for (const auto &subset : max_additive_subsets) {
-        int h_subset = 0;
+        ap_float h_subset = 0;
         for (const shared_ptr<PatternDatabase> &additive_pdb : subset) {
             /* Experiments showed that it is faster to recompute the
                h values than to cache them in an unordered_map. */
-            int h = additive_pdb->get_value(sample);
-            if (h == numeric_limits<int>::max())
+            ap_float h = additive_pdb->get_value(sample);
+            if (h == numeric_limits<ap_float>::max()) {
                 return false;
+            }
             h_subset += h;
         }
         if (h_pattern + h_subset > h_collection) {
@@ -291,7 +293,7 @@ void PatternCollectionGeneratorHillclimbing::hill_climbing(
     TaskProxy task_proxy,
     numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
     const SuccessorGenerator &successor_generator,
-    double average_operator_cost,
+    ap_float average_operator_cost,
     PatternCollection &initial_candidate_patterns) {
     hill_climbing_timer = new utils::CountdownTimer(max_time);
     // Candidate patterns generated so far (used to avoid duplicates).
@@ -381,7 +383,7 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
     SuccessorGenerator successor_generator(task);
 
     utils::Timer timer;
-    double average_operator_cost = get_average_operator_cost(task_proxy);
+    ap_float average_operator_cost = get_average_operator_cost(task_proxy);
     cout << "Average operator cost: " << average_operator_cost << endl;
 
     // Generate initial collection: a pdb for each goal variable.

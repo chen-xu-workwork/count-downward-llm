@@ -54,14 +54,14 @@ MaxAdditivePDBSubsets IncrementalCanonicalPDBs::get_max_additive_subsets(
         *max_additive_subsets, new_pattern, are_additive);
 }
 
-int IncrementalCanonicalPDBs::get_value(const State &state) const {
+ap_float IncrementalCanonicalPDBs::get_value(const State &state) const {
     CanonicalPDBs canonical_pdbs(pattern_databases, max_additive_subsets, false);
     return canonical_pdbs.get_value(state);
 }
 
 bool IncrementalCanonicalPDBs::is_dead_end(const State &state) const {
     for (const shared_ptr<PatternDatabase> &pdb : *pattern_databases)
-        if (pdb->get_value(state) == numeric_limits<int>::max())
+        if (pdb->get_value(state) == numeric_limits<ap_float>::max())
             return true;
     return false;
 }

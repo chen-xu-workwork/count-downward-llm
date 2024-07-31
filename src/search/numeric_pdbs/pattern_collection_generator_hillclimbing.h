@@ -80,7 +80,7 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
         TaskProxy task_proxy,
         const SuccessorGenerator &successor_generator,
         std::vector<State> &samples,
-        double average_operator_cost);
+        ap_float average_operator_cost);
 
     /*
       Searches for the best improving pdb in candidate_pdbs according to the
@@ -120,7 +120,7 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
         TaskProxy task_proxy,
         numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
         const SuccessorGenerator &successor_generator,
-        double average_operator_costs,
+        ap_float average_operator_costs,
         PatternCollection &initial_candidate_patterns);
 
 public:

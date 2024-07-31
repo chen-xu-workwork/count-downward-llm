@@ -1,6 +1,8 @@
 #ifndef SAMPLING_H
 #define SAMPLING_H
 
+#include "globals.h"
+
 #include <exception>
 #include <functional>
 #include <vector>
@@ -29,8 +31,8 @@ std::vector<State> sample_states_with_random_walks(
     TaskProxy task_proxy,
     const SuccessorGenerator &successor_generator,
     int num_samples,
-    int init_h,
-    double average_operator_cost,
+    ap_float init_h,
+    ap_float average_operator_cost,
     std::function<bool(State)> is_dead_end = [] (const State &) {
                                                  return false;
                                              },

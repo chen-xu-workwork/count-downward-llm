@@ -155,7 +155,7 @@ class PatternDatabase {
     void create_pdb(
             numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
             std::size_t max_number_states,
-            const std::vector<int> &operator_costs = std::vector<int>());
+            const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
 
     /*
       Sets the pattern for the PDB and initializes prop_hash_multipliers and
@@ -165,7 +165,7 @@ class PatternDatabase {
     */
     void set_pattern(
             const Pattern &pattern,
-            const std::vector<int> &operator_costs = std::vector<int>());
+            const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
 
     /*
       For a given abstract state (given as index), the according values
@@ -204,7 +204,7 @@ public:
         const Pattern &pattern,
         std::size_t max_number_states,
         bool dump = false,
-        const std::vector<int> &operator_costs = std::vector<int>());
+        const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
 
     ~PatternDatabase() = default;
 
@@ -228,7 +228,7 @@ public:
       Note: This is only calculated when called; avoid repeated calls to
       this method!
     */
-    double compute_mean_finite_h() const;
+    ap_float compute_mean_finite_h() const;
 
     // Returns true iff op has an effect on a variable in the pattern.
     bool is_operator_relevant(const OperatorProxy &op) const;
