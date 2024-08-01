@@ -133,8 +133,8 @@ const GlobalState &StateRegistry::get_initial_state() {
 void StateRegistry::get_numeric_successor(
         std::vector<ap_float>& predecessor_vals,
         std::vector<ap_float>& metric_part,
-        const GlobalOperator &op,
-        PackedStateBin *buffer) {
+        const GlobalOperator &op) {
+    auto value_before_change = predecessor_vals;
 
     for (const auto & ass_eff : op.get_assign_effects()) {
         assert((int) predecessor_vals.size() > ass_eff.aff_var);
@@ -142,9 +142,12 @@ void StateRegistry::get_numeric_successor(
 
 //		if (DEBUG) cout << "assigning " << ass_eff.fop << " " << g_numeric_var_names[ass_eff.ass_var]
 //						<< " to " << g_numeric_var_names[ass_eff.aff_var] << endl;
-        ap_float result = assign_effect(predecessor_vals[ass_eff.aff_var],
-                                        ass_eff.fop,
-                                        predecessor_vals[ass_eff.ass_var]);
+        ap_float ass_val = predecessor_vals[ass_eff.ass_var];
+
+        if (g_numeric_var_types[ass_eff.ass_var] == regular)
+            ass_val = value_before_change[ass_eff.ass_var];
+
+        ap_float result = assign_effect(predecessor_vals[ass_eff.aff_var],ass_eff.fop, ass_val);
         //		if (DEBUG) cout << predecessor_vals[ass_eff.aff_var] << ass_eff.fop << predecessor_vals[ass_eff.ass_var] << " -> " << result << endl;
 
         switch (g_numeric_var_types[ass_eff.aff_var]) {
@@ -158,10 +161,7 @@ void StateRegistry::get_numeric_successor(
                 break;
             case regular:
                 //    		cout << "state registry successor debug: " << "affvar = " << ass_eff.aff_var << " numeric index = " << numeric_indices[ass_eff.aff_var] << endl;
-                if (buffer) {
-                    g_state_packer->setDouble(buffer, numeric_indices[ass_eff.aff_var], result);
 //				cout << "wrote result " << result << "  to buffer" << endl;
-                }
                 predecessor_vals[ass_eff.aff_var] = result;
                 break;
             default:
@@ -171,15 +171,16 @@ void StateRegistry::get_numeric_successor(
     }
 
     g_axiom_evaluator->evaluate_arithmetic_axioms(predecessor_vals);
-    if (buffer) g_axiom_evaluator->evaluate(buffer, predecessor_vals); // evaluate logic + comparison axioms
 }
 
-void StateRegistry::get_canonical_numeric_successor(
+void StateRegistry::get_numeric_successor(
         std::vector<ap_float>& predecessor_vals,
         std::vector<ap_float>& metric_part,
         const GlobalOperator &op,
-        PackedStateBin *buffer) {
-    assert(g_symmetry_graph != nullptr);
+        PackedStateBin *buffer,
+        const PackedStateBin *previous_buffer) {
+    assert(buffer);
+    assert(previous_buffer);
 
     for (const auto & ass_eff : op.get_assign_effects()) {
         assert((int) predecessor_vals.size() > ass_eff.aff_var);
@@ -187,7 +188,63 @@ void StateRegistry::get_canonical_numeric_successor(
 
 //		if (DEBUG) cout << "assigning " << ass_eff.fop << " " << g_numeric_var_names[ass_eff.ass_var]
 //						<< " to " << g_numeric_var_names[ass_eff.aff_var] << endl;
-        ap_float result = assign_effect(predecessor_vals[ass_eff.aff_var],ass_eff.fop, predecessor_vals[ass_eff.ass_var]);
+        ap_float ass_val = predecessor_vals[ass_eff.ass_var];
+
+        if (g_numeric_var_types[ass_eff.ass_var] == regular)
+            ass_val = g_state_packer->getDouble(previous_buffer, numeric_indices[ass_eff.ass_var]);
+
+        ap_float result = assign_effect(predecessor_vals[ass_eff.aff_var],
+                                        ass_eff.fop,
+                                        ass_val);
+        //		if (DEBUG) cout << predecessor_vals[ass_eff.aff_var] << ass_eff.fop << predecessor_vals[ass_eff.ass_var] << " -> " << result << endl;
+
+        switch (g_numeric_var_types[ass_eff.aff_var]) {
+            case instrumentation:
+                assert((int) metric_part.size() > numeric_indices[ass_eff.aff_var]);
+                metric_part[numeric_indices[ass_eff.aff_var]] = result;
+                predecessor_vals[ass_eff.aff_var] = result;
+                break;
+            case constant:
+                assert(false); // Assign effect on a variable determined to be constant
+                break;
+            case regular:
+                //    		cout << "state registry successor debug: " << "affvar = " << ass_eff.aff_var << " numeric index = " << numeric_indices[ass_eff.aff_var] << endl;
+                g_state_packer->setDouble(buffer, numeric_indices[ass_eff.aff_var], result);
+//				cout << "wrote result " << result << "  to buffer" << endl;
+                predecessor_vals[ass_eff.aff_var] = result;
+                break;
+            default:
+                assert(false); //Strange assignment effect in operator
+                break;
+        }
+    }
+
+    g_axiom_evaluator->evaluate_arithmetic_axioms(predecessor_vals);
+    g_axiom_evaluator->evaluate(buffer, predecessor_vals); // evaluate logic + comparison axioms
+}
+
+void StateRegistry::get_canonical_numeric_successor(
+        std::vector<ap_float>& predecessor_vals,
+        std::vector<ap_float>& metric_part,
+        const GlobalOperator &op,
+        PackedStateBin *buffer,
+        const PackedStateBin *previous_buffer) {
+    assert(g_symmetry_graph != nullptr);
+    assert(buffer);
+    assert(previous_buffer);
+
+    for (const auto & ass_eff : op.get_assign_effects()) {
+        assert((int) predecessor_vals.size() > ass_eff.aff_var);
+        assert((int) predecessor_vals.size() > ass_eff.ass_var);
+
+//		if (DEBUG) cout << "assigning " << ass_eff.fop << " " << g_numeric_var_names[ass_eff.ass_var]
+//						<< " to " << g_numeric_var_names[ass_eff.aff_var] << endl;
+        ap_float ass_val = predecessor_vals[ass_eff.ass_var];
+
+        if (g_numeric_var_types[ass_eff.ass_var] == regular)
+            ass_val = g_state_packer->getDouble(previous_buffer, numeric_indices[ass_eff.ass_var]);
+
+        ap_float result = assign_effect(predecessor_vals[ass_eff.aff_var],ass_eff.fop, ass_val);
         //		if (DEBUG) cout << predecessor_vals[ass_eff.aff_var] << ass_eff.fop << predecessor_vals[ass_eff.ass_var] << " -> " << result << endl;
 
         switch (g_numeric_var_types[ass_eff.aff_var]) {
@@ -223,7 +280,7 @@ void StateRegistry::get_canonical_numeric_successor(
     }
 
     g_axiom_evaluator->evaluate_arithmetic_axioms(predecessor_vals);
-    if (buffer) g_axiom_evaluator->evaluate(buffer, predecessor_vals); // evaluate logic + comparison axioms
+    g_axiom_evaluator->evaluate(buffer, predecessor_vals); // evaluate logic + comparison axioms
 }
 
 //TODO it would be nice to move the actual state creation (and operator application)
@@ -243,7 +300,7 @@ GlobalState StateRegistry::get_successor_state(const GlobalState &predecessor, c
     vector<ap_float> inst_vals = g_cost_information[predecessor];
 //    if (DEBUG) cout << "Predecessor vector = " << succ_vals << endl;
 //    if (DEBUG) cout << "Instrumentation vector = " << inst_vals << endl;
-    get_numeric_successor(succ_vals, inst_vals, op, buffer);
+    get_numeric_successor(succ_vals, inst_vals, op, buffer, predecessor.get_packed_buffer());
 //    if (DEBUG) cout << "Successor vector = " << succ_vals << endl;
 //    if (DEBUG) cout << "Instrumentation vector = " << inst_vals << endl;
     StateID id = insert_id_or_pop_state();
@@ -294,7 +351,7 @@ GlobalState StateRegistry::get_canonical_successor_state(const GlobalState &pred
     vector<ap_float> inst_vals = g_cost_information[predecessor];
 //    if (DEBUG) cout << "Predecessor vector = " << succ_vals << endl;
 //    if (DEBUG) cout << "Instrumentation vector = " << inst_vals << endl;
-    get_canonical_numeric_successor(succ_vals, inst_vals, op, buffer);
+    get_canonical_numeric_successor(succ_vals, inst_vals, op, buffer, predecessor.get_packed_buffer());
 //    if (DEBUG) cout << "Successor vector = " << succ_vals << endl;
 //    if (DEBUG) cout << "Instrumentation vector = " << inst_vals << endl;
     StateID id = insert_id_or_pop_state();
@@ -369,8 +426,9 @@ GlobalState StateRegistry::register_state(const std::vector<container_int> &valu
                 g_state_packer->set(buffer, regular_index++, g_state_packer->packDouble(numeric_values[i]));
                 break;
             default:
-                assert(false);
-                break;
+                cerr << "Unexpected numeric variable type: " << g_numeric_var_types[i] << endl
+                     << "Terminating." << endl;
+                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
     g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_values);
@@ -443,9 +501,9 @@ ap_float StateRegistry::assign_effect(ap_float aff_value, f_operator fop, ap_flo
             result -= ass_value;
             break;
         default:
-            cout << "Error: Unknown assignment effect (" << fop << ")."<< endl;
-            assert(false);
-            break;
+            cerr << "Error: Unknown assignment effect (" << fop << ")."<< endl
+                 << "Terminating." << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
     }
     return result;
 }
@@ -483,8 +541,9 @@ vector<ap_float> StateRegistry::get_numeric_vars(const GlobalState &state) const
                 result[i] = g_state_packer->getDouble(buffer, numeric_indices[i]);
                 break;
             default:
-                assert(false);
-                break;
+                cerr << "Unexpected numeric variable type: " << g_numeric_var_types[i] << endl
+                     << "Terminating." << endl;
+                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
     assert(result.size() == g_initial_state_numeric.size());

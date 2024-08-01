@@ -14,11 +14,12 @@ GraphCreator::GraphCreator(const Options &opts)
     : search_type(SymmetryBasedSearchType(opts.get_enum("symmetries"))),
       no_search(opts.get<bool>("no_search")),
       initialized(false),
+      ignore_numeric(opts.get<bool>("ignore_numeric")),
       precision(opts.get<ap_float>("precision")) {
 }
 
 
-void GraphCreator::initialize(const std::shared_ptr<AbstractTask> task) {
+void GraphCreator::initialize(const shared_ptr<AbstractTask> task) {
     if (initialized)
         return;
 
@@ -59,17 +60,17 @@ GraphCreator::~GraphCreator() {
 }
 
 int GraphCreator::float_to_int(ap_float value) const {
-    return static_cast<int>(std::floor(value / precision));
+    return static_cast<int>(std::round(value / precision));
 }
 
-bliss::Digraph* GraphCreator::create_bliss_directed_graph(const std::shared_ptr<AbstractTask> task) const {
+bliss::Digraph* GraphCreator::create_bliss_directed_graph(const shared_ptr<AbstractTask> task) const {
    // initialization
 
     TaskProxy task_proxy(*task);
     NumericTaskProxy::redundant_constraints = false;
     NumericTaskProxy numeric_task(task_proxy, false, true);
 
-    std::cout << "Computing number of vertices" << std::endl;
+    cout << "Computing number of vertices" << endl;
     VariablesProxy variables = task_proxy.get_variables();
     int num_of_vertex = 0;
     for (auto var : variables) {
@@ -103,33 +104,49 @@ bliss::Digraph* GraphCreator::create_bliss_directed_graph(const std::shared_ptr<
     }
     Permutation::length = num_of_vertex;
 
-    std::cout << "Building a PDG" << std::endl;
+    cout << "Building a NPDG" << endl;
     bliss::Digraph* g = new bliss::Digraph();
-    int idx = 0;
-    // add vertex for each varaible
+    // add a vertex for each variable
     for (auto var : variables) {
         if (!numeric_task.is_numeric_axiom(var.get_id())) {
-            idx = g->add_vertex(PREDICATE_VERTEX);
+            g->add_vertex(0);
         }
     }
-    // now add values vertices for each predicate
+    // add a vertex for each propositnal value 
     for (auto var : variables){
         if (!numeric_task.is_numeric_axiom(var.get_id())) {
             for (int j = 0; j < var.get_domain_size(); j++){
-               idx = g->add_vertex(VALUE_VERTEX);
-               g->add_edge(idx, Permutation::get_index_by_var(var.get_id()));
+               unsigned int idx = g->add_vertex(0);
+               g->add_edge(Permutation::get_index_by_var(var.get_id()), idx);
             }
         }
     }
-    // add vertex for each numeric variable
+
+    unsigned int current_color = 1;
+
+    // add a vertex for each numeric variable
     for (auto num_var : num_variables) {
         if (num_var.get_var_type() == regular) {
-            idx = g->add_vertex(NUM_VAR_VERTEX);
+            unsigned int color = 0;
+
+            if (ignore_numeric) {
+                color = current_color;
+                current_color += 1;
+            }
+
+            g->add_vertex(color);
         }
     }
+    // add a vertex for a dummy numeric variable for constants
+    unsigned int dummy_color = 0;
+    if (ignore_numeric) {
+        dummy_color = current_color;
+        current_color += 1;
+    }
+    int dummy_var_idx = g->add_vertex(dummy_color);
 
-    // calculate offset to obtain colors from negative values
-    int constant_offset = 0;
+    // add vertices for numeric constants
+    unordered_map<int, unsigned int> constant_to_color; 
     for (OperatorProxy op : task_proxy.get_operators()) {
         for (int pre : numeric_task.get_action_num_list(op.get_id())){
             for (int i : numeric_task.get_numeric_conditions_id(pre)){
@@ -137,42 +154,57 @@ bliss::Digraph* GraphCreator::create_bliss_directed_graph(const std::shared_ptr<
                 ap_float denominator = 1.0;
                 bool first = true;
                 for (auto coeff : lnc.coefficients) {
-                    if (std::fabs(coeff) > precision) {
+                    if (std::fabs(coeff) >= precision) {
                         if (first) {
                             denominator = std::fabs(coeff);
                             first = false;
                         }
                         int normalized_coeff = float_to_int(coeff / denominator);
-                        if (constant_offset + normalized_coeff < 0) constant_offset = -1 * normalized_coeff;
+                        if (constant_to_color.find(normalized_coeff) == constant_to_color.end()) {
+                            constant_to_color.insert(make_pair(normalized_coeff, current_color));
+                            current_color += 1;
+                        }
                     }
                 }
                 int normalized_constant = float_to_int(lnc.constant / denominator);
-                if (constant_offset + normalized_constant < 0) constant_offset = -1 * normalized_constant;
-            }
-
-            for (ap_float k : numeric_task.get_action_eff_list(op.get_id())) {
-                if (std::fabs(k) > precision) {
-                    int normalized_k = float_to_int(k);
-                    if (constant_offset + normalized_k < 0) constant_offset = -1 * normalized_k;
+                if (constant_to_color.find(normalized_constant) == constant_to_color.end()) {
+                    constant_to_color.insert(make_pair(normalized_constant, current_color));
+                    current_color += 1;
                 }
             }
 
-            for (int i = 0; i < numeric_task.get_action_n_linear_eff(op.get_id()); ++i) {
+            for (ap_float k : numeric_task.get_action_eff_list(op.get_id())) {
+                if (std::fabs(k) >= precision) {
+                    int normalized_k = float_to_int(k);
+                    if (constant_to_color.find(normalized_k) == constant_to_color.end()) {
+                        constant_to_color.insert(make_pair(normalized_k, current_color));
+                        current_color += 1;
+                    }
+                }
+            }
+
+            for (size_t i = 0; i < numeric_task.get_action_n_linear_eff(op.get_id()); ++i) {
                 ap_float denominator = 1.0;
                 bool first = true;
                 for (auto coeff : numeric_task.get_action_linear_coefficients(op.get_id())[i]) {
-                    if (std::fabs(coeff) > precision) {
+                    if (std::fabs(coeff) >= precision) {
                         if (first) {
                             denominator = std::fabs(coeff);
                             first = false;
                         }
                         int normalized_coeff = float_to_int(coeff / denominator);
-                        if (constant_offset + normalized_coeff < 0) constant_offset = -1 * normalized_coeff;
+                        if (constant_to_color.find(normalized_coeff) == constant_to_color.end()) {
+                            constant_to_color.insert(make_pair(normalized_coeff, current_color));
+                            current_color += 1;
+                        }
                     }
                 }
                 ap_float constant = numeric_task.get_action_linear_constants(op.get_id())[i];
                 int normalized_constant = float_to_int(constant / denominator);
-                if (constant_offset + normalized_constant < 0) constant_offset = -1 * normalized_constant;
+                if (constant_to_color.find(normalized_constant) == constant_to_color.end()) {
+                    constant_to_color.insert(make_pair(normalized_constant, current_color));
+                    current_color += 1;
+                }
             }
         }
     }
@@ -182,36 +214,55 @@ bliss::Digraph* GraphCreator::create_bliss_directed_graph(const std::shared_ptr<
             ap_float denominator = 1.0;
             bool first = true;
             for (auto coeff : lnc.coefficients) {
-                if (std::fabs(coeff) > precision) {
+                if (std::fabs(coeff) >= precision) {
                     if (first) {
                         denominator = std::fabs(coeff);
                         first = false;
                     }
                     int normalized_coeff = float_to_int(coeff / denominator);
-                    if (constant_offset + normalized_coeff < 0) constant_offset = -1 * normalized_coeff;
+                    if (constant_to_color.find(normalized_coeff) == constant_to_color.end()) {
+                        constant_to_color.insert(make_pair(normalized_coeff, current_color));
+                        current_color += 1;
+                    }
                 }
             }
             int normalized_constant = float_to_int(lnc.constant / denominator);
-            if (constant_offset + normalized_constant < 0) constant_offset = -1 * normalized_constant;
+            if (constant_to_color.find(normalized_constant) == constant_to_color.end()) {
+                constant_to_color.insert(make_pair(normalized_constant, current_color));
+                current_color += 1;
+            }
         }
     }
 
-    // calculate max color for operators
-    int max_op_color = MAX_VALUE;
+    // determine colors for operators
+    unordered_map<int, unsigned int> cost_to_color; 
     for (OperatorProxy op : task_proxy.get_operators()) {
-        int op_color = MAX_VALUE + float_to_int(op.get_cost());
-        max_op_color = std::max(op_color, max_op_color);
+        int cost = float_to_int(op.get_cost());
+        if (cost_to_color.find(cost) == cost_to_color.end()) {
+            cost_to_color.insert(make_pair(cost, current_color));
+            current_color += 1;
+        }
     }
+    // determine colors for axioms 
+    unordered_map<int, unsigned int> axiom_cost_to_color; 
     for (OperatorProxy op : task_proxy.get_axioms()) {
-        int op_color = MAX_VALUE + float_to_int(op.get_cost());
-        max_op_color = std::max(op_color, max_op_color);
+        int cost = float_to_int(op.get_cost());
+        if (axiom_cost_to_color.find(cost) == axiom_cost_to_color.end()) {
+            axiom_cost_to_color.insert(make_pair(cost, current_color));
+            current_color += 1;
+        }
     }
-    int base_constant_color = max_op_color + 1 + constant_offset;
-    
+
+    unsigned int gt_color = current_color;
+    unsigned int ge_color = current_color + 1;
+    unsigned int effect_color = current_color + 2;
+    unsigned int goal_color = current_color + 3;
+
     // add vertices for operators
+    unordered_map<pair<int, int>, unsigned int> num_var_constant_to_idx;
     for (auto op : task_proxy.get_operators()) {
-        int op_color = MAX_VALUE + float_to_int(op.get_cost());
-        int op_idx = g->add_vertex(op_color);
+        unsigned int op_color = cost_to_color[float_to_int(op.get_cost())];
+        unsigned int op_idx = g->add_vertex(op_color);
 
         for (auto pre : op.get_preconditions()) {
             if (!numeric_task.is_numeric_axiom(pre.get_variable().get_id())) {
@@ -230,78 +281,132 @@ bliss::Digraph* GraphCreator::create_bliss_directed_graph(const std::shared_ptr<
         for (int pre : numeric_task.get_action_num_list(op.get_id())) {
             for (int i : numeric_task.get_numeric_conditions_id(pre)) {
                 const LinearNumericCondition &lnc = numeric_task.get_condition(i);
-                int lnc_color = lnc.is_strictly_greater ? GT_VERTEX : GTE_VERTEX;
-                int lnc_idx = g->add_vertex(lnc_color);
+                unsigned int lnc_color = lnc.is_strictly_greater ? gt_color : ge_color;
+                unsigned int lnc_idx = g->add_vertex(lnc_color);
                 g->add_edge(lnc_idx, op_idx);
 
                 ap_float denominator = 1.0;
                 bool first = true;
                 for (int j = 0, n = Permutation::regular_id_to_num_var.size(); j < n; ++j) {
-                    if (std::fabs(lnc.coefficients[j]) > precision) {
+                    if (std::fabs(lnc.coefficients[j]) >= precision) {
                         if (first) {
                             denominator = std::fabs(lnc.coefficients[j]);
                             first = false;
                         }
-                        int coeff_color = base_constant_color + float_to_int(lnc.coefficients[j] / denominator);
-                        int coeff_idx = g->add_vertex(coeff_color);
-                        g->add_edge(coeff_idx, lnc_idx);
-                        g->add_edge(Permutation::get_index_by_num_regular_id(j), coeff_idx);
+                        int var_idx = Permutation::get_index_by_num_regular_id(j);
+                        int coeff = float_to_int(lnc.coefficients[j] / denominator);
+                        auto key = make_pair(var_idx, coeff);
+                        auto result = num_var_constant_to_idx.find(key);
+                        if (result == num_var_constant_to_idx.end()) {
+                            unsigned int idx = g->add_vertex(constant_to_color[coeff]);
+                            num_var_constant_to_idx[key] = idx;
+                            g->add_edge(var_idx, idx);
+                            g->add_edge(idx, lnc_idx);
+                        } else {
+                            unsigned int idx =(*result).second;
+                            g->add_edge(var_idx, idx);
+                            g->add_edge(idx, lnc_idx);
+                        }
                     }
                 }
-                int constant_color = base_constant_color + float_to_int(lnc.constant / denominator);
-                int constant_idx = g->add_vertex(constant_color);
-                g->add_edge(lnc_idx, constant_idx);
+                int constant = float_to_int(lnc.constant / denominator);
+                auto key = make_pair(dummy_var_idx, constant);
+                auto result = num_var_constant_to_idx.find(key);
+                if (result == num_var_constant_to_idx.end()) {
+                    unsigned int idx = g->add_vertex(constant_to_color[constant]);
+                    num_var_constant_to_idx[key] = idx;
+                    g->add_edge(dummy_var_idx, idx);
+                    g->add_edge(idx, lnc_idx);
+                } else {
+                    unsigned int idx =(*result).second;
+                    g->add_edge(dummy_var_idx, idx);
+                    g->add_edge(idx, lnc_idx);
+                }
             }
         }
 
         for (int i = 0, n = Permutation::regular_id_to_num_var.size(); i < n; ++i) {
             ap_float k = numeric_task.get_action_eff_list(op.get_id())[i];
-            if (std::fabs(k) > precision) {
-                int k_color = base_constant_color + float_to_int(k);
-                int k_idx = g->add_vertex(k_color);
-                int eff_idx = g->add_vertex(NUM_EFF_VERTEX);
-                g->add_edge(k_idx, eff_idx);
-                g->add_edge(eff_idx, Permutation::get_index_by_num_regular_id(i));
+            if (std::fabs(k) >= precision) {
+                unsigned int eff_idx = g->add_vertex(effect_color);
                 g->add_edge(op_idx, eff_idx);
+                int k_int = float_to_int(k);
+                int var_idx = Permutation::get_index_by_num_regular_id(i);
+                g->add_edge(eff_idx, var_idx);
+                auto key = make_pair(dummy_var_idx, k_int);
+                auto result = num_var_constant_to_idx.find(key);
+                if (result == num_var_constant_to_idx.end()) {
+                    unsigned int k_color = constant_to_color[k_int];
+                    int idx = g->add_vertex(k_color);
+                    num_var_constant_to_idx[key] = idx;
+                    g->add_edge(dummy_var_idx, idx);
+                    g->add_edge(idx, eff_idx);
+                } else {
+                    int idx = (*result).second;
+                    g->add_edge(dummy_var_idx, idx);
+                    g->add_edge(idx, eff_idx);
+                }
             }
         }
 
-        for (int i = 0; i < numeric_task.get_action_n_linear_eff(op.get_id()); ++i) {
-            int eff_idx = g->add_vertex(NUM_EFF_VERTEX);
-            int lhs = numeric_task.get_action_linear_lhs(op.get_id())[i];
-            g->add_edge(eff_idx, Permutation::get_index_by_num_regular_id(lhs));
+        for (size_t i = 0; i < numeric_task.get_action_n_linear_eff(op.get_id()); ++i) {
+            unsigned int eff_idx = g->add_vertex(effect_color);
             g->add_edge(op_idx, eff_idx);
+            int lhs = numeric_task.get_action_linear_lhs(op.get_id())[i];
+            unsigned int lhs_idx = Permutation::get_index_by_num_regular_id(lhs);
+            g->add_edge(eff_idx, lhs_idx);
 
             ap_float denominator = 1.0;
             bool first = true;
 
             for (int j = 0, n = Permutation::regular_id_to_num_var.size(); j < n; ++j) {
                 ap_float coeff = numeric_task.get_action_linear_coefficients(op.get_id())[i][j];
-                if (std::fabs(coeff) > precision) {
+                if (std::fabs(coeff) >= precision) {
                     if (first) {
                         denominator = coeff;
                         first = false;
                     }
-                    int coeff_color = base_constant_color + float_to_int(coeff / denominator);
-                    int coeff_idx = g->add_vertex(coeff_color);
                     int var_idx = Permutation::get_index_by_num_regular_id(j);
-                    g->add_edge(coeff_idx, var_idx);
-                    g->add_edge(var_idx, eff_idx);
+                    int coeff_int = float_to_int(coeff / denominator);
+                    auto key = make_pair(var_idx, coeff_int);
+                    auto result = num_var_constant_to_idx.find(key);
+                    if (result == num_var_constant_to_idx.end()) {
+                        int coeff_color = constant_to_color[coeff_int];
+                        unsigned int idx = g->add_vertex(coeff_color);
+                        num_var_constant_to_idx[key] = idx;
+                        g->add_edge(var_idx, idx);
+                        g->add_edge(idx, eff_idx);
+                    } else {
+                        unsigned int idx = (*result).second;
+                        g->add_edge(var_idx, idx);
+                        g->add_edge(idx, eff_idx);
+                    }
                 }
             }
 
             ap_float constant = numeric_task.get_action_linear_constants(op.get_id())[i];
-            if (std::fabs(constant) > precision) {
-                int constant_color = base_constant_color + float_to_int(constant / denominator);
-                int constant_idx = g->add_vertex(constant_color);
-                g->add_edge(constant_idx, eff_idx);
+            if (std::fabs(constant) >= precision) {
+                int constant_int = float_to_int(constant / denominator);
+                auto key = make_pair(dummy_var_idx, constant_int);
+                auto result = num_var_constant_to_idx.find(key);
+                if (result == num_var_constant_to_idx.end()) {
+                    int constant_color = constant_to_color[constant_int];
+                    unsigned int idx = g->add_vertex(constant_color);
+                    num_var_constant_to_idx[key] = idx;
+                    g->add_edge(dummy_var_idx, idx);
+                    g->add_edge(idx, eff_idx);
+                } else {
+                    unsigned int idx = (*result).second;
+                    g->add_edge(dummy_var_idx, idx);
+                    g->add_edge(idx, eff_idx);
+                }
             }
         }
     }
     
     // add vertices for propositional axioms 
     for (auto op : task_proxy.get_axioms()) {
-        int op_color = MAX_VALUE + float_to_int(op.get_cost());
+        int op_color = cost_to_color[float_to_int(op.get_cost())];
         int op_idx = g->add_vertex(op_color);
 
         for (auto pre : op.get_preconditions()) {
@@ -321,71 +426,110 @@ bliss::Digraph* GraphCreator::create_bliss_directed_graph(const std::shared_ptr<
         for (int pre : numeric_task.get_action_num_list(task_proxy.get_operators().size() + op.get_id())) {
             for (int i : numeric_task.get_numeric_conditions_id(pre)) {
                 const LinearNumericCondition &lnc = numeric_task.get_condition(i);
-                int lnc_color = lnc.is_strictly_greater ? GT_VERTEX : GTE_VERTEX;
-                int lnc_idx = g->add_vertex(lnc_color);
+                unsigned int lnc_color = lnc.is_strictly_greater ? gt_color : ge_color;
+                unsigned int lnc_idx = g->add_vertex(lnc_color);
                 g->add_edge(lnc_idx, op_idx);
 
                 ap_float denominator = 1.0;
                 bool first = true;
                 for (int j = 0, n = Permutation::regular_id_to_num_var.size(); j < n; ++j) {
-                    if (std::fabs(lnc.coefficients[j]) > precision) {
+                    if (std::fabs(lnc.coefficients[j]) >= precision) {
                         if (first) {
                             denominator = std::fabs(lnc.coefficients[j]);
                             first = false;
                         }
-                        int coeff_color = base_constant_color + float_to_int(lnc.coefficients[j] / denominator);
-                        int coeff_idx = g->add_vertex(coeff_color);
-                        g->add_edge(coeff_idx, lnc_idx);
-                        g->add_edge(Permutation::get_index_by_num_regular_id(j), coeff_idx);
+                        int var_idx = Permutation::get_index_by_num_regular_id(j);
+                        int coeff = float_to_int(lnc.coefficients[j] / denominator);
+                        auto key = make_pair(var_idx, coeff);
+                        auto result = num_var_constant_to_idx.find(key);
+                        if (result == num_var_constant_to_idx.end()) {
+                            unsigned int idx = g->add_vertex(constant_to_color[coeff]);
+                            num_var_constant_to_idx[key] = idx;
+                            g->add_edge(var_idx, idx);
+                            g->add_edge(idx, lnc_idx);
+                        } else {
+                            unsigned int idx =(*result).second;
+                            g->add_edge(var_idx, idx);
+                            g->add_edge(idx, lnc_idx);
+                        }
                     }
                 }
-                int constant_color = base_constant_color + float_to_int(lnc.constant / denominator);
-                int constant_idx = g->add_vertex(constant_color);
-                g->add_edge(lnc_idx, constant_idx);
+                int constant = float_to_int(lnc.constant / denominator);
+                auto key = make_pair(dummy_var_idx, constant);
+                auto result = num_var_constant_to_idx.find(key);
+                if (result == num_var_constant_to_idx.end()) {
+                    unsigned int idx = g->add_vertex(constant_to_color[constant]);
+                    num_var_constant_to_idx[key] = idx;
+                    g->add_edge(dummy_var_idx, idx);
+                    g->add_edge(idx, lnc_idx);
+                } else {
+                    unsigned int idx =(*result).second;
+                    g->add_edge(dummy_var_idx, idx);
+                    g->add_edge(idx, lnc_idx);
+                }
             }
         }
     }
 
-    // adding edges from goal vertex
-    int goal_idx = g->add_vertex(GOAL_VERTEX);
+    // adding edges to goal vertex
+    int goal_idx = g->add_vertex(goal_color);
     for (FactProxy goal : task_proxy.get_goals()) {
         if(!numeric_task.is_numeric_axiom(goal.get_variable().get_id())){
             int val_idx = Permutation::get_index_by_var_val(goal.get_variable().get_id(), goal.get_value());
-            g->add_edge(goal_idx, val_idx);
+            g->add_edge(val_idx, goal_idx);
         }
     }
     for (size_t id_goal = 0; id_goal < numeric_task.get_n_numeric_goals(); ++id_goal) {
-        for (pair<int, int> var_value: numeric_task.get_propositoinal_goals(id_goal)) {
+        for (pair<int, int> var_value: numeric_task.get_propositional_goals(id_goal)) {
             if (!numeric_task.is_numeric_axiom(var_value.first)) {
                 int val_idx = Permutation::get_index_by_var_val(var_value.first, var_value.second);
-                g->add_edge(goal_idx, val_idx);
+                g->add_edge(val_idx, goal_idx);
             }
         }
         for (int id_n_con : numeric_task.get_numeric_goals(id_goal)) {
-            LinearNumericCondition &lnc = numeric_task.get_condition(id_n_con);
-            int lnc_color = lnc.is_strictly_greater ? GT_VERTEX : GTE_VERTEX;
-            int lnc_idx = g->add_vertex(lnc_color);
-            g->add_edge(goal_idx, lnc_idx);
+            const LinearNumericCondition &lnc = numeric_task.get_condition(id_n_con);
+            unsigned int lnc_color = lnc.is_strictly_greater ? gt_color : ge_color;
+            unsigned int lnc_idx = g->add_vertex(lnc_color);
+            g->add_edge(lnc_idx, goal_idx);
 
             ap_float denominator = 1.0;
             bool first = true;
 
             for (int j = 0, n = Permutation::regular_id_to_num_var.size(); j < n; ++j) {
-                if (std::fabs(lnc.coefficients[j]) > precision) {
+                if (std::fabs(lnc.coefficients[j]) >= precision) {
                     if (first) {
                         denominator = std::fabs(lnc.coefficients[j]);
                         first = false;
                     }
-                    int coeff_color = base_constant_color + float_to_int(lnc.coefficients[j] / denominator);
-                    int coeff_idx = g->add_vertex(coeff_color);
-                    g->add_edge(coeff_idx, lnc_idx);
-                    g->add_edge(Permutation::get_index_by_num_regular_id(j), coeff_idx);
+                    int var_idx = Permutation::get_index_by_num_regular_id(j);
+                    int coeff = float_to_int(lnc.coefficients[j] / denominator);
+                    auto key = make_pair(var_idx, coeff);
+                    auto result = num_var_constant_to_idx.find(key);
+                    if (result == num_var_constant_to_idx.end()) {
+                        unsigned int idx = g->add_vertex(constant_to_color[coeff]);
+                        num_var_constant_to_idx[key] = idx;
+                        g->add_edge(var_idx, idx);
+                        g->add_edge(idx, lnc_idx);
+                    } else {
+                        unsigned int idx =(*result).second;
+                        g->add_edge(var_idx, idx);
+                        g->add_edge(idx, lnc_idx);
+                    }
                 }
             }
-
-            int constant_color = base_constant_color + float_to_int(lnc.constant / denominator);
-            int constant_idx = g->add_vertex(constant_color);
-            g->add_edge(lnc_idx, constant_idx);
+            int constant = float_to_int(lnc.constant / denominator);
+            auto key = make_pair(dummy_var_idx, constant);
+            auto result = num_var_constant_to_idx.find(key);
+            if (result == num_var_constant_to_idx.end()) {
+                unsigned int idx = g->add_vertex(constant_to_color[constant]);
+                num_var_constant_to_idx[key] = idx;
+                g->add_edge(dummy_var_idx, idx);
+                g->add_edge(idx, lnc_idx);
+            } else {
+                unsigned int idx =(*result).second;
+                g->add_edge(dummy_var_idx, idx);
+                g->add_edge(idx, lnc_idx);
+            }
         }
     }
 
@@ -395,16 +539,16 @@ bliss::Digraph* GraphCreator::create_bliss_directed_graph(const std::shared_ptr<
 }
 
 Permutation GraphCreator::create_permutation_from_state_to_state(const GlobalState &from_state, const GlobalState &to_state) const {
-    std::vector<container_int> tmp_state(g_variable_domain.size());
+    vector<container_int> tmp_state(g_variable_domain.size());
     for (size_t i = 0; i < g_variable_domain.size(); ++i)
         tmp_state[i] = from_state[i];
-    std::vector<ap_float> tmp_numeric_values = from_state.get_numeric_vars();
-    std::vector<int> from_trace = group.get_trace(tmp_state, tmp_numeric_values);
+    vector<ap_float> tmp_numeric_values = from_state.get_numeric_vars();
+    vector<int> from_trace = group.get_trace(tmp_state, tmp_numeric_values);
 
     for (size_t i = 0; i < g_variable_domain.size(); ++i)
         tmp_state[i] = to_state[i];
     tmp_numeric_values = to_state.get_numeric_vars();
-    std::vector<int> to_trace = group.get_trace(tmp_state, tmp_numeric_values);
+    vector<int> to_trace = group.get_trace(tmp_state, tmp_numeric_values);
 
     Permutation p1(group.compose_permutation(to_trace), true);
     Permutation p2 = group.compose_permutation(from_trace);
@@ -422,6 +566,10 @@ void GraphCreator::add_options_to_parser(OptionParser &parser) {
     parser.add_option<bool>("no_search",
                            "No search is performed, exiting after creating the symmetries",
                             "false");
+    parser.add_option<bool>("ignore_numeric",
+                           "Ignore numeric values by assign different colors to numeric constants",
+                            "false");
+
 
     parser.add_option<ap_float>("precision", "Threshold below which is considered as zero", "0.00001");
 }

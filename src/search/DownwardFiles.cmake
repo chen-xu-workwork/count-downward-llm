@@ -43,11 +43,10 @@ set(CORE_SOURCES
         successor_generator.cc
         task_proxy.cc
         task_tools.cc
-        numeric_task_proxy.cc
         variable_order_finder.cc
 
         open_lists/alternation_open_list.cc
-#        open_lists/bucket_open_list.cc
+        open_lists/bucket_open_list.cc
         open_lists/epsilon_greedy_open_list.cc
         open_lists/open_list.cc
         open_lists/open_list_factory.cc
@@ -643,6 +642,14 @@ fast_downward_plugin(
         symmetries/graph_creator.cc
         symmetries/group.cc
         symmetries/permutation.cc
+)
+
+fast_downward_plugin(
+    NAME NUMERIC_BOUND
+    HELP "Bounds for numeric variables and effects"
+    SOURCES
+        numeric_landmarks/bound_test.cc
+        numeric_landmarks/numeric_bound.cc
 )
 
 fast_downward_add_plugin_sources(PLANNER_SOURCES)

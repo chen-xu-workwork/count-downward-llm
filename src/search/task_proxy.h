@@ -3,6 +3,7 @@
 
 #include "abstract_task.h"
 
+#include "../utils/countdown_timer.h"
 #include "utils/hash.h"
 #include "utils/system.h"
 
@@ -11,7 +12,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "../utils/countdown_timer.h"
 
 
 class AxiomsProxy;
@@ -760,41 +760,44 @@ class State {
             std::vector<int> &new_state);
 public:
     using ItemType = FactProxy;
-    State(const AbstractTask &task, std::vector<int> &&values, std::vector<ap_float> &&num_vals)
-        : task(&task), values(std::move(values)), num_values(std::move(num_vals)) {
+    State(const AbstractTask &task, std::vector<int> &&vals, std::vector<ap_float> &&num_vals)
+        : task(&task), values(std::move(vals)), num_values(std::move(num_vals)) {
             //std::cout << "state " << size() << " " << this->task->get_num_variables() << std::endl;
-        assert(static_cast<int>(size()) == this->task->get_num_variables());
+        assert(static_cast<int>(values.size()) == this->task->get_num_variables());
        if (DEBUG)
             std::cout << "num_values.size = " << num_values.size() << " task.get_num_numeric_vars = " << this->task->get_num_numeric_variables() << std::endl;
         assert(static_cast<int>(num_values.size()) == this->task->get_num_numeric_variables());
     }
     ~State() = default;
-    State(const State &) = default;
+
+    State(const State &other) = default;
 
     State(State &&other)
         : task(other.task), values(std::move(other.values)), num_values(std::move(other.num_values)) {
         other.task = nullptr;
     }
 
-    State(const State &state, std::vector<int> &&values, std::vector<ap_float> &&num_vals)
-        : task(state.task), values(std::move(values)), num_values(std::move(num_vals)) {
-            //std::cout << "state " << size() << " " << this->task->get_num_variables() << std::endl;
-        assert(static_cast<int>(size()) == this->task->get_num_variables());
-       if (DEBUG)
-            std::cout << "num_values.size = " << num_values.size() << " task.get_num_numeric_vars = " << this->task->get_num_numeric_variables() << std::endl;
-        assert(static_cast<int>(num_values.size()) == this->task->get_num_numeric_variables());
-    }
-
     State &operator=(const State &other) {
         if (this != &other) {
+	    task = other.task;
             values = other.values;
+            num_values = other.num_values;
+        }
+        return *this;
+    }
+
+    State &operator=(const State &&other) {
+        if (this != &other) {
+	    task = other.task;
+            values = std::move(other.values);
+            num_values = std::move(other.num_values);
         }
         return *this;
     }
 
     bool operator==(const State &other) const {
         assert(task == other.task);
-        return values == other.values;
+        return values == other.values && num_values == other.num_values;
     }
 
     bool operator!=(const State &other) const {
@@ -802,16 +805,19 @@ public:
     }
 
     std::size_t hash() const {
-        std::hash<std::vector<int>> hasher;
-        return hasher(values);
+        size_t h = std::hash<std::vector<int>>()(values);
+        utils::hash_combine(h, num_values);
+        return h;
     }
 
     std::size_t size() const {
+        // NOTE: this is required to be able to iterate over the state via FactProxys
+        //  it ignores the numeric variables
         return values.size();
     }
 
     FactProxy operator[](std::size_t var_id) const {
-        assert(var_id < size());
+        assert(var_id < values.size());
         return FactProxy(*task, var_id, values[var_id]);
     }
 

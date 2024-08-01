@@ -139,12 +139,14 @@ class StateRegistry {
     std::vector<int> numeric_indices;
     StateIDSet registered_states;
     GlobalState *cached_initial_state;
-    GlobalState *cached_canonical_initial_state;
+
     mutable std::set<PerStateInformationBase *> subscribers;
+
     StateID insert_id_or_pop_state();
 
 public:
-    StateRegistry(int number_of_numeric_constants);
+    explicit StateRegistry(int number_of_numeric_constants);
+
     ~StateRegistry();
 
     /*
@@ -187,14 +189,29 @@ public:
     /*
       Evaluate the instrumentation effects on the given state
      */
-    void get_numeric_successor(std::vector<ap_float> &predecessor_vals, std::vector<ap_float> &metric_part, const GlobalOperator &op, PackedStateBin *buffer);
+    void get_numeric_successor(std::vector<ap_float> &predecessor_vals,
+                               std::vector<ap_float> &metric_part,
+                               const GlobalOperator &op);
 
-    void get_canonical_numeric_successor(std::vector<ap_float> &predecessor_vals, std::vector<ap_float> &metric_part, const GlobalOperator &op, PackedStateBin *buffer);
+    void get_numeric_successor(std::vector<ap_float> &predecessor_vals,
+                               std::vector<ap_float> &metric_part,
+                               const GlobalOperator &op,
+                               PackedStateBin *buffer,
+                               const PackedStateBin *previous_buffer);
 
-    GlobalState register_state(const std::vector<container_int> &values, std::vector<ap_float> &numeric_values);
+    void get_canonical_numeric_successor(std::vector<ap_float> &predecessor_vals,
+                                         std::vector<ap_float> &metric_part,
+                                         const GlobalOperator &op,
+                                         PackedStateBin *buffer,
+                                         const PackedStateBin *previous_buffer);
+
+    GlobalState register_state(const std::vector<container_int> &values,
+                               std::vector<ap_float> &numeric_values);
 
     ap_float evaluate_metric(const std::vector<ap_float> &numeric_state) const;
+
     std::vector<ap_float> get_numeric_vars(const GlobalState &state) const;
+
 protected:
     ap_float assign_effect(ap_float aff_value, f_operator fop, ap_float ass_value);
 
