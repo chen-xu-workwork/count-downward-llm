@@ -7,6 +7,8 @@
 #include "../segmented_vector.h"
 #include "../task_proxy.h"
 
+#include "../utils/hash.h"
+
 #include <unordered_set>
 
 namespace numeric_pdbs {
@@ -16,8 +18,9 @@ struct NumericState {
     std::vector<ap_float> num_state;
 
     NumericState(std::size_t prop_hash,
-                 std::vector <ap_float> num_state) : prop_hash(prop_hash),
-                                                num_state(std::move(num_state)) {}
+                 std::vector<ap_float> num_state) :
+            prop_hash(prop_hash),
+            num_state(std::move(num_state)) {}
 
     std::string get_name(const TaskProxy &proxy, const Pattern &pattern) const;
 
@@ -28,11 +31,8 @@ struct NumericState {
 
 struct NumericStateHash {
     std::size_t operator()(const NumericState &s) const {
-        std::hash <ap_float> hasher;
         std::size_t seed = s.prop_hash;
-        for (ap_float i: s.num_state) {
-            seed ^= hasher(i) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-        }
+        utils::hash_combine(seed, s.num_state);
         return seed;
     }
 };
@@ -67,7 +67,7 @@ class NumericStateRegistry {
     typedef std::unordered_set<std::size_t,
             StateIDSemanticHash,
             StateIDSemanticEqual> StateIDSet;
-    SegmentedVector <NumericState> state_data_pool;
+    SegmentedVector<NumericState> state_data_pool;
     StateIDSet registered_states;
 
 public:
