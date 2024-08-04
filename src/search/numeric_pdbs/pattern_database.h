@@ -52,7 +52,8 @@ public:
                      const std::vector<std::pair<int, int>> &effects,
                      int op_id,
                      ap_float cost,
-                     const std::vector<std::size_t> &hash_multipliers);
+                     const std::vector<std::size_t> &hash_multipliers,
+                     bool regression);
 
     /*
       Returns variable value pairs which represent the preconditions of
@@ -122,7 +123,8 @@ class PatternDatabase {
         std::vector<std::pair<int, int>> &pre_pairs,
         std::vector<std::pair<int, int>> &eff_pairs,
         const std::vector<std::pair<int, int>> &effects_without_pre,
-        std::vector<AbstractOperator> &operators);
+        std::vector<AbstractOperator> &operators,
+        bool regression);
 
     /*
       Computes all abstract operators for a given concrete operator (by
@@ -133,7 +135,8 @@ class PatternDatabase {
     void build_abstract_operators(
         const OperatorProxy &op, ap_float cost,
         const std::vector<int> &variable_to_index,
-        std::vector<AbstractOperator> &operators);
+        std::vector<AbstractOperator> &operators,
+        bool regression);
 
     bool is_applicable(const NumericState &state,
                        OperatorProxy op,
@@ -145,6 +148,10 @@ class PatternDatabase {
                                                 const numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
                                                 const std::vector<int> &num_variable_to_index) const;
 
+    void build_goals(const numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
+                     const std::vector<int> &variable_to_index,
+                     const std::vector<int> &num_variable_to_index);
+
     /*
       Computes all abstract operators, builds the match tree (successor
       generator) and then does a Uniform Cost Search to compute
@@ -155,6 +162,11 @@ class PatternDatabase {
     void create_pdb(
             numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
             std::size_t max_number_states,
+            const std::vector<ap_float> &operator_costs = std::vector<ap_float>(),
+            bool dump = false);
+
+    void create_pdb_propositional(
+            numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
 
     /*
