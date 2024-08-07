@@ -3,6 +3,8 @@
 #include "causal_graph.h"
 #include "globals.h"
 
+#include "../numeric_pdbs/numeric_helper.h"
+
 #include "../utils/system.h"
 
 #include <algorithm>
@@ -33,9 +35,10 @@ VariableOrderFinder::VariableOrderFinder(const shared_ptr<AbstractTask> task, Va
         variable_order_type == RANDOM)
         random_shuffle(remaining_vars.begin(), remaining_vars.end());
 
+    numeric_pdb_helper::NumericTaskProxy num_proxy(task_proxy);
     is_causal_predecessor.resize(var_count, false);
     is_goal_variable.resize(var_count, false);
-    for (FactProxy goal : task_proxy.get_goals())
+    for (FactProxy goal : num_proxy.get_propositional_goals())
         is_goal_variable[goal.get_variable().get_id()] = true;
 }
 

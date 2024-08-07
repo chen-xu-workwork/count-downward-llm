@@ -3,6 +3,8 @@
 
 #include "types.h"
 
+#include "../globals.h"
+
 #include <memory>
 
 class State;
@@ -17,7 +19,7 @@ public:
                   bool dominance_pruning);
     ~CanonicalPDBs() = default;
 
-    int get_value(const State &state) const;
+    ap_float get_value(const State &state) const;
 };
 }
 

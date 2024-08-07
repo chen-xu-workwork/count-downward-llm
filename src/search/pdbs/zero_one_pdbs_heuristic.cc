@@ -32,7 +32,7 @@ ap_float ZeroOnePDBsHeuristic::compute_heuristic(const GlobalState &global_state
 }
 
 ap_float ZeroOnePDBsHeuristic::compute_heuristic(const State &state) const {
-    int h = zero_one_pdbs.get_value(state);
+    ap_float h = zero_one_pdbs.get_value(state);
     if (h == numeric_limits<ap_float>::max())
         return DEAD_END;
     return h;

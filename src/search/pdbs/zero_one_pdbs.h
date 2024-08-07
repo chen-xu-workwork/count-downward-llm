@@ -3,6 +3,8 @@
 
 #include "types.h"
 
+#include "../globals.h"
+
 class State;
 class TaskProxy;
 
@@ -13,7 +15,7 @@ public:
     ZeroOnePDBs(TaskProxy task_proxy, const PatternCollection &patterns);
     ~ZeroOnePDBs() = default;
 
-    int get_value(const State &state) const;
+    ap_float get_value(const State &state) const;
     /*
       Returns the sum of all mean finite h-values of every PDB.
       This is an approximation of the real mean finite h-value of the Heuristic,
@@ -22,7 +24,7 @@ public:
       states which are dead-end, we do not calculate the real mean h-value for
       these states.
     */
-    double compute_approx_mean_finite_h() const;
+    ap_float compute_approx_mean_finite_h() const;
     void dump() const;
 };
 }

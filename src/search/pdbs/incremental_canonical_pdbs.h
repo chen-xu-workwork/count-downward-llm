@@ -40,7 +40,7 @@ public:
        Detailed documentation in max_additive_pdb_sets.h */
     MaxAdditivePDBSubsets get_max_additive_subsets(const Pattern &new_pattern);
 
-    int get_value(const State &state) const;
+    ap_float get_value(const State &state) const;
 
     /*
       The following method offers a quick dead-end check for the sampling

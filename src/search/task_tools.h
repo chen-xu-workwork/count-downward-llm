@@ -36,6 +36,8 @@ bool has_axioms(TaskProxy task);
 */
 void verify_no_axioms(TaskProxy task);
 
+void verify_no_non_numeric_axioms(TaskProxy task);
+
 // Runtime: O(n), where n is the number of operators.
 bool has_conditional_effects(TaskProxy task);
 

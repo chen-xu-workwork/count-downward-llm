@@ -11,6 +11,8 @@
 #include "../sampling.h"
 #include "../task_tools.h"
 
+#include "../numeric_pdbs/numeric_helper.h"
+
 #include "../utils/countdown_timer.h"
 #include "../utils/logging.h"
 #include "../utils/markup.h"
@@ -300,6 +302,7 @@ void PatternCollectionGeneratorHillclimbing::hill_climbing(
 
 PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(shared_ptr<AbstractTask> task) {
     TaskProxy task_proxy(*task);
+    numeric_pdb_helper::NumericTaskProxy num_proxy(task_proxy);
     SuccessorGenerator successor_generator(task);
 
     utils::Timer timer;
@@ -308,7 +311,7 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
 
     // Generate initial collection: a pdb for each goal variable.
     PatternCollection initial_pattern_collection;
-    for (FactProxy goal : task_proxy.get_goals()) {
+    for (FactProxy goal : num_proxy.get_propositional_goals()) {
         int goal_var_id = goal.get_variable().get_id();
         initial_pattern_collection.emplace_back(1, goal_var_id);
     }
@@ -525,6 +528,10 @@ static Heuristic *_parse_ipdb(OptionParser &parser) {
         "patterns", pgh);
     heuristic_opts.set<bool>(
         "dominance_pruning", opts.get<bool>("dominance_pruning"));
+    heuristic_opts.set<bool>( // TODO this is somewhat of a hack
+            "redundant_constraints", true);
+    heuristic_opts.set<bool>( // TODO this is somewhat of a hack
+            "rounding_up", false);
 
     // Note: in the long run, this should return a shared pointer.
     return new CanonicalPDBsHeuristic(heuristic_opts);

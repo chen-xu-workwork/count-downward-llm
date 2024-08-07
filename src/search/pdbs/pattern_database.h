@@ -19,7 +19,7 @@ class AbstractOperator {
       abstract state.
     */
 
-    int cost;
+    ap_float cost;
 
     /*
       Preconditions for the regression search, corresponds to normal
@@ -42,7 +42,7 @@ public:
     AbstractOperator(const std::vector<std::pair<int, int>> &prevail,
                      const std::vector<std::pair<int, int>> &preconditions,
                      const std::vector<std::pair<int, int>> &effects,
-                     int cost,
+                     ap_float cost,
                      const std::vector<std::size_t> &hash_multipliers);
     ~AbstractOperator();
 
@@ -64,7 +64,7 @@ public:
       Returns the cost of the abstract operator (same as the cost of
       the original concrete operator)
     */
-    int get_cost() const {return cost; }
+    ap_float get_cost() const {return cost; }
     void dump(const Pattern &pattern,
               const TaskProxy &task_proxy) const;
 };
@@ -82,7 +82,7 @@ class PatternDatabase {
       final h-values for abstract-states.
       dead-ends are represented by numeric_limits<int>::max()
     */
-    std::vector<int> distances;
+    std::vector<ap_float> distances;
 
     // multipliers for each variable for perfect hash function
     std::vector<std::size_t> hash_multipliers;
@@ -95,7 +95,7 @@ class PatternDatabase {
       abstract operator with a concrete value (!= -1) is computed.
     */
     void multiply_out(
-        int pos, int cost,
+        int pos, ap_float cost,
         std::vector<std::pair<int, int>> &prev_pairs,
         std::vector<std::pair<int, int>> &pre_pairs,
         std::vector<std::pair<int, int>> &eff_pairs,
@@ -109,7 +109,7 @@ class PatternDatabase {
       variables in the task to their index in the pattern or -1.
     */
     void build_abstract_operators(
-        const OperatorProxy &op, int cost,
+        const OperatorProxy &op, ap_float cost,
         const std::vector<int> &variable_to_index,
         std::vector<AbstractOperator> &operators);
 
@@ -121,7 +121,7 @@ class PatternDatabase {
       cost partitioning. If left empty, default operator costs are used.
     */
     void create_pdb(
-        const std::vector<int> &operator_costs = std::vector<int>());
+        const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
 
     /*
       Sets the pattern for the PDB and initializes hash_multipliers and
@@ -131,7 +131,7 @@ class PatternDatabase {
     */
     void set_pattern(
         const Pattern &pattern,
-        const std::vector<int> &operator_costs = std::vector<int>());
+        const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
 
     /*
       For a given abstract state (given as index), the according values
@@ -164,10 +164,10 @@ public:
         const TaskProxy &task_proxy,
         const Pattern &pattern,
         bool dump = false,
-        const std::vector<int> &operator_costs = std::vector<int>());
+        const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
     ~PatternDatabase() = default;
 
-    int get_value(const State &state) const;
+    ap_float get_value(const State &state) const;
 
     // Returns the pattern (i.e. all variables used) of the PDB
     const Pattern &get_pattern() const {
@@ -187,7 +187,7 @@ public:
       Note: This is only calculated when called; avoid repeated calls to
       this method!
     */
-    double compute_mean_finite_h() const;
+    ap_float compute_mean_finite_h() const;
 
     // Returns true iff op has an effect on a variable in the pattern.
     bool is_operator_relevant(const OperatorProxy &op) const;

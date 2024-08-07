@@ -24,7 +24,7 @@ namespace pdbs {
 AbstractOperator::AbstractOperator(const vector<pair<int, int>> &prev_pairs,
                                    const vector<pair<int, int>> &pre_pairs,
                                    const vector<pair<int, int>> &eff_pairs,
-                                   int cost,
+                                   ap_float cost,
                                    const vector<size_t> &hash_multipliers)
     : cost(cost),
       regression_preconditions(prev_pairs) {
@@ -71,14 +71,25 @@ PatternDatabase::PatternDatabase(
     const TaskProxy &task_proxy,
     const Pattern &pattern,
     bool dump,
-    const vector<int> &operator_costs)
+    const vector<ap_float> &operator_costs)
     : task_proxy(task_proxy),
       pattern(pattern) {
-    verify_no_axioms(task_proxy);
+    verify_no_non_numeric_axioms(task_proxy);
     verify_no_conditional_effects(task_proxy);
     assert(operator_costs.empty() ||
            operator_costs.size() == task_proxy.get_operators().size());
     assert(utils::is_sorted_unique(pattern));
+
+
+    for (int var_id : pattern){
+        auto var = task_proxy.get_variables()[var_id];
+        if (task_proxy.is_derived_variable(var)){
+            cerr << "PatternDatabase does not support derived numeric variables "
+                 << "(variable " << var.get_name() << ")!" << endl
+                 << "Terminating." << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
+    }
 
     utils::Timer timer;
     hash_multipliers.reserve(pattern.size());
@@ -101,7 +112,7 @@ PatternDatabase::PatternDatabase(
 }
 
 void PatternDatabase::multiply_out(
-    int pos, int cost, vector<pair<int, int>> &prev_pairs,
+    int pos, ap_float cost, vector<pair<int, int>> &prev_pairs,
     vector<pair<int, int>> &pre_pairs,
     vector<pair<int, int>> &eff_pairs,
     const vector<pair<int, int>> &effects_without_pre,
@@ -139,7 +150,7 @@ void PatternDatabase::multiply_out(
 }
 
 void PatternDatabase::build_abstract_operators(
-    const OperatorProxy &op, int cost,
+    const OperatorProxy &op, ap_float cost,
     const std::vector<int> &variable_to_index,
     vector<AbstractOperator> &operators) {
     // All variable value pairs that are a prevail condition
@@ -187,7 +198,7 @@ void PatternDatabase::build_abstract_operators(
                  operators);
 }
 
-void PatternDatabase::create_pdb(const std::vector<int> &operator_costs) {
+void PatternDatabase::create_pdb(const std::vector<ap_float> &operator_costs) {
     VariablesProxy vars = task_proxy.get_variables();
     vector<int> variable_to_index(vars.size(), -1);
     for (size_t i = 0; i < pattern.size(); ++i) {
@@ -197,7 +208,7 @@ void PatternDatabase::create_pdb(const std::vector<int> &operator_costs) {
     // compute all abstract operators
     vector<AbstractOperator> operators;
     for (OperatorProxy op : task_proxy.get_operators()) {
-        int op_cost;
+        ap_float op_cost;
         if (operator_costs.empty()) {
             op_cost = op.get_cost();
         } else {
@@ -232,14 +243,14 @@ void PatternDatabase::create_pdb(const std::vector<int> &operator_costs) {
             pq.push(0, state_index);
             distances.push_back(0);
         } else {
-            distances.push_back(numeric_limits<int>::max());
+            distances.push_back(numeric_limits<ap_float>::max());
         }
     }
 
     // Dijkstra loop
     while (!pq.empty()) {
-        pair<int, size_t> node = pq.pop();
-        int distance = node.first;
+        pair<ap_float, size_t> node = pq.pop();
+        ap_float distance = node.first;
         size_t state_index = node.second;
         if (distance > distances[state_index]) {
             continue;
@@ -250,7 +261,7 @@ void PatternDatabase::create_pdb(const std::vector<int> &operator_costs) {
         match_tree.get_applicable_operators(state_index, applicable_operators);
         for (const AbstractOperator *op : applicable_operators) {
             size_t predecessor = state_index + op->get_hash_effect();
-            int alternative_cost = distances[state_index] + op->get_cost();
+            ap_float alternative_cost = distances[state_index] + op->get_cost();
             if (alternative_cost < distances[predecessor]) {
                 distances[predecessor] = alternative_cost;
                 pq.push(alternative_cost, predecessor);
@@ -283,12 +294,12 @@ size_t PatternDatabase::hash_index(const State &state) const {
     return index;
 }
 
-int PatternDatabase::get_value(const State &state) const {
+ap_float PatternDatabase::get_value(const State &state) const {
     return distances[hash_index(state)];
 }
 
 double PatternDatabase::compute_mean_finite_h() const {
-    double sum = 0;
+    ap_float sum = 0;
     int size = 0;
     for (size_t i = 0; i < distances.size(); ++i) {
         if (distances[i] != numeric_limits<int>::max()) {
@@ -297,7 +308,7 @@ double PatternDatabase::compute_mean_finite_h() const {
         }
     }
     if (size == 0) { // All states are dead ends.
-        return numeric_limits<double>::infinity();
+        return numeric_limits<ap_float>::infinity();
     } else {
         return sum / size;
     }

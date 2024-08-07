@@ -41,8 +41,8 @@ ap_float CanonicalPDBsHeuristic::compute_heuristic(const GlobalState &global_sta
 }
 
 ap_float CanonicalPDBsHeuristic::compute_heuristic(const State &state) const {
-    int h = canonical_pdbs.get_value(state);
-    if (h == numeric_limits<int>::max()) {
+    ap_float h = canonical_pdbs.get_value(state);
+    if (h == numeric_limits<ap_float>::max()) {
         return DEAD_END;
     } else {
         return h;

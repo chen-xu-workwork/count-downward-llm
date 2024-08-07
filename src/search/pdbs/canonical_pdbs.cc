@@ -23,18 +23,18 @@ CanonicalPDBs::CanonicalPDBs(
     }
 }
 
-int CanonicalPDBs::get_value(const State &state) const {
+ap_float CanonicalPDBs::get_value(const State &state) const {
     // If we have an empty collection, then max_additive_subsets = { \emptyset }.
     assert(!max_additive_subsets->empty());
-    int max_h = 0;
+    ap_float max_h = 0;
     for (const auto &subset : *max_additive_subsets) {
-        int subset_h = 0;
+        ap_float subset_h = 0;
         for (const shared_ptr<PatternDatabase> &pdb : subset) {
             /* Experiments showed that it is faster to recompute the
                h values than to cache them in an unordered_map. */
-            int h = pdb->get_value(state);
-            if (h == numeric_limits<int>::max())
-                return numeric_limits<int>::max();
+            ap_float h = pdb->get_value(state);
+            if (h == numeric_limits<ap_float>::max())
+                return numeric_limits<ap_float>::max();
             subset_h += h;
         }
         max_h = max(max_h, subset_h);
