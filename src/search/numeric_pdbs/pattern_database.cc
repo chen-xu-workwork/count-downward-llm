@@ -13,6 +13,7 @@
 #include <cassert>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -308,7 +309,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
     //  is as dense as possible, and only having it just large enough to fit the abstract state with highest ID that has
     //  a finite heuristic value, with all others being deadends or mapped to min_action_cost by convention.
 
-    state_registry = make_unique<NumericStateRegistry>();
+    NumericStateRegistry state_registry;
 
     VariablesProxy vars = task_proxy.get_variables();
     vector<int> variable_to_index(vars.size(), -1);
@@ -383,7 +384,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         for (int var: pattern.numeric) {
             num_init[num_variable_to_index[var]] = num_vars[var].get_initial_state_value();
         }
-        size_t init_state_id = state_registry->insert_state(NumericState(prop_init, std::move(num_init)));
+        size_t init_state_id = state_registry.insert_state(NumericState(prop_init, std::move(num_init)));
         open.push(0, init_state_id);
 
         /*
@@ -426,7 +427,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
             }
             closed[state_id] = true;
 
-            const NumericState &state = state_registry->lookup_state(state_id);
+            const NumericState &state = state_registry.lookup_state(state_id);
 
             if (is_goal_state(state, num_variable_to_index)) {
                 goal_states.push_back(state_id);
@@ -450,7 +451,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                                                                        num_task_proxy,
                                                                        num_variable_to_index);
 
-                size_t succ_id = state_registry->insert_state(NumericState(prop_successor, std::move(num_successor)));
+                size_t succ_id = state_registry.insert_state(NumericState(prop_successor, std::move(num_successor)));
 
                 if (succ_id == state_id) {
                     // no need to keep self-loops
@@ -480,7 +481,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                                                                        num_task_proxy,
                                                                        num_variable_to_index);
 
-                size_t succ_id = state_registry->insert_state(NumericState(state.prop_hash, std::move(num_successor)));
+                size_t succ_id = state_registry.insert_state(NumericState(state.prop_hash, std::move(num_successor)));
 
                 if (succ_id == state_id) {
                     // no need to keep self-loops
@@ -504,12 +505,16 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
             }
         }
 
+        if (num_reached_states < max_number_states) {
+            exhausted_abstract_state_space = true;
+        }
+
         if (dump) {
             cout << "Generated abstract states: " << num_reached_states << endl;
         }
 
         assert(distances.empty());
-        distances.resize(state_registry->size(), numeric_limits<ap_float>::max());
+        distances.resize(state_registry.size(), numeric_limits<ap_float>::max());
 
         for (const auto &goal_state_id: goal_states) {
             pq.push(0, goal_state_id);
@@ -522,7 +527,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                 // open lists may contain closed states
                 continue;
             }
-            const NumericState &state = state_registry->lookup_state(state_id);
+            const NumericState &state = state_registry.lookup_state(state_id);
             if (is_goal_state(state, num_variable_to_index)) {
                 // we have not checked this for states in open
                 pq.push(0, state_id);
@@ -538,6 +543,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
     }
 
 
+    size_t num_bwd_reached_states = 0;
     // Dijkstra loop
     while (!pq.empty()) {
         auto [distance, state_id] = pq.pop();
@@ -545,6 +551,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         if (distance >= distances[state_id]) {
             continue;
         }
+        ++num_bwd_reached_states;
         distances[state_id] = distance;
 
         // regress state
@@ -560,23 +567,26 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
             }
         }
     }
+    if (dump) {
+        cout << "Number backwards reachable abstract states: " << num_bwd_reached_states << endl;
+    }
 
-    if (num_reached_states < max_number_states) {
-        exhausted_abstract_state_space = true;
-    } else {
-        for (size_t i = 0; i < distances.size(); ++i){
-            // we cannot assume that unreached states are deadends
-            if (distances[i] == numeric_limits<ap_float>::max()) {
-                if (is_goal_state(state_registry->lookup_state(i), num_variable_to_index)) {
-                    // abstract goals are satisfied
-                    distances[i] = 0;
-                } else {
-                    // we don't know any better
-                    distances[i] = min_action_cost;
-                }
-            }
+    this->state_registry = make_unique<NumericStateRegistry>();
+    vector<ap_float> new_distances;
+    for (size_t i = 0; i < distances.size(); ++i){
+        ap_float dist = distances[i];
+        if (dist != numeric_limits<ap_float>::max()){
+            const NumericState &state = state_registry.lookup_state(i);
+            this->state_registry->insert_state(state);
+            new_distances.push_back(dist);
         }
     }
+    if (dump) {
+        // TODO remove this
+        cout << "Shrink size of state registry from " << distances.size() << " to " << new_distances.size() << endl;
+    }
+    distances = std::move(new_distances);
+
     if (dump) {
         cout << "Initial state h: " << get_value(task_proxy.get_initial_state()) << endl;
     }
@@ -698,10 +708,8 @@ size_t PatternDatabase::prop_hash_index(const State &state) const {
     return index;
 }
 
-static vector<ap_float> abstract_numeric_state; // avoid re-allocation
-
-const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State &state) const {
-    abstract_numeric_state.resize(pattern.numeric.size());
+vector<ap_float> PatternDatabase::get_abstract_numeric_state(const State &state) const {
+    vector<ap_float> abstract_numeric_state(pattern.numeric.size());
     for (size_t i = 0; i < pattern.numeric.size(); ++i){
         abstract_numeric_state[i] = state.nval(pattern.numeric[i]);
     }

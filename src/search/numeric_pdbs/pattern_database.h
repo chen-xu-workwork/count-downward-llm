@@ -92,6 +92,7 @@ class PatternDatabase {
     Pattern pattern;
 
     // size of the PDB
+    // TODO not sure if we really need both
     std::size_t num_reached_states;
     std::size_t domain_size_product;
 
@@ -198,7 +199,7 @@ class PatternDatabase {
     */
     std::size_t prop_hash_index(const State &state) const;
 
-    const std::vector<ap_float> &get_abstract_numeric_state(const State &state) const;
+    std::vector<ap_float> get_abstract_numeric_state(const State &state) const;
 
 public:
     /*
