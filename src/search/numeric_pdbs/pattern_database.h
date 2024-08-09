@@ -91,11 +91,6 @@ class PatternDatabase {
 
     Pattern pattern;
 
-    // size of the PDB
-    // TODO not sure if we really need both
-    std::size_t num_reached_states;
-    std::size_t domain_size_product;
-
     std::unique_ptr<NumericStateRegistry> state_registry;
 
     // final h-values for abstract-states
@@ -168,6 +163,7 @@ class PatternDatabase {
 
     void create_pdb_propositional(
             numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
+            size_t number_states,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
 
     /*
@@ -230,12 +226,7 @@ public:
 
     // Returns the size (number of abstract states) of the PDB
     std::size_t get_size() const {
-        return num_reached_states;
-    }
-
-    // Returns the size (domain size product of variables in pattern) of the PDB
-    std::size_t get_domain_sizes_product() const {
-        return domain_size_product;
+        return distances.size();
     }
 
     /*

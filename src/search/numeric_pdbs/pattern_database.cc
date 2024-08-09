@@ -96,9 +96,7 @@ PatternDatabase::PatternDatabase(
     const vector<ap_float> &operator_costs)
     : task_proxy(task_proxy),
       pattern(pattern),
-      num_reached_states(0),
-      domain_size_product(0),
-      min_action_cost(numeric_limits<ap_float >::max()),
+      min_action_cost(numeric_limits<ap_float>::max()),
       exhausted_abstract_state_space(false) {
 
     assert(operator_costs.empty() ||
@@ -110,7 +108,7 @@ PatternDatabase::PatternDatabase(
 
     utils::Timer timer;
     prop_hash_multipliers.reserve(pattern.regular.size());
-    domain_size_product = 1;
+    size_t domain_size_product = 1;
     for (int pattern_var_id : pattern.regular) {
         prop_hash_multipliers.push_back(domain_size_product);
         VariableProxy var = task_proxy.get_variables()[pattern_var_id];
@@ -136,7 +134,7 @@ PatternDatabase::PatternDatabase(
     }
 
     if (pattern.numeric.empty()){
-        create_pdb_propositional(num_task_proxy, operator_costs);
+        create_pdb_propositional(num_task_proxy, domain_size_product, operator_costs);
     } else {
         create_pdb(num_task_proxy, max_number_states, operator_costs, dump);
     }
@@ -324,6 +322,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
 
     AdaptiveQueue<size_t> pq;
     vector<vector<pair<int, size_t>>> parent_pointers;
+    size_t num_reached_states = 0;
 
     {
         // compute all abstract operators
@@ -414,7 +413,6 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
          *
          */
 
-        num_reached_states = 0;
         while (!open.empty() && num_reached_states < max_number_states) {
             auto [cost, state_id] = open.pop();
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
@@ -598,10 +596,10 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
 }
 
 void PatternDatabase::create_pdb_propositional(numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
+                                               size_t size,
                                                const std::vector<ap_float> &operator_costs) {
 
     exhausted_abstract_state_space = true;
-    num_reached_states = domain_size_product; // do the same as regular PDBs
 
     VariablesProxy vars = task_proxy.get_variables();
     vector<int> variable_to_index(vars.size(), -1);
@@ -629,12 +627,12 @@ void PatternDatabase::create_pdb_propositional(numeric_pdb_helper::NumericTaskPr
 
     build_goals(num_task_proxy, variable_to_index, vector<int>());
 
-    distances.reserve(domain_size_product);
+    distances.reserve(size);
     // first implicit entry: priority, second entry: index for an abstract state
     AdaptiveQueue<size_t> pq;
 
     // initialize queue
-    for (size_t state_index = 0; state_index < domain_size_product; ++state_index) {
+    for (size_t state_index = 0; state_index < size; ++state_index) {
         if (is_goal_state(NumericState(state_index, vector<ap_float>()),
                           vector<int>())) {
             pq.push(0, state_index);

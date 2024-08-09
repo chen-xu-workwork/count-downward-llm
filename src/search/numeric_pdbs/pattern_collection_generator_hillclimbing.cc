@@ -48,7 +48,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
     PatternCollection &candidate_patterns) {
     const CausalGraph &causal_graph = task_proxy.get_numeric_causal_graph();
     const Pattern &pattern = pdb.get_pattern();
-    int pdb_size = min(pdb.get_size(), pdb.get_domain_sizes_product());
+    int pdb_size = pdb.get_size();
     for (int pattern_var : pattern.regular) {
         // TODO: refactor this to minimize code duplication
         /* Only consider variables used in preconditions for current
