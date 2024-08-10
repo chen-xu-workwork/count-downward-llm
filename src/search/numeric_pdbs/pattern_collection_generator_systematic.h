@@ -11,8 +11,6 @@
 #include <unordered_set>
 #include <vector>
 
-class TaskProxy;
-
 namespace options {
 class Options;
 }
@@ -42,11 +40,10 @@ class PatternCollectionGeneratorSystematic : public PatternCollectionGenerator {
                                    const Pattern &pattern,
                                    Pattern &result) ;
 
-    void build_sga_patterns(TaskProxy task_proxy,
-                            numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
+    void build_sga_patterns(const numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
                             const CausalGraph &cg);
-    void build_patterns(TaskProxy task_proxy, numeric_pdb_helper::NumericTaskProxy &num_task_proxy);
-    void build_patterns_naive(TaskProxy task_proxy, numeric_pdb_helper::NumericTaskProxy &num_task_proxy);
+    void build_patterns(const numeric_pdb_helper::NumericTaskProxy &num_task_proxy);
+    void build_patterns_naive(const numeric_pdb_helper::NumericTaskProxy &num_task_proxy);
 public:
     explicit PatternCollectionGeneratorSystematic(const options::Options &opts);
     ~PatternCollectionGeneratorSystematic() = default;

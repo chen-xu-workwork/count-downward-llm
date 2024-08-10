@@ -5,11 +5,14 @@
 
 #include "../globals.h"
 #include "../segmented_vector.h"
-#include "../task_proxy.h"
 
 #include "../utils/hash.h"
 
 #include <unordered_set>
+
+namespace numeric_pdb_helper {
+class NumericTaskProxy;
+}
 
 namespace numeric_pdbs {
 
@@ -22,7 +25,7 @@ struct NumericState {
             prop_hash(prop_hash),
             num_state(std::move(num_state)) {}
 
-    std::string get_name(const TaskProxy &proxy, const Pattern &pattern) const;
+    std::string get_name(const numeric_pdb_helper::NumericTaskProxy &proxy, const Pattern &pattern) const;
 
     bool operator==(const NumericState &other) const {
         return prop_hash == other.prop_hash && num_state == other.num_state;

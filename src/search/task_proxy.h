@@ -889,11 +889,7 @@ public:
         return State(*task, task->get_state_values(global_state), task->get_numeric_state_values(global_state));
     }
 
-    bool is_derived_variable(VariableProxy var) const;
-
     const CausalGraph &get_causal_graph() const;
-
-    const numeric_pdbs::CausalGraph &get_numeric_causal_graph() const;
 };
 
 

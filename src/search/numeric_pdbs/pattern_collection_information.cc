@@ -13,17 +13,16 @@ using namespace std;
 
 namespace numeric_pdbs {
 PatternCollectionInformation::PatternCollectionInformation(
-    shared_ptr<AbstractTask> task,
-    shared_ptr<PatternCollection> patterns,
-    size_t max_number_pdb_states)
-    : task(task),
-      task_proxy(*task),
-      patterns(patterns),
-      pdbs(nullptr),
-      max_additive_subsets(nullptr),
-      max_number_pdb_states(max_number_pdb_states) {
+        shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
+        shared_ptr<PatternCollection> patterns,
+        size_t max_number_pdb_states)
+        : task_proxy(task_proxy),
+          patterns(patterns),
+          pdbs(nullptr),
+          max_additive_subsets(nullptr),
+          max_number_pdb_states(max_number_pdb_states) {
     assert(patterns);
-    validate_and_normalize_patterns(task_proxy, *patterns);
+    validate_and_normalize_patterns(*task_proxy, *patterns);
 }
 
 bool PatternCollectionInformation::information_is_valid() const {
@@ -86,7 +85,7 @@ void PatternCollectionInformation::create_max_additive_subsets_if_missing() {
     if (!max_additive_subsets) {
         create_pdbs_if_missing();
         assert(pdbs);
-        NumericVariableAdditivity are_additive = compute_additive_vars(task_proxy);
+        NumericVariableAdditivity are_additive = compute_additive_vars(*task_proxy);
         max_additive_subsets = compute_max_additive_subsets(*pdbs, are_additive);
     }
 }

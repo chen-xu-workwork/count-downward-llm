@@ -1,10 +1,10 @@
 #include "pattern_generator_manual.h"
 
+#include "numeric_helper.h"
 #include "validation.h"
 
 #include "../option_parser.h"
 #include "../plugin.h"
-#include "../task_proxy.h"
 
 #include "../utils/logging.h"
 
@@ -21,7 +21,7 @@ PatternGeneratorManual::PatternGeneratorManual(const Options &opts) :
 }
 
 Pattern PatternGeneratorManual::generate(shared_ptr<AbstractTask> task) {
-    TaskProxy task_proxy(*task);
+    numeric_pdb_helper::NumericTaskProxy task_proxy(task);
     validate_and_normalize_pattern(task_proxy, pattern);
     cout << "Manual pattern: " << pattern.regular << endl;
     return pattern;

@@ -20,7 +20,7 @@
 
 using namespace std;
 using namespace numeric_condition;
-using namespace numeric_pdb_helper;
+using numeric_pdb_helper::NumericTaskProxy;
 
 namespace numeric_pdbs {
 AbstractOperator::AbstractOperator(const vector<pair<int, int>> &prev_pairs,
@@ -74,7 +74,7 @@ AbstractOperator::AbstractOperator(const vector<pair<int, int>> &prev_pairs,
 }
 
 void AbstractOperator::dump(const Pattern &pattern,
-                            const TaskProxy &task_proxy) const {
+                            const NumericTaskProxy &task_proxy) const {
     cout << "AbstractOperator:" << endl;
     cout << "Preconditions:" << endl;
     for (size_t i = 0; i < preconditions.size(); ++i) {
@@ -89,29 +89,27 @@ void AbstractOperator::dump(const Pattern &pattern,
 
 
 PatternDatabase::PatternDatabase(
-    const TaskProxy &task_proxy,
-    const Pattern &pattern,
-    size_t max_number_states,
-    bool dump,
-    const vector<ap_float> &operator_costs)
-    : task_proxy(task_proxy),
-      pattern(pattern),
-      min_action_cost(numeric_limits<ap_float>::max()),
-      exhausted_abstract_state_space(false) {
+        const shared_ptr<NumericTaskProxy> task_proxy,
+        const Pattern &pattern,
+        size_t max_number_states,
+        bool dump,
+        const vector<ap_float> &operator_costs)
+        : task_proxy(task_proxy),
+          pattern(pattern),
+          min_action_cost(numeric_limits<ap_float>::max()),
+          exhausted_abstract_state_space(false) {
 
     assert(operator_costs.empty() ||
-           operator_costs.size() == task_proxy.get_operators().size());
+           operator_costs.size() == task_proxy->get_operators().size());
     assert(utils::is_sorted_unique(pattern.regular));
     assert(utils::is_sorted_unique(pattern.numeric));
-
-    NumericTaskProxy num_task_proxy(task_proxy);
 
     utils::Timer timer;
     prop_hash_multipliers.reserve(pattern.regular.size());
     size_t domain_size_product = 1;
     for (int pattern_var_id : pattern.regular) {
         prop_hash_multipliers.push_back(domain_size_product);
-        VariableProxy var = task_proxy.get_variables()[pattern_var_id];
+        VariableProxy var = task_proxy->get_variables()[pattern_var_id];
         if (utils::is_product_within_limit(domain_size_product, var.get_domain_size(),
                                            numeric_limits<int>::max())) {
             domain_size_product *= var.get_domain_size();
@@ -122,7 +120,7 @@ PatternDatabase::PatternDatabase(
         }
     }
     for (int pattern_var_id : pattern.numeric) {
-        int var_domain = num_task_proxy.get_approximate_domain_size(task_proxy.get_numeric_variables()[pattern_var_id]);
+        int var_domain = task_proxy->get_approximate_domain_size(task_proxy->get_numeric_variables()[pattern_var_id]);
         if (utils::is_product_within_limit(domain_size_product, var_domain,
                                            numeric_limits<int>::max())) {
             domain_size_product *= var_domain;
@@ -134,9 +132,9 @@ PatternDatabase::PatternDatabase(
     }
 
     if (pattern.numeric.empty()){
-        create_pdb_propositional(num_task_proxy, domain_size_product, operator_costs);
+        create_pdb_propositional(domain_size_product, operator_costs);
     } else {
-        create_pdb(num_task_proxy, max_number_states, operator_costs, dump);
+        create_pdb(max_number_states, operator_costs, dump);
     }
     if (dump)
         cout << "PDB construction time: " << timer << endl;
@@ -162,7 +160,7 @@ void PatternDatabase::multiply_out(
         // abstract operator.
         int var_id = effects_without_pre[pos].first;
         int eff = effects_without_pre[pos].second;
-        VariableProxy var = task_proxy.get_variables()[pattern.regular[var_id]];
+        VariableProxy var = task_proxy->get_variables()[pattern.regular[var_id]];
         for (int i = 0; i < var.get_domain_size(); ++i) {
             if (i != eff) {
                 pre_pairs.emplace_back(var_id, i);
@@ -197,7 +195,7 @@ void PatternDatabase::build_abstract_operators(
     // All variable value pairs that are a precondition (value = -1)
     vector<pair<int, int>> effects_without_pre;
 
-    size_t num_vars = task_proxy.get_variables().size();
+    size_t num_vars = task_proxy->get_variables().size();
     vector<bool> has_precond_and_effect_on_var(num_vars, false);
     vector<bool> has_precondition_on_var(num_vars, false);
 
@@ -235,12 +233,11 @@ void PatternDatabase::build_abstract_operators(
 
 bool PatternDatabase::is_applicable(const NumericState &state,
                                     OperatorProxy op,
-                                    NumericTaskProxy &num_task_proxy,
                                     const vector<int> &num_variable_to_index) const {
     for (auto pre : op.get_preconditions()){
-        if (!task_proxy.is_derived_variable(pre.get_variable()) &&
-                num_task_proxy.is_derived_numeric_variable(pre.get_variable())) {
-            const RegularNumericCondition &num_pre = num_task_proxy.get_regular_numeric_condition(pre);
+        if (!task_proxy->is_derived_variable(pre.get_variable()) &&
+                task_proxy->is_derived_numeric_variable(pre.get_variable())) {
+            const RegularNumericCondition &num_pre = task_proxy->get_regular_numeric_condition(pre);
             int num_index = num_variable_to_index[num_pre.get_var_id()];
             if (num_index != -1){
                 if (!num_pre.satisfied(state.num_state[num_index])){
@@ -254,14 +251,13 @@ bool PatternDatabase::is_applicable(const NumericState &state,
 
 vector<ap_float> PatternDatabase::get_numeric_successor(vector<ap_float> state,
                                                         int op_id,
-                                                        const NumericTaskProxy &num_task_proxy,
                                                         const vector<int> &num_variable_to_index) const {
-    const vector<ap_float> &num_effs = num_task_proxy.get_action_eff_list(op_id);
+    const vector<ap_float> &num_effs = task_proxy->get_action_eff_list(op_id);
     for (int var: pattern.numeric) {
         int num_index = num_variable_to_index[var];
-        state[num_index] += num_effs[num_task_proxy.get_regular_var_id(var)];
+        state[num_index] += num_effs[task_proxy->get_regular_var_id(var)];
     }
-    for (auto &[var_id, value] : num_task_proxy.get_action_assign_list(op_id)){
+    for (auto &[var_id, value] : task_proxy->get_action_assign_list(op_id)){
         int pattern_id = num_variable_to_index[var_id];
         if (pattern_id != -1){
             state[pattern_id] = value;
@@ -270,11 +266,10 @@ vector<ap_float> PatternDatabase::get_numeric_successor(vector<ap_float> state,
     return state;
 }
 
-void PatternDatabase::build_goals(const NumericTaskProxy &num_task_proxy,
-                                  const vector<int> &variable_to_index,
+void PatternDatabase::build_goals(const vector<int> &variable_to_index,
                                   const vector<int> &num_variable_to_index) {
     // compute abstract goal var-val pairs
-    for (FactProxy goal: num_task_proxy.get_propositional_goals()) {
+    for (FactProxy goal: task_proxy->get_propositional_goals()) {
         int var_id = goal.get_variable().get_id();
         int val = goal.get_value();
         if (variable_to_index[var_id] != -1) {
@@ -282,7 +277,7 @@ void PatternDatabase::build_goals(const NumericTaskProxy &num_task_proxy,
         }
     }
     if (!pattern.numeric.empty()) {
-        for (const auto &num_goal: num_task_proxy.get_numeric_goals()) {
+        for (const auto &num_goal: task_proxy->get_numeric_goals()) {
             if (num_variable_to_index[num_goal.get_var_id()] != -1) {
                 numeric_goals.push_back(num_goal);
             }
@@ -290,8 +285,7 @@ void PatternDatabase::build_goals(const NumericTaskProxy &num_task_proxy,
     }
 }
 
-void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
-                                 size_t max_number_states,
+void PatternDatabase::create_pdb(size_t max_number_states,
                                  const std::vector<ap_float> &operator_costs,
                                  bool dump) {
 
@@ -309,12 +303,12 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
 
     auto *tmp_state_registry = new NumericStateRegistry();
 
-    VariablesProxy vars = task_proxy.get_variables();
+    VariablesProxy vars = task_proxy->get_variables();
     vector<int> variable_to_index(vars.size(), -1);
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
         variable_to_index[pattern.regular[i]] = i;
     }
-    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+    NumericVariablesProxy num_vars = task_proxy->get_numeric_variables();
     vector<int> num_variable_to_index(num_vars.size(), -1);
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
         num_variable_to_index[pattern.numeric[i]] = i;
@@ -328,7 +322,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         // compute all abstract operators
         vector<AbstractOperator> operators;
         vector<int> num_operators;
-        for (OperatorProxy op: task_proxy.get_operators()) {
+        for (OperatorProxy op: task_proxy->get_operators()) {
             ap_float op_cost;
             if (operator_costs.empty()) {
                 op_cost = op.get_cost();
@@ -339,16 +333,16 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
             build_abstract_operators(op, op_cost, variable_to_index, operators, false);
             if (size_before == operators.size()) {
                 // op does not affect a propositional variable in the pattern, check numeric variables
-                const vector<ap_float> &effs = num_task_proxy.get_action_eff_list(op.get_id());
+                const vector<ap_float> &effs = task_proxy->get_action_eff_list(op.get_id());
                 for (int var: pattern.numeric) {
-                    int regular_var_id = num_task_proxy.get_regular_var_id(var);
+                    int regular_var_id = task_proxy->get_regular_var_id(var);
                     if (effs[regular_var_id] != 0) {
                         num_operators.push_back(op.get_id());
                         min_action_cost = min(min_action_cost, op_cost);
                         break;
                     }
                 }
-                for (const auto &[num_var, val]: num_task_proxy.get_action_assign_list(op.get_id())) {
+                for (const auto &[num_var, val]: task_proxy->get_action_assign_list(op.get_id())) {
                     if (num_variable_to_index[num_var] != -1) {
                         num_operators.push_back(op.get_id());
                         min_action_cost = min(min_action_cost, op_cost);
@@ -366,7 +360,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
             match_tree.insert(op);
         }
 
-        build_goals(num_task_proxy, variable_to_index, num_variable_to_index);
+        build_goals(variable_to_index, num_variable_to_index);
 
         vector<bool> closed;
         vector<size_t> goal_states;
@@ -377,7 +371,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         // initialize queue
         size_t prop_init = 0;
         for (size_t i = 0; i < pattern.regular.size(); ++i) {
-            prop_init += prop_hash_multipliers[i] * task_proxy.get_initial_state()[pattern.regular[i]].get_value();
+            prop_init += prop_hash_multipliers[i] * task_proxy->get_initial_state()[pattern.regular[i]].get_value();
         }
         vector<ap_float> num_init(pattern.numeric.size());
         for (int var: pattern.numeric) {
@@ -436,8 +430,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
 
             for (auto op: applicable_operators) {
                 if (!is_applicable(state,
-                                   task_proxy.get_operators()[op->get_op_id()],
-                                   num_task_proxy,
+                                   task_proxy->get_operators()[op->get_op_id()],
                                    num_variable_to_index)) {
                     continue;
                 }
@@ -446,7 +439,6 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
 
                 vector<ap_float> num_successor = get_numeric_successor(state.num_state,
                                                                        op->get_op_id(),
-                                                                       num_task_proxy,
                                                                        num_variable_to_index);
 
                 size_t succ_id = tmp_state_registry->insert_state(NumericState(prop_successor, std::move(num_successor)));
@@ -468,15 +460,13 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
 
             for (auto op_id: num_operators) {
                 if (!is_applicable(state,
-                                   task_proxy.get_operators()[op_id],
-                                   num_task_proxy,
+                                   task_proxy->get_operators()[op_id],
                                    num_variable_to_index)) {
                     continue;
                 }
 
                 vector<ap_float> num_successor = get_numeric_successor(state.num_state,
                                                                        op_id,
-                                                                       num_task_proxy,
                                                                        num_variable_to_index);
 
                 size_t succ_id = tmp_state_registry->insert_state(NumericState(state.prop_hash, std::move(num_successor)));
@@ -494,7 +484,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
                     ++num_reached_states;
                     ap_float op_cost;
                     if (operator_costs.empty()) {
-                        op_cost = task_proxy.get_operators()[op_id].get_cost();
+                        op_cost = task_proxy->get_operators()[op_id].get_cost();
                     } else {
                         op_cost = operator_costs[op_id];
                     }
@@ -556,7 +546,7 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
         for (const auto &[op_id, parent_state_id] : parent_pointers[state_id]) {
             ap_float alternative_cost = distance;
             if (operator_costs.empty()) {
-                alternative_cost += task_proxy.get_operators()[op_id].get_cost();
+                alternative_cost += task_proxy->get_operators()[op_id].get_cost();
             } else {
                 alternative_cost += operator_costs[op_id];
             }
@@ -591,17 +581,16 @@ void PatternDatabase::create_pdb(NumericTaskProxy &num_task_proxy,
     }
 
     if (dump) {
-        cout << "Initial state h: " << get_value(task_proxy.get_initial_state()) << endl;
+        cout << "Initial state h: " << get_value(task_proxy->get_initial_state()) << endl;
     }
 }
 
-void PatternDatabase::create_pdb_propositional(numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
-                                               size_t size,
+void PatternDatabase::create_pdb_propositional(size_t size,
                                                const std::vector<ap_float> &operator_costs) {
 
     exhausted_abstract_state_space = true;
 
-    VariablesProxy vars = task_proxy.get_variables();
+    VariablesProxy vars = task_proxy->get_variables();
     vector<int> variable_to_index(vars.size(), -1);
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
         variable_to_index[pattern.regular[i]] = i;
@@ -609,7 +598,7 @@ void PatternDatabase::create_pdb_propositional(numeric_pdb_helper::NumericTaskPr
 
     // compute all abstract operators
     vector<AbstractOperator> operators;
-    for (OperatorProxy op : task_proxy.get_operators()) {
+    for (OperatorProxy op : task_proxy->get_operators()) {
         ap_float op_cost;
         if (operator_costs.empty()) {
             op_cost = op.get_cost();
@@ -625,7 +614,7 @@ void PatternDatabase::create_pdb_propositional(numeric_pdb_helper::NumericTaskPr
         match_tree.insert(op);
     }
 
-    build_goals(num_task_proxy, variable_to_index, vector<int>());
+    build_goals(variable_to_index, vector<int>());
 
     distances.reserve(size);
     // first implicit entry: priority, second entry: index for an abstract state
@@ -671,7 +660,7 @@ bool PatternDatabase::is_goal_state(
     for (const pair<int, int> &abstract_goal : propositional_goals) {
         int pattern_var_id = abstract_goal.first;
         int var_id = pattern.regular[pattern_var_id];
-        VariableProxy var = task_proxy.get_variables()[var_id];
+        VariableProxy var = task_proxy->get_variables()[var_id];
         int temp = state.prop_hash / prop_hash_multipliers[pattern_var_id];
         int val = temp % var.get_domain_size();
         if (val != abstract_goal.second) {

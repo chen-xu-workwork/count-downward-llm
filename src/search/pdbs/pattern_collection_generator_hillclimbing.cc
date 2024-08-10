@@ -302,7 +302,7 @@ void PatternCollectionGeneratorHillclimbing::hill_climbing(
 
 PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(shared_ptr<AbstractTask> task) {
     TaskProxy task_proxy(*task);
-    numeric_pdb_helper::NumericTaskProxy num_proxy(task_proxy);
+    numeric_pdb_helper::NumericTaskProxy num_proxy(task);
     SuccessorGenerator successor_generator(task);
 
     utils::Timer timer;

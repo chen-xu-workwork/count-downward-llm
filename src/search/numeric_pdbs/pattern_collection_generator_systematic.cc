@@ -7,7 +7,6 @@
 
 #include "../option_parser.h"
 #include "../plugin.h"
-#include "../task_proxy.h"
 
 #include "../utils/logging.h"
 #include "../utils/markup.h"
@@ -179,8 +178,7 @@ void PatternCollectionGeneratorSystematic::enqueue_pattern_if_new(
 }
 
 void PatternCollectionGeneratorSystematic::build_sga_patterns(
-        TaskProxy task_proxy,
-        numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
+        const numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
         const CausalGraph &cg) {
     assert(pattern_max_size >= 1);
     assert(pattern_set.empty());
@@ -247,14 +245,13 @@ void PatternCollectionGeneratorSystematic::build_sga_patterns(
 }
 
 void PatternCollectionGeneratorSystematic::build_patterns(
-    TaskProxy task_proxy,
-    numeric_pdb_helper::NumericTaskProxy &num_task_proxy) {
+    const numeric_pdb_helper::NumericTaskProxy &task_proxy) {
     const CausalGraph &cg = task_proxy.get_numeric_causal_graph();
 
     // Generate SGA (single-goal-ancestor) patterns.
     // They are generated into the patterns variable,
     // so we swap them from there.
-    build_sga_patterns(task_proxy, num_task_proxy, cg);
+    build_sga_patterns(task_proxy, cg);
     PatternCollection sga_patterns;
     patterns->swap(sga_patterns);
 
@@ -268,7 +265,7 @@ void PatternCollectionGeneratorSystematic::build_patterns(
     for (const Pattern &pattern : sga_patterns) {
         for (int var : pattern.regular) {
             assert(!task_proxy.is_derived_variable(task_proxy.get_variables()[var]));
-            assert(!num_task_proxy.is_derived_numeric_variable(task_proxy.get_variables()[var]));
+            assert(!task_proxy.is_derived_numeric_variable(task_proxy.get_variables()[var]));
             sga_patterns_by_prop_var[var].push_back(&pattern);
         }
     }
@@ -334,8 +331,7 @@ void PatternCollectionGeneratorSystematic::build_patterns(
 }
 
 void PatternCollectionGeneratorSystematic::build_patterns_naive(
-    TaskProxy /*task_proxy*/,
-    numeric_pdb_helper::NumericTaskProxy &/*num_task_proxy*/) {
+    const numeric_pdb_helper::NumericTaskProxy &/*num_task_proxy*/) {
     // TODO implement this
     cerr << "not implemented: build_patterns_naive in numeric_pdbs/pattern_collection_generator_systematic.cc" << endl;
     utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
@@ -363,16 +359,15 @@ void PatternCollectionGeneratorSystematic::build_patterns_naive(
 
 PatternCollectionInformation PatternCollectionGeneratorSystematic::generate(
     shared_ptr<AbstractTask> task) {
-    TaskProxy task_proxy(*task);
-    numeric_pdb_helper::NumericTaskProxy num_task_proxy(task_proxy);
+    auto task_proxy = make_shared<numeric_pdb_helper::NumericTaskProxy>(task);
     patterns = make_shared<PatternCollection>();
     pattern_set.clear();
     if (only_interesting_patterns) {
-        build_patterns(task_proxy, num_task_proxy);
+        build_patterns(*task_proxy);
     } else {
-        build_patterns_naive(task_proxy, num_task_proxy);
+        build_patterns_naive(*task_proxy);
     }
-    return {task, patterns, max_number_pdb_states};
+    return {task_proxy, patterns, max_number_pdb_states};
 }
 
 static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {

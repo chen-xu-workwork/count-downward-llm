@@ -16,7 +16,7 @@ IncrementalCanonicalPDBs::IncrementalCanonicalPDBs(
     const PatternCollection &intitial_patterns,
     size_t max_number_pdb_states)
     : task(task),
-      task_proxy(*task),
+      task_proxy(make_shared<numeric_pdb_helper::NumericTaskProxy>(task)),
       patterns(make_shared<PatternCollection>(intitial_patterns.begin(),
                                               intitial_patterns.end())),
       pattern_databases(make_shared<PDBCollection>()),
@@ -27,7 +27,7 @@ IncrementalCanonicalPDBs::IncrementalCanonicalPDBs(
     pattern_databases->reserve(patterns->size());
     for (const Pattern &pattern : *patterns)
         add_pdb_for_pattern(pattern);
-    are_additive = compute_additive_vars(task_proxy);
+    are_additive = compute_additive_vars(*task_proxy);
     recompute_max_additive_subsets();
     cout << "PDB collection construction time: " << timer << endl;
 }
@@ -68,7 +68,7 @@ bool IncrementalCanonicalPDBs::is_dead_end(const State &state) const {
 
 PatternCollectionInformation
 IncrementalCanonicalPDBs::get_pattern_collection_information() const {
-    PatternCollectionInformation result(task, patterns, max_number_pdb_states);
+    PatternCollectionInformation result(task_proxy, patterns, max_number_pdb_states);
     result.set_pdbs(pattern_databases);
     result.set_max_additive_subsets(max_additive_subsets);
     return result;

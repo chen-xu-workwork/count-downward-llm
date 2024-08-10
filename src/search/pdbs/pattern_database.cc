@@ -83,11 +83,15 @@ PatternDatabase::PatternDatabase(
 
     for (int var_id : pattern){
         auto var = task_proxy.get_variables()[var_id];
-        if (task_proxy.is_derived_variable(var)){
-            cerr << "PatternDatabase does not support derived numeric variables "
-                 << "(variable " << var.get_name() << ")!" << endl
-                 << "Terminating." << endl;
-            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        for (auto ax : task_proxy.get_axioms()){
+            for (auto eff : ax.get_effects()) {
+                if (eff.get_fact().get_variable().get_id() == var.get_id()) {
+                    cerr << "PatternDatabase does not support derived numeric variables "
+                         << "(variable " << var.get_name() << ")!" << endl
+                         << "Terminating." << endl;
+                    utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+                }
+            }
         }
     }
 

@@ -27,6 +27,7 @@
 #include <limits>
 
 using namespace std;
+using numeric_pdb_helper::NumericTaskProxy;
 
 namespace numeric_pdbs {
 struct HillClimbingTimeout : public exception {};
@@ -42,8 +43,7 @@ PatternCollectionGeneratorHillclimbing::PatternCollectionGeneratorHillclimbing(c
 }
 
 void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
-    TaskProxy task_proxy,
-    numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
+    NumericTaskProxy &task_proxy,
     const PatternDatabase &pdb,
     PatternCollection &candidate_patterns) {
     const CausalGraph &causal_graph = task_proxy.get_numeric_causal_graph();
@@ -85,7 +85,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
                            back_inserter(relevant_num_vars));
             for (int rel_var_id: relevant_num_vars) {
                 NumericVariableProxy rel_var = task_proxy.get_numeric_variables()[rel_var_id];
-                int rel_var_size = num_task_proxy.get_approximate_domain_size(rel_var);
+                int rel_var_size = task_proxy.get_approximate_domain_size(rel_var);
                 if (utils::is_product_within_limit(pdb_size, rel_var_size,
                                                    max_number_pdb_states)) {
                     Pattern new_pattern(pattern);
@@ -133,7 +133,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
                            back_inserter(relevant_num_vars));
             for (int rel_var_id: relevant_num_vars) {
                 NumericVariableProxy rel_var = task_proxy.get_numeric_variables()[rel_var_id];
-                int rel_var_size = num_task_proxy.get_approximate_domain_size(rel_var);
+                int rel_var_size = task_proxy.get_approximate_domain_size(rel_var);
                 if (utils::is_product_within_limit(pdb_size, rel_var_size,
                                                    max_number_pdb_states)) {
                     Pattern new_pattern(pattern);
@@ -149,7 +149,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
 }
 
 size_t PatternCollectionGeneratorHillclimbing::generate_pdbs_for_candidates(
-    TaskProxy task_proxy, set<Pattern> &generated_patterns,
+    const shared_ptr<NumericTaskProxy> &task_proxy, set<Pattern> &generated_patterns,
     PatternCollection &new_candidates, PDBCollection &candidate_pdbs) const {
     /*
       For the new candidate patterns check whether they already have been
@@ -170,14 +170,14 @@ size_t PatternCollectionGeneratorHillclimbing::generate_pdbs_for_candidates(
 }
 
 void PatternCollectionGeneratorHillclimbing::sample_states(
-    TaskProxy task_proxy, const SuccessorGenerator &successor_generator,
-    vector<State> &samples, double average_operator_cost) {
+        const NumericTaskProxy &task_proxy, const SuccessorGenerator &successor_generator,
+        vector<State> &samples, double average_operator_cost) {
     ap_float init_h = current_pdbs->get_value(
             task_proxy.get_initial_state());
 
     try {
         samples = sample_states_with_random_walks(
-            task_proxy, successor_generator, num_samples, init_h,
+            task_proxy.get_task_proxy(), successor_generator, num_samples, init_h,
             average_operator_cost,
             [this](const State &state) {
                 return current_pdbs->is_dead_end(state);
@@ -291,8 +291,7 @@ bool PatternCollectionGeneratorHillclimbing::is_heuristic_improved(
 }
 
 void PatternCollectionGeneratorHillclimbing::hill_climbing(
-    TaskProxy task_proxy,
-    numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
+    const shared_ptr<NumericTaskProxy> &task_proxy,
     const SuccessorGenerator &successor_generator,
     ap_float average_operator_cost,
     PatternCollection &initial_candidate_patterns) {
@@ -306,7 +305,7 @@ void PatternCollectionGeneratorHillclimbing::hill_climbing(
     PDBCollection candidate_pdbs;
     int num_iterations = 0;
     size_t max_pdb_size = 0;
-    State initial_state = task_proxy.get_initial_state();
+    State initial_state = task_proxy->get_initial_state();
     try {
         while (true) {
             ++num_iterations;
@@ -322,12 +321,12 @@ void PatternCollectionGeneratorHillclimbing::hill_climbing(
             }
 
             size_t new_max_pdb_size = generate_pdbs_for_candidates(
-                task_proxy, generated_patterns, new_candidates, candidate_pdbs);
+                    task_proxy, generated_patterns, new_candidates, candidate_pdbs);
             max_pdb_size = max(max_pdb_size, new_max_pdb_size);
 
             vector<State> samples;
             sample_states(
-                task_proxy, successor_generator, samples, average_operator_cost);
+                    *task_proxy, successor_generator, samples, average_operator_cost);
 
             pair<int, int> improvement_and_index =
                 find_best_improving_pdb(samples, candidate_pdbs);
@@ -353,7 +352,7 @@ void PatternCollectionGeneratorHillclimbing::hill_climbing(
             /* Clear current new_candidates and get successors for next
                iteration. */
             new_candidates.clear();
-            generate_candidate_patterns(task_proxy, num_task_proxy, *best_pdb, new_candidates);
+            generate_candidate_patterns(*task_proxy, *best_pdb, new_candidates);
 
             // remove from candidate_pdbs the added PDB
             candidate_pdbs[best_pdb_index] = nullptr;
@@ -379,23 +378,22 @@ void PatternCollectionGeneratorHillclimbing::hill_climbing(
 }
 
 PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(shared_ptr<AbstractTask> task) {
-    TaskProxy task_proxy(*task);
-    numeric_pdb_helper::NumericTaskProxy num_task_proxy(task_proxy);
+    shared_ptr<NumericTaskProxy> num_task_proxy = make_shared<NumericTaskProxy>(task);
     SuccessorGenerator successor_generator(task);
 
     utils::Timer timer;
-    ap_float average_operator_cost = get_average_operator_cost(task_proxy);
+    ap_float average_operator_cost = get_average_operator_cost(TaskProxy(*task));
     cout << "Average operator cost: " << average_operator_cost << endl;
 
     // Generate initial collection: a pdb for each goal variable.
     PatternCollection initial_pattern_collection;
-    for (FactProxy goal : num_task_proxy.get_propositional_goals()){
+    for (FactProxy goal : num_task_proxy->get_propositional_goals()){
         int goal_var_id = goal.get_variable().get_id();
         Pattern goal_pattern;
         goal_pattern.regular.push_back(goal_var_id);
         initial_pattern_collection.push_back(goal_pattern);
     }
-    for (const auto &num_goal : num_task_proxy.get_numeric_goals()) {
+    for (const auto &num_goal : num_task_proxy->get_numeric_goals()) {
         int var_id = num_goal.get_var_id();
         Pattern goal_pattern;
         goal_pattern.numeric.push_back(var_id);
@@ -405,7 +403,7 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
     current_pdbs = utils::make_unique_ptr<IncrementalCanonicalPDBs>(
         task, initial_pattern_collection, max_number_pdb_states);
 
-    State initial_state = task_proxy.get_initial_state();
+    State initial_state = num_task_proxy->get_initial_state();
     if (!current_pdbs->is_dead_end(initial_state)) {
         /* Generate initial candidate patterns (based on each pattern from
            the initial collection). */
@@ -413,9 +411,9 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
         for (const shared_ptr<PatternDatabase> &current_pdb :
              *(current_pdbs->get_pattern_databases())) {
             generate_candidate_patterns(
-                task_proxy, num_task_proxy, *current_pdb, initial_candidate_patterns);
+                    *num_task_proxy, *current_pdb, initial_candidate_patterns);
         }
-        validate_and_normalize_patterns(task_proxy, initial_candidate_patterns);
+        validate_and_normalize_patterns(*num_task_proxy, initial_candidate_patterns);
 
         cout << "done calculating initial pattern collection and "
              << "candidate patterns for the search" << endl;
@@ -425,7 +423,7 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
                (contains the new_candidates after each call to
                generate_candidate_patterns) */
             hill_climbing(
-                task_proxy, num_task_proxy, successor_generator,
+                    num_task_proxy, successor_generator,
                 average_operator_cost, initial_candidate_patterns);
         cout << "Pattern generation (Haslum et al.) time: " << timer << endl;
     }

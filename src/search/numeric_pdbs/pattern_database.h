@@ -5,7 +5,7 @@
 #include "numeric_state_registry.h"
 #include "types.h"
 
-#include "../task_proxy.h"
+#include "../task_proxy.h" // TODO get rid of this
 
 #include <utility>
 #include <vector>
@@ -82,12 +82,12 @@ public:
     }
 
     void dump(const Pattern &pattern,
-              const TaskProxy &task_proxy) const;
+              const numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
 };
 
 // Implements a single pattern database
 class PatternDatabase {
-    TaskProxy task_proxy;
+    std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
 
     Pattern pattern;
 
@@ -136,16 +136,13 @@ class PatternDatabase {
 
     bool is_applicable(const NumericState &state,
                        OperatorProxy op,
-                       numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
                        const std::vector<int> &num_variable_to_index) const;
 
     std::vector<ap_float> get_numeric_successor(std::vector<ap_float> state,
                                                 int op_id,
-                                                const numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
                                                 const std::vector<int> &num_variable_to_index) const;
 
-    void build_goals(const numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
-                     const std::vector<int> &variable_to_index,
+    void build_goals(const std::vector<int> &variable_to_index,
                      const std::vector<int> &num_variable_to_index);
 
     /*
@@ -156,13 +153,11 @@ class PatternDatabase {
       cost partitioning. If left empty, default operator costs are used.
     */
     void create_pdb(
-            numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
             std::size_t max_number_states,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>(),
             bool dump = false);
 
     void create_pdb_propositional(
-            numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
             size_t number_states,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
 
@@ -209,11 +204,11 @@ public:
        empty, default operator costs are used.
     */
     PatternDatabase(
-        const TaskProxy &task_proxy,
-        const Pattern &pattern,
-        std::size_t max_number_states,
-        bool dump = false,
-        const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
+            const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
+            const Pattern &pattern,
+            std::size_t max_number_states,
+            bool dump = false,
+            const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
 
     ~PatternDatabase() = default;
 

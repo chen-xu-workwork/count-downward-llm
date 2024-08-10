@@ -50,11 +50,9 @@
   generalization is useful anywhere in the code.
 */
 
-#include <vector>
 #include "numeric_helper.h"
 
-class AbstractTask;
-class TaskProxy;
+#include <vector>
 
 namespace numeric_pdbs {
 typedef std::vector<std::vector<int>> IntRelation;
@@ -71,13 +69,12 @@ class CausalGraph {
     IntRelation successors;
     IntRelation predecessors;
 
-    void dump(const TaskProxy &task_proxy) const;
+    void dump(const numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
 
 public:
     /* Use the factory function get_causal_graph to create causal graphs
        to avoid creating more than one causal graph per AbstractTask. */
-    explicit CausalGraph(const TaskProxy &task_proxy,
-                         const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &num_task);
+    explicit CausalGraph(const numeric_pdb_helper::NumericTaskProxy &num_task);
 
     /*
       All below methods querying neighbors (of some sort or other) of
@@ -124,6 +121,7 @@ public:
 }
 /* Create or retrieve a causal graph from cache. If causal graphs are created
    with this function, we build at most one causal graph per AbstractTask. */
-extern const numeric_pdbs::CausalGraph &get_numeric_causal_graph(const AbstractTask *task);
+extern const numeric_pdbs::CausalGraph &get_numeric_causal_graph(
+        const numeric_pdb_helper::NumericTaskProxy *num_proxy);
 
 #endif

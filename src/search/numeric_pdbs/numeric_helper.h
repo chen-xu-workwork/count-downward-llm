@@ -50,7 +50,7 @@ std::ostream &operator<<(std::ostream &os, const LinearNumericCondition &lnc);
 /* NumericTaskProxy */
 class NumericTaskProxy {
 public:
-    explicit NumericTaskProxy(const TaskProxy &task);
+    explicit NumericTaskProxy(const std::shared_ptr<AbstractTask> task);
 
     const std::vector<ap_float> &get_action_eff_list(int op_id) const {
         return actions[op_id].eff_list;
@@ -78,9 +78,51 @@ public:
 
     int get_approximate_domain_size(NumericVariableProxy num_var);
 
+    bool is_derived_variable(VariableProxy var) const;
+
+    const TaskProxy &get_task_proxy() const {
+        // TODO try to get rid of this
+        return task_proxy;
+    }
+
+    int get_num_variables() const {
+        // TODO adapt this
+        return task->get_num_variables();
+    }
+
+    int get_num_numeric_variables() const {
+        // TODO adapt this
+        return task->get_num_numeric_variables();
+    }
+
+    VariablesProxy get_variables() const {
+        // TODO adapt this
+        return task_proxy.get_variables();
+    }
+
+    NumericVariablesProxy get_numeric_variables() const {
+        // TODO adapt this
+        return task_proxy.get_numeric_variables();
+    }
+
+    OperatorsProxy get_operators() const {
+        // TODO adapt this
+        return task_proxy.get_operators();
+    }
+
+    State get_initial_state() const {
+        // TODO adapt this
+        return task_proxy.get_initial_state();
+    }
+
+    const numeric_pdbs::CausalGraph &get_numeric_causal_graph() const;
+
     static void verify_is_restricted_numeric_task(const TaskProxy &task_proxy);
 
 private:
+    const std::shared_ptr<AbstractTask> task;
+    const TaskProxy task_proxy;
+
     void build_numeric_variables();
     void build_artificial_variables();
 
@@ -96,8 +138,6 @@ private:
 
     std::shared_ptr<arithmetic_expression::ArithmeticExpression> parse_arithmetic_expression(NumericVariableProxy num_var) const;
 
-
-    const TaskProxy task_proxy;
 
     std::vector<std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>>> regular_numeric_conditions;
     std::vector<numeric_condition::RegularNumericCondition> regular_numeric_goals;

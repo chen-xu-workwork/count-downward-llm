@@ -2,6 +2,7 @@
 
 #include "causal_graph.h"
 #include "numeric_condition.h"
+
 #include "../utils/rng.h"
 
 #include <algorithm>
@@ -12,9 +13,10 @@
 
 using namespace std;
 using utils::ExitCode;
+using numeric_pdb_helper::NumericTaskProxy;
 
 namespace numeric_pdbs {
-inline void add_numeric_vars(const TaskProxy &task_proxy, vector<pair<int, bool>> &remaining_vars) {
+inline void add_numeric_vars(const NumericTaskProxy &task_proxy, vector<pair<int, bool>> &remaining_vars) {
     for (auto var : task_proxy.get_numeric_variables()){
         if (var.get_var_type() == regular){
             remaining_vars.emplace_back(var.get_id(), true);
@@ -22,26 +24,24 @@ inline void add_numeric_vars(const TaskProxy &task_proxy, vector<pair<int, bool>
     }
 }
 
-VariableOrderFinder::VariableOrderFinder(shared_ptr<AbstractTask> task_,
-                                         const numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
+VariableOrderFinder::VariableOrderFinder(shared_ptr<NumericTaskProxy> task_proxy_,
                                          VariableOrderType variable_order_type,
                                          bool numeric_variables_first,
                                          const shared_ptr<utils::RandomNumberGenerator> &rng)
-        : task(std::move(task_)),
+        : task_proxy(std::move(task_proxy_)),
           variable_order_type(variable_order_type) {
 
-    TaskProxy task_proxy(*task);
     if (numeric_variables_first){
-        add_numeric_vars(task_proxy, remaining_vars);
+        add_numeric_vars(*task_proxy, remaining_vars);
     }
-    for (auto var : task_proxy.get_variables()){
-        if (!num_task_proxy.is_derived_numeric_variable(var) &&
-            !task_proxy.is_derived_variable(var)){
+    for (auto var : task_proxy->get_variables()){
+        if (!task_proxy->is_derived_numeric_variable(var) &&
+            !task_proxy->is_derived_variable(var)){
             remaining_vars.emplace_back(var.get_id(), false);
         }
     }
     if (!numeric_variables_first){
-        add_numeric_vars(task_proxy, remaining_vars);
+        add_numeric_vars(*task_proxy, remaining_vars);
     }
 
 //    if (variable_order_type == REVERSE_LEVEL) {
@@ -52,13 +52,13 @@ VariableOrderFinder::VariableOrderFinder(shared_ptr<AbstractTask> task_,
         rng->shuffle(remaining_vars);
     }
 
-    is_causal_predecessor.resize(task->get_num_variables() + task->get_num_numeric_variables(), false);
-    is_goal_variable.resize(task->get_num_variables(), false);
-    for (FactProxy goal : num_task_proxy.get_propositional_goals()){
+    is_causal_predecessor.resize(task_proxy->get_num_variables() + task_proxy->get_num_numeric_variables(), false);
+    is_goal_variable.resize(task_proxy->get_num_variables(), false);
+    for (FactProxy goal : task_proxy->get_propositional_goals()){
         is_goal_variable[goal.get_variable().get_id()] = true;
     }
-    is_numeric_goal_variable.resize(task->get_num_numeric_variables(), false);
-    for (const auto &n_goal : num_task_proxy.get_numeric_goals()){
+    is_numeric_goal_variable.resize(task_proxy->get_num_numeric_variables(), false);
+    for (const auto &n_goal : task_proxy->get_numeric_goals()){
         is_numeric_goal_variable[n_goal.get_var_id()] = true;
     }
 }
@@ -68,20 +68,20 @@ void VariableOrderFinder::select_next(size_t position, int var_no, bool is_numer
     remaining_vars.erase(remaining_vars.begin() + position);
     selected_vars.push_back(var_no);
 
-    const numeric_pdbs::CausalGraph &cg = get_numeric_causal_graph(task.get());
+    const numeric_pdbs::CausalGraph &cg = task_proxy->get_numeric_causal_graph();
     if (is_numeric) {
         for (int var: cg.get_num_eff_to_prop_pre(var_no)){
             is_causal_predecessor[var] = true;
         }
         for (int var: cg.get_num_eff_to_num_pre(var_no)) {
-            is_causal_predecessor[task->get_num_variables() + var] = true;
+            is_causal_predecessor[task_proxy->get_num_variables() + var] = true;
         }
     } else {
         for (int var: cg.get_prop_eff_to_prop_pre(var_no)) {
             is_causal_predecessor[var] = true;
         }
         for (int var: cg.get_prop_eff_to_num_pre(var_no)){
-            is_causal_predecessor[task->get_num_variables() + var] = true;
+            is_causal_predecessor[task_proxy->get_num_variables() + var] = true;
         }
     }
 }
@@ -96,7 +96,7 @@ pair<int, bool> VariableOrderFinder::next() {
         // First run: Try to find a causally connected variable.
         for (size_t i = 0; i < remaining_vars.size(); ++i) {
             auto [var_no, is_num] = remaining_vars[i];
-            int id = is_num ? task->get_num_variables() + var_no : var_no;
+            int id = is_num ? task_proxy->get_num_variables() + var_no : var_no;
             if (is_causal_predecessor[id]) {
                 select_next(i, var_no, is_num);
                 return {var_no, is_num};
@@ -130,7 +130,7 @@ pair<int, bool> VariableOrderFinder::next() {
         // Second run: Try to find a causally connected variable.
         for (size_t i = 0; i < remaining_vars.size(); ++i) {
             auto [var_no, is_num] = remaining_vars[i];
-            int id = is_num ? task->get_num_variables() + var_no : var_no;
+            int id = is_num ? task_proxy->get_num_variables() + var_no : var_no;
             if (is_causal_predecessor[id]) {
                 select_next(i, var_no, is_num);
                 return {var_no, is_num};

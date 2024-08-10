@@ -1,11 +1,10 @@
 #include "pattern_generator_greedy.h"
 
+#include "numeric_helper.h"
 #include "validation.h"
 
 #include "../option_parser.h"
-#include "numeric_helper.h"
 #include "../plugin.h"
-#include "../task_proxy.h"
 
 #include "../utils/logging.h"
 #include "../utils/math.h"
@@ -14,6 +13,7 @@
 #include <iostream>
 
 using namespace std;
+using numeric_pdb_helper::NumericTaskProxy;
 
 namespace numeric_pdbs {
 PatternGeneratorGreedy::PatternGeneratorGreedy(const Options &opts)
@@ -34,12 +34,11 @@ PatternGeneratorGreedy::PatternGeneratorGreedy(size_t max_number_pdb_states,
 }
 
 Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> task) {
-    TaskProxy task_proxy(*task);
-    numeric_pdb_helper::NumericTaskProxy num_task_proxy(task_proxy);
+    shared_ptr<NumericTaskProxy> task_proxy = make_shared<NumericTaskProxy>(task);
     Pattern pattern;
-    VariableOrderFinder order(task, num_task_proxy, var_order_type, prefer_numeric_variables, rng);
-    VariablesProxy variables = task_proxy.get_variables();
-    NumericVariablesProxy num_variables = task_proxy.get_numeric_variables();
+    VariableOrderFinder order(task_proxy, var_order_type, prefer_numeric_variables, rng);
+    VariablesProxy variables = task_proxy->get_variables();
+    NumericVariablesProxy num_variables = task_proxy->get_numeric_variables();
 
     int size = 1;
     while (true) {
@@ -53,7 +52,7 @@ Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> task) {
         int next_var_size;
         if (is_numeric) {
             NumericVariableProxy next_var = num_variables[next_var_id];
-            next_var_size = max(1, num_task_proxy.get_approximate_domain_size(next_var));
+            next_var_size = max(1, task_proxy->get_approximate_domain_size(next_var));
         } else {
             VariableProxy next_var = variables[next_var_id];
             next_var_size = next_var.get_domain_size();
@@ -71,7 +70,7 @@ Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> task) {
         size *= next_var_size;
     }
 
-    validate_and_normalize_pattern(task_proxy, pattern);
+    validate_and_normalize_pattern(*task_proxy, pattern);
     cout << "Greedy pattern: propositional " << pattern.regular << "; numeric " << pattern.numeric << endl;
     return pattern;
 }

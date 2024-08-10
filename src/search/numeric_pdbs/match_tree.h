@@ -1,9 +1,8 @@
 #ifndef NUMERIC_PDBS_MATCH_TREE_H
 #define NUMERIC_PDBS_MATCH_TREE_H
 
+#include "numeric_helper.h"
 #include "types.h"
-
-#include "../task_proxy.h"
 
 #include <cstddef>
 #include <vector>
@@ -14,7 +13,7 @@ class AbstractOperator;
 // Successor Generator for abstract operators.
 // TODO make this a sub-class of the regular PDB MatchTree; most of the code is identical
 class MatchTree {
-    TaskProxy task_proxy;
+    const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
     struct Node;
     // See PatternDatabase for documentation on pattern and prop_hash_multipliers.
     Pattern pattern;
@@ -29,7 +28,7 @@ class MatchTree {
     void dump_recursive(Node *node) const;
 public:
     // Initialize an empty match tree.
-    MatchTree(const TaskProxy &task_proxy,
+    MatchTree(const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
               const Pattern &pattern,
               const std::vector<size_t> &hash_multipliers);
     ~MatchTree();

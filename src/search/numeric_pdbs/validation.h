@@ -3,13 +3,15 @@
 
 #include "types.h"
 
-class TaskProxy;
+namespace numeric_pdb_helper {
+class NumericTaskProxy;
+}
 
 namespace numeric_pdbs {
 extern void validate_and_normalize_pattern(
-    const TaskProxy &task_proxy, Pattern &pattern);
+    const numeric_pdb_helper::NumericTaskProxy &task_proxy, Pattern &pattern);
 extern void validate_and_normalize_patterns(
-    const TaskProxy &task_proxy, PatternCollection &patterns);
+    const numeric_pdb_helper::NumericTaskProxy &task_proxy, PatternCollection &patterns);
 }
 
 #endif

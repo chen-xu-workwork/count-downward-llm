@@ -33,11 +33,11 @@ ap_float State::assign_effect(ap_float aff_value, f_operator fop, ap_float ass_v
 }
 
 void State::get_numeric_successor(
-        std::vector<ap_float> &new_num_state,
+        vector<ap_float> &new_num_state,
         const GlobalOperator &op,
-        std::vector<int> &new_state) {
+        vector<int> &new_state) {
 
-    for (const auto & ass_eff : op.get_assign_effects()) {
+    for (const auto &ass_eff : op.get_assign_effects()) {
         assert((int) new_num_state.size() > ass_eff.aff_var);
         assert((int) new_num_state.size() > ass_eff.ass_var);
 
@@ -63,7 +63,7 @@ void State::get_numeric_successor(
 State State::get_successor(OperatorProxy op) const {
     assert(!op.is_axiom());
 
-    std::vector<int> new_values = values;
+    vector<int> new_values = values;
     for (EffectProxy effect : op.get_effects()) {
         if (does_fire(effect, *this)) {
             FactProxy effect_fact = effect.get_fact();
@@ -71,7 +71,7 @@ State State::get_successor(OperatorProxy op) const {
         }
     }
 
-    std::vector<ap_float> new_num_values = num_values;
+    vector<ap_float> new_num_values = num_values;
 
     if(has_numeric_axioms()) {
         // TODO not sure if this is really needed here
@@ -85,21 +85,6 @@ State State::get_successor(OperatorProxy op) const {
     return {*task, std::move(new_values), std::move(new_num_values)};
 }
 
-bool TaskProxy::is_derived_variable(VariableProxy var) const {
-    for (auto ax : get_axioms()){
-        for (auto eff : ax.get_effects()) {
-            if (eff.get_fact().get_variable().get_id() == var.get_id()) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 const CausalGraph &TaskProxy::get_causal_graph() const {
     return ::get_causal_graph(task);
-}
-
-const numeric_pdbs::CausalGraph &TaskProxy::get_numeric_causal_graph() const {
-    return ::get_numeric_causal_graph(task);
 }

@@ -1,6 +1,7 @@
 #include "numeric_helper.h"
 
 #include "arithmetic_expression.h"
+#include "causal_graph.h"
 #include "numeric_condition.h"
 
 #include "../axioms.h"
@@ -22,8 +23,9 @@ ostream &operator<<(ostream &os, const LinearNumericCondition &lnc) {
     return os;
 }
 
-NumericTaskProxy::NumericTaskProxy(const TaskProxy &task) :
-        task_proxy(task),
+NumericTaskProxy::NumericTaskProxy(const shared_ptr<AbstractTask> task) :
+        task(task),
+        task_proxy(*task),
         n_numeric_variables(0) {
     verify_is_restricted_numeric_task(task_proxy);
     build_numeric_variables();
@@ -32,6 +34,21 @@ NumericTaskProxy::NumericTaskProxy(const TaskProxy &task) :
     build_actions();
     build_preconditions();
     build_goals();
+}
+
+bool NumericTaskProxy::is_derived_variable(VariableProxy var) const {
+    for (auto ax : task_proxy.get_axioms()){
+        for (auto eff : ax.get_effects()) {
+            if (eff.get_fact().get_variable().get_id() == var.get_id()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+const numeric_pdbs::CausalGraph &NumericTaskProxy::get_numeric_causal_graph() const {
+    return ::get_numeric_causal_graph(this);
 }
 
 void NumericTaskProxy::verify_is_restricted_numeric_task(const TaskProxy &task_proxy) {
@@ -221,7 +238,7 @@ inline int get_achieving_comp_axiom(const TaskProxy &proxy, const FactProxy &con
 }
 
 shared_ptr<RegularNumericCondition> NumericTaskProxy::build_condition(FactProxy pre) {
-    assert(!task_proxy.is_derived_variable(pre.get_variable()) &&
+    assert(!is_derived_variable(pre.get_variable()) &&
            is_derived_numeric_variable(pre.get_variable()));
 
     int var_id = pre.get_variable().get_id();
@@ -275,7 +292,7 @@ void NumericTaskProxy::build_preconditions() {
     for (OperatorProxy op : task_proxy.get_operators()) {
         for (FactProxy pre : op.get_preconditions()) {
             // check if proper numeric condition
-            if (!task_proxy.is_derived_variable(pre.get_variable()) &&
+            if (!is_derived_variable(pre.get_variable()) &&
                    is_derived_numeric_variable(pre.get_variable())) {
 
                 auto num_condition = build_condition(pre);
@@ -293,7 +310,7 @@ void NumericTaskProxy::build_goals() {
     assert(task_proxy.get_axioms().size() <= 2);
 
     for (FactProxy goal : task_proxy.get_goals()) {
-        if (!task_proxy.is_derived_variable(goal.get_variable())) {
+        if (!is_derived_variable(goal.get_variable())) {
             assert(!is_derived_numeric_variable(goal.get_variable()));
             propositional_goals.push_back(goal);
         }
@@ -304,7 +321,7 @@ void NumericTaskProxy::build_goals() {
         assert(axiom.get_preconditions().empty() || axiom.get_effects().size() == 1);
         if (!axiom.get_preconditions().empty()) {
             for (auto pre: axiom.get_preconditions()) {
-                assert(!task_proxy.is_derived_variable(pre.get_variable()));
+                assert(!is_derived_variable(pre.get_variable()));
                 if (is_derived_numeric_variable(pre.get_variable())){
                     shared_ptr<RegularNumericCondition> goal(build_condition(pre));
                     if (!goal->is_constant()){
@@ -350,7 +367,7 @@ int NumericTaskProxy::get_number_propositional_variables() const {
     // TODO precompute and cache this
     int num_prop_variables = 0;
     for (auto var: task_proxy.get_variables()) {
-        if (!is_derived_numeric_variable(var) && !task_proxy.is_derived_variable(var)) {
+        if (!is_derived_numeric_variable(var) && !is_derived_variable(var)) {
             ++num_prop_variables;
         }
     }
@@ -400,7 +417,7 @@ shared_ptr<arithmetic_expression::ArithmeticExpression> NumericTaskProxy::parse_
 }
 
 const RegularNumericCondition &NumericTaskProxy::get_regular_numeric_condition(const FactProxy &condition) const {
-    assert(!task_proxy.is_derived_variable(condition.get_variable()) &&
+    assert(!is_derived_variable(condition.get_variable()) &&
                    is_derived_numeric_variable(condition.get_variable()));
     int var = condition.get_variable().get_id();
     int val = condition.get_value();
@@ -442,7 +459,7 @@ int NumericTaskProxy::get_approximate_domain_size(NumericVariableProxy num_var) 
 
         for (const auto &op : task_proxy.get_operators()){
             for (const auto &pre : op.get_preconditions()){
-                if (!task_proxy.is_derived_variable(pre.get_variable()) &&
+                if (!is_derived_variable(pre.get_variable()) &&
                         is_derived_numeric_variable(pre.get_variable())) {
                     const auto &num_cond = get_regular_numeric_condition(pre);
                     if (!num_cond.is_constant() && num_var.get_id() == num_cond.get_var_id()) {

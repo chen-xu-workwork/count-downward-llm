@@ -7,7 +7,9 @@
 #include <utility>
 #include <vector>
 
-class TaskProxy;
+namespace numeric_pdb_helper {
+class NumericTaskProxy;
+}
 
 // TODO adapt all this so it uses the regular PDB code; the differences are minimal
 
@@ -21,7 +23,7 @@ struct NumericVariableAdditivity {
     VariableAdditivity num_to_num;
 };
 
-extern NumericVariableAdditivity compute_additive_vars(TaskProxy task_proxy);
+extern NumericVariableAdditivity compute_additive_vars(const numeric_pdb_helper::NumericTaskProxy &task_proxy);
 
 /* Returns true iff the two patterns are additive i.e. there is no operator
    which affects variables in pattern one as well as in pattern two. */

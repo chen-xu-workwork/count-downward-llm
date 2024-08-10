@@ -1,11 +1,14 @@
 #include "numeric_state_registry.h"
 
+#include "numeric_helper.h"
+
 #include <sstream>
 
 using namespace std;
+using numeric_pdb_helper::NumericTaskProxy;
 
 namespace numeric_pdbs {
-string NumericState::get_name(const TaskProxy &proxy, const Pattern &pattern) const {
+string NumericState::get_name(const NumericTaskProxy &proxy, const Pattern &pattern) const {
     stringstream ss;
     ss << "NumericState {" << endl;
     ss << "\tprop: " << prop_hash << endl;

@@ -2,17 +2,16 @@
 #define NUMERIC_PDBS_INCREMENTAL_CANONICAL_PDBS_H
 
 #include "max_additive_pdb_sets.h"
+#include "numeric_helper.h"
 #include "pattern_collection_information.h"
 #include "types.h"
-
-#include "../task_proxy.h"
 
 #include <memory>
 
 namespace numeric_pdbs {
 class IncrementalCanonicalPDBs {
     const std::shared_ptr<AbstractTask> task;
-    TaskProxy task_proxy;
+    const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
 
     std::shared_ptr<PatternCollection> patterns;
     std::shared_ptr<PDBCollection> pattern_databases;

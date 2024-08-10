@@ -1,14 +1,10 @@
 #ifndef NUMERIC_PDBS_VARIABLE_ORDER_FINDER_H
 #define NUMERIC_PDBS_VARIABLE_ORDER_FINDER_H
 
-#include "../abstract_task.h"
+#include "numeric_helper.h"
 
 #include <memory>
 #include <vector>
-
-namespace numeric_pdb_helper {
-class NumericTaskProxy;
-}
 
 namespace numeric_pdbs {
 enum VariableOrderType {
@@ -21,7 +17,7 @@ enum VariableOrderType {
 };
 
 class VariableOrderFinder {
-    const std::shared_ptr<AbstractTask> task;
+    const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
 
     const VariableOrderType variable_order_type;
 
@@ -35,8 +31,7 @@ class VariableOrderFinder {
     void select_next(size_t position, int var_no, bool is_numeric);
 
 public:
-    VariableOrderFinder(std::shared_ptr<AbstractTask> task,
-                        const numeric_pdb_helper::NumericTaskProxy &num_proxy,
+    VariableOrderFinder(std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
                         VariableOrderType variable_order_type,
                         bool numeric_variables_first,
                         const std::shared_ptr<utils::RandomNumberGenerator> &rng);

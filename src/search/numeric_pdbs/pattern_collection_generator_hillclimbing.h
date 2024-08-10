@@ -5,7 +5,6 @@
 #include "types.h"
 
 #include "../successor_generator.h"
-#include "../task_proxy.h"
 
 #include <cstdlib>
 #include <memory>
@@ -51,20 +50,19 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
       duplicated patterns.
     */
     void generate_candidate_patterns(
-        TaskProxy task_proxy,
-        numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
-        const PatternDatabase &pdb,
-        PatternCollection &candidate_patterns);
+            numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
+            const PatternDatabase &pdb,
+            PatternCollection &candidate_patterns);
 
     /*
       Generates the PatternDatabase for patterns in new_candidates if they have
       not been generated already.
     */
     std::size_t generate_pdbs_for_candidates(
-        TaskProxy task_proxy,
-        std::set<Pattern> &generated_patterns,
-        PatternCollection &new_candidates,
-        PDBCollection &candidate_pdbs) const;
+            const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &num_task_proxy,
+            std::set<Pattern> &generated_patterns,
+            PatternCollection &new_candidates,
+            PDBCollection &candidate_pdbs) const;
 
     /*
       Performs num_samples random walks with a length (different for each
@@ -77,10 +75,10 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
       a sample state, thus totalling exactly num_samples of sample states.
     */
     void sample_states(
-        TaskProxy task_proxy,
-        const SuccessorGenerator &successor_generator,
-        std::vector<State> &samples,
-        ap_float average_operator_cost);
+            const numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
+            const SuccessorGenerator &successor_generator,
+            std::vector<State> &samples,
+            ap_float average_operator_cost);
 
     /*
       Searches for the best improving pdb in candidate_pdbs according to the
@@ -117,8 +115,7 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
       adapt CanonicalPDBsHeuristic accordingly.
     */
     void hill_climbing(
-        TaskProxy task_proxy,
-        numeric_pdb_helper::NumericTaskProxy &num_task_proxy,
+        const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &num_task_proxy,
         const SuccessorGenerator &successor_generator,
         ap_float average_operator_costs,
         PatternCollection &initial_candidate_patterns);

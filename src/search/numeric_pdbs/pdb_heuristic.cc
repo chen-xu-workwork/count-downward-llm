@@ -1,15 +1,16 @@
 #include "pdb_heuristic.h"
 
+#include "numeric_helper.h"
 #include "pattern_generator.h"
 
 #include "../option_parser.h"
 #include "../plugin.h"
-#include "../task_proxy.h"
 
 #include <limits>
 #include <memory>
 
 using namespace std;
+using numeric_pdb_helper::NumericTaskProxy;
 
 namespace numeric_pdbs {
 PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
@@ -17,7 +18,7 @@ PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
     auto pattern_generator =
         opts.get<shared_ptr<PatternGenerator>>("pattern");
     Pattern pattern = pattern_generator->generate(task);
-    TaskProxy task_proxy(*task);
+    shared_ptr<NumericTaskProxy> task_proxy = make_shared<NumericTaskProxy>(task);
     return {task_proxy, pattern, pattern_generator->get_max_number_pdb_states(), true};
 }
 

@@ -1,12 +1,13 @@
 #include "validation.h"
 
-#include "../task_proxy.h"
+#include "numeric_helper.h"
 
 #include "../utils/system.h"
 
 #include <algorithm>
 #include <iostream>
 
+using numeric_pdb_helper::NumericTaskProxy;
 using namespace std;
 using utils::ExitCode;
 
@@ -31,7 +32,7 @@ void inline validate_and_normalize_variable_list(vector<int> &vars, int num_vari
     }
 }
 
-void validate_and_normalize_pattern(const TaskProxy &task_proxy,
+void validate_and_normalize_pattern(const NumericTaskProxy &task_proxy,
                                     Pattern &pattern) {
     /*
       - Sort by variable number and remove duplicate variables.
@@ -42,7 +43,7 @@ void validate_and_normalize_pattern(const TaskProxy &task_proxy,
     validate_and_normalize_variable_list(pattern.numeric, task_proxy.get_numeric_variables().size());
 }
 
-void validate_and_normalize_patterns(const TaskProxy &task_proxy,
+void validate_and_normalize_patterns(const NumericTaskProxy &task_proxy,
                                      PatternCollection &patterns) {
     /*
       - Validate and normalize each pattern (see there).

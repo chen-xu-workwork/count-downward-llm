@@ -2,7 +2,6 @@
 
 #include "../global_operator.h"
 #include "../globals.h"
-#include "../task_proxy.h"
 
 #include "../utils/logging.h"
 #include "../utils/timer.h"
@@ -17,6 +16,7 @@
 #include <utility>
 
 using namespace std;
+using numeric_pdb_helper::NumericTaskProxy;
 
 /*
   We only want to create one causal graph per task, so they are cached globally.
@@ -30,7 +30,7 @@ using namespace std;
   (causal graphs, successor generators and axiom evlauators, DTGs, ...) and can
   maybe deal with all of them in the same way.
 */
-static unordered_map<const AbstractTask *, unique_ptr<numeric_pdbs::CausalGraph>> causal_graph_cache;
+static unordered_map<const NumericTaskProxy*, unique_ptr<numeric_pdbs::CausalGraph>> causal_graph_cache;
 
 namespace numeric_pdbs {
 /*
@@ -96,22 +96,18 @@ struct CausalGraphBuilder {
     IntRelationBuilder succ_builder;
     IntRelationBuilder pred_builder;
 
-    shared_ptr<numeric_pdb_helper::NumericTaskProxy> num_task;
-
     // map relevant variables to new contiguous ID range
     vector<int> prop_var_id_to_glob_var_id;
     vector<int> num_var_id_to_glob_var_id;
 
     explicit CausalGraphBuilder(int prop_var_count, int num_var_count,
                                 const vector<int> &prop_var_id_to_glob_var_id,
-                                const vector<int> &num_var_id_to_glob_var_id,
-                                shared_ptr<numeric_pdb_helper::NumericTaskProxy> num_task)
+                                const vector<int> &num_var_id_to_glob_var_id)
             : pre_eff_builder(prop_var_count+num_var_count),
               eff_pre_builder(prop_var_count+num_var_count),
               eff_eff_builder(prop_var_count+num_var_count),
               succ_builder(prop_var_count+num_var_count),
               pred_builder(prop_var_count+num_var_count),
-              num_task(std::move(num_task)),
               prop_var_id_to_glob_var_id(prop_var_id_to_glob_var_id),
               num_var_id_to_glob_var_id(num_var_id_to_glob_var_id) {
     }
@@ -134,14 +130,15 @@ struct CausalGraphBuilder {
         pred_builder.add_pair(v, u);
     }
 
-    void handle_operator(const OperatorProxy &op) {
+    void handle_operator(const OperatorProxy &op,
+                         const numeric_pdb_helper::NumericTaskProxy &num_task) {
         EffectsProxy effects = op.get_effects();
 
         // Handle pre->eff links from preconditions.
         for (FactProxy pre: op.get_preconditions()) {
             int pre_var_id;
             if (prop_var_id_to_glob_var_id[pre.get_variable().get_id()] == -1) {
-                pre_var_id = num_var_id_to_glob_var_id[num_task->get_regular_numeric_condition(pre).get_var_id()];
+                pre_var_id = num_var_id_to_glob_var_id[num_task.get_regular_numeric_condition(pre).get_var_id()];
             } else {
                 pre_var_id = prop_var_id_to_glob_var_id[pre.get_variable().get_id()];
             }
@@ -195,38 +192,37 @@ struct CausalGraphBuilder {
     }
 };
 
-CausalGraph::CausalGraph(const TaskProxy &task_proxy,
-                         const shared_ptr<numeric_pdb_helper::NumericTaskProxy> &num_task) {
+CausalGraph::CausalGraph(const numeric_pdb_helper::NumericTaskProxy &num_task) {
     utils::Timer timer;
     cout << "building causal graph..." << flush;
     int num_prop_variables = 0;
 
-    for (auto var: task_proxy.get_variables()) {
-        if (!num_task->is_derived_numeric_variable(var) && !task_proxy.is_derived_variable(var)) {
+    for (auto var: num_task.get_variables()) {
+        if (!num_task.is_derived_numeric_variable(var) && !num_task.is_derived_variable(var)) {
             ++num_prop_variables;
         }
     }
 
     int num_regular_num_vars = 0;
-    for (auto var: task_proxy.get_numeric_variables()) {
+    for (auto var: num_task.get_numeric_variables()) {
         if (var.get_var_type() == numType::regular) {
             ++num_regular_num_vars;
         }
     }
 
     // compute variable id mappings
-    prop_var_id_to_glob_var_id = vector<int>(task_proxy.get_variables().size(), -1);
-    num_var_id_to_glob_var_id = vector<int>(task_proxy.get_numeric_variables().size(), -1);
+    prop_var_id_to_glob_var_id = vector<int>(num_task.get_variables().size(), -1);
+    num_var_id_to_glob_var_id = vector<int>(num_task.get_numeric_variables().size(), -1);
     glob_var_id_to_var_id = vector<int>(num_prop_variables + num_regular_num_vars, -1);
     first_num_var_index = num_prop_variables;
     int i = 0;
-    for (auto var: task_proxy.get_variables()) {
-        if (!num_task->is_derived_numeric_variable(var) && !task_proxy.is_derived_variable(var)) {
+    for (auto var: num_task.get_variables()) {
+        if (!num_task.is_derived_numeric_variable(var) && !num_task.is_derived_variable(var)) {
             glob_var_id_to_var_id[i] = var.get_id();
             prop_var_id_to_glob_var_id[var.get_id()] = i++;
         }
     }
-    for (auto num_var: task_proxy.get_numeric_variables()) {
+    for (auto num_var: num_task.get_numeric_variables()) {
         if (num_var.get_var_type() == regular) {
             glob_var_id_to_var_id[i] = num_var.get_id();
             num_var_id_to_glob_var_id[num_var.get_id()] = i++;
@@ -236,11 +232,10 @@ CausalGraph::CausalGraph(const TaskProxy &task_proxy,
     CausalGraphBuilder cg_builder(num_prop_variables,
                                   num_regular_num_vars,
                                   prop_var_id_to_glob_var_id,
-                                  num_var_id_to_glob_var_id,
-                                  num_task);
+                                  num_var_id_to_glob_var_id);
 
-    for (OperatorProxy op: task_proxy.get_operators())
-        cg_builder.handle_operator(op);
+    for (OperatorProxy op: num_task.get_operators())
+        cg_builder.handle_operator(op, num_task);
 
     cg_builder.pre_eff_builder.compute_relation(pre_to_eff);
     cg_builder.eff_pre_builder.compute_relation(eff_to_pre);
@@ -253,7 +248,7 @@ CausalGraph::CausalGraph(const TaskProxy &task_proxy,
     cout << "done! [t=" << timer << "]" << endl;
 }
 
-void CausalGraph::dump(const TaskProxy &task_proxy) const {
+void CausalGraph::dump(const numeric_pdb_helper::NumericTaskProxy &task_proxy) const {
     cout << "Causal graph: " << endl;
     for (VariableProxy var: task_proxy.get_variables()) {
         int var_id = var.get_id();
@@ -416,12 +411,10 @@ vector<int> CausalGraph::get_num_predecessors_of_num_var(int num_var) const {
     }
 }
 }
-const numeric_pdbs::CausalGraph &get_numeric_causal_graph(const AbstractTask *task) {
-    if (causal_graph_cache.count(task) == 0) {
-        TaskProxy task_proxy(*task);
-        shared_ptr<numeric_pdb_helper::NumericTaskProxy> num_proxy = make_shared<numeric_pdb_helper::NumericTaskProxy>(task_proxy);
-        unique_ptr<numeric_pdbs::CausalGraph> cg(new numeric_pdbs::CausalGraph(task_proxy, num_proxy));
-        causal_graph_cache.insert(make_pair(task, std::move(cg)));
+const numeric_pdbs::CausalGraph &get_numeric_causal_graph(const numeric_pdb_helper::NumericTaskProxy *num_proxy) {
+    if (causal_graph_cache.count(num_proxy) == 0) {
+        unique_ptr<numeric_pdbs::CausalGraph> cg(new numeric_pdbs::CausalGraph(*num_proxy));
+        causal_graph_cache.insert(make_pair(num_proxy, std::move(cg)));
     }
-    return *causal_graph_cache[task];
+    return *causal_graph_cache[num_proxy];
 }
