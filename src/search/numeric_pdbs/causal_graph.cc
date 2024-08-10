@@ -132,8 +132,7 @@ struct CausalGraphBuilder {
         pred_builder.add_pair(v, u);
     }
 
-    void handle_operator(const NumericOperatorProxy &op,
-                         const NumericTaskProxy &num_task) {
+    void handle_operator(const NumericOperatorProxy &op) {
         EffectsProxy effects = op.get_propositional_effects();
 
         // Handle pre->eff links from preconditions.
@@ -212,7 +211,7 @@ struct CausalGraphBuilder {
             for (const auto &[eff_var, val]: op.get_assign_effects()) {
                 int eff2_var_id = num_var_id_to_glob_var_id[eff_var];
                 if (eff1_var_id != eff2_var_id) {
-                    handle_eff_eff_edge(eff1_var_id, eff_var);
+                    handle_eff_eff_edge(eff1_var_id, eff2_var_id);
                 }
             }
         }
@@ -291,7 +290,7 @@ CausalGraph::CausalGraph(const numeric_pdb_helper::NumericTaskProxy &num_task) {
                                   num_var_id_to_glob_var_id);
 
     for (NumericOperatorProxy op: num_task.get_operators())
-        cg_builder.handle_operator(op, num_task);
+        cg_builder.handle_operator(op);
 
     cg_builder.pre_eff_builder.compute_relation(pre_to_eff);
     cg_builder.eff_pre_builder.compute_relation(eff_to_pre);
