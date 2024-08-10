@@ -1,12 +1,14 @@
 #include "causal_graph.h"
 
+#include "numeric_condition.h"
+#include "numeric_helper.h"
+#include "numeric_task_proxy.h"
+
 #include "../global_operator.h"
 #include "../globals.h"
 
 #include "../utils/logging.h"
 #include "../utils/timer.h"
-#include "numeric_condition.h"
-#include "numeric_helper.h"
 
 #include <algorithm>
 #include <cassert>
@@ -16,7 +18,7 @@
 #include <utility>
 
 using namespace std;
-using numeric_pdb_helper::NumericTaskProxy;
+using namespace numeric_pdb_helper;
 
 /*
   We only want to create one causal graph per task, so they are cached globally.
@@ -130,31 +132,61 @@ struct CausalGraphBuilder {
         pred_builder.add_pair(v, u);
     }
 
-    void handle_operator(const OperatorProxy &op,
-                         const numeric_pdb_helper::NumericTaskProxy &num_task) {
-        EffectsProxy effects = op.get_effects();
+    void handle_operator(const NumericOperatorProxy &op,
+                         const NumericTaskProxy &num_task) {
+        EffectsProxy effects = op.get_propositional_effects();
 
         // Handle pre->eff links from preconditions.
-        for (FactProxy pre: op.get_preconditions()) {
-            int pre_var_id;
-            if (prop_var_id_to_glob_var_id[pre.get_variable().get_id()] == -1) {
-                pre_var_id = num_var_id_to_glob_var_id[num_task.get_regular_numeric_condition(pre).get_var_id()];
-            } else {
-                pre_var_id = prop_var_id_to_glob_var_id[pre.get_variable().get_id()];
-            }
+        for (FactProxy pre: op.get_propositional_preconditions()) {
+            int pre_var_id = prop_var_id_to_glob_var_id[pre.get_variable().get_id()];
             for (EffectProxy eff: effects) {
                 if (!eff.get_conditions().empty()) {
                     cerr << "ERROR: conditional effects not supported in numeric causal graph" << endl;
                     utils::exit_with(utils::ExitCode::UNSUPPORTED);
                 }
                 int eff_var_id = prop_var_id_to_glob_var_id[eff.get_fact().get_variable().get_id()];
-                if (pre_var_id != eff_var_id)
+                if (pre_var_id != eff_var_id) {
                     handle_pre_eff_arc(pre_var_id, eff_var_id);
+                }
             }
-            for (auto eff: op.get_ass_effects()) {
-                NumericVariableProxy eff_var = eff.get_assignment().get_affected_variable();
-                int eff_var_id = num_var_id_to_glob_var_id[eff_var.get_id()];
-                if (eff_var.get_var_type() == regular && eff_var_id != pre_var_id) {
+            for (const auto &[eff_var, val]: op.get_additive_effects()) {
+                if (val != 0) {
+                    int eff_var_id = num_var_id_to_glob_var_id[eff_var];
+                    if (pre_var_id != eff_var_id) {
+                        handle_pre_eff_arc(pre_var_id, eff_var_id);
+                    }
+                }
+            }
+            for (const auto &[eff_var, val]: op.get_assign_effects()) {
+                int eff_var_id = num_var_id_to_glob_var_id[eff_var];
+                if (pre_var_id != eff_var_id) {
+                    handle_pre_eff_arc(pre_var_id, eff_var_id);
+                }
+            }
+        }
+        for (const auto &pre: op.get_numeric_preconditions()) {
+            int pre_var_id = num_var_id_to_glob_var_id[pre->get_var_id()];
+            for (EffectProxy eff: effects) {
+                if (!eff.get_conditions().empty()) {
+                    cerr << "ERROR: conditional effects not supported in numeric causal graph" << endl;
+                    utils::exit_with(utils::ExitCode::UNSUPPORTED);
+                }
+                int eff_var_id = prop_var_id_to_glob_var_id[eff.get_fact().get_variable().get_id()];
+                if (pre_var_id != eff_var_id) {
+                    handle_pre_eff_arc(pre_var_id, eff_var_id);
+                }
+            }
+            for (const auto &[eff_var, val]: op.get_additive_effects()) {
+                if (val != 0) {
+                    int eff_var_id = num_var_id_to_glob_var_id[eff_var];
+                    if (pre_var_id != eff_var_id) {
+                        handle_pre_eff_arc(pre_var_id, eff_var_id);
+                    }
+                }
+            }
+            for (const auto &[eff_var, val]: op.get_assign_effects()) {
+                int eff_var_id = num_var_id_to_glob_var_id[eff_var];
+                if (pre_var_id != eff_var_id) {
                     handle_pre_eff_arc(pre_var_id, eff_var_id);
                 }
             }
@@ -169,23 +201,47 @@ struct CausalGraphBuilder {
                     handle_eff_eff_edge(eff1_var_id, eff2_var_id);
                 }
             }
-            for (auto eff: op.get_ass_effects()) {
-                NumericVariableProxy eff_var = eff.get_assignment().get_affected_variable();
-                if (eff_var.get_var_type() == regular) {
-                    handle_eff_eff_edge(eff1_var_id, num_var_id_to_glob_var_id[eff_var.get_id()]);
+            for (const auto &[eff_var, val]: op.get_additive_effects()) {
+                if (val != 0) {
+                    int eff2_var_id = num_var_id_to_glob_var_id[eff_var];
+                    if (eff1_var_id != eff2_var_id) {
+                        handle_eff_eff_edge(eff1_var_id, eff2_var_id);
+                    }
+                }
+            }
+            for (const auto &[eff_var, val]: op.get_assign_effects()) {
+                int eff2_var_id = num_var_id_to_glob_var_id[eff_var];
+                if (eff1_var_id != eff2_var_id) {
+                    handle_eff_eff_edge(eff1_var_id, eff_var);
                 }
             }
         }
 
-        for (auto eff1: op.get_ass_effects()) {
-            NumericVariableProxy eff1_var = eff1.get_assignment().get_affected_variable();
-            if (eff1_var.get_var_type() == regular) {
-                for (auto eff2: op.get_ass_effects()) {
-                    NumericVariableProxy eff2_var = eff2.get_assignment().get_affected_variable();
-                    if (eff2_var.get_var_type() == regular && eff1_var != eff2_var) {
-                        handle_eff_eff_edge(num_var_id_to_glob_var_id[eff1_var.get_id()],
-                                            num_var_id_to_glob_var_id[eff2_var.get_id()]);
+        for (const auto &[eff1_v, val1]: op.get_additive_effects()) {
+            if (val1 != 0) {
+                int eff1_var = num_var_id_to_glob_var_id[eff1_v];
+                for (const auto &[eff2_v, val2]: op.get_additive_effects()) {
+                    if (val2 != 0) {
+                        int eff2_var_id = num_var_id_to_glob_var_id[eff2_v];
+                        if (eff1_var != eff2_var_id) {
+                            handle_eff_eff_edge(eff1_var, eff2_var_id);
+                        }
                     }
+                }
+                for (const auto &[eff2_var, val2]: op.get_assign_effects()) {
+                    int eff2_var_id = num_var_id_to_glob_var_id[eff2_var];
+                    if (eff1_var != eff2_var_id) {
+                        handle_eff_eff_edge(eff1_var, eff2_var_id);
+                    }
+                }
+            }
+        }
+        for (const auto &[eff1_v, val1]: op.get_assign_effects()) {
+            int eff1_var = num_var_id_to_glob_var_id[eff1_v];
+            for (const auto &[eff2_v, val2]: op.get_assign_effects()) {
+                int eff2_var = num_var_id_to_glob_var_id[eff2_v];
+                if (eff1_var != eff2_var) {
+                    handle_eff_eff_edge(eff1_var, eff2_var);
                 }
             }
         }
@@ -234,7 +290,7 @@ CausalGraph::CausalGraph(const numeric_pdb_helper::NumericTaskProxy &num_task) {
                                   prop_var_id_to_glob_var_id,
                                   num_var_id_to_glob_var_id);
 
-    for (OperatorProxy op: num_task.get_operators())
+    for (NumericOperatorProxy op: num_task.get_operators())
         cg_builder.handle_operator(op, num_task);
 
     cg_builder.pre_eff_builder.compute_relation(pre_to_eff);

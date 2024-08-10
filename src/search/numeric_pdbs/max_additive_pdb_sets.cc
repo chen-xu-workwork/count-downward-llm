@@ -2,9 +2,11 @@
 
 #include "max_cliques.h"
 #include "numeric_helper.h"
+#include "numeric_task_proxy.h"
 #include "pattern_database.h"
 
 using namespace std;
+using namespace numeric_pdb_helper;
 
 namespace numeric_pdbs {
 bool are_patterns_additive(const Pattern &pattern1,
@@ -37,7 +39,7 @@ bool are_patterns_additive(const Pattern &pattern1,
     return true;
 }
 
-NumericVariableAdditivity compute_additive_vars(const numeric_pdb_helper::NumericTaskProxy &task_proxy) {
+NumericVariableAdditivity compute_additive_vars(const NumericTaskProxy &task_proxy) {
     NumericVariableAdditivity are_additive;
     size_t num_prop_vars = task_proxy.get_variables().size();
     size_t num_num_vars = task_proxy.get_numeric_variables().size();
@@ -45,15 +47,14 @@ NumericVariableAdditivity compute_additive_vars(const numeric_pdb_helper::Numeri
     are_additive.prop_to_num.resize(num_prop_vars, vector<bool>(num_num_vars, true));
     are_additive.num_to_prop.resize(num_num_vars, vector<bool>(num_prop_vars, true));
     are_additive.num_to_num.resize(num_num_vars, vector<bool>(num_num_vars, true));
-    for (OperatorProxy op : task_proxy.get_operators()) {
-        const vector<ap_float> &num_effs = task_proxy.get_action_eff_list(op.get_id());
-        for (EffectProxy e1 : op.get_effects()) {
+    for (NumericOperatorProxy op : task_proxy.get_operators()) {
+        for (EffectProxy e1 : op.get_propositional_effects()) {
             auto var1 = e1.get_fact().get_variable();
             assert(!task_proxy.is_derived_variable(var1) &&
                    !task_proxy.is_derived_numeric_variable(var1));
             int e1_var_id = var1.get_id();
             // additivity for propositional<->propositional variables
-            for (EffectProxy e2 : op.get_effects()) {
+            for (EffectProxy e2 : op.get_propositional_effects()) {
                 auto var2 = e1.get_fact().get_variable();
                 assert(!task_proxy.is_derived_variable(var2) &&
                        !task_proxy.is_derived_numeric_variable(var2));
@@ -61,43 +62,37 @@ NumericVariableAdditivity compute_additive_vars(const numeric_pdb_helper::Numeri
                 are_additive.prop_to_prop[e1_var_id][e2_var_id] = false;
             }
             // additivity for propositional<->numeric variables
-            for (int num_var = 0; num_var < static_cast<int>(num_num_vars); ++num_var){
-                if (task_proxy.get_numeric_variables()[num_var].get_var_type() == regular) {
-                    if (num_effs[task_proxy.get_regular_var_id(num_var)] != 0) {
-                        are_additive.prop_to_num[e1_var_id][num_var] = false;
-                        are_additive.num_to_prop[num_var][e1_var_id] = false;
-                    }
+            for (const auto &[eff_var, val] : op.get_additive_effects()){
+                if (val != 0) {
+                    are_additive.prop_to_num[e1_var_id][eff_var] = false;
+                    are_additive.num_to_prop[eff_var][e1_var_id] = false;
                 }
             }
             // additivity for propositional<->numeric variables (assign effects)
-            for (const auto &[assgn_var, assgn_val] : task_proxy.get_action_assign_list(op.get_id())){
+            for (const auto &[assgn_var, assgn_val] : op.get_assign_effects()){
                 are_additive.prop_to_num[e1_var_id][assgn_var] = false;
                 are_additive.num_to_prop[assgn_var][e1_var_id] = false;
             }
         }
-        for (int num_var1 = 0; num_var1 < static_cast<int>(num_num_vars); ++num_var1) {
-            if (task_proxy.get_numeric_variables()[num_var1].get_var_type() == regular) {
-                if (num_effs[task_proxy.get_regular_var_id(num_var1)] != 0) {
-                    // additivity for numeric<->numeric variables
-                    for (int num_var2 = num_var1; num_var2 < static_cast<int>(num_num_vars); ++num_var2) {
-                        if (task_proxy.get_numeric_variables()[num_var2].get_var_type() == regular) {
-                            if (num_effs[task_proxy.get_regular_var_id(num_var2)] != 0) {
-                                are_additive.num_to_num[num_var1][num_var2] = false;
-                                are_additive.num_to_num[num_var2][num_var1] = false;
-                            }
-                        }
+        for (const auto &[eff1_var, val1] : op.get_additive_effects()) {
+            if (val1 != 0) {
+                // additivity for numeric<->numeric variables
+                for (const auto &[eff2_var, val2] : op.get_additive_effects()) {
+                    if (val2 != 0) {
+                        are_additive.num_to_num[eff1_var][eff2_var] = false;
+                        are_additive.num_to_num[eff2_var][eff1_var] = false;
                     }
-                    // additivity for numeric<->numeric variables (assign effects)
-                    for (const auto &[assgn_var, assgn_val] : task_proxy.get_action_assign_list(op.get_id())){
-                        are_additive.num_to_num[num_var1][assgn_var] = false;
-                        are_additive.num_to_num[assgn_var][num_var1] = false;
-                    }
+                }
+                // additivity for numeric<->numeric variables (assign effects)
+                for (const auto &[assgn_var, assgn_val] : op.get_assign_effects()){
+                    are_additive.num_to_num[eff1_var][assgn_var] = false;
+                    are_additive.num_to_num[assgn_var][eff1_var] = false;
                 }
             }
         }
         // additivity for numeric<->numeric variables (both assign effects)
-        for (const auto &[assgn_var1, assgn_val1] : task_proxy.get_action_assign_list(op.get_id())){
-            for (const auto &[assgn_var2, assgn_val2] : task_proxy.get_action_assign_list(op.get_id())) {
+        for (const auto &[assgn_var1, assgn_val1] : op.get_assign_effects()){
+            for (const auto &[assgn_var2, assgn_val2] : op.get_assign_effects()) {
                 are_additive.num_to_num[assgn_var1][assgn_var2] = false;
                 are_additive.num_to_num[assgn_var2][assgn_var1] = false;
             }

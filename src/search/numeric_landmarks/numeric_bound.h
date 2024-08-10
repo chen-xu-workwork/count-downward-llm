@@ -1,5 +1,5 @@
-#ifndef NUMERIC_BOUND_H
-#define NUMERIC_BOUND_H
+#ifndef NUMERIC_LANDMARKS_NUMERIC_BOUND_H
+#define NUMERIC_LANDMARKS_NUMERIC_BOUND_H
 
 #include <memory>
 #include <vector>

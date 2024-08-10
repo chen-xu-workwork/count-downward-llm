@@ -1,5 +1,5 @@
-#ifndef numeric_helper_h
-#define numeric_helper_h
+#ifndef NUMERIC_OPERATOR_COUNTING_NUMERIC_HELPER_H
+#define NUMERIC_OPERATOR_COUNTING_NUMERIC_HELPER_H
 
 #include <cmath>
 #include <iostream>

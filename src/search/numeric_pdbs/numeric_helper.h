@@ -2,6 +2,7 @@
 #define NUMERIC_PDBS_NUMERIC_HELPER
 
 #include "numeric_condition.h"
+#include "numeric_task_proxy.h"
 
 #include "../option_parser.h"
 #include "../plugin.h"
@@ -18,13 +19,23 @@ namespace arithmetic_expression {
 class ArithmeticExpression;
 }
 
+namespace numeric_condition {
+class RegularNumericCondition;
+}
+
+namespace numeric_pdbs {
+class CausalGraph;
+}
+
 namespace numeric_pdb_helper {
 
 /* An action is an operator where effects are espressed as add and eff of
  proposition. A proposition is an atom of the form Var = Val */
 
 struct Action {
-    std::vector<ap_float> eff_list;  // simple numeric effects
+    std::vector<FactProxy> preconditions; // propositional preconditions (no derived vars)
+    std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>> numeric_preconditions;
+    std::vector<ap_float> eff_list;  // additive numeric effects
     // list of assignment effects: first is global numeric var id, second is assigned value
     std::vector<std::pair<int, ap_float>> asgn_effs;
 
@@ -49,15 +60,13 @@ std::ostream &operator<<(std::ostream &os, const LinearNumericCondition &lnc);
 
 /* NumericTaskProxy */
 class NumericTaskProxy {
+    friend class NumericOperatorProxy; // access to task
 public:
     explicit NumericTaskProxy(const std::shared_ptr<AbstractTask> task);
 
     const std::vector<ap_float> &get_action_eff_list(int op_id) const {
+        // TODO: get rid of this
         return actions[op_id].eff_list;
-    }
-
-    const std::vector<std::pair<int, ap_float>> &get_action_assign_list(int op_id) const {
-        return actions[op_id].asgn_effs;
     }
 
     bool is_derived_numeric_variable(const VariableProxy &var_proxy) const;
@@ -66,19 +75,13 @@ public:
 
     int get_global_var_id(int regular_num_var_id) const;
 
-    int get_number_propositional_variables() const;
-
-    int get_number_regular_numeric_variables() const;
-
-    const numeric_condition::RegularNumericCondition &get_regular_numeric_condition(const FactProxy &condition) const;
-
     const std::vector<numeric_condition::RegularNumericCondition> &get_numeric_goals() const;
 
     const std::vector<FactProxy> &get_propositional_goals() const;
 
-    int get_approximate_domain_size(NumericVariableProxy num_var);
+    int get_approximate_domain_size(const NumericVariableProxy &num_var);
 
-    bool is_derived_variable(VariableProxy var) const;
+    bool is_derived_variable(const VariableProxy &var) const;
 
     const TaskProxy &get_task_proxy() const {
         // TODO try to get rid of this
@@ -95,6 +98,10 @@ public:
         return task->get_num_numeric_variables();
     }
 
+    size_t get_num_operators() const {
+        return task->get_num_operators();
+    }
+
     VariablesProxy get_variables() const {
         // TODO adapt this
         return task_proxy.get_variables();
@@ -105,9 +112,20 @@ public:
         return task_proxy.get_numeric_variables();
     }
 
-    OperatorsProxy get_operators() const {
-        // TODO adapt this
-        return task_proxy.get_operators();
+    const Action &get_operator(int op_id) const {
+        return actions[op_id];
+    }
+
+    NumericOperatorsProxy get_operators() const {
+        return NumericOperatorsProxy(*this);
+    }
+
+    ap_float get_operator_cost(int op_id) const {
+        return task->get_operator_cost(op_id, false);
+    }
+
+    const std::string &get_operator_name(int op_id) const {
+        return task->get_operator_name(op_id, false);
     }
 
     State get_initial_state() const {

@@ -31,12 +31,12 @@ NumericTaskProxy::NumericTaskProxy(const shared_ptr<AbstractTask> task) :
     build_numeric_variables();
     build_artificial_variables();
     find_derived_numeric_variables();
-    build_actions();
     build_preconditions();
+    build_actions();
     build_goals();
 }
 
-bool NumericTaskProxy::is_derived_variable(VariableProxy var) const {
+bool NumericTaskProxy::is_derived_variable(const VariableProxy &var) const {
     for (auto ax : task_proxy.get_axioms()){
         for (auto eff : ax.get_effects()) {
             if (eff.get_fact().get_variable().get_id() == var.get_id()) {
@@ -160,6 +160,15 @@ void NumericTaskProxy::build_artificial_variables() {
 }
 
 void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
+
+    for (FactProxy pre : op.get_preconditions()){
+        assert(!is_derived_variable(pre.get_variable()));
+        if (is_derived_numeric_variable(pre.get_variable())) {
+            actions[op_id].numeric_preconditions.push_back(build_condition(pre));
+        } else {
+            actions[op_id].preconditions.push_back(pre);
+        }
+    }
 
     for (const AssEffectProxy &eff : op.get_ass_effects()) {
         assert(eff.get_conditions().empty());
@@ -292,8 +301,8 @@ void NumericTaskProxy::build_preconditions() {
     for (OperatorProxy op : task_proxy.get_operators()) {
         for (FactProxy pre : op.get_preconditions()) {
             // check if proper numeric condition
-            if (!is_derived_variable(pre.get_variable()) &&
-                   is_derived_numeric_variable(pre.get_variable())) {
+            assert(!is_derived_variable(pre.get_variable()));
+            if (is_derived_numeric_variable(pre.get_variable())) {
 
                 auto num_condition = build_condition(pre);
 
@@ -363,21 +372,6 @@ int NumericTaskProxy::get_global_var_id(int regular_num_var_id) const {
     return reg_num_var_id_to_glob_var_id[regular_num_var_id];
 }
 
-int NumericTaskProxy::get_number_propositional_variables() const {
-    // TODO precompute and cache this
-    int num_prop_variables = 0;
-    for (auto var: task_proxy.get_variables()) {
-        if (!is_derived_numeric_variable(var) && !is_derived_variable(var)) {
-            ++num_prop_variables;
-        }
-    }
-    return num_prop_variables;
-}
-
-int NumericTaskProxy::get_number_regular_numeric_variables() const {
-    return n_numeric_variables;
-}
-
 shared_ptr<arithmetic_expression::ArithmeticExpression> NumericTaskProxy::parse_arithmetic_expression(
         NumericVariableProxy num_var) const {
 
@@ -416,15 +410,6 @@ shared_ptr<arithmetic_expression::ArithmeticExpression> NumericTaskProxy::parse_
     }
 }
 
-const RegularNumericCondition &NumericTaskProxy::get_regular_numeric_condition(const FactProxy &condition) const {
-    assert(!is_derived_variable(condition.get_variable()) &&
-                   is_derived_numeric_variable(condition.get_variable()));
-    int var = condition.get_variable().get_id();
-    int val = condition.get_value();
-    assert(regular_numeric_conditions[var][val]);
-    return *regular_numeric_conditions[var][val];
-}
-
 void NumericTaskProxy::find_derived_numeric_variables() {
     is_derived_num_var.assign(task_proxy.get_variables().size(), false);
     for (auto op : task_proxy.get_comparison_axioms()) {
@@ -440,7 +425,7 @@ const vector<FactProxy> &NumericTaskProxy::get_propositional_goals() const {
     return propositional_goals;
 }
 
-int NumericTaskProxy::get_approximate_domain_size(NumericVariableProxy num_var) {
+int NumericTaskProxy::get_approximate_domain_size(const NumericVariableProxy &num_var) {
     // TODO: maybe have different variants
     assert(g_numeric_var_types[num_var.get_id()] == numType::regular);
     if (approximate_num_var_domain_sizes.empty()){
@@ -457,16 +442,12 @@ int NumericTaskProxy::get_approximate_domain_size(NumericVariableProxy num_var) 
         ap_float max_pos_change = 0;
         ap_float max_neg_change = 0;
 
-        for (const auto &op : task_proxy.get_operators()){
-            for (const auto &pre : op.get_preconditions()){
-                if (!is_derived_variable(pre.get_variable()) &&
-                        is_derived_numeric_variable(pre.get_variable())) {
-                    const auto &num_cond = get_regular_numeric_condition(pre);
-                    if (!num_cond.is_constant() && num_var.get_id() == num_cond.get_var_id()) {
-                        ap_float c = num_cond.get_constant();
-                        min_const = min(min_const, c);
-                        max_const = max(max_const, c);
-                    }
+        for (const auto &op : get_operators()){
+            for (const auto &num_pre : op.get_numeric_preconditions()){
+                if (!num_pre->is_constant() && num_var.get_id() == num_pre->get_var_id()) {
+                    ap_float c = num_pre->get_constant();
+                    min_const = min(min_const, c);
+                    max_const = max(max_const, c);
                 }
             }
             const auto &num_effs = get_action_eff_list(op.get_id());
@@ -481,7 +462,7 @@ int NumericTaskProxy::get_approximate_domain_size(NumericVariableProxy num_var) 
                 max_neg_change = min(max_neg_change, eff);
             }
 
-            for (const auto &[var, val] : get_action_assign_list(op.get_id())){
+            for (const auto &[var, val] : op.get_assign_effects()){
                 if (var == num_var.get_id()) {
                     min_const = min(min_const, val);
                     max_const = max(max_const, val);

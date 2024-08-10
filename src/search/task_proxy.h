@@ -39,9 +39,6 @@ class VariablesProxy;
 class NumericVariableProxy;
 class NumericVariablesProxy;
 
-namespace numeric_pdbs {
-class CausalGraph;
-}
 
 /*
   Overview of the task interface.

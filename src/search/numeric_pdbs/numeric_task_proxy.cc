@@ -38,8 +38,8 @@ size_t AdditiveEffectsProxy::size() const {
 
 std::pair<int, ap_float> AdditiveEffectsProxy::operator[](std::size_t fact_index) const {
     assert(fact_index < size());
-    return make_pair(task->get_global_var_id(fact_index),
-                     task->get_operator(op_index).eff_list[fact_index]);
+    return {task->get_global_var_id(fact_index),
+            task->get_operator(op_index).eff_list[fact_index]};
 }
 
 EffectsProxy NumericOperatorProxy::get_propositional_effects() const {

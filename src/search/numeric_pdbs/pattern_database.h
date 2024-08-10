@@ -12,6 +12,7 @@
 
 
 namespace numeric_pdb_helper {
+class NumericOperatorProxy;
 class NumericTaskProxy;
 }
 
@@ -129,17 +130,18 @@ class PatternDatabase {
       variables in the task to their index in the pattern or -1.
     */
     void build_abstract_operators(
-        const OperatorProxy &op, ap_float cost,
+        const numeric_pdb_helper::NumericOperatorProxy &op,
+        ap_float cost,
         const std::vector<int> &variable_to_index,
         std::vector<AbstractOperator> &operators,
         bool regression);
 
     bool is_applicable(const NumericState &state,
-                       OperatorProxy op,
+                       const numeric_pdb_helper::NumericOperatorProxy &op,
                        const std::vector<int> &num_variable_to_index) const;
 
     std::vector<ap_float> get_numeric_successor(std::vector<ap_float> state,
-                                                int op_id,
+                                                const numeric_pdb_helper::NumericOperatorProxy &op,
                                                 const std::vector<int> &num_variable_to_index) const;
 
     void build_goals(const std::vector<int> &variable_to_index,

@@ -133,11 +133,11 @@ public:
     EffectsProxy get_propositional_effects() const;
 
     AssignEffectsProxy get_assign_effects() const {
-        return AssignEffectsProxy(*task, index);
+        return {*task, index};
     }
 
     AdditiveEffectsProxy get_additive_effects() const {
-        return AdditiveEffectsProxy(*task, index);
+        return {*task, index};
     }
 
     ap_float get_cost() const;
@@ -167,7 +167,7 @@ public:
 
     NumericOperatorProxy operator[](std::size_t index) const {
         assert(index < size());
-        return NumericOperatorProxy(*task, index);
+        return {*task, static_cast<int>(index)};
     }
 };
 }

@@ -605,6 +605,7 @@ fast_downward_plugin(
         numeric_pdbs/numeric_condition.cc
         numeric_pdbs/numeric_helper.cc
         numeric_pdbs/numeric_state_registry.cc
+        numeric_pdbs/numeric_task_proxy.cc
         numeric_pdbs/pattern_collection_generator_hillclimbing.cc
         numeric_pdbs/pattern_collection_generator_systematic.cc
         numeric_pdbs/pattern_collection_information.cc
