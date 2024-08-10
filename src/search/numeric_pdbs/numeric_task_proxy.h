@@ -48,6 +48,47 @@ inline ProxyIterator<ProxyCollection> end(ProxyCollection &collection) {
     return ProxyIterator<ProxyCollection>(collection, collection.size());
 }
 
+class ResNumericVariableProxy {
+    const NumericTaskProxy *task;
+    int var_id;
+public:
+    ResNumericVariableProxy(const NumericTaskProxy &task, int id)
+            : task(&task), var_id(id) {}
+    ~ResNumericVariableProxy() = default;
+
+    bool operator==(const ResNumericVariableProxy &other) const {
+        assert(task == other.task);
+        return var_id == other.var_id;
+    }
+
+    bool operator!=(const ResNumericVariableProxy &other) const {
+        return !(*this == other);
+    }
+
+    int get_id() const {
+        return var_id;
+    }
+
+    const std::string &get_name() const;
+
+    numType get_var_type() const;
+
+    ap_float get_initial_state_value() const;
+};
+
+class ResNumericVariablesProxy {
+    const NumericTaskProxy *task;
+public:
+    using ItemType = ResNumericVariableProxy;
+    explicit ResNumericVariablesProxy(const NumericTaskProxy &task)
+            : task(&task) {}
+    ~ResNumericVariablesProxy() = default;
+
+    std::size_t size() const;
+
+    ResNumericVariableProxy operator[](std::size_t index) const;
+};
+
 class PropositionalPreconditionsProxy {
     const NumericTaskProxy *task;
     int op_index;

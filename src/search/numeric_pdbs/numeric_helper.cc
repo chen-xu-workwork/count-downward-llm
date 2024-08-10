@@ -26,12 +26,13 @@ ostream &operator<<(ostream &os, const LinearNumericCondition &lnc) {
 NumericTaskProxy::NumericTaskProxy(const shared_ptr<AbstractTask> task) :
         task(task),
         task_proxy(*task),
-        n_numeric_variables(0) {
+        n_numeric_variables(0),
+        initial_state_values(task->get_initial_state_numeric_values()) {
     verify_is_restricted_numeric_task(task_proxy);
     build_numeric_variables();
     build_artificial_variables();
     find_derived_numeric_variables();
-    build_preconditions();
+    build_numeric_preconditions();
     build_actions();
     build_goals();
 }
@@ -229,12 +230,10 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
 
 void NumericTaskProxy::build_actions() {
     OperatorsProxy ops = task_proxy.get_operators();
-//    AxiomsProxy axioms = task_proxy.get_axioms();
     actions.assign(ops.size(), Action(n_numeric_variables));
-    for (size_t op_id = 0; op_id < ops.size(); ++op_id)
+    for (size_t op_id = 0; op_id < ops.size(); ++op_id) {
         build_action(ops[op_id], op_id);
-//    for (size_t op_id = 0; op_id < axioms.size(); ++op_id)
-//        build_action(axioms[op_id], ops.size() + op_id);
+    }
 }
 
 inline int get_achieving_comp_axiom(const TaskProxy &proxy, const FactProxy &condition) {
@@ -293,7 +292,7 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::build_condition(FactProxy 
     return make_shared<RegularNumericCondition>(lhs, c_op.get_comparison_operator_type(), rhs);
 }
 
-void NumericTaskProxy::build_preconditions() {
+void NumericTaskProxy::build_numeric_preconditions() {
     regular_numeric_conditions.resize(task_proxy.get_variables().size());
     for (size_t var = 0; var < task_proxy.get_variables().size(); ++var) {
         regular_numeric_conditions[var].resize(task_proxy.get_variables()[var].get_domain_size());
@@ -404,7 +403,7 @@ shared_ptr<arithmetic_expression::ArithmeticExpression> NumericTaskProxy::parse_
                                                        assgn_ax.get_arithmetic_operator_type(),
                                                        rhs);
         }
-        default: // could be instrumentation or unkonwn
+        default: // could be instrumentation or unknown
             cerr << "ERROR: unsupported numeric variable type " << num_var.get_var_type() << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
     }
@@ -425,7 +424,7 @@ const vector<FactProxy> &NumericTaskProxy::get_propositional_goals() const {
     return propositional_goals;
 }
 
-int NumericTaskProxy::get_approximate_domain_size(const NumericVariableProxy &num_var) {
+int NumericTaskProxy::get_approximate_domain_size(const ResNumericVariableProxy &num_var) {
     // TODO: maybe have different variants
     assert(g_numeric_var_types[num_var.get_id()] == numType::regular);
     if (approximate_num_var_domain_sizes.empty()){

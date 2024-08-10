@@ -13,7 +13,7 @@
 #include <iostream>
 
 using namespace std;
-using numeric_pdb_helper::NumericTaskProxy;
+using namespace numeric_pdb_helper;
 
 namespace numeric_pdbs {
 PatternGeneratorGreedy::PatternGeneratorGreedy(const Options &opts)
@@ -38,7 +38,7 @@ Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> task) {
     Pattern pattern;
     VariableOrderFinder order(task_proxy, var_order_type, prefer_numeric_variables, rng);
     VariablesProxy variables = task_proxy->get_variables();
-    NumericVariablesProxy num_variables = task_proxy->get_numeric_variables();
+    ResNumericVariablesProxy num_variables = task_proxy->get_numeric_variables();
 
     int size = 1;
     while (true) {
@@ -51,7 +51,7 @@ Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> task) {
 
         int next_var_size;
         if (is_numeric) {
-            NumericVariableProxy next_var = num_variables[next_var_id];
+            ResNumericVariableProxy next_var = num_variables[next_var_id];
             next_var_size = max(1, task_proxy->get_approximate_domain_size(next_var));
         } else {
             VariableProxy next_var = variables[next_var_id];

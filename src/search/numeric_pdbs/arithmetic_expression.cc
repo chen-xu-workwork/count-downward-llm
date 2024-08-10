@@ -16,6 +16,7 @@ string ArithmeticExpressionOp::get_name() const {
 }
 
 ap_float ArithmeticExpressionOp::evaluate(ap_float value) const {
+    assert(lhs->get_var_id() == -1 || rhs->get_var_id() == -1);
     switch (c_op){
         case cal_operator::sum:
             return lhs->evaluate(value) + rhs-> evaluate(value);
@@ -25,6 +26,22 @@ ap_float ArithmeticExpressionOp::evaluate(ap_float value) const {
             return lhs->evaluate(value) * rhs->evaluate(value);
         case cal_operator::divi:
             return lhs->evaluate(value) / rhs->evaluate(value);
+        default:
+            cerr << "ERROR: unknown cal_operator: " << c_op << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    }
+}
+
+ap_float ArithmeticExpressionOp::evaluate(const State &state) const {
+    switch (c_op){
+        case cal_operator::sum:
+            return lhs->evaluate(state) + rhs-> evaluate(state);
+        case cal_operator::diff:
+            return lhs->evaluate(state) - rhs->evaluate(state);
+        case cal_operator::mult:
+            return lhs->evaluate(state) * rhs->evaluate(state);
+        case cal_operator::divi:
+            return lhs->evaluate(state) / rhs->evaluate(state);
         default:
             cerr << "ERROR: unknown cal_operator: " << c_op << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);

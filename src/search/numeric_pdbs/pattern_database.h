@@ -107,6 +107,8 @@ class PatternDatabase {
 
     bool exhausted_abstract_state_space;
 
+    mutable std::vector<ap_float> tmp_abstract_numeric_state; // avoid reallocation
+
     /*
       Recursive method; called by build_abstract_operators. In the case
       of a precondition with value = -1 in the concrete operator, all
@@ -192,7 +194,7 @@ class PatternDatabase {
     */
     std::size_t prop_hash_index(const State &state) const;
 
-    std::vector<ap_float> get_abstract_numeric_state(const State &state) const;
+    const std::vector<ap_float> &get_abstract_numeric_state(const State &state) const;
 
 public:
     /*

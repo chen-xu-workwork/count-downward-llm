@@ -305,7 +305,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
         variable_to_index[pattern.regular[i]] = i;
     }
-    NumericVariablesProxy num_vars = task_proxy->get_numeric_variables();
+    ResNumericVariablesProxy num_vars = task_proxy->get_numeric_variables();
     vector<int> num_variable_to_index(num_vars.size(), -1);
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
         num_variable_to_index[pattern.numeric[i]] = i;
@@ -368,7 +368,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         // initialize queue
         size_t prop_init = 0;
         for (size_t i = 0; i < pattern.regular.size(); ++i) {
-            prop_init += prop_hash_multipliers[i] * task_proxy->get_initial_state()[pattern.regular[i]].get_value();
+            prop_init += prop_hash_multipliers[i] * task_proxy->get_restricted_initial_state()[pattern.regular[i]];
         }
         vector<ap_float> num_init(pattern.numeric.size());
         for (int var: pattern.numeric) {
@@ -576,7 +576,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     }
 
     if (dump) {
-        cout << "Initial state h: " << get_value(task_proxy->get_initial_state()) << endl;
+        cout << "Initial state h: " << get_value(task_proxy->get_original_initial_state()) << endl;
     }
 }
 
@@ -695,12 +695,14 @@ size_t PatternDatabase::prop_hash_index(const State &state) const {
     return index;
 }
 
-vector<ap_float> PatternDatabase::get_abstract_numeric_state(const State &state) const {
-    vector<ap_float> abstract_numeric_state(pattern.numeric.size());
+const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State &state) const {
+    tmp_abstract_numeric_state.resize(pattern.numeric.size());
+    // TODO: avoid generating and copying a full vector every time
+    vector<ap_float> restricted_numeric_state(task_proxy->convert_numeric_state(state));
     for (size_t i = 0; i < pattern.numeric.size(); ++i){
-        abstract_numeric_state[i] = state.nval(pattern.numeric[i]);
+        tmp_abstract_numeric_state[i] = restricted_numeric_state[pattern.numeric[i]];
     }
-    return abstract_numeric_state;
+    return tmp_abstract_numeric_state;
 }
 
 ap_float PatternDatabase::get_value(const State &state) const {

@@ -5,6 +5,27 @@
 using namespace std;
 
 namespace numeric_pdb_helper {
+const std::string &ResNumericVariableProxy::get_name() const {
+    return task->get_numeric_variable_name(var_id);
+}
+
+numType ResNumericVariableProxy::get_var_type() const {
+    return task->get_numeric_var_type(var_id);
+}
+
+ap_float ResNumericVariableProxy::get_initial_state_value() const {
+    return task->get_initial_state_numeric_values()[var_id];
+}
+
+std::size_t ResNumericVariablesProxy::size() const {
+    return task->get_num_numeric_variables();
+}
+
+ResNumericVariableProxy ResNumericVariablesProxy::operator[](std::size_t index) const {
+    assert(index < size());
+    return {*task, static_cast<int>(index)};
+}
+
 size_t NumericPreconditionsProxy::size() const {
     return task->get_operator(op_index).numeric_preconditions.size();
 }

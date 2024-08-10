@@ -55,6 +55,36 @@ struct LinearNumericCondition {
     }
 };
 
+struct ResNumericVariable {
+    int var_id;
+    std::string name;
+    std::shared_ptr<arithmetic_expression::ArithmeticExpression> expr;
+    ResNumericVariable(int var_id,
+                       std::string name,
+                       std::shared_ptr<arithmetic_expression::ArithmeticExpression> expr)
+            : var_id(var_id), name(std::move(name)), expr(std::move(expr)) {
+    }
+};
+
+struct RestrictedState {
+    std::vector<int> values;
+    std::vector<ap_float> num_values;
+    RestrictedState(const std::vector<int> &values,
+                    const std::vector<ap_float> &num_values) : values(values),
+                                                               num_values(num_values) {
+    }
+
+    int operator[](std::size_t var_id) const {
+        assert(var_id < values.size());
+        return values[var_id];
+    }
+
+    ap_float nval(std::size_t var_id) const {
+        assert(var_id < num_values.size());
+        return num_values[var_id];
+    }
+};
+
 std::ostream &operator<<(std::ostream &os, const LinearNumericCondition &lnc);
 
 
@@ -79,7 +109,7 @@ public:
 
     const std::vector<FactProxy> &get_propositional_goals() const;
 
-    int get_approximate_domain_size(const NumericVariableProxy &num_var);
+    int get_approximate_domain_size(const ResNumericVariableProxy &num_var);
 
     bool is_derived_variable(const VariableProxy &var) const;
 
@@ -89,13 +119,11 @@ public:
     }
 
     int get_num_variables() const {
-        // TODO adapt this
         return task->get_num_variables();
     }
 
     int get_num_numeric_variables() const {
-        // TODO adapt this
-        return task->get_num_numeric_variables();
+        return task->get_num_numeric_variables() + auxiliary_numeric_variables.size();
     }
 
     size_t get_num_operators() const {
@@ -103,13 +131,27 @@ public:
     }
 
     VariablesProxy get_variables() const {
-        // TODO adapt this
         return task_proxy.get_variables();
     }
 
-    NumericVariablesProxy get_numeric_variables() const {
-        // TODO adapt this
-        return task_proxy.get_numeric_variables();
+    ResNumericVariablesProxy get_numeric_variables() const {
+        return ResNumericVariablesProxy(*this);
+    }
+
+    const std::string &get_numeric_variable_name(int var) const {
+        return task_proxy.get_numeric_variables()[var].get_name();
+    }
+
+    numType get_numeric_var_type(int var) const {
+        if (var < task->get_num_numeric_variables()){
+            return task_proxy.get_numeric_variables()[var].get_var_type();
+        } else {
+            return numType::regular;
+        }
+    }
+
+    const std::vector<ap_float> &get_initial_state_numeric_values() const {
+        return initial_state_values;
     }
 
     const Action &get_operator(int op_id) const {
@@ -128,9 +170,27 @@ public:
         return task->get_operator_name(op_id, false);
     }
 
-    State get_initial_state() const {
-        // TODO adapt this
+    State get_original_initial_state() const {
         return task_proxy.get_initial_state();
+    }
+
+    RestrictedState get_restricted_initial_state() const {
+        return RestrictedState(task->get_initial_state_values(), initial_state_values);
+    }
+
+    std::vector<ap_float> convert_numeric_state(const State &state) const {
+        std::vector<ap_float> num_values(get_num_numeric_variables());
+
+        for (int num_var = 0; num_var < task->get_num_numeric_variables(); ++num_var){
+            num_values[num_var] = state.nval(num_var);
+        }
+
+        int num_var = task->get_num_numeric_variables();
+        for (const auto &var : auxiliary_numeric_variables){
+            num_values[num_var++] = var.expr->evaluate(state);
+        }
+
+        return num_values;
     }
 
     const numeric_pdbs::CausalGraph &get_numeric_causal_graph() const;
@@ -150,7 +210,7 @@ private:
     void build_actions();
 
     std::shared_ptr<numeric_condition::RegularNumericCondition> build_condition(FactProxy pre);
-    void build_preconditions();
+    void build_numeric_preconditions();
 
     void build_goals();
 
@@ -169,6 +229,10 @@ private:
     std::vector<int> reg_num_var_id_to_glob_var_id; // map regular numeric variable id to global variable id
     std::vector<int> glob_var_id_to_reg_num_var_id; // map global variable id to regular numeric variable id
     std::vector<LinearNumericCondition> artificial_variables;
+
+    std::vector<ResNumericVariable> auxiliary_numeric_variables;
+
+    std::vector<ap_float> initial_state_values;
 
     std::vector<bool> is_derived_num_var; // true for propositional variables that encodes derived numeric facts
 

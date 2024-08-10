@@ -2,6 +2,7 @@
 #define NUMERIC_PDBS_ARITHMETIC_EXPRESSION_H
 
 #include "../globals.h"
+#include "../task_proxy.h"
 
 #include <cassert>
 
@@ -18,6 +19,8 @@ public:
     virtual std::string get_name() const = 0;
 
     virtual ap_float evaluate(ap_float value) const = 0;
+
+    virtual ap_float evaluate(const State &state) const = 0;
 
     virtual std::shared_ptr<ArithmeticExpression> simplify() = 0;
 
@@ -46,6 +49,10 @@ public:
 
     ap_float evaluate(ap_float value) const override {
         return value;
+    }
+
+    ap_float evaluate(const State &state) const override {
+        return state.nval(var_id);
     }
 
     std::shared_ptr<ArithmeticExpression> simplify() override {
@@ -79,6 +86,10 @@ public:
     }
 
     ap_float evaluate(ap_float /*value*/) const override {
+        return const_;
+    }
+
+    ap_float evaluate(const State &/*state*/) const override {
         return const_;
     }
 
@@ -120,6 +131,8 @@ public:
     std::string get_name() const override;
 
     ap_float evaluate(ap_float value) const override;
+
+    ap_float evaluate(const State &state) const override;
 
     std::shared_ptr<ArithmeticExpression> simplify() override {
         if (lhs->get_var_id() == -1 && rhs->get_var_id() == -1){

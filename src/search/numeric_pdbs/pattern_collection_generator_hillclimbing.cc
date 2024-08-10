@@ -27,7 +27,7 @@
 #include <limits>
 
 using namespace std;
-using numeric_pdb_helper::NumericTaskProxy;
+using namespace numeric_pdb_helper;
 
 namespace numeric_pdbs {
 struct HillClimbingTimeout : public exception {};
@@ -84,7 +84,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
                            pattern.numeric.begin(), pattern.numeric.end(),
                            back_inserter(relevant_num_vars));
             for (int rel_var_id: relevant_num_vars) {
-                NumericVariableProxy rel_var = task_proxy.get_numeric_variables()[rel_var_id];
+                ResNumericVariableProxy rel_var = task_proxy.get_numeric_variables()[rel_var_id];
                 int rel_var_size = task_proxy.get_approximate_domain_size(rel_var);
                 if (utils::is_product_within_limit(pdb_size, rel_var_size,
                                                    max_number_pdb_states)) {
@@ -132,7 +132,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
                            pattern.numeric.begin(), pattern.numeric.end(),
                            back_inserter(relevant_num_vars));
             for (int rel_var_id: relevant_num_vars) {
-                NumericVariableProxy rel_var = task_proxy.get_numeric_variables()[rel_var_id];
+                ResNumericVariableProxy rel_var = task_proxy.get_numeric_variables()[rel_var_id];
                 int rel_var_size = task_proxy.get_approximate_domain_size(rel_var);
                 if (utils::is_product_within_limit(pdb_size, rel_var_size,
                                                    max_number_pdb_states)) {
@@ -173,7 +173,7 @@ void PatternCollectionGeneratorHillclimbing::sample_states(
         const NumericTaskProxy &task_proxy, const SuccessorGenerator &successor_generator,
         vector<State> &samples, double average_operator_cost) {
     ap_float init_h = current_pdbs->get_value(
-            task_proxy.get_initial_state());
+            task_proxy.get_original_initial_state());
 
     try {
         samples = sample_states_with_random_walks(
@@ -305,7 +305,7 @@ void PatternCollectionGeneratorHillclimbing::hill_climbing(
     PDBCollection candidate_pdbs;
     int num_iterations = 0;
     size_t max_pdb_size = 0;
-    State initial_state = task_proxy->get_initial_state();
+    State initial_state = task_proxy->get_original_initial_state();
     try {
         while (true) {
             ++num_iterations;
@@ -403,7 +403,7 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
     current_pdbs = utils::make_unique_ptr<IncrementalCanonicalPDBs>(
         task, initial_pattern_collection, max_number_pdb_states);
 
-    State initial_state = num_task_proxy->get_initial_state();
+    State initial_state = num_task_proxy->get_original_initial_state();
     if (!current_pdbs->is_dead_end(initial_state)) {
         /* Generate initial candidate patterns (based on each pattern from
            the initial collection). */
