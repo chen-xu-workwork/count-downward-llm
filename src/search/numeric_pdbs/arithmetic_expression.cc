@@ -1,5 +1,7 @@
 #include "arithmetic_expression.h"
 
+#include "numeric_helper.h"
+
 #include "../utils/system.h"
 
 #include <iostream>
@@ -8,6 +10,9 @@
 using namespace std;
 
 namespace arithmetic_expression {
+ap_float ArithmeticExpressionVar::evaluate(const State &state, const numeric_pdb_helper::NumericTaskProxy &task) const {
+    return task.get_numeric_state_value(state, var_id);
+}
 
 string ArithmeticExpressionOp::get_name() const {
     stringstream ss;
@@ -19,7 +24,7 @@ ap_float ArithmeticExpressionOp::evaluate(ap_float value) const {
     assert(lhs->get_var_id() == -1 || rhs->get_var_id() == -1);
     switch (c_op){
         case cal_operator::sum:
-            return lhs->evaluate(value) + rhs-> evaluate(value);
+            return lhs->evaluate(value) + rhs->evaluate(value);
         case cal_operator::diff:
             return lhs->evaluate(value) - rhs->evaluate(value);
         case cal_operator::mult:
@@ -35,7 +40,7 @@ ap_float ArithmeticExpressionOp::evaluate(ap_float value) const {
 ap_float ArithmeticExpressionOp::evaluate(const vector<ap_float> &num_values) const {
     switch (c_op){
         case cal_operator::sum:
-            return lhs->evaluate(num_values) + rhs-> evaluate(num_values);
+            return lhs->evaluate(num_values) + rhs->evaluate(num_values);
         case cal_operator::diff:
             return lhs->evaluate(num_values) - rhs->evaluate(num_values);
         case cal_operator::mult:
@@ -48,16 +53,45 @@ ap_float ArithmeticExpressionOp::evaluate(const vector<ap_float> &num_values) co
     }
 }
 
-ap_float ArithmeticExpressionOp::evaluate(const State &state) const {
+ap_float ArithmeticExpressionOp::evaluate_ignore_additive_consts(const vector<ap_float> &num_values) const {
     switch (c_op){
         case cal_operator::sum:
-            return lhs->evaluate(state) + rhs-> evaluate(state);
+            if (lhs->is_constant()){
+                assert(!rhs->is_constant());
+                return rhs->evaluate_ignore_additive_consts(num_values);
+            } else if (rhs->is_constant()){
+                return lhs->evaluate_ignore_additive_consts(num_values);
+            }
+            return lhs->evaluate_ignore_additive_consts(num_values) + rhs->evaluate_ignore_additive_consts(num_values);
         case cal_operator::diff:
-            return lhs->evaluate(state) - rhs->evaluate(state);
+            if (lhs->is_constant()){
+                assert(!rhs->is_constant());
+                return -rhs->evaluate_ignore_additive_consts(num_values);
+            } else if (rhs->is_constant()){
+                return lhs->evaluate_ignore_additive_consts(num_values);
+            }
+            return lhs->evaluate_ignore_additive_consts(num_values) - rhs->evaluate_ignore_additive_consts(num_values);
         case cal_operator::mult:
-            return lhs->evaluate(state) * rhs->evaluate(state);
+            return lhs->evaluate_ignore_additive_consts(num_values) * rhs->evaluate_ignore_additive_consts(num_values);
         case cal_operator::divi:
-            return lhs->evaluate(state) / rhs->evaluate(state);
+            return lhs->evaluate_ignore_additive_consts(num_values) / rhs->evaluate_ignore_additive_consts(num_values);
+        default:
+            cerr << "ERROR: unknown cal_operator: " << c_op << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    }
+}
+
+ap_float ArithmeticExpressionOp::evaluate(const State &state,
+                                          const numeric_pdb_helper::NumericTaskProxy &task) const {
+    switch (c_op){
+        case cal_operator::sum:
+            return lhs->evaluate(state, task) + rhs->evaluate(state, task);
+        case cal_operator::diff:
+            return lhs->evaluate(state, task) - rhs->evaluate(state, task);
+        case cal_operator::mult:
+            return lhs->evaluate(state, task) * rhs->evaluate(state, task);
+        case cal_operator::divi:
+            return lhs->evaluate(state, task) / rhs->evaluate(state, task);
         default:
             cerr << "ERROR: unknown cal_operator: " << c_op << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);

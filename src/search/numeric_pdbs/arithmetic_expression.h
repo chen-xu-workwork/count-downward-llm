@@ -6,6 +6,10 @@
 
 #include <cassert>
 
+namespace numeric_pdb_helper {
+class NumericTaskProxy;
+}
+
 namespace arithmetic_expression {
 
 class ArithmeticExpression {
@@ -23,13 +27,18 @@ public:
     // this expects an entry for every numeric variable, not just regular ones
     virtual ap_float evaluate(const std::vector<ap_float> &num_values) const = 0;
 
-    virtual ap_float evaluate(const State &state) const = 0;
+    // this expects an entry for every numeric variable, not just regular ones
+    virtual ap_float evaluate_ignore_additive_consts(const std::vector<ap_float> &num_values) const = 0;
+
+    virtual ap_float evaluate(const State &state, const numeric_pdb_helper::NumericTaskProxy &task) const = 0;
 
     virtual std::shared_ptr<ArithmeticExpression> simplify() = 0;
 
     virtual ap_float get_multiplier() const = 0;
 
     virtual ap_float get_summand() const = 0;
+
+    virtual bool is_constant() const = 0;
 };
 
 class ArithmeticExpressionVar : public ArithmeticExpression {
@@ -57,12 +66,15 @@ public:
     }
 
     ap_float evaluate(const std::vector<ap_float> &num_values) const override {
+        assert(static_cast<size_t>(var_id) < num_values.size());
         return num_values[var_id];
     }
 
-    ap_float evaluate(const State &state) const override {
-        return state.nval(var_id);
+    ap_float evaluate_ignore_additive_consts(const std::vector<ap_float> &num_values) const override {
+        return num_values[var_id];
     }
+
+    ap_float evaluate(const State &state, const numeric_pdb_helper::NumericTaskProxy &task) const override;
 
     std::shared_ptr<ArithmeticExpression> simplify() override {
         return std::make_shared<ArithmeticExpressionVar>(*this);
@@ -74,6 +86,10 @@ public:
 
     ap_float get_summand() const override {
         return 0;
+    }
+
+    bool is_constant() const override {
+        return false;
     }
 };
 
@@ -102,7 +118,11 @@ public:
         return const_;
     }
 
-    ap_float evaluate(const State &/*state*/) const override {
+    ap_float evaluate_ignore_additive_consts(const std::vector<ap_float> &/*num_values*/) const override {
+        return const_;
+    }
+
+    ap_float evaluate(const State &/*state*/, const numeric_pdb_helper::NumericTaskProxy &/*task*/) const override {
         return const_;
     }
 
@@ -116,6 +136,10 @@ public:
 
     ap_float get_summand() const override {
         return const_;
+    }
+
+    bool is_constant() const override {
+        return true;
     }
 };
 
@@ -147,7 +171,9 @@ public:
 
     ap_float evaluate(const std::vector<ap_float> &num_values) const override;
 
-    ap_float evaluate(const State &state) const override;
+    ap_float evaluate_ignore_additive_consts(const std::vector<ap_float> &num_values) const override;
+
+    ap_float evaluate(const State &state, const numeric_pdb_helper::NumericTaskProxy &task) const override;
 
     std::shared_ptr<ArithmeticExpression> simplify() override {
         if (lhs->get_var_id() == -1 && rhs->get_var_id() == -1){
@@ -161,6 +187,10 @@ public:
     ap_float get_multiplier() const override;
 
     ap_float get_summand() const override;
+
+    bool is_constant() const override {
+        return lhs->is_constant() && rhs->is_constant();
+    }
 };
 }
 

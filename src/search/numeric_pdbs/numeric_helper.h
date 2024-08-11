@@ -182,7 +182,7 @@ public:
         if (num_var < task->get_num_numeric_variables()){
             return state.nval(num_var);
         } else {
-            return auxiliary_numeric_variables[num_var - task->get_num_numeric_variables()].expr->evaluate(state);
+            return auxiliary_numeric_variables[num_var - task->get_num_numeric_variables()].expr->evaluate(state, *this);
         }
     }
 

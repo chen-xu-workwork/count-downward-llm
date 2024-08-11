@@ -231,24 +231,30 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
                 }
             }
         }
-
-        for (const auto &aux_var : auxiliary_numeric_variables){
-            if (!action.asgn_effs.empty()){
-                // TODO add support for this
-                cerr << "assign effects not yet supported" << endl;
-                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-            }
-
-            for (int reg_var_id = 0; reg_var_id < num_original_regular_numeric_variables; ++reg_var_id){
-                num_values[get_global_var_id(reg_var_id)] = action.eff_list[reg_var_id];
-            }
-
-            ap_float val = aux_var.expr->evaluate(num_values);
-            action.eff_list[get_regular_var_id(aux_var.var_id)] = val;
-
-//            cout << "effect value for action " << action.eff_list << " is " << val << endl;
-        }
     }
+    for (const auto &aux_var : auxiliary_numeric_variables){
+        if (!action.asgn_effs.empty()){
+            // TODO add support for this
+            cerr << "assign effects not yet supported" << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
+
+//        cout << "action effects:" << endl;
+        for (int reg_var_id = 0; reg_var_id < static_cast<int>(action.eff_list.size()); ++reg_var_id){
+            num_values[get_global_var_id(reg_var_id)] = action.eff_list[reg_var_id];
+//            if (action.eff_list[reg_var_id] != 0) {
+//                cout << "var" << get_global_var_id(reg_var_id) << " += " << action.eff_list[reg_var_id] << endl;
+//            }
+        }
+
+        ap_float val = aux_var.expr->evaluate_ignore_additive_consts(num_values);
+        action.eff_list[get_regular_var_id(aux_var.var_id)] = val;
+//        cout << aux_var.expr->get_name() << endl;
+//
+//        cout << "effect value for var" << aux_var.var_id << " is " << val << endl;
+//        cout << "------------------" << endl;
+    }
+//    cout << "final effs of action: " << action.eff_list << endl;
 }
 
 void NumericTaskProxy::build_actions() {
@@ -272,6 +278,8 @@ shared_ptr<ArithmeticExpressionVar> NumericTaskProxy::create_auxiliary_variable(
         const string &name,
         shared_ptr<ArithmeticExpression> expr) {
 
+    expr = expr->simplify();
+
     auto it = auxiliary_num_vars_expressions.find(name);
     if (it != auxiliary_num_vars_expressions.end()){
         int var_id = auxiliary_numeric_variables[it->second].var_id;
@@ -287,7 +295,7 @@ shared_ptr<ArithmeticExpressionVar> NumericTaskProxy::create_auxiliary_variable(
     glob_var_id_to_reg_num_var_id.push_back(n_numeric_variables);
     ++n_numeric_variables;
 
-    initial_state_values.push_back(expr->evaluate(task->get_initial_state_numeric_values()));
+    initial_state_values.push_back(expr->evaluate(initial_state_values));
 
     auxiliary_num_vars_expressions[name] = auxiliary_numeric_variables.size();
     auxiliary_numeric_variables.emplace_back(var_id, name, std::move(expr));
@@ -352,9 +360,7 @@ void NumericTaskProxy::build_numeric_preconditions() {
             // check if proper numeric condition
             assert(!is_derived_variable(pre.get_variable()));
             if (is_derived_numeric_variable(pre.get_variable())) {
-
                 auto num_condition = build_condition(pre);
-
                 regular_numeric_conditions[pre.get_variable().get_id()][pre.get_value()] = num_condition;
             }
         }
@@ -446,9 +452,10 @@ shared_ptr<arithmetic_expression::ArithmeticExpression> NumericTaskProxy::parse_
             auto lhs = parse_arithmetic_expression(assgn_ax.get_left_variable());
             auto rhs = parse_arithmetic_expression(assgn_ax.get_right_variable());
 
-            auto expr = make_shared<ArithmeticExpressionOp>(lhs,
-                                                            assgn_ax.get_arithmetic_operator_type(),
-                                                            rhs);
+            auto expr = make_shared<ArithmeticExpressionOp>(
+                    lhs,
+                    assgn_ax.get_arithmetic_operator_type(),
+                    rhs);
 
             if (lhs->get_var_id() != -1 && rhs->get_var_id() != -1){
                 return create_auxiliary_variable(num_var.get_name(), expr);
