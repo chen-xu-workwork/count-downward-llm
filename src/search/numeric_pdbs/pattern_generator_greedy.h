@@ -25,7 +25,8 @@ public:
                            std::shared_ptr<utils::RandomNumberGenerator> rng);
     virtual ~PatternGeneratorGreedy() = default;
 
-    Pattern generate(std::shared_ptr<AbstractTask> task) override;
+    Pattern generate(std::shared_ptr<AbstractTask> task,
+                     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy) override;
 };
 }
 

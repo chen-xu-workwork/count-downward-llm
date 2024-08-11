@@ -56,7 +56,7 @@ struct LinearNumericCondition {
 };
 
 struct ResNumericVariable {
-    int var_id;
+    int var_id; // global var id
     std::string name;
     std::shared_ptr<arithmetic_expression::ArithmeticExpression> expr;
     ResNumericVariable(int var_id,
@@ -178,19 +178,12 @@ public:
         return RestrictedState(task->get_initial_state_values(), initial_state_values);
     }
 
-    std::vector<ap_float> convert_numeric_state(const State &state) const {
-        std::vector<ap_float> num_values(get_num_numeric_variables());
-
-        for (int num_var = 0; num_var < task->get_num_numeric_variables(); ++num_var){
-            num_values[num_var] = state.nval(num_var);
+    ap_float get_numeric_state_value(const State &state, int num_var) const {
+        if (num_var < task->get_num_numeric_variables()){
+            return state.nval(num_var);
+        } else {
+            return auxiliary_numeric_variables[num_var - task->get_num_numeric_variables()].expr->evaluate(state);
         }
-
-        int num_var = task->get_num_numeric_variables();
-        for (const auto &var : auxiliary_numeric_variables){
-            num_values[num_var++] = var.expr->evaluate(state);
-        }
-
-        return num_values;
     }
 
     const numeric_pdbs::CausalGraph &get_numeric_causal_graph() const;
@@ -214,7 +207,11 @@ private:
 
     void build_goals();
 
-    std::shared_ptr<arithmetic_expression::ArithmeticExpression> parse_arithmetic_expression(NumericVariableProxy num_var) const;
+    std::shared_ptr<arithmetic_expression::ArithmeticExpression> parse_arithmetic_expression(NumericVariableProxy num_var);
+
+    std::shared_ptr<arithmetic_expression::ArithmeticExpressionVar> create_auxiliary_variable(
+            const std::string &name,
+            std::shared_ptr<arithmetic_expression::ArithmeticExpression> expr);
 
 
     std::vector<std::vector<std::shared_ptr<numeric_condition::RegularNumericCondition>>> regular_numeric_conditions;
@@ -230,6 +227,7 @@ private:
     std::vector<int> glob_var_id_to_reg_num_var_id; // map global variable id to regular numeric variable id
     std::vector<LinearNumericCondition> artificial_variables;
 
+    std::unordered_map<std::string, size_t> auxiliary_num_vars_expressions;
     std::vector<ResNumericVariable> auxiliary_numeric_variables;
 
     std::vector<ap_float> initial_state_values;

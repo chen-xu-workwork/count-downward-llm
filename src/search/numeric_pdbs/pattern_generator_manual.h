@@ -15,7 +15,8 @@ public:
     explicit PatternGeneratorManual(const options::Options &opts);
     virtual ~PatternGeneratorManual() = default;
 
-    virtual Pattern generate(std::shared_ptr<AbstractTask> task) override;
+    virtual Pattern generate(std::shared_ptr<AbstractTask> task,
+                             std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy) override;
 };
 }
 

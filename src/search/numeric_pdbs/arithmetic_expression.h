@@ -20,6 +20,9 @@ public:
 
     virtual ap_float evaluate(ap_float value) const = 0;
 
+    // this expects an entry for every numeric variable, not just regular ones
+    virtual ap_float evaluate(const std::vector<ap_float> &num_values) const = 0;
+
     virtual ap_float evaluate(const State &state) const = 0;
 
     virtual std::shared_ptr<ArithmeticExpression> simplify() = 0;
@@ -37,6 +40,8 @@ public:
     explicit ArithmeticExpressionVar(int var_id)
             : var_id(var_id) {
         assert(var_id >= 0);
+        assert(static_cast<size_t>(var_id) >= g_numeric_var_types.size() ||
+               g_numeric_var_types[var_id] == numType::regular);
     };
 
     int get_var_id() const override {
@@ -49,6 +54,10 @@ public:
 
     ap_float evaluate(ap_float value) const override {
         return value;
+    }
+
+    ap_float evaluate(const std::vector<ap_float> &num_values) const override {
+        return num_values[var_id];
     }
 
     ap_float evaluate(const State &state) const override {
@@ -86,6 +95,10 @@ public:
     }
 
     ap_float evaluate(ap_float /*value*/) const override {
+        return const_;
+    }
+
+    ap_float evaluate(const std::vector<ap_float> &/*num_values*/) const override {
         return const_;
     }
 
@@ -131,6 +144,8 @@ public:
     std::string get_name() const override;
 
     ap_float evaluate(ap_float value) const override;
+
+    ap_float evaluate(const std::vector<ap_float> &num_values) const override;
 
     ap_float evaluate(const State &state) const override;
 

@@ -33,8 +33,9 @@ NumericTaskProxy::NumericTaskProxy(const shared_ptr<AbstractTask> task) :
     build_artificial_variables();
     find_derived_numeric_variables();
     build_numeric_preconditions();
-    build_actions();
     build_goals();
+    build_actions();
+    cout << "Number auxiliary numeric variables: " << auxiliary_numeric_variables.size() << endl;
 }
 
 bool NumericTaskProxy::is_derived_variable(const VariableProxy &var) const {
@@ -68,6 +69,7 @@ void NumericTaskProxy::build_numeric_variables() {
             ++n_numeric_variables;
         }
     }
+    reg_num_var_id_to_glob_var_id.resize(n_numeric_variables);
 }
 
 void NumericTaskProxy::build_artificial_variables() {
@@ -78,7 +80,7 @@ void NumericTaskProxy::build_artificial_variables() {
     for (size_t num_id = 0; num_id < num_variables.size(); ++num_id) {
         // artificial_variables[num_id].coefficients.assign(n_numeric_variables,0);
         if (num_variables[num_id].get_var_type() == regular) {
-            artificial_variables[num_id].coefficients[glob_var_id_to_reg_num_var_id[num_id]] = 1;
+            artificial_variables[num_id].coefficients[get_regular_var_id(num_id)] = 1;
             // cout << num_id << " regular " << artificial_variables[num_id] << " " <<
             // num_variables[num_id].get_name() << endl;
         } else if (num_variables[num_id].get_var_type()) {
@@ -162,15 +164,19 @@ void NumericTaskProxy::build_artificial_variables() {
 
 void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
 
+    auto &action = actions[op_id];
+
     for (FactProxy pre : op.get_preconditions()){
         assert(!is_derived_variable(pre.get_variable()));
         if (is_derived_numeric_variable(pre.get_variable())) {
-            actions[op_id].numeric_preconditions.push_back(build_condition(pre));
+            action.numeric_preconditions.push_back(build_condition(pre));
         } else {
-            actions[op_id].preconditions.push_back(pre);
+            action.preconditions.push_back(pre);
         }
     }
 
+    int num_original_regular_numeric_variables = n_numeric_variables - auxiliary_numeric_variables.size();
+    vector<ap_float> num_values(task->get_num_numeric_variables() + auxiliary_numeric_variables.size());
     for (const AssEffectProxy &eff : op.get_ass_effects()) {
         assert(eff.get_conditions().empty());
 
@@ -180,7 +186,7 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
             continue;
         }
 
-        int id_num = glob_var_id_to_reg_num_var_id[lhs];
+        int id_num = get_regular_var_id(lhs);
 
         assert(id_num != -1);
 
@@ -193,21 +199,21 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
 
         if (is_simple_effect) {
             if (oper == increase)
-                actions[op_id].eff_list[id_num] = av.constant;
+                action.eff_list[id_num] = av.constant;
             if (oper == decrease)
-                actions[op_id].eff_list[id_num] = -av.constant;
+                action.eff_list[id_num] = -av.constant;
         } else {
             switch (oper) {
                 case (assign):
-                    actions[op_id].asgn_effs.emplace_back(lhs, av.constant);
+                    action.asgn_effs.emplace_back(lhs, av.constant);
                     break;
 //                case (increase): {
 //                    for (int var = 0; var < n_numeric_variables; ++var) {
 //                        coefficients[var] = av.coefficients[var];
 //                        if (id_num == var) coefficients[var] += 1.0;
 //                    }
-//                    actions[op_id].linear_eff_coefficeints.push_back(coefficients);
-//                    actions[op_id].linear_eff_constants.push_back(av.constant);
+//                    action.linear_eff_coefficeints.push_back(coefficients);
+//                    action.linear_eff_constants.push_back(av.constant);
 //                    break;
 //                }
 //                case (decrease): {
@@ -215,8 +221,8 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
 //                        coefficients[var] = -av.coefficients[var];
 //                        if (id_num == var) coefficients[var] += 1.0;
 //                    }
-//                    actions[op_id].linear_eff_coefficeints.push_back(coefficients);
-//                    actions[op_id].linear_eff_constants.push_back(-av.constant);
+//                    action.linear_eff_coefficeints.push_back(coefficients);
+//                    action.linear_eff_constants.push_back(-av.constant);
 //                    break;
 //                }
                 default: {
@@ -224,6 +230,23 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
                     utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
                 }
             }
+        }
+
+        for (const auto &aux_var : auxiliary_numeric_variables){
+            if (!action.asgn_effs.empty()){
+                // TODO add support for this
+                cerr << "assign effects not yet supported" << endl;
+                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+            }
+
+            for (int reg_var_id = 0; reg_var_id < num_original_regular_numeric_variables; ++reg_var_id){
+                num_values[get_global_var_id(reg_var_id)] = action.eff_list[reg_var_id];
+            }
+
+            ap_float val = aux_var.expr->evaluate(num_values);
+            action.eff_list[get_regular_var_id(aux_var.var_id)] = val;
+
+//            cout << "effect value for action " << action.eff_list << " is " << val << endl;
         }
     }
 }
@@ -243,6 +266,32 @@ inline int get_achieving_comp_axiom(const TaskProxy &proxy, const FactProxy &con
         }
     }
     return -1;
+}
+
+shared_ptr<ArithmeticExpressionVar> NumericTaskProxy::create_auxiliary_variable(
+        const string &name,
+        shared_ptr<ArithmeticExpression> expr) {
+
+    auto it = auxiliary_num_vars_expressions.find(name);
+    if (it != auxiliary_num_vars_expressions.end()){
+        int var_id = auxiliary_numeric_variables[it->second].var_id;
+        return make_shared<ArithmeticExpressionVar>(var_id);
+    }
+
+    int var_id = task->get_num_numeric_variables() + auxiliary_numeric_variables.size();
+
+//    cout << "new aux var for " << name << endl;
+//    cout << "expression: " << expr->get_name() << endl;
+
+    reg_num_var_id_to_glob_var_id.push_back(var_id);
+    glob_var_id_to_reg_num_var_id.push_back(n_numeric_variables);
+    ++n_numeric_variables;
+
+    initial_state_values.push_back(expr->evaluate(task->get_initial_state_numeric_values()));
+
+    auxiliary_num_vars_expressions[name] = auxiliary_numeric_variables.size();
+    auxiliary_numeric_variables.emplace_back(var_id, name, std::move(expr));
+    return make_shared<ArithmeticExpressionVar>(var_id);
 }
 
 shared_ptr<RegularNumericCondition> NumericTaskProxy::build_condition(FactProxy pre) {
@@ -279,10 +328,11 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::build_condition(FactProxy 
 //    cout << rhs->get_name() << endl;
 
     if (lhs->get_var_id() != -1 && rhs->get_var_id() != -1) {
-        cerr << "ERROR: only simple numeric expressions containing a single variable are supported." << endl
-             << "[" << pre.get_name() << "] however refers to multiple numeric variables."
-             << endl;
-        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        auto expr = make_shared<ArithmeticExpressionOp>(lhs, cal_operator::diff, rhs);
+        auto var = create_auxiliary_variable(pre.get_name(), expr);
+        auto zero = make_shared<ArithmeticExpressionConst>(0);
+
+        return make_shared<RegularNumericCondition>(var, c_op.get_comparison_operator_type(), zero);
     }
 
 //    cout << make_shared<RegularNumericCondition>(lhs, c_op.get_comparison_operator_type(), rhs)->get_name()
@@ -362,17 +412,21 @@ bool NumericTaskProxy::is_derived_numeric_variable(const VariableProxy &var_prox
 }
 
 int NumericTaskProxy::get_regular_var_id(int num_var_id) const {
+    assert(num_var_id >= 0);
+    assert(static_cast<size_t>(num_var_id) < glob_var_id_to_reg_num_var_id.size());
     assert(glob_var_id_to_reg_num_var_id[num_var_id] != -1);
     return glob_var_id_to_reg_num_var_id[num_var_id];
 }
 
 int NumericTaskProxy::get_global_var_id(int regular_num_var_id) const {
+    assert(regular_num_var_id >= 0);
+    assert(static_cast<size_t>(regular_num_var_id) < reg_num_var_id_to_glob_var_id.size());
     assert(reg_num_var_id_to_glob_var_id[regular_num_var_id] != -1);
     return reg_num_var_id_to_glob_var_id[regular_num_var_id];
 }
 
 shared_ptr<arithmetic_expression::ArithmeticExpression> NumericTaskProxy::parse_arithmetic_expression(
-        NumericVariableProxy num_var) const {
+        NumericVariableProxy num_var) {
 
     switch (num_var.get_var_type()) {
         case regular:
@@ -392,16 +446,15 @@ shared_ptr<arithmetic_expression::ArithmeticExpression> NumericTaskProxy::parse_
             auto lhs = parse_arithmetic_expression(assgn_ax.get_left_variable());
             auto rhs = parse_arithmetic_expression(assgn_ax.get_right_variable());
 
+            auto expr = make_shared<ArithmeticExpressionOp>(lhs,
+                                                            assgn_ax.get_arithmetic_operator_type(),
+                                                            rhs);
+
             if (lhs->get_var_id() != -1 && rhs->get_var_id() != -1){
-                cerr << "ERROR: only simple numeric expressions containing a single variable are supported." << endl
-                     << "[" << num_var.get_name() << "] however refers to multiple numeric variables."
-                     << endl;
-                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+                return create_auxiliary_variable(num_var.get_name(), expr);
             }
 
-            return make_shared<ArithmeticExpressionOp>(lhs,
-                                                       assgn_ax.get_arithmetic_operator_type(),
-                                                       rhs);
+            return expr;
         }
         default: // could be instrumentation or unknown
             cerr << "ERROR: unsupported numeric variable type " << num_var.get_var_type() << endl;
@@ -426,9 +479,11 @@ const vector<FactProxy> &NumericTaskProxy::get_propositional_goals() const {
 
 int NumericTaskProxy::get_approximate_domain_size(const ResNumericVariableProxy &num_var) {
     // TODO: maybe have different variants
-    assert(g_numeric_var_types[num_var.get_id()] == numType::regular);
+    assert(num_var.get_id() >= 0);
+    assert(static_cast<size_t>(num_var.get_id()) >= g_numeric_var_types.size() ||
+           g_numeric_var_types[num_var.get_id()] == numType::regular);
     if (approximate_num_var_domain_sizes.empty()){
-        approximate_num_var_domain_sizes.resize(task_proxy.get_numeric_variables().size(), -1);
+        approximate_num_var_domain_sizes.resize(get_num_numeric_variables(), -1);
     }
     if (approximate_num_var_domain_sizes[num_var.get_id()] == -1){
         // TODO precompute this on construction
@@ -469,7 +524,7 @@ int NumericTaskProxy::get_approximate_domain_size(const ResNumericVariableProxy 
             }
         }
 
-        ap_float ini_val = g_initial_state_numeric[num_var.get_id()];
+        ap_float ini_val = get_initial_state_numeric_values()[num_var.get_id()];
         min_const = min(min_const, ini_val);
         max_const = max(max_const, ini_val);
 

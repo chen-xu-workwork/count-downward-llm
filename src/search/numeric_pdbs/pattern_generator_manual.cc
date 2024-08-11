@@ -11,6 +11,7 @@
 #include <iostream>
 
 using namespace std;
+using numeric_pdb_helper::NumericTaskProxy;
 
 namespace numeric_pdbs {
 PatternGeneratorManual::PatternGeneratorManual(const Options &opts) :
@@ -20,9 +21,9 @@ PatternGeneratorManual::PatternGeneratorManual(const Options &opts) :
     utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
 }
 
-Pattern PatternGeneratorManual::generate(shared_ptr<AbstractTask> task) {
-    numeric_pdb_helper::NumericTaskProxy task_proxy(task);
-    validate_and_normalize_pattern(task_proxy, pattern);
+Pattern PatternGeneratorManual::generate(shared_ptr<AbstractTask> /*task*/,
+                                         shared_ptr<NumericTaskProxy> task_proxy) {
+    validate_and_normalize_pattern(*task_proxy, pattern);
     cout << "Manual pattern: " << pattern.regular << endl;
     return pattern;
 }

@@ -17,8 +17,8 @@ PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
                                      const Options &opts) {
     auto pattern_generator =
         opts.get<shared_ptr<PatternGenerator>>("pattern");
-    Pattern pattern = pattern_generator->generate(task);
     shared_ptr<NumericTaskProxy> task_proxy = make_shared<NumericTaskProxy>(task);
+    Pattern pattern = pattern_generator->generate(task, task_proxy);
     return {task_proxy, pattern, pattern_generator->get_max_number_pdb_states(), true};
 }
 

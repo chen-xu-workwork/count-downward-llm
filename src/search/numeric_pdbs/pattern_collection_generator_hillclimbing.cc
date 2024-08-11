@@ -401,7 +401,7 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
     }
 
     current_pdbs = utils::make_unique_ptr<IncrementalCanonicalPDBs>(
-        task, initial_pattern_collection, max_number_pdb_states);
+        task, num_task_proxy, initial_pattern_collection, max_number_pdb_states);
 
     State initial_state = num_task_proxy->get_original_initial_state();
     if (!current_pdbs->is_dead_end(initial_state)) {

@@ -298,7 +298,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     //  is as dense as possible, and only having it just large enough to fit the abstract state with highest ID that has
     //  a finite heuristic value, with all others being deadends or mapped to min_action_cost by convention.
 
-    auto *tmp_state_registry = new NumericStateRegistry();
+    auto tmp_state_registry = new NumericStateRegistry();
 
     VariablesProxy vars = task_proxy->get_variables();
     vector<int> variable_to_index(vars.size(), -1);
@@ -313,7 +313,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
     AdaptiveQueue<size_t> pq;
     vector<vector<pair<int, size_t>>> parent_pointers;
-    size_t num_reached_states = 0;
 
     {
         // compute all abstract operators
@@ -404,7 +403,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
          *
          */
 
-        while (!open.empty() && num_reached_states < max_number_states) {
+        while (!open.empty() && tmp_state_registry->size() < max_number_states) {
             auto [cost, state_id] = open.pop();
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 
@@ -449,7 +448,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 }
                 parent_pointers[succ_id].emplace_back(abs_op->get_op_id(), state_id);
                 if (succ_id >= closed.size() || !closed[succ_id]) {
-                    ++num_reached_states;
                     open.push(cost + abs_op->get_cost(), succ_id);
                 }
             }
@@ -476,7 +474,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 }
                 parent_pointers[succ_id].emplace_back(op_id, state_id);
                 if (succ_id >= closed.size() || !closed[succ_id]) {
-                    ++num_reached_states;
                     ap_float op_cost;
                     if (operator_costs.empty()) {
                         op_cost = task_proxy->get_operators()[op_id].get_cost();
@@ -488,12 +485,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
         }
 
-        if (num_reached_states < max_number_states) {
+        if (tmp_state_registry->size() < max_number_states) {
             exhausted_abstract_state_space = true;
-        }
-
-        if (dump) {
-            cout << "Generated abstract states: " << num_reached_states << endl;
         }
 
         assert(distances.empty());
@@ -503,25 +496,9 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             pq.push(0, goal_state_id);
         }
 
-        size_t num_open_goal_states = 0;
-        while (!open.empty()) {
-            size_t state_id = open.pop().second;
-            if (state_id < closed.size() && closed[state_id]) {
-                // open lists may contain closed states
-                continue;
-            }
-            const NumericState &state = tmp_state_registry->lookup_state(state_id);
-            if (is_goal_state(state, num_variable_to_index)) {
-                // we have not checked this for states in open
-                pq.push(0, state_id);
-                num_open_goal_states++;
-            } else {
-                pq.push(min_action_cost, state_id);
-            }
-        }
-
         if (dump) {
-            cout << "Reached abstract goal states: " << goal_states.size() + num_open_goal_states << endl;
+            cout << "Generated abstract states: " << tmp_state_registry->size() << endl;
+            cout << "Reached abstract goal states: " << goal_states.size() << endl;
         }
     }
 
@@ -554,7 +531,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         cout << "Number backwards reachable abstract states: " << num_bwd_reached_states << endl;
     }
 
-    if (num_bwd_reached_states < 0.75 * num_reached_states) {
+    if (num_bwd_reached_states < 0.75 * tmp_state_registry->size()) {
         state_registry = make_unique<NumericStateRegistry>();
         size_t state_id = 0;
         for (size_t i = 0; i < distances.size(); ++i) {
@@ -680,7 +657,8 @@ bool PatternDatabase::is_abstract_goal_state(const State &state) const {
         }
     }
     for (const auto &num_goal : numeric_goals){
-        if (!num_goal.satisfied(state.nval(num_goal.get_var_id()))){
+        ap_float val = task_proxy->get_numeric_state_value(state, num_goal.get_var_id());
+        if (!num_goal.satisfied(val)){
             return false;
         }
     }
@@ -697,10 +675,10 @@ size_t PatternDatabase::prop_hash_index(const State &state) const {
 
 const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State &state) const {
     tmp_abstract_numeric_state.resize(pattern.numeric.size());
-    // TODO: avoid generating and copying a full vector every time
-    vector<ap_float> restricted_numeric_state(task_proxy->convert_numeric_state(state));
     for (size_t i = 0; i < pattern.numeric.size(); ++i){
-        tmp_abstract_numeric_state[i] = restricted_numeric_state[pattern.numeric[i]];
+        int var = pattern.numeric[i];
+        ap_float val = task_proxy->get_numeric_state_value(state, var);
+        tmp_abstract_numeric_state[i] = val;
     }
     return tmp_abstract_numeric_state;
 }

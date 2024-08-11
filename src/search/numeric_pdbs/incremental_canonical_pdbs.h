@@ -31,7 +31,8 @@ class IncrementalCanonicalPDBs {
 
     void recompute_max_additive_subsets();
 public:
-    explicit IncrementalCanonicalPDBs(const std::shared_ptr<AbstractTask> task,
+    explicit IncrementalCanonicalPDBs(std::shared_ptr<AbstractTask> task,
+                                      std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
                                       const PatternCollection &intitial_patterns,
                                       size_t max_number_pdb_states);
     virtual ~IncrementalCanonicalPDBs() = default;

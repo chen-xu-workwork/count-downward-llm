@@ -9,14 +9,16 @@
 #include <limits>
 
 using namespace std;
+using numeric_pdb_helper::NumericTaskProxy;
 
 namespace numeric_pdbs {
 IncrementalCanonicalPDBs::IncrementalCanonicalPDBs(
-    const shared_ptr<AbstractTask> task,
+    shared_ptr<AbstractTask> task,
+    shared_ptr<NumericTaskProxy> task_proxy,
     const PatternCollection &intitial_patterns,
     size_t max_number_pdb_states)
-    : task(task),
-      task_proxy(make_shared<numeric_pdb_helper::NumericTaskProxy>(task)),
+    : task(std::move(task)),
+      task_proxy(std::move(task_proxy)),
       patterns(make_shared<PatternCollection>(intitial_patterns.begin(),
                                               intitial_patterns.end())),
       pattern_databases(make_shared<PDBCollection>()),
@@ -27,7 +29,7 @@ IncrementalCanonicalPDBs::IncrementalCanonicalPDBs(
     pattern_databases->reserve(patterns->size());
     for (const Pattern &pattern : *patterns)
         add_pdb_for_pattern(pattern);
-    are_additive = compute_additive_vars(*task_proxy);
+    are_additive = compute_additive_vars(*this->task_proxy);
     recompute_max_additive_subsets();
     cout << "PDB collection construction time: " << timer << endl;
 }

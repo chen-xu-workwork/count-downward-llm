@@ -32,6 +32,22 @@ ap_float ArithmeticExpressionOp::evaluate(ap_float value) const {
     }
 }
 
+ap_float ArithmeticExpressionOp::evaluate(const vector<ap_float> &num_values) const {
+    switch (c_op){
+        case cal_operator::sum:
+            return lhs->evaluate(num_values) + rhs-> evaluate(num_values);
+        case cal_operator::diff:
+            return lhs->evaluate(num_values) - rhs->evaluate(num_values);
+        case cal_operator::mult:
+            return lhs->evaluate(num_values) * rhs->evaluate(num_values);
+        case cal_operator::divi:
+            return lhs->evaluate(num_values) / rhs->evaluate(num_values);
+        default:
+            cerr << "ERROR: unknown cal_operator: " << c_op << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    }
+}
+
 ap_float ArithmeticExpressionOp::evaluate(const State &state) const {
     switch (c_op){
         case cal_operator::sum:

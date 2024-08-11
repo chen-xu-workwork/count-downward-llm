@@ -34,7 +34,8 @@ public:
             : max_number_pdb_states(max_number_pdb_states) {
     }
 
-    virtual Pattern generate(std::shared_ptr<AbstractTask> task) = 0;
+    virtual Pattern generate(std::shared_ptr<AbstractTask> task,
+                             std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy) = 0;
 
     size_t get_max_number_pdb_states() const {
         return max_number_pdb_states;
