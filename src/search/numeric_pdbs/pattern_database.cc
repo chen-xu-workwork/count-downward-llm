@@ -496,9 +496,28 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             pq.push(0, goal_state_id);
         }
 
+        size_t num_open_goal_states = 0;
+        size_t num_open_states = 0;
+        while (!open.empty()) {
+            size_t state_id = open.pop().second;
+            if (state_id < closed.size() && closed[state_id]) {
+                // open lists may contain closed states
+                continue;
+            }
+            const NumericState &state = tmp_state_registry->lookup_state(state_id);
+            num_open_states++;
+            if (is_goal_state(state, num_variable_to_index)) {
+                // we have not checked this for states in open
+                pq.push(0, state_id);
+                num_open_goal_states++;
+            } else {
+                pq.push(min_action_cost, state_id);
+            }
+        }
+
         if (dump) {
-            cout << "Generated abstract states: " << tmp_state_registry->size() << endl;
-            cout << "Reached abstract goal states: " << goal_states.size() << endl;
+            cout << "Generated abstract states: " << tmp_state_registry->size() + num_open_states << endl;
+            cout << "Reached abstract goal states: " << goal_states.size() + num_open_goal_states << endl;
         }
     }
 
