@@ -360,7 +360,10 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         build_goals(variable_to_index, num_variable_to_index);
 
         vector<bool> closed;
+        vector<bool> is_open_or_closed(1, true);
         vector<size_t> goal_states;
+
+        size_t num_reached_states = 0;
 
         // first implicit entry: priority, second entry: index for an abstract state
         AdaptiveQueue<size_t> open;
@@ -404,7 +407,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
          *
          */
 
-        while (!open.empty() && tmp_state_registry->size() < max_number_states) {
+        while (!open.empty() && num_reached_states < max_number_states) {
             auto [cost, state_id] = open.pop();
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 
@@ -449,6 +452,13 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 }
                 parent_pointers[succ_id].emplace_back(abs_op->get_op_id(), state_id);
                 if (succ_id >= closed.size() || !closed[succ_id]) {
+                    if (succ_id >= is_open_or_closed.size()){
+                        is_open_or_closed.resize(succ_id + 1, false);
+                    }
+                    if (!is_open_or_closed[succ_id]) {
+                        is_open_or_closed[succ_id] = true;
+                        ++num_reached_states;
+                    }
                     open.push(cost + abs_op->get_cost(), succ_id);
                 }
             }
@@ -475,6 +485,13 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 }
                 parent_pointers[succ_id].emplace_back(op_id, state_id);
                 if (succ_id >= closed.size() || !closed[succ_id]) {
+                    if (succ_id >= is_open_or_closed.size()){
+                        is_open_or_closed.resize(succ_id + 1, false);
+                    }
+                    if (!is_open_or_closed[succ_id]) {
+                        is_open_or_closed[succ_id] = true;
+                        ++num_reached_states;
+                    }
                     ap_float op_cost;
                     if (operator_costs.empty()) {
                         op_cost = task_proxy->get_operators()[op_id].get_cost();
@@ -486,7 +503,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
         }
 
-        if (tmp_state_registry->size() < max_number_states) {
+        if (num_reached_states < max_number_states) {
             exhausted_abstract_state_space = true;
         }
 
