@@ -435,7 +435,7 @@ void add_hillclimbing_options(OptionParser &parser) {
     parser.add_option<int>(
         "max_number_pdb_states",
         "maximal number of states per pattern database ",
-        "2000000",
+        "100000",
         Bounds("1", "infinity"));
     parser.add_option<int>(
         "collection_max_size",
