@@ -24,9 +24,8 @@ def identify_constants(axioms, axiom_by_pne):
                 axiom = axiom_by_pne[axiom]
             else:
                 return (False,None)
-        if (axiom.op == None and 
-           isinstance(axiom.parts[0],pddl.NumericConstant)):
-            return (True,axiom.parts[0].value)
+        if axiom.op is None and isinstance(axiom.parts[0], pddl.NumericConstant):
+            return True, axiom.parts[0].value
         else:
             all_constants = True
             values = []
@@ -47,7 +46,7 @@ def identify_constants(axioms, axiom_by_pne):
                         new_value = -values[0]
                         axiom.op = None
                     else:
-                        assert axiom.op == None
+                        assert axiom.op is None
                         new_value = values[0]
                     axiom.parts = [pddl.NumericConstant(new_value)]
                     axiom.ntype = 'C'
@@ -103,7 +102,7 @@ def compute_axiom_layers(axioms, constant_axioms, axiom_by_pne):
 
     max_layer = -2
     for axiom in axioms:
-        max_layer = max(max_layer,compute_layer(axiom))
+        max_layer = max(max_layer, compute_layer(axiom))
 
     layer_to_axioms = {}
     for axiom in layers:

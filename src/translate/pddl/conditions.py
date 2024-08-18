@@ -313,7 +313,7 @@ class NegatedAtom(Literal):
         return Atom(self.predicate, self.args)
     positive = negate
     
-class FunctionComparison(Condition): # NFD class yielding the truth value of a function comparison    
+class FunctionComparison(Condition): # NFD class yielding the truth value of a function comparison
     negated = False
     def _relaxed(self, parts):
         return Truth()
@@ -330,7 +330,7 @@ class FunctionComparison(Condition): # NFD class yielding the truth value of a f
     def __eq__(self, other):
         # Compare hash first for speed reasons.
         return (self.hash == other.hash and
-                self.__class__ is other.__class__ and
+                self.__class__ == other.__class__ and
                 self.comparator == other.comparator and
                 self.parts == other.parts)
     def __hash__(self):

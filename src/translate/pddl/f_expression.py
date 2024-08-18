@@ -53,7 +53,9 @@ class ArithmeticExpression(FunctionalExpression):
     def __str__(self, *args, **kwargs):
         return f"ArExp {self.op} {[str(p) for p in self.parts]}"
     def __eq__(self, other):
-        return self.hash == other.hash and self.__class__ == other.__class__ and self.parts == other.parts
+        return self.__class__ == other.__class__ and self.parts == other.parts
+    def __hash__(self):
+        return hash((self.__class__, self.parts))
     def rename_variables(self, renamings={}):
         return self.__class__([part.rename_variables(renamings)
                                for part in self.parts])
@@ -68,8 +70,6 @@ class Difference(ArithmeticExpression):
     def __init__(self, parts):
         assert len(parts) == 2
         ArithmeticExpression.__init__(self, parts)
-    def __hash__(self):
-        return hash((self.__class__, self.parts))
     def _simplified(self, parts):
         if isinstance(parts[1], NumericConstant) and parts[1].value == 0:
             return parts[0]
@@ -81,8 +81,6 @@ class AdditiveInverse(ArithmeticExpression):
     def __init__(self, parts):
         assert len(parts) == 1
         ArithmeticExpression.__init__(self, parts)
-    def __hash__(self):
-        return hash((self.__class__, self.parts))
     def _simplified(self, parts):
         return self._propagate(parts)
 
@@ -91,8 +89,6 @@ class Sum(ArithmeticExpression):
     def __init__(self, parts):
         assert len(parts) == 2
         ArithmeticExpression.__init__(self, parts)
-    def __hash__(self):
-        return hash((self.__class__, self.parts))
     def _simplified(self, parts):
         result_parts = []
         for part in parts:
@@ -111,8 +107,6 @@ class Product(ArithmeticExpression):
     def __init__(self, parts):
         assert len(parts) == 2
         ArithmeticExpression.__init__(self, parts)
-    def __hash__(self):
-        return hash((self.__class__, self.parts))
     def _simplified(self, parts):
         result_parts = []
         for part in parts:
@@ -133,8 +127,6 @@ class Quotient(ArithmeticExpression):
     def __init__(self, parts):
         assert len(parts) == 2
         ArithmeticExpression.__init__(self, parts)
-    def __hash__(self):
-        return hash((self.__class__, self.parts))
     def _simplified(self, parts):
         if isinstance(parts[1], NumericConstant) and parts[1].value == 0:
             raise ValueError('Division by Zero')
@@ -217,11 +209,12 @@ class FunctionAssignment:
     def __init__(self, fluent, expression):
         self.fluent = fluent
         self.expression = expression
-        self.hash = hash((self.__class__.__name__, self.fluent, self.expression))        
     def __str__(self):
         return f"{self.__class__.__name__} {self.fluent} {self.expression}"
+    def __eq__(self, other):
+        return self.__class__ == other.__class__ and self.fluent == other.fluent and self.expression == other.expression
     def __hash__(self):
-        return self.hash
+        return hash((self.__class__.__name__, self.fluent, self.expression))
     def dump(self, indent="  "):
         print(f"{indent}{self._dump()}")
         self.fluent.dump(indent + "  ")

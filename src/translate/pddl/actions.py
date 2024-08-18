@@ -85,11 +85,9 @@ class Action:
             print("  None")
 
     def uniquify_variables(self):
-        self.type_map = dict([(par.name, par.type_name)
-                              for par in self.parameters])
+        self.type_map = {par.name: par.type_name for par in self.parameters}
         self.precondition = self.precondition.uniquify_variables(self.type_map)
         for effect in self.effects:
-            # print("actions.uniquify_variables uniquifies effect: ", effect  )
             effect.uniquify_variables(self.type_map)
 
     def relaxed(self):
