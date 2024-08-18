@@ -673,7 +673,7 @@ def translate_task(strips_to_sas, ranges, translation_key, numeric_strips_to_sas
     ## you can change this)
     num_axiom_layers = [-1] * num_count
     num_axiom_layer = 0
-    for layer in num_axioms_by_layer:
+    for layer in sorted(num_axioms_by_layer.keys()):
         num_axioms_by_layer[layer].sort(key=lambda x: x.name)
         for axiom in num_axioms_by_layer[layer]:
             if axiom.effect not in num_axiom_map:
