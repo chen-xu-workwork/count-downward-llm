@@ -61,9 +61,9 @@ AssignmentAxiom::AssignmentAxiom(istream &in) {
 
 void ComparisonAxiom::dump() const {
 	cout << g_variable_name[affected_variable] << " = ("
-			<< g_variable_name[var_lhs];
+			<< g_numeric_var_names[var_lhs];
     cout << " " << op << " ";
-    cout << g_variable_name[var_rhs] << ")" << endl;
+    cout << g_numeric_var_names[var_rhs] << ")" << endl;
 }
 
 
