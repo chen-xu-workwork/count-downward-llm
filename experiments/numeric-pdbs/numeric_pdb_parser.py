@@ -35,6 +35,15 @@ def add_initial_h_values(content, props):
     if len(initial_h_values) == 1:
         props["initial_h_value_float"] = list(initial_h_values.values())[0]
 
+def add_pdb_constructed(content, props):
+    props["pdb_constructed"] = 0
+    if "ipdb_hillclimbing_time" in props:
+        props["pdb_constructed"] = 1
+    elif "pdb_collection_construction_time" in props:
+        props["pdb_constructed"] = 1
+    elif "pdb_construction_time" in props:
+        props["pdb_constructed"] = 1
+
 
 class NumericPDBParser(Parser):
     def __init__(self):
@@ -46,8 +55,14 @@ class NumericPDBParser(Parser):
         self.add_pattern('number_interesting_patterns', 'Found (.+) interesting patterns.', required=False, type=int)
         self.add_pattern('pdb_collection_construction_time', 'PDB collection construction time: (.+)s', required=False, type=float)
         self.add_pattern('pdb_dominance_pruning_time', 'Dominance pruning took (.+)s', required=False, type=float)
+        self.add_pattern('ipdb_hillclimbing_time', 'iPDB: hill climbing time: (.+)s', required=False, type=float)
+        self.add_pattern('dominance_pruning_time', 'Dominance pruning took (.+)s', required=False, type=float)
+        self.add_pattern('number_pruned_subsets', 'Pruned (.+) of [.+] maximal additive subsets', required=False, type=int)
+        self.add_pattern('number_pruned_pdbs', 'Pruned (.+) of [.+] PDBs', required=False, type=int)
+
 
         self.add_function(add_initial_h_values)
+        self.add_function(add_pdb_constructed)
 
 
 def get_parser():
