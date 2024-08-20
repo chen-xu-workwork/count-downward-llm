@@ -70,10 +70,7 @@ void generate_cpp_input(bool causal_graph_acyclic,
                         const vector<Axiom_relational> &axioms_rel,
                         const vector<Axiom_numeric_computation> &axioms_func_ass,
                         const vector<Axiom_functional_comparison> &axioms_func_comp,
-						const GlobalConstraint &constraint,
-                        const SuccessorGenerator &sg,
-                        const vector<DomainTransitionGraph> transition_graphs,
-                        const CausalGraph &cg);
+			const GlobalConstraint &constraint);
 void check_magic(istream &in, string magic);
 
 enum foperator

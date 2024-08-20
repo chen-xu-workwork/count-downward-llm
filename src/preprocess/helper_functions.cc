@@ -314,10 +314,7 @@ void generate_cpp_input(bool /*solvable_in_poly_time*/,
                         const vector<Axiom_relational> &axioms_rel,
                         const vector<Axiom_numeric_computation> &axioms_func_ass,
                         const vector<Axiom_functional_comparison> &axioms_func_comp,
-						const GlobalConstraint &constraint,
-                        const SuccessorGenerator &sg,
-                        const vector<DomainTransitionGraph> transition_graphs,
-                        const CausalGraph &cg) {
+			const GlobalConstraint &constraint) {
     /* NOTE: solvable_in_poly_time flag is no longer included in output,
        since the planner doesn't handle it specially any more anyway. */
 
@@ -411,18 +408,6 @@ void generate_cpp_input(bool /*solvable_in_poly_time*/,
     outfile << "end_global_constraint" << endl;
 
     outfile << "begin_SG" << endl;
-    sg.generate_cpp_input(outfile);
-    outfile << "end_SG" << endl;
-
-    for (const auto &dtg : transition_graphs) {
-        outfile << "begin_DTG" << endl;
-        dtg.generate_cpp_input(outfile);
-        outfile << "end_DTG" << endl;
-    }
-
-    outfile << "begin_CG" << endl;
-    cg.generate_cpp_input(outfile, ordered_vars);
-    outfile << "end_CG" << endl;
 
     outfile.close();
 }

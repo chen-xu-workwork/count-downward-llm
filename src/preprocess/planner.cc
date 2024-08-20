@@ -109,8 +109,8 @@ int main(int argc, const char **argv) {
     //TODO: genauer machen? (highest level var muss nicht scc sein...gemacht)
     //nur Werte, die wichtig sind fuer drunterliegende vars muessen in scc sein
     cout << "solveable in poly time " << solveable_in_poly_time << endl;
-    cout << "Building successor generator..." << endl;
-    SuccessorGenerator successor_generator(ordering, operators);
+//    cout << "Building successor generator..." << endl;
+//    SuccessorGenerator successor_generator(ordering, operators);
     //successor_generator.dump();
 
     // Output some task statistics
@@ -147,8 +147,7 @@ int main(int argc, const char **argv) {
     cout << "Writing output..." << endl;
     generate_cpp_input(solveable_in_poly_time, ordering, numeric_ordering, metric,
                        mutexes, initial_state, goals, operators, axioms_rel,
-					   axioms_numeric, axioms_func_comp, global_constraint,
-					   successor_generator, transition_graphs, causal_graph);
+					   axioms_numeric, axioms_func_comp, global_constraint);
     cout << "done" << endl;
 
 //    cout << "-----------------------------------------------\n Eliminated Variables : \n--------------------------------------------------" << endl;
