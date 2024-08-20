@@ -139,7 +139,11 @@ public:
     }
 
     const std::string &get_numeric_variable_name(int var) const {
-        return task_proxy.get_numeric_variables()[var].get_name();
+        if (var < task->get_num_numeric_variables()){
+            return task_proxy.get_numeric_variables()[var].get_name();
+        } else {
+            return auxiliary_numeric_variables[var - task->get_num_numeric_variables()].name;
+        }
     }
 
     numType get_numeric_var_type(int var) const {
