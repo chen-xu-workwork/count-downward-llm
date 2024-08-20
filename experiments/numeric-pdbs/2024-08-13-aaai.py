@@ -78,6 +78,7 @@ ATTRIBUTES = [
     "pdb_collection_construction_time",
     "ipdb_hillclimbing_time",
     "pdb_constructed",
+    "res_task_construction_time",
 ]
 
 exp = project.FastDownwardExperiment(environment=ENV, revision_cache=REVISION_CACHE)

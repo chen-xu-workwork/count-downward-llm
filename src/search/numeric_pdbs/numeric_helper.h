@@ -92,7 +92,7 @@ std::ostream &operator<<(std::ostream &os, const LinearNumericCondition &lnc);
 class NumericTaskProxy {
     friend class NumericOperatorProxy; // access to task
 public:
-    explicit NumericTaskProxy(const std::shared_ptr<AbstractTask> task);
+    explicit NumericTaskProxy(std::shared_ptr<AbstractTask> task);
 
     const std::vector<ap_float> &get_action_eff_list(int op_id) const {
         // TODO: get rid of this

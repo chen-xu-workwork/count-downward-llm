@@ -23,18 +23,20 @@ ostream &operator<<(ostream &os, const LinearNumericCondition &lnc) {
     return os;
 }
 
-NumericTaskProxy::NumericTaskProxy(const shared_ptr<AbstractTask> task) :
-        task(task),
+NumericTaskProxy::NumericTaskProxy(shared_ptr<AbstractTask> task_) :
+        task(std::move(task_)),
         task_proxy(*task),
         n_numeric_variables(0),
         initial_state_values(task->get_initial_state_numeric_values()) {
     verify_is_restricted_numeric_task(task_proxy);
+    double start_time = utils::g_timer();
     build_numeric_variables();
     build_artificial_variables();
     find_derived_numeric_variables();
     build_numeric_preconditions();
     build_goals();
     build_actions();
+    cout << "Time to build restricted numeric task: " << utils::g_timer() - start_time << "s" << endl;
     cout << "Number auxiliary numeric variables: " << auxiliary_numeric_variables.size() << endl;
 }
 
