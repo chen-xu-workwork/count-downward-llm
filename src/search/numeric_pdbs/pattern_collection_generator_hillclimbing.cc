@@ -38,8 +38,9 @@ PatternCollectionGeneratorHillclimbing::PatternCollectionGeneratorHillclimbing(c
       num_samples(opts.get<int>("num_samples")),
       min_improvement(opts.get<int>("min_improvement")),
       max_time(opts.get<double>("max_time")),
+      max_pdb_size(opts.get<int>("max_pdb_size")),
       num_rejected(0),
-      hill_climbing_timer(0) {
+      hill_climbing_timer(nullptr) {
 }
 
 void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
@@ -66,7 +67,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
                 VariableProxy rel_var = task_proxy.get_variables()[rel_var_id];
                 int rel_var_size = rel_var.get_domain_size();
                 if (utils::is_product_within_limit(pdb_size, rel_var_size,
-                                                   max_number_pdb_states)) {
+                                                   max_pdb_size)) {
                     Pattern new_pattern(pattern);
                     new_pattern.regular.push_back(rel_var_id);
                     sort(new_pattern.regular.begin(), new_pattern.regular.end());
@@ -87,7 +88,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
                 ResNumericVariableProxy rel_var = task_proxy.get_numeric_variables()[rel_var_id];
                 int rel_var_size = task_proxy.get_approximate_domain_size(rel_var);
                 if (utils::is_product_within_limit(pdb_size, rel_var_size,
-                                                   max_number_pdb_states)) {
+                                                   max_pdb_size)) {
                     Pattern new_pattern(pattern);
                     new_pattern.numeric.push_back(rel_var_id);
                     sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
@@ -114,7 +115,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
                 VariableProxy rel_var = task_proxy.get_variables()[rel_var_id];
                 int rel_var_size = rel_var.get_domain_size();
                 if (utils::is_product_within_limit(pdb_size, rel_var_size,
-                                                   max_number_pdb_states)) {
+                                                   max_pdb_size)) {
                     Pattern new_pattern(pattern);
                     new_pattern.regular.push_back(rel_var_id);
                     sort(new_pattern.regular.begin(), new_pattern.regular.end());
@@ -135,7 +136,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
                 ResNumericVariableProxy rel_var = task_proxy.get_numeric_variables()[rel_var_id];
                 int rel_var_size = task_proxy.get_approximate_domain_size(rel_var);
                 if (utils::is_product_within_limit(pdb_size, rel_var_size,
-                                                   max_number_pdb_states)) {
+                                                   max_pdb_size)) {
                     Pattern new_pattern(pattern);
                     new_pattern.numeric.push_back(rel_var_id);
                     sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
@@ -433,35 +434,41 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
 
 void add_hillclimbing_options(OptionParser &parser) {
     parser.add_option<int>(
-        "max_number_pdb_states",
-        "maximal number of states per pattern database ",
-        "100000",
-        Bounds("1", "infinity"));
+            "max_number_pdb_states",
+            "maximal number of generated states for every pattern database that contains a numeric variable; "
+            "PDBs without numeric variable are fully explored, the respective limit is given by max_pdb_size",
+            "100000",
+            Bounds("1", "infinity"));
     parser.add_option<int>(
-        "collection_max_size",
-        "maximal number of states in the pattern collection",
-        "20000000",
-        Bounds("1", "infinity"));
+            "max_pdb_size",
+            "bound on the domain-size product of variables in a pattern",
+            "2000000",
+            Bounds("1", "infinity"));
     parser.add_option<int>(
-        "num_samples",
-        "number of samples (random states) on which to evaluate each "
-        "candidate pattern collection",
-        "1000",
-        Bounds("1", "infinity"));
+            "collection_max_size",
+            "maximal number of states in the pattern collection",
+            "20000000",
+            Bounds("1", "infinity"));
     parser.add_option<int>(
-        "min_improvement",
-        "minimum number of samples on which a candidate pattern "
-        "collection must improve on the current one to be considered "
-        "as the next pattern collection ",
-        "10",
-        Bounds("1", "infinity"));
+            "num_samples",
+            "number of samples (random states) on which to evaluate each "
+            "candidate pattern collection",
+            "1000",
+            Bounds("1", "infinity"));
+    parser.add_option<int>(
+            "min_improvement",
+            "minimum number of samples on which a candidate pattern "
+            "collection must improve on the current one to be considered "
+            "as the next pattern collection ",
+            "10",
+            Bounds("1", "infinity"));
     parser.add_option<double>(
-        "max_time",
-        "maximum time in seconds for improving the initial pattern "
-        "collection via hill climbing. If set to 0, no hill climbing "
-        "is performed at all.",
-        "infinity",
-        Bounds("0.0", "infinity"));
+            "max_time",
+            "maximum time in seconds for improving the initial pattern "
+            "collection via hill climbing. If set to 0, no hill climbing "
+            "is performed at all.",
+            "infinity",
+            Bounds("0.0", "infinity"));
 }
 
 void check_hillclimbing_options(

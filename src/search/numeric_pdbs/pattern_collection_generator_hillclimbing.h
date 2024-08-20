@@ -38,6 +38,8 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
     const int min_improvement;
     const double max_time;
 
+    const int max_pdb_size;
+
     std::unique_ptr<IncrementalCanonicalPDBs> current_pdbs;
 
     // for stats only
