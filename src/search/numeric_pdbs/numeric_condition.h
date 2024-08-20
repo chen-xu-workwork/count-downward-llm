@@ -3,8 +3,6 @@
 
 #include "arithmetic_expression.h"
 
-#include "../globals.h"
-
 namespace numeric_condition {
 
 class RegularNumericCondition {
@@ -16,6 +14,7 @@ public:
                             comp_operator c_op,
                             const std::shared_ptr<arithmetic_expression::ArithmeticExpression> &rhs)
             : lhs(lhs->simplify()), c_op(c_op), rhs(rhs->simplify()) {
+        // there can only be one regular numeric variable in the expression
         assert(lhs->get_var_id() == -1 || rhs->get_var_id() == -1);
     }
 
@@ -32,6 +31,7 @@ public:
 
     std::string get_name() const;
 
+    // checks if the condition is satisfied if the variable get_var_id() has this value
     bool satisfied(ap_float value) const;
 
     ap_float get_constant() const {

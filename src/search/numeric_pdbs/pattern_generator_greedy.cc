@@ -33,7 +33,7 @@ PatternGeneratorGreedy::PatternGeneratorGreedy(size_t max_number_pdb_states,
       rng(std::move(rng)) {
 }
 
-Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> task,
+Pattern PatternGeneratorGreedy::generate(shared_ptr<AbstractTask> /*task*/,
                                          shared_ptr<NumericTaskProxy> task_proxy) {
     Pattern pattern;
     VariableOrderFinder order(task_proxy, var_order_type, prefer_numeric_variables, rng);
