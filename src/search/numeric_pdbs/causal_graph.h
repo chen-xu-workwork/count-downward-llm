@@ -117,6 +117,8 @@ public:
     std::vector<int> get_num_predecessors_of_prop_var(int prop_var) const;
 
     std::vector<int> get_num_predecessors_of_num_var(int num_var) const;
+
+    void to_dot(const numeric_pdb_helper::NumericTaskProxy &task_proxy, const std::string &file_name) const;
 };
 }
 /* Create or retrieve a causal graph from cache. If causal graphs are created

@@ -12,7 +12,9 @@
 
 #include <algorithm>
 #include <cassert>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -329,6 +331,66 @@ void CausalGraph::dump(const numeric_pdb_helper::NumericTaskProxy &task_proxy) c
                  << "    predecessors: " << predecessors[mapped_var_id] << endl;
         }
     }
+}
+
+
+void CausalGraph::to_dot(const NumericTaskProxy &task_proxy, const string &file_name) const {
+    ofstream dot_file(file_name);
+    if (!dot_file.is_open()) {
+        cerr << "Error: Unable to open file " << file_name << endl;
+        return;
+    }
+
+    dot_file << "digraph CausalGraph {\n";
+
+    // Write vertices
+    for (auto var : task_proxy.get_variables()) {
+        int var_id = var.get_id();
+        int mapped_var_id = prop_var_id_to_glob_var_id[var_id];
+        if (mapped_var_id != -1) {
+            dot_file << mapped_var_id << " [label=\"" << var.get_fact(0).get_name() << "\"];\n";
+        }
+    }
+    for (auto var: task_proxy.get_numeric_variables()) {
+        int var_id = var.get_id();
+        int mapped_var_id = num_var_id_to_glob_var_id[var_id];
+        if (mapped_var_id != -1) {
+            dot_file << mapped_var_id << " [label=\"" << var.get_name() << "\"];\n";
+        }
+    }
+
+    // write edges
+    for (auto var : task_proxy.get_variables()) {
+        int var_id = var.get_id();
+        int mapped_var_id = prop_var_id_to_glob_var_id[var_id];
+        if (mapped_var_id != -1) {
+            for (int prop_pre: get_prop_predecessors_of_prop_var(var_id)) {
+                int mapped_pre_var_id = prop_var_id_to_glob_var_id[prop_pre];
+                dot_file << mapped_pre_var_id << " -> " << mapped_var_id << ";\n";
+            }
+            for (int num_pre: get_num_predecessors_of_prop_var(var_id)) {
+                int mapped_pre_var_id = num_var_id_to_glob_var_id[num_pre];
+                dot_file << mapped_pre_var_id << " -> " << mapped_var_id << ";\n";
+            }
+        }
+    }
+    for (auto var : task_proxy.get_numeric_variables()) {
+        int var_id = var.get_id();
+        int mapped_var_id = num_var_id_to_glob_var_id[var_id];
+        if (mapped_var_id != -1) {
+            for (int prop_pre: get_prop_predecessors_of_num_var(var_id)) {
+                int mapped_pre_var_id = prop_var_id_to_glob_var_id[prop_pre];
+                dot_file << mapped_pre_var_id << " -> " << mapped_var_id << ";\n";
+            }
+            for (int num_pre: get_num_predecessors_of_num_var(var_id)) {
+                int mapped_pre_var_id = num_var_id_to_glob_var_id[num_pre];
+                dot_file << mapped_pre_var_id << " -> " << mapped_var_id << ";\n";
+            }
+        }
+    }
+
+    dot_file << "}\n";
+    dot_file.close();
 }
 
 vector<int> CausalGraph::get_prop_eff_to_prop_pre(int prop_var) const {
