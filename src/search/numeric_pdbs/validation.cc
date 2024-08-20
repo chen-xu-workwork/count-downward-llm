@@ -7,9 +7,9 @@
 #include <algorithm>
 #include <iostream>
 
-using numeric_pdb_helper::NumericTaskProxy;
 using namespace std;
 using utils::ExitCode;
+using numeric_pdb_helper::NumericTaskProxy;
 
 namespace numeric_pdbs {
 void inline validate_and_normalize_variable_list(vector<int> &vars, int num_variables) {

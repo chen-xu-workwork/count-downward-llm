@@ -1,8 +1,6 @@
 #ifndef NUMERIC_PDBS_TYPES_H
 #define NUMERIC_PDBS_TYPES_H
 
-#include "../utils/hash.h"
-
 #include <memory>
 #include <vector>
 
@@ -44,14 +42,11 @@ using MaxAdditivePDBSubsets = std::vector<PDBCollection>;
 }
 
 namespace std {
-    template <>
-    struct hash<numeric_pdbs::Pattern> {
-        size_t operator()(const numeric_pdbs::Pattern& pattern) const {
-            size_t h1 = std::hash<std::vector<int>>()(pattern.regular);
-            size_t h2 = std::hash<std::vector<int>>()(pattern.numeric);
-            return h1 ^ h2;
-        }
-    };
-}
+template <>
+struct hash<numeric_pdbs::Pattern> {
+    size_t operator()(const numeric_pdbs::Pattern& pattern) const;
+};
 
+ostream &operator<<(ostream &stream, const numeric_pdbs::Pattern &pattern);
+}
 #endif
