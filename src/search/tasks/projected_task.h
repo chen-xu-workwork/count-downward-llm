@@ -45,6 +45,19 @@ class ProjectedTask : public DelegatingTask {
   int get_num_operator_ass_effects(int op_index, bool is_axiom) const override;
   AssEffect get_operator_ass_effect(int op_index, int eff_index,
                                    bool is_axiom) const override;
+  int get_num_ass_axioms() const override;
+  int get_num_cmp_axioms() const override;
+  Fact get_comparison_axiom_effect(int axiom_index,
+                                     bool evaluation_result) const override;
+  int get_comparison_axiom_argument(int axiom_index,
+                                      bool left) const override;
+  comp_operator get_comparison_axiom_operator(
+            int axiom_index) const override;
+  int get_assignment_axiom_effect(int axiom_index) const override;
+  int get_assignment_axiom_argument(int axiom_index,
+                                      bool left) const override;
+  cal_operator get_assignment_axiom_operator(
+            int axiom_index) const override;
 
 };
 }  // namespace tasks

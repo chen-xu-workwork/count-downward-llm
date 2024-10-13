@@ -227,11 +227,78 @@ AssEffect ProjectedTask::get_operator_ass_effect(int op_index, int eff_index,
                           original_effect.op_type,
                           project_fact({original_effect.ass_var, 0}).var);
       }
+
       ++projected_eff_index;
     }
   }
   // This should never happen if eff_index is valid.
   ABORT("Invalid effect index in ProjectedTask::get_operator_ass_effect");
+}
+
+    int ProjectedTask::get_num_ass_axioms() const  {
+    int num_ass_axioms = 0;
+    for (int i = 0; i < parent->get_num_ass_axioms(); ++i) {
+    if (is_numeric_fact_relevant(
+            Fact(parent->get_assignment_axiom_effect(i), 0))) {
+    ++num_ass_axioms;
+}
+}
+return num_ass_axioms;
+}
+
+int ProjectedTask::get_num_cmp_axioms() const  {
+int num_cmp_axioms = 0;
+for (int i = 0; i < parent->get_num_cmp_axioms(); ++i) {
+if (is_fact_relevant(
+        Fact(parent->get_comparison_axiom_effect(i, true), 0))) {
+++num_cmp_axioms;
+}
+}
+return num_cmp_axioms;
+}
+
+Fact ProjectedTask::get_comparison_axiom_effect(int axiom_index,
+                                                bool evaluation_result) const  {
+Fact original_effect =
+        parent->get_comparison_axiom_effect(axiom_index, evaluation_result);
+return project_fact(original_effect);
+}
+
+int ProjectedTask::get_comparison_axiom_argument(int axiom_index,
+                                                 bool left) const  {
+int original_argument =
+        parent->get_comparison_axiom_argument(axiom_index, left);
+if (left) {
+return num_var_to_index[original_argument];
+} else {
+return num_var_to_index[original_argument];
+}
+}
+
+comp_operator ProjectedTask::get_comparison_axiom_operator(
+        int axiom_index) const  {
+return parent->get_comparison_axiom_operator(axiom_index);
+}
+
+int ProjectedTask::get_assignment_axiom_effect(int axiom_index) const  {
+int original_effect_var = parent->get_assignment_axiom_effect(axiom_index);
+return num_var_to_index[original_effect_var];
+}
+
+int ProjectedTask::get_assignment_axiom_argument(int axiom_index,
+                                                 bool left) const  {
+int original_argument =
+        parent->get_assignment_axiom_argument(axiom_index, left);
+if (left) {
+return num_var_to_index[original_argument];
+} else {
+return num_var_to_index[original_argument];
+}
+}
+
+cal_operator ProjectedTask::get_assignment_axiom_operator(
+        int axiom_index) const  {
+return parent->get_assignment_axiom_operator(axiom_index);
 }
 
 }

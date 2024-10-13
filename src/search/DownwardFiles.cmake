@@ -389,6 +389,7 @@ fast_downward_plugin(
         tasks/domain_abstracted_task_factory.cc
         tasks/modified_goals_task.cc
         tasks/modified_operator_costs_task.cc
+        tasks/projected_task.cpp
     DEPENDENCY_ONLY
 )
 
