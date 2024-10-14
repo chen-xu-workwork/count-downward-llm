@@ -3,13 +3,14 @@
 #include <cassert>
 
 #include "../utils/logging.h"
+#include "../numeric_pdbs/types.h"
 
 using namespace std;
 
 namespace tasks {
 
 ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
-                               const Pattern &pattern)
+                               const numeric_pdbs::Pattern &pattern)
       : DelegatingTask(parent), pattern(pattern) {
     // Initialize variable index mapping
     var_to_index.resize(parent->get_num_variables(), -1);
@@ -238,7 +239,7 @@ AssEffect ProjectedTask::get_operator_ass_effect(int op_index, int eff_index,
     int ProjectedTask::get_num_ass_axioms() const  {
     int num_ass_axioms = 0;
     for (int i = 0; i < parent->get_num_ass_axioms(); ++i) {
-    if (is_numeric_fact_relevant(
+    if (is_fact_relevant(
             Fact(parent->get_assignment_axiom_effect(i), 0))) {
     ++num_ass_axioms;
 }
@@ -250,7 +251,7 @@ int ProjectedTask::get_num_cmp_axioms() const  {
 int num_cmp_axioms = 0;
 for (int i = 0; i < parent->get_num_cmp_axioms(); ++i) {
 if (is_fact_relevant(
-        Fact(parent->get_comparison_axiom_effect(i, true), 0))) {
+        parent->get_comparison_axiom_effect(i, true))) {
 ++num_cmp_axioms;
 }
 }

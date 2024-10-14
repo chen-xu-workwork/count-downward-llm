@@ -6,23 +6,23 @@
 #include <vector>
 
 #include "delegating_task.h"
-#include "../types.h"
+#include "../numeric_pdbs/types.h"
+
+
 
 namespace tasks {
 
 class ProjectedTask : public DelegatingTask {
  private:
-  const Pattern& pattern;
+  const numeric_pdbs::Pattern& pattern;
   std::vector<int> var_to_index;
   std::vector<int> num_var_to_index;
 
   Fact project_fact(const Fact& fact) const;
   bool is_fact_relevant(const Fact& fact) const;
-  bool is_numeric_fact_relevant(const NumericFact& fact) const;
-
  public:
   ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
-                const Pattern& pattern);
+                const numeric_pdbs::Pattern& pattern);
 
   int get_num_variables() const override;
   int get_num_numeric_variables() const override;
