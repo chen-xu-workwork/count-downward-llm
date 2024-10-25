@@ -9,3 +9,4 @@ src/search/bliss-0.73/*.o
 output
 output.sas
 sas_plan
+.idea/
