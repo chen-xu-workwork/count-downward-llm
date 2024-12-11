@@ -238,6 +238,13 @@ bool PatternDatabase::is_applicable(const NumericState &state,
                                     const NumericOperatorProxy &op,
                                     const vector<int> &num_variable_to_index) const {
     for (const auto &num_pre : op.get_numeric_preconditions()){
+        if (num_pre->is_constant()) {
+            // TODO remove such preconditions from the op
+            if (!num_pre->satisfied(0)) {
+                return false;
+            }
+            continue;
+        }
         int num_index = num_variable_to_index[num_pre->get_var_id()];
         if (num_index != -1){
             if (!num_pre->satisfied(state.num_state[num_index])){

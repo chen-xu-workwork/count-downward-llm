@@ -166,6 +166,10 @@ struct CausalGraphBuilder {
             }
         }
         for (const auto &pre: op.get_numeric_preconditions()) {
+            if (pre->is_constant()) {
+                // TODO remove such preconditions from the op
+                continue;
+            }
             int pre_var_id = num_var_id_to_glob_var_id[pre->get_var_id()];
             for (EffectProxy eff: effects) {
                 if (!eff.get_conditions().empty()) {
