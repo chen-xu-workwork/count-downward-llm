@@ -133,15 +133,6 @@ PatternDatabase::PatternDatabase(
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
-    cout << pattern << endl;
-
-    // TODO transform pattern into pattern on original variables
-
-    // TODO construct ProjectedTask with transformed pattern (in src/search/tasks/projected_task.h)
-
-    // TODO construct another heuristic with projected task
-
-    // TODO debug
 
     if (pattern.numeric.empty()){
         create_pdb_propositional(domain_size_product, operator_costs);
@@ -377,7 +368,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         size_t num_reached_states = 0;
 
         // first implicit entry: priority, second entry: index for an abstract state
-        AdaptiveQueue<size_t> open; // TODO: turn this into pair<size_t, vector<ap_float>>, keeping the first part and keeping track of the needed numeric variables
+        AdaptiveQueue<size_t> open;
 
         // initialize queue
         size_t prop_init = 0;
