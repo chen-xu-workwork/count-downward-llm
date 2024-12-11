@@ -31,7 +31,6 @@ NumericTaskProxy::NumericTaskProxy(shared_ptr<AbstractTask> task_) :
     verify_is_restricted_numeric_task(task_proxy);
     double start_time = utils::g_timer();
     build_numeric_variables();
-    build_artificial_variables();
     find_derived_numeric_variables();
     build_numeric_preconditions();
     build_goals();
@@ -74,96 +73,6 @@ void NumericTaskProxy::build_numeric_variables() {
     reg_num_var_id_to_glob_var_id.resize(n_numeric_variables);
 }
 
-void NumericTaskProxy::build_artificial_variables() {
-    // variables initialization
-    NumericVariablesProxy num_variables = task_proxy.get_numeric_variables();
-    AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
-    artificial_variables.assign(num_variables.size(), LinearNumericCondition(n_numeric_variables));
-    for (size_t num_id = 0; num_id < num_variables.size(); ++num_id) {
-        // artificial_variables[num_id].coefficients.assign(n_numeric_variables,0);
-        if (num_variables[num_id].get_var_type() == regular) {
-            artificial_variables[num_id].coefficients[get_regular_var_id(num_id)] = 1;
-            // cout << num_id << " regular " << artificial_variables[num_id] << " " <<
-            // num_variables[num_id].get_name() << endl;
-        } else if (num_variables[num_id].get_var_type()) {
-            artificial_variables[num_id].constant = num_variables[num_id].get_initial_state_value();
-            // cout << num_id << " constant : " <<
-            // num_variables[num_id].get_initial_state_value() << " " <<
-            // artificial_variables[num_id] << " " << num_variables[num_id].get_name()
-            // << endl;
-        }
-    }
-
-    // populate artificial variables using ass axioms
-    // initialize artificial variables
-    for (size_t ax_id = 0; ax_id < assignment_axioms.size(); ++ax_id) {
-        int affected_variable =
-                assignment_axioms[ax_id].get_assignment_variable().get_id();
-        int lhs = assignment_axioms[ax_id].get_left_variable().get_id();
-        int rhs = assignment_axioms[ax_id].get_right_variable().get_id();
-
-        switch (assignment_axioms[ax_id].get_arithmetic_operator_type()) {
-            case sum:
-                for (size_t num_id = 0; num_id < n_numeric_variables; ++num_id) {
-                    artificial_variables[affected_variable].coefficients[num_id] =
-                            artificial_variables[lhs].coefficients[num_id] +
-                            artificial_variables[rhs].coefficients[num_id];
-                }
-                artificial_variables[affected_variable].constant =
-                        artificial_variables[lhs].constant +
-                        artificial_variables[rhs].constant;
-                break;
-            case diff:
-                for (size_t num_id = 0; num_id < n_numeric_variables; ++num_id) {
-                    artificial_variables[affected_variable].coefficients[num_id] =
-                            artificial_variables[lhs].coefficients[num_id] -
-                            artificial_variables[rhs].coefficients[num_id];
-                }
-                artificial_variables[affected_variable].constant =
-                        artificial_variables[lhs].constant -
-                        artificial_variables[rhs].constant;
-                break;
-            case mult:
-                assert((num_variables[lhs].get_var_type() != constant) ||
-                       (num_variables[rhs].get_var_type() != constant));
-                if (num_variables[lhs].get_var_type() == constant) {
-                    for (size_t num_id = 0; num_id < n_numeric_variables; ++num_id) {
-                        artificial_variables[affected_variable].coefficients[num_id] =
-                                artificial_variables[lhs].constant *
-                                artificial_variables[rhs].coefficients[num_id];
-                    }
-                    artificial_variables[affected_variable].constant =
-                            artificial_variables[lhs].constant *
-                            artificial_variables[rhs].constant;
-                } else {
-                    for (size_t num_id = 0; num_id < n_numeric_variables; ++num_id) {
-                        artificial_variables[affected_variable].coefficients[num_id] =
-                                artificial_variables[lhs].coefficients[num_id] *
-                                artificial_variables[rhs].constant;
-                    }
-                    artificial_variables[affected_variable].constant =
-                            artificial_variables[lhs].constant *
-                            artificial_variables[rhs].constant;
-                }
-                break;
-            case divi:
-                assert(num_variables[rhs].get_var_type() != constant);
-                for (size_t num_id = 0; num_id < n_numeric_variables; ++num_id) {
-                    artificial_variables[affected_variable].coefficients[num_id] =
-                            artificial_variables[lhs].coefficients[num_id] /
-                            artificial_variables[rhs].constant;
-                }
-                artificial_variables[affected_variable].constant =
-                        artificial_variables[lhs].constant /
-                        artificial_variables[rhs].constant;
-                break;
-            default:
-                cerr << "Error: No assignment operators are allowed here." << endl;
-                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-        }
-    }
-}
-
 void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
 
     auto &action = actions[op_id];
@@ -177,14 +86,13 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
         }
     }
 
-    int num_original_regular_numeric_variables = n_numeric_variables - auxiliary_numeric_variables.size();
-    vector<ap_float> num_values(task->get_num_numeric_variables() + auxiliary_numeric_variables.size());
     for (const AssEffectProxy &eff : op.get_ass_effects()) {
         assert(eff.get_conditions().empty());
 
         int lhs = eff.get_assignment().get_affected_variable().get_id();
 
         if (task_proxy.get_numeric_variables()[lhs].get_var_type() == instrumentation) {
+            // we ignore the cost function here
             continue;
         }
 
@@ -192,65 +100,82 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
 
         assert(id_num != -1);
 
-        int rhs = eff.get_assignment().get_assigned_variable().get_id();
+        auto rhs = eff.get_assignment().get_assigned_variable();
 
         f_operator oper = eff.get_assignment().get_assigment_operator_type();
 
-        const LinearNumericCondition &av = artificial_variables[rhs];
-        bool is_simple_effect = oper == increase || oper == decrease;
+        const auto expr = parse_arithmetic_expression(rhs);
 
-        if (is_simple_effect) {
-            if (oper == increase)
-                action.eff_list[id_num] = av.constant;
-            if (oper == decrease)
-                action.eff_list[id_num] = -av.constant;
-        } else {
-            switch (oper) {
-                case (assign):
-                    action.asgn_effs.emplace_back(lhs, av.constant);
-                    break;
-//                case (increase): {
-//                    for (int var = 0; var < n_numeric_variables; ++var) {
-//                        coefficients[var] = av.coefficients[var];
-//                        if (id_num == var) coefficients[var] += 1.0;
-//                    }
-//                    action.linear_eff_coefficeints.push_back(coefficients);
-//                    action.linear_eff_constants.push_back(av.constant);
-//                    break;
-//                }
-//                case (decrease): {
-//                    for (int var = 0; var < n_numeric_variables; ++var) {
-//                        coefficients[var] = -av.coefficients[var];
-//                        if (id_num == var) coefficients[var] += 1.0;
-//                    }
-//                    action.linear_eff_coefficeints.push_back(coefficients);
-//                    action.linear_eff_constants.push_back(-av.constant);
-//                    break;
-//                }
-                default: {
-                    cerr << "non-linear numeric effect, only assignment effects are supported" << endl;
-                    utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-                }
-            }
-        }
-    }
-    for (const auto &aux_var : auxiliary_numeric_variables){
-        if (!action.asgn_effs.empty()){
-            // TODO add support for this
-            cerr << "assign effects not yet supported" << endl;
+        if (!expr->is_constant()){
+            cerr << "non-simple numeric effect in action " << op.get_name() << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
 
-//        cout << "action effects:" << endl;
-        for (int reg_var_id = 0; reg_var_id < static_cast<int>(action.eff_list.size()); ++reg_var_id){
-            num_values[get_global_var_id(reg_var_id)] = action.eff_list[reg_var_id];
+        ap_float eff_value = expr->evaluate();
+
+        switch (oper) {
+            case (assign):
+                action.asgn_effs.emplace_back(lhs, eff_value);
+                break;
+            case (increase):
+                action.eff_list[id_num] = eff_value;
+//                for (size_t var = 0; var < n_numeric_variables; ++var) {
+//                        coefficients[var] = av.coefficients[var];
+//                        if (id_num == var) coefficients[var] += 1.0;
+//                }
+//                    action.linear_eff_coefficeints.push_back(coefficients);
+//                    action.linear_eff_constants.push_back(av.constant);
+                break;
+            case (decrease):
+                action.eff_list[id_num] = -eff_value;
+//                for (size_t var = 0; var < n_numeric_variables; ++var) {
+//                        coefficients[var] = -av.coefficients[var];
+//                        if (id_num == var) coefficients[var] += 1.0;
+//                }
+//                    action.linear_eff_coefficeints.push_back(coefficients);
+//                    action.linear_eff_constants.push_back(-av.constant);
+                break;
+            default: {
+                cerr << "non-linear numeric effect in action " << op.get_name() << endl;
+                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+            }
+        }
+    }
+    vector<ap_float> eff_values(task->get_num_numeric_variables() + auxiliary_numeric_variables.size());
+    //        cout << "action effects:" << endl;
+    for (int reg_var_id = 0; reg_var_id < static_cast<int>(action.eff_list.size()); ++reg_var_id){
+        assert(eff_values[get_global_var_id(reg_var_id)] == 0);
+        eff_values[get_global_var_id(reg_var_id)] = action.eff_list[reg_var_id];
 //            if (action.eff_list[reg_var_id] != 0) {
 //                cout << "var" << get_global_var_id(reg_var_id) << " += " << action.eff_list[reg_var_id] << endl;
 //            }
-        }
+    }
+    for (const auto &aux_var : auxiliary_numeric_variables){
+        if (action.asgn_effs.empty()) {
+            ap_float val = aux_var.expr->evaluate_ignore_additive_consts(eff_values);
+            action.eff_list[get_regular_var_id(aux_var.var_id)] = val;
+        } else {
+            assert(action.eff_list[get_regular_var_id(aux_var.var_id)] == 0);
 
-        ap_float val = aux_var.expr->evaluate_ignore_additive_consts(num_values);
-        action.eff_list[get_regular_var_id(aux_var.var_id)] = val;
+            vector<int> affected_vars;
+            aux_var.expr->add_var_ids(affected_vars);
+
+            for (const auto &[asgn_var, asgn_val] : action.asgn_effs){
+                if (find(affected_vars.begin(), affected_vars.end(), asgn_var) != affected_vars.end()) {
+                    eff_values[asgn_var] = asgn_val;
+                }
+            }
+
+            ap_float val = aux_var.expr->evaluate_ignore_additive_consts(eff_values);
+
+            action.asgn_effs.emplace_back(aux_var.var_id, val);
+
+            for (const auto &[asgn_var, asgn_val] : action.asgn_effs){
+                if (find(affected_vars.begin(), affected_vars.end(), asgn_var) != affected_vars.end()) {
+                    eff_values[asgn_var] = 0;
+                }
+            }
+        }
 //        cout << aux_var.expr->get_name() << endl;
 //
 //        cout << "effect value for var" << aux_var.var_id << " is " << val << endl;
@@ -337,7 +262,7 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::build_condition(FactProxy 
 //    cout << c_op.get_comparison_operator_type() << endl;
 //    cout << rhs->get_name() << endl;
 
-    if (lhs->get_var_id() != -1 && rhs->get_var_id() != -1) {
+    if (!lhs->is_constant() && !rhs->is_constant()) {
         auto expr = make_shared<ArithmeticExpressionOp>(lhs, cal_operator::diff, rhs);
         auto var = create_auxiliary_variable(pre.get_name(), expr);
         auto zero = make_shared<ArithmeticExpressionConst>(0);
@@ -459,7 +384,7 @@ shared_ptr<arithmetic_expression::ArithmeticExpression> NumericTaskProxy::parse_
                     assgn_ax.get_arithmetic_operator_type(),
                     rhs);
 
-            if (lhs->get_var_id() != -1 && rhs->get_var_id() != -1){
+            if (!lhs->is_constant() && !rhs->is_constant()){
                 return create_auxiliary_variable(num_var.get_name(), expr);
             }
 

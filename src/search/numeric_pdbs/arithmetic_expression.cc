@@ -20,8 +20,31 @@ string ArithmeticExpressionOp::get_name() const {
     return ss.str();
 }
 
+ap_float ArithmeticExpressionOp::evaluate() const {
+    assert(is_constant());
+    switch (c_op){
+        case cal_operator::sum:
+            return lhs->evaluate() + rhs->evaluate();
+        case cal_operator::diff:
+            return lhs->evaluate() - rhs->evaluate();
+        case cal_operator::mult:
+            return lhs->evaluate() * rhs->evaluate();
+        case cal_operator::divi:
+            assert(rhs->evaluate() != 0);
+            return lhs->evaluate() / rhs->evaluate();
+        default:
+            cerr << "ERROR: unknown cal_operator: " << c_op << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    }
+}
+
 ap_float ArithmeticExpressionOp::evaluate(ap_float value) const {
-    assert(lhs->get_var_id() == -1 || rhs->get_var_id() == -1);
+#ifndef NDEBUG
+    vector<int> var_ids;
+    lhs->add_var_ids(var_ids);
+    rhs->add_var_ids(var_ids);
+    assert(var_ids.size() <= 1);
+#endif
     switch (c_op){
         case cal_operator::sum:
             return lhs->evaluate(value) + rhs->evaluate(value);
@@ -30,6 +53,7 @@ ap_float ArithmeticExpressionOp::evaluate(ap_float value) const {
         case cal_operator::mult:
             return lhs->evaluate(value) * rhs->evaluate(value);
         case cal_operator::divi:
+            assert(rhs->evaluate(value) != 0);
             return lhs->evaluate(value) / rhs->evaluate(value);
         default:
             cerr << "ERROR: unknown cal_operator: " << c_op << endl;
@@ -46,6 +70,7 @@ ap_float ArithmeticExpressionOp::evaluate(const vector<ap_float> &num_values) co
         case cal_operator::mult:
             return lhs->evaluate(num_values) * rhs->evaluate(num_values);
         case cal_operator::divi:
+            assert(rhs->evaluate(num_values) != 0);
             return lhs->evaluate(num_values) / rhs->evaluate(num_values);
         default:
             cerr << "ERROR: unknown cal_operator: " << c_op << endl;
@@ -56,24 +81,13 @@ ap_float ArithmeticExpressionOp::evaluate(const vector<ap_float> &num_values) co
 ap_float ArithmeticExpressionOp::evaluate_ignore_additive_consts(const vector<ap_float> &num_values) const {
     switch (c_op){
         case cal_operator::sum:
-            if (lhs->is_constant()){
-                assert(!rhs->is_constant());
-                return rhs->evaluate_ignore_additive_consts(num_values);
-            } else if (rhs->is_constant()){
-                return lhs->evaluate_ignore_additive_consts(num_values);
-            }
             return lhs->evaluate_ignore_additive_consts(num_values) + rhs->evaluate_ignore_additive_consts(num_values);
         case cal_operator::diff:
-            if (lhs->is_constant()){
-                assert(!rhs->is_constant());
-                return -rhs->evaluate_ignore_additive_consts(num_values);
-            } else if (rhs->is_constant()){
-                return lhs->evaluate_ignore_additive_consts(num_values);
-            }
             return lhs->evaluate_ignore_additive_consts(num_values) - rhs->evaluate_ignore_additive_consts(num_values);
         case cal_operator::mult:
             return lhs->evaluate_ignore_additive_consts(num_values) * rhs->evaluate_ignore_additive_consts(num_values);
         case cal_operator::divi:
+            assert(rhs->evaluate_ignore_additive_consts(num_values) != 0);
             return lhs->evaluate_ignore_additive_consts(num_values) / rhs->evaluate_ignore_additive_consts(num_values);
         default:
             cerr << "ERROR: unknown cal_operator: " << c_op << endl;
@@ -91,6 +105,7 @@ ap_float ArithmeticExpressionOp::evaluate(const State &state,
         case cal_operator::mult:
             return lhs->evaluate(state, task) * rhs->evaluate(state, task);
         case cal_operator::divi:
+            assert(rhs->evaluate(state, task) != 0);
             return lhs->evaluate(state, task) / rhs->evaluate(state, task);
         default:
             cerr << "ERROR: unknown cal_operator: " << c_op << endl;
@@ -100,10 +115,10 @@ ap_float ArithmeticExpressionOp::evaluate(const State &state,
 
 ap_float ArithmeticExpressionOp::get_multiplier() const {
     // TODO the current implementation does not support this
-    assert(c_op != cal_operator::divi || this->rhs->get_var_id() == -1);
+    assert(c_op != cal_operator::divi || rhs->is_constant());
 
-    if (lhs->get_var_id() != -1){
-        assert(rhs->get_var_id() == -1);
+    if (!lhs->is_constant()){
+        assert(rhs->is_constant());
         // rhs must be constant
         ap_float lhs_m = lhs->get_multiplier();
         switch (c_op){
@@ -112,17 +127,17 @@ ap_float ArithmeticExpressionOp::get_multiplier() const {
                 return lhs_m;
             case cal_operator::mult:
                 assert(lhs_m != 0);
-                assert(rhs->evaluate(0) != 0);
-                return 1.0 / (lhs_m * rhs->evaluate(0));
+                assert(rhs->evaluate() != 0);
+                return 1.0 / (lhs_m * rhs->evaluate());
             case cal_operator::divi:
                 assert(lhs_m != 0);
-                return rhs->evaluate(0) / lhs_m;
+                return rhs->evaluate() / lhs_m;
             default:
                 cerr << "ERROR: unknown cal_operator: " << c_op << endl;
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
-    } else if (rhs->get_var_id() != -1){
-        assert(lhs->get_var_id() == -1);
+    } else if (!rhs->is_constant()){
+        assert(lhs->is_constant());
         // lhs must be constant
         ap_float rhs_m = rhs->get_multiplier();
         switch (c_op){
@@ -132,11 +147,11 @@ ap_float ArithmeticExpressionOp::get_multiplier() const {
                 return -rhs_m;
             case cal_operator::mult:
                 assert(rhs_m != 0);
-                assert(lhs->evaluate(0) != 0);
-                return 1.0 / (rhs_m * lhs->evaluate(0));
+                assert(lhs->evaluate() != 0);
+                return 1.0 / (rhs_m * lhs->evaluate());
             case cal_operator::divi:
                 assert(rhs_m != 0);
-                return lhs->evaluate(0) / rhs_m;
+                return lhs->evaluate() / rhs_m;
             default:
                 cerr << "ERROR: unknown cal_operator: " << c_op << endl;
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
@@ -149,13 +164,13 @@ ap_float ArithmeticExpressionOp::get_multiplier() const {
 
 ap_float ArithmeticExpressionOp::get_summand() const {
     // TODO the current implementation does not support this
-    assert(c_op != cal_operator::divi || this->rhs->get_var_id() == -1);
+    assert(c_op != cal_operator::divi || rhs->is_constant());
 
-    if (lhs->get_var_id() != -1){
-        assert(rhs->get_var_id() == -1);
+    if (!lhs->is_constant()){
+        assert(rhs->is_constant());
         // rhs must be constant
         ap_float lhs_m = lhs->get_multiplier();
-        ap_float rhs_c = rhs->evaluate(0);
+        ap_float rhs_c = rhs->evaluate();
         switch (c_op){
             case cal_operator::sum:
                 return lhs->get_summand() + rhs_c * lhs_m;
@@ -168,11 +183,11 @@ ap_float ArithmeticExpressionOp::get_summand() const {
                 cerr << "ERROR: unknown cal_operator: " << c_op << endl;
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
-    } else if (rhs->get_var_id() != -1){
-        assert(lhs->get_var_id() == -1);
+    } else if (!rhs->is_constant()){
+        assert(lhs->is_constant());
         // lhs must be constant
         ap_float rhs_m = rhs->get_multiplier();
-        ap_float lhs_c = lhs->evaluate(0);
+        ap_float lhs_c = lhs->evaluate();
         switch (c_op){
             case cal_operator::sum:
                 return rhs->get_summand() + lhs_c * rhs_m;

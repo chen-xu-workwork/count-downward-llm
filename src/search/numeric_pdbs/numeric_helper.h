@@ -199,7 +199,6 @@ private:
     const TaskProxy task_proxy;
 
     void build_numeric_variables();
-    void build_artificial_variables();
 
     void find_derived_numeric_variables();
 
@@ -229,7 +228,6 @@ private:
     size_t n_numeric_variables;  // number of regular numeric variables
     std::vector<int> reg_num_var_id_to_glob_var_id; // map regular numeric variable id to global variable id
     std::vector<int> glob_var_id_to_reg_num_var_id; // map global variable id to regular numeric variable id
-    std::vector<LinearNumericCondition> artificial_variables;
 
     std::unordered_map<std::string, size_t> auxiliary_num_vars_expressions;
     std::vector<ResNumericVariable> auxiliary_numeric_variables;

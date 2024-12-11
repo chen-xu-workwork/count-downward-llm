@@ -13,15 +13,19 @@ class NumericTaskProxy;
 namespace arithmetic_expression {
 
 class ArithmeticExpression {
-    // an arithmetic expression over a single regular numeric variable and constants
+    // an arithmetic expression over a regular numeric variables and constants
 
 public:
     virtual ~ArithmeticExpression() = default;
 
-    virtual int get_var_id() const = 0;
+    virtual void add_var_ids(std::vector<int> &var_ids) const = 0;
 
     virtual std::string get_name() const = 0;
 
+    // this expects that the expression is constant
+    virtual ap_float evaluate() const = 0;
+
+    // this expects that the expression contains at most one numeric variable
     virtual ap_float evaluate(ap_float value) const = 0;
 
     // this expects an entry for every numeric variable, not just regular ones
@@ -53,12 +57,18 @@ public:
                g_numeric_var_types[var_id] == numType::regular);
     };
 
-    int get_var_id() const override {
-        return var_id;
+    void add_var_ids(std::vector<int> &var_ids) const override {
+        return var_ids.push_back(var_id);
     }
 
     std::string get_name() const override {
         return "var" + std::to_string(var_id);
+    }
+
+    ap_float evaluate() const override {
+        assert(false);
+        std::cerr << "ERROR: this should not happen" << std::endl;
+        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
     }
 
     ap_float evaluate(ap_float value) const override {
@@ -102,12 +112,15 @@ public:
             : const_(const_) {
     }
 
-    int get_var_id() const override {
-        return -1;
+    void add_var_ids(std::vector<int> &/*var_ids*/) const override {
     }
 
     std::string get_name() const override {
         return std::to_string(const_);
+    }
+
+    ap_float evaluate() const override {
+        return const_;
     }
 
     ap_float evaluate(ap_float /*value*/) const override {
@@ -119,7 +132,7 @@ public:
     }
 
     ap_float evaluate_ignore_additive_consts(const std::vector<ap_float> &/*num_values*/) const override {
-        return const_;
+        return 0;
     }
 
     ap_float evaluate(const State &/*state*/, const numeric_pdb_helper::NumericTaskProxy &/*task*/) const override {
@@ -155,17 +168,14 @@ public:
             : lhs(std::move(lhs)), c_op(c_op), rhs(std::move(rhs)) {
     }
 
-    int get_var_id() const override {
-        int var_id = lhs->get_var_id();
-        if (var_id != -1){
-            assert(rhs->get_var_id() == -1); // there can only be one variable in the expression
-            return var_id;
-        } else {
-            return rhs->get_var_id();
-        }
+    void add_var_ids(std::vector<int> &var_ids) const override {
+        lhs->add_var_ids(var_ids);
+        rhs->add_var_ids(var_ids);
     }
 
     std::string get_name() const override;
+
+    ap_float evaluate() const override;
 
     ap_float evaluate(ap_float value) const override;
 
@@ -176,8 +186,8 @@ public:
     ap_float evaluate(const State &state, const numeric_pdb_helper::NumericTaskProxy &task) const override;
 
     std::shared_ptr<ArithmeticExpression> simplify() override {
-        if (lhs->get_var_id() == -1 && rhs->get_var_id() == -1){
-            return std::make_shared<ArithmeticExpressionConst>(evaluate(0));
+        if (lhs->is_constant() && rhs->is_constant()){
+            return std::make_shared<ArithmeticExpressionConst>(evaluate());
         }
         lhs = lhs->simplify();
         rhs = rhs->simplify();

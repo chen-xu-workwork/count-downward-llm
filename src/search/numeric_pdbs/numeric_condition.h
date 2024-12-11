@@ -14,19 +14,27 @@ public:
                             comp_operator c_op,
                             const std::shared_ptr<arithmetic_expression::ArithmeticExpression> &rhs)
             : lhs(lhs->simplify()), c_op(c_op), rhs(rhs->simplify()) {
-        // there can only be one regular numeric variable in the expression
-        assert(lhs->get_var_id() == -1 || rhs->get_var_id() == -1);
+        // there can be at most one regular numeric variable in the expression
+#ifndef NDEBUG
+        std::vector<int> var_ids;
+        lhs->add_var_ids(var_ids);
+        rhs->add_var_ids(var_ids);
+        assert(var_ids.size() <= 1);
+#endif
     }
 
     ~RegularNumericCondition() = default;
 
     int get_var_id() const {
-        int var_id = lhs->get_var_id();
-        if (var_id != -1){
-            return var_id;
+        std::vector<int> var_ids;
+        if (rhs->is_constant()){
+            assert(!lhs->is_constant());
+            lhs->add_var_ids(var_ids);
         } else {
-            return rhs->get_var_id();
+            rhs->add_var_ids(var_ids);
         }
+        assert(var_ids.size() == 1);
+        return var_ids[0];
     }
 
     std::string get_name() const;
@@ -35,15 +43,17 @@ public:
     bool satisfied(ap_float value) const;
 
     ap_float get_constant() const {
-        if (lhs->get_var_id() != -1){
+        if (!lhs->is_constant()){
+            assert(rhs->is_constant());
             // rhs must be constant
-            ap_float c = rhs->evaluate(0);
+            ap_float c = rhs->evaluate();
             ap_float m = lhs->get_multiplier();
             ap_float s = lhs->get_summand();
             return c * m - s;
-        } else if (rhs->get_var_id() != -1){
+        } else if (!rhs->is_constant()){
+            assert(lhs->is_constant());
             // lhs must be constant
-            ap_float c = lhs->evaluate(0);
+            ap_float c = lhs->evaluate();
             ap_float m = rhs->get_multiplier();
             ap_float s = rhs->get_summand();
             return c * m - s;
@@ -52,7 +62,7 @@ public:
     }
 
     bool is_constant() const {
-        return lhs->get_var_id() == -1 && rhs->get_var_id() == -1;
+        return lhs->is_constant() && rhs->is_constant();
     }
 };
 
