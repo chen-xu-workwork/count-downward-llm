@@ -157,29 +157,8 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
         } else {
             cerr << "ERROR: actions that assign and inc/decrement variables " << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-
-            for (const auto &[asgn_var, asgn_val] : action.asgn_effs){
-                if (find(affected_vars.begin(), affected_vars.end(), asgn_var) != affected_vars.end()) {
-                    eff_values[asgn_var] = asgn_val;
-                }
-            }
-
-            ap_float val = aux_var.expr->evaluate_ignore_additive_consts(eff_values);
-
-            action.asgn_effs.emplace_back(aux_var.var_id, val);
-
-            for (const auto &[asgn_var, asgn_val] : action.asgn_effs){
-                if (find(affected_vars.begin(), affected_vars.end(), asgn_var) != affected_vars.end()) {
-                    eff_values[asgn_var] = 0;
-                }
-            }
         }
-//        cout << aux_var.expr->get_name() << endl;
-//
-//        cout << "effect value for var" << aux_var.var_id << " is " << val << endl;
-//        cout << "------------------" << endl;
     }
-//    cout << "final effs of action: " << action.eff_list << endl;
 }
 
 void NumericTaskProxy::build_actions() {
