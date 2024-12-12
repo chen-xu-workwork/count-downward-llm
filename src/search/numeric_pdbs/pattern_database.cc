@@ -119,20 +119,6 @@ PatternDatabase::PatternDatabase(
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
-    for (int pattern_var_id : pattern.numeric) {
-        // the first case in the assertion happens for auxiliary variables introduced in the simple->restricted task transformation
-        assert(static_cast<size_t>(pattern_var_id) >= g_numeric_var_types.size() ||
-               g_numeric_var_types[pattern_var_id] == numType::regular);
-        int var_domain = task_proxy->get_approximate_domain_size(task_proxy->get_numeric_variables()[pattern_var_id]);
-        if (utils::is_product_within_limit(domain_size_product, var_domain,
-                                           numeric_limits<int>::max())) {
-            domain_size_product *= var_domain;
-        } else {
-            cerr << "Given pattern is too large! (Overflow occured): " << endl;
-            cerr << pattern << endl;
-            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-        }
-    }
 
     if (pattern.numeric.empty()){
         create_pdb_propositional(domain_size_product, operator_costs);
