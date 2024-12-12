@@ -150,9 +150,12 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
 //                cout << "var" << get_global_var_id(reg_var_id) << " += " << action.eff_list[reg_var_id] << endl;
 //            }
     }
+
     for (const auto &aux_var : auxiliary_numeric_variables){
         if (action.asgn_effs.empty()) {
             ap_float val = aux_var.expr->evaluate_ignore_additive_consts(eff_values);
+            assert(eff_values[aux_var.var_id] == 0);
+            eff_values[aux_var.var_id] = val;
             action.eff_list[get_regular_var_id(aux_var.var_id)] = val;
         } else {
             cerr << "ERROR: actions that assign and inc/decrement variables " << endl;
