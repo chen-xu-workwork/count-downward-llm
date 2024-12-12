@@ -81,8 +81,20 @@ ap_float ArithmeticExpressionOp::evaluate(const vector<ap_float> &num_values) co
 ap_float ArithmeticExpressionOp::evaluate_ignore_additive_consts(const vector<ap_float> &num_values) const {
     switch (c_op){
         case cal_operator::sum:
+            if (lhs->is_constant()){
+                assert(!rhs->is_constant());
+                return rhs->evaluate_ignore_additive_consts(num_values);
+            } else if (rhs->is_constant()){
+                return lhs->evaluate_ignore_additive_consts(num_values);
+            }
             return lhs->evaluate_ignore_additive_consts(num_values) + rhs->evaluate_ignore_additive_consts(num_values);
         case cal_operator::diff:
+            if (lhs->is_constant()){
+                assert(!rhs->is_constant());
+                return -rhs->evaluate_ignore_additive_consts(num_values);
+            } else if (rhs->is_constant()){
+                return lhs->evaluate_ignore_additive_consts(num_values);
+            }
             return lhs->evaluate_ignore_additive_consts(num_values) - rhs->evaluate_ignore_additive_consts(num_values);
         case cal_operator::mult:
             return lhs->evaluate_ignore_additive_consts(num_values) * rhs->evaluate_ignore_additive_consts(num_values);

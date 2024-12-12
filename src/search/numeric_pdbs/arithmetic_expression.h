@@ -132,7 +132,7 @@ public:
     }
 
     ap_float evaluate_ignore_additive_consts(const std::vector<ap_float> &/*num_values*/) const override {
-        return 0;
+        return const_;
     }
 
     ap_float evaluate(const State &/*state*/, const numeric_pdb_helper::NumericTaskProxy &/*task*/) const override {
