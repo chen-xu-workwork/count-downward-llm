@@ -115,10 +115,12 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
 
         switch (oper) {
             case (assign):
+                assert(std::all_of(action.asgn_effs.begin(), action.asgn_effs.end(), [&lhs](auto &e){return e.first != lhs;}));
                 action.asgn_effs.emplace_back(lhs, eff_value);
                 break;
             case (increase):
-                action.eff_list[id_num] = eff_value;
+                // we need += instead of = (resp. -= below) because there can be more than one effect on the same variable
+                action.eff_list[id_num] += eff_value;
 //                for (size_t var = 0; var < n_numeric_variables; ++var) {
 //                        coefficients[var] = av.coefficients[var];
 //                        if (id_num == var) coefficients[var] += 1.0;
@@ -127,7 +129,7 @@ void NumericTaskProxy::build_action(const OperatorProxy &op, size_t op_id) {
 //                    action.linear_eff_constants.push_back(av.constant);
                 break;
             case (decrease):
-                action.eff_list[id_num] = -eff_value;
+                action.eff_list[id_num] -= eff_value;
 //                for (size_t var = 0; var < n_numeric_variables; ++var) {
 //                        coefficients[var] = -av.coefficients[var];
 //                        if (id_num == var) coefficients[var] += 1.0;
