@@ -11,7 +11,7 @@ class CanonicalPDBsHeuristic : public Heuristic {
     CanonicalPDBs canonical_pdbs;
 
 protected:
-    virtual ap_float compute_heuristic(const GlobalState &state) override;
+    ap_float compute_heuristic(const GlobalState &state) override;
     /* TODO: we want to get rid of compute_heuristic(const GlobalState &state)
        and change the interface to only use State objects. While we are doing
        this, the following method already allows to get the heuristic value
@@ -21,6 +21,8 @@ protected:
 public:
     explicit CanonicalPDBsHeuristic(const options::Options &opts);
     virtual ~CanonicalPDBsHeuristic() = default;
+
+    void print_statistics() const override;
 };
 }
 

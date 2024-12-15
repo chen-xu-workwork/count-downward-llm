@@ -35,6 +35,8 @@ public:
     */
     NumericPDBHeuristic(const options::Options &opts);
     virtual ~NumericPDBHeuristic() override = default;
+
+    void print_statistics() const override;
 };
 }
 

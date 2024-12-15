@@ -40,6 +40,10 @@ ap_float NumericPDBHeuristic::compute_heuristic(const State &state) const {
     return h;
 }
 
+void NumericPDBHeuristic::print_statistics() const {
+    cout << "Number of failed heuristic lookups: " << pdb.get_number_lookup_misses() << endl;
+}
+
 static Heuristic *_parse(OptionParser &parser) {
     parser.document_synopsis("Numeric pattern database heuristic", "TODO");
     parser.document_language_support("action costs", "supported");

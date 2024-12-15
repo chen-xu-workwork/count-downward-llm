@@ -97,7 +97,8 @@ PatternDatabase::PatternDatabase(
         : task_proxy(task_proxy),
           pattern(pattern),
           min_action_cost(numeric_limits<ap_float>::max()),
-          exhausted_abstract_state_space(false) {
+          exhausted_abstract_state_space(false),
+          number_lookup_misses(0) {
 
     assert(operator_costs.empty() ||
            operator_costs.size() == task_proxy->get_operators().size());
@@ -725,6 +726,7 @@ ap_float PatternDatabase::get_value(const State &state) const {
                                                                get_abstract_numeric_state(state)));
     if (abs_state_id == numeric_limits<size_t>::max()) {
         // we have not seen an abstract state that corresponds to state
+        number_lookup_misses++;
         if (exhausted_abstract_state_space) {
             // here we can guarantee that state is indeed a deadend
             return numeric_limits<ap_float>::max();

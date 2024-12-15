@@ -11,6 +11,8 @@ class State;
 
 namespace numeric_pdbs {
 class CanonicalPDBs {
+    friend class CanonicalPDBsHeuristic;
+
     std::shared_ptr<MaxAdditivePDBSubsets> max_additive_subsets;
 
 public:
