@@ -16,6 +16,7 @@ namespace numeric_pdbs {
 // Implements a heuristic for a single PDB.
 class NumericPDBHeuristic : public Heuristic {
     PatternDatabase pdb;
+    mutable size_t number_lookup_misses; // for statistics only
 protected:
     virtual ap_float compute_heuristic(const GlobalState &global_state) override;
     /* TODO: we want to get rid of compute_heuristic(const GlobalState &state)

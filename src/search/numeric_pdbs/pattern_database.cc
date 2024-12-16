@@ -97,8 +97,7 @@ PatternDatabase::PatternDatabase(
         : task_proxy(task_proxy),
           pattern(pattern),
           min_action_cost(numeric_limits<ap_float>::max()),
-          exhausted_abstract_state_space(false),
-          number_lookup_misses(0) {
+          exhausted_abstract_state_space(false) {
 
     assert(operator_costs.empty() ||
            operator_costs.size() == task_proxy->get_operators().size());
@@ -717,28 +716,27 @@ const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State 
     return tmp_abstract_numeric_state;
 }
 
-ap_float PatternDatabase::get_value(const State &state) const {
+pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
     if (pattern.numeric.empty()){
         // purely propositional pattern
-        return distances[prop_hash_index(state)];
+        return {true, distances[prop_hash_index(state)]};
     }
     size_t abs_state_id = state_registry->get_id(NumericState(prop_hash_index(state),
                                                                get_abstract_numeric_state(state)));
     if (abs_state_id == numeric_limits<size_t>::max()) {
         // we have not seen an abstract state that corresponds to state
-        number_lookup_misses++;
         if (exhausted_abstract_state_space) {
             // here we can guarantee that state is indeed a deadend
-            return numeric_limits<ap_float>::max();
+            return {true, numeric_limits<ap_float>::max()};
         } else if (is_abstract_goal_state(state)) {
             // abstract goals are satisfied
-            return 0;
+            return {false, 0};
         } else {
             // we don't know any better
-            return min_action_cost;
+            return {false, min_action_cost};
         }
     }
-    return distances[abs_state_id];
+    return {true, distances[abs_state_id]};
 }
 
 ap_float PatternDatabase::compute_mean_finite_h() const {

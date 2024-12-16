@@ -24,7 +24,8 @@ PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
 
 NumericPDBHeuristic::NumericPDBHeuristic(const Options &opts)
     : Heuristic(opts),
-      pdb(get_pdb_from_options(task, opts)) {
+      pdb(get_pdb_from_options(task, opts)),
+      number_lookup_misses(0) {
 }
 
 ap_float NumericPDBHeuristic::compute_heuristic(const GlobalState &global_state) {
@@ -33,7 +34,10 @@ ap_float NumericPDBHeuristic::compute_heuristic(const GlobalState &global_state)
 }
 
 ap_float NumericPDBHeuristic::compute_heuristic(const State &state) const {
-    ap_float h = pdb.get_value(state);
+    auto [found_state, h] = pdb.get_value(state);
+    if (!found_state){
+        number_lookup_misses++;
+    }
     if (h == numeric_limits<ap_float>::max()) {
         return DEAD_END;
     }
@@ -41,7 +45,7 @@ ap_float NumericPDBHeuristic::compute_heuristic(const State &state) const {
 }
 
 void NumericPDBHeuristic::print_statistics() const {
-    cout << "Number of failed heuristic lookups: " << pdb.get_number_lookup_misses() << endl;
+    cout << "Number of failed heuristic lookups: " << number_lookup_misses << endl;
 }
 
 static Heuristic *_parse(OptionParser &parser) {

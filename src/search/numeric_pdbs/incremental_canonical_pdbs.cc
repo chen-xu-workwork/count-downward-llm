@@ -63,7 +63,7 @@ ap_float IncrementalCanonicalPDBs::get_value(const State &state) const {
 
 bool IncrementalCanonicalPDBs::is_dead_end(const State &state) const {
     for (const shared_ptr<PatternDatabase> &pdb : *pattern_databases)
-        if (pdb->get_value(state) == numeric_limits<ap_float>::max())
+        if (pdb->get_value(state).second == numeric_limits<ap_float>::max())
             return true;
     return false;
 }

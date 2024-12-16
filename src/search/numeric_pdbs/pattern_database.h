@@ -109,8 +109,6 @@ class PatternDatabase {
 
     mutable std::vector<ap_float> tmp_abstract_numeric_state; // avoid reallocation
 
-    mutable size_t number_lookup_misses;
-
     /*
       Recursive method; called by build_abstract_operators. In the case
       of a precondition with value = -1 in the concrete operator, all
@@ -218,7 +216,7 @@ public:
 
     ~PatternDatabase() = default;
 
-    ap_float get_value(const State &state) const;
+    std::pair<bool, ap_float> get_value(const State &state) const;
 
     // Returns the pattern (i.e. all variables used) of the PDB
     const Pattern &get_pattern() const {
@@ -228,11 +226,6 @@ public:
     // Returns the size (number of abstract states) of the PDB
     std::size_t get_size() const {
         return distances.size();
-    }
-
-    // returns the number of times get_value was called with a state for which no heuristic value was computed
-    std::size_t get_number_lookup_misses() const {
-        return number_lookup_misses;
     }
 
     /*

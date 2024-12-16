@@ -35,18 +35,7 @@ CanonicalPDBsHeuristic::CanonicalPDBsHeuristic(const Options &opts)
 }
 
 void CanonicalPDBsHeuristic::print_statistics() const {
-    size_t num_states_without_stored_abstract_state = 0;
-    unordered_set<shared_ptr<PatternDatabase>> handled_pdbs;
-    for (const auto &collection : *canonical_pdbs.max_additive_subsets){
-        for (const auto &pdb : collection){
-            if (handled_pdbs.count(pdb) == 0) {
-                num_states_without_stored_abstract_state += pdb->get_number_lookup_misses();
-                handled_pdbs.insert(pdb);
-            }
-        }
-    }
-    cout << "Number of failed heuristic lookups: " << num_states_without_stored_abstract_state << endl;
-    cout << "Number of PDBs: " << handled_pdbs.size() << endl;
+    cout << "Number of failed heuristic lookups: " << canonical_pdbs.get_number_lookup_misses() << endl;
 }
 
 ap_float CanonicalPDBsHeuristic::compute_heuristic(const GlobalState &global_state) {

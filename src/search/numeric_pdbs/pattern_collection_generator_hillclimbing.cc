@@ -257,7 +257,7 @@ bool PatternCollectionGeneratorHillclimbing::is_heuristic_improved(
     const PatternDatabase &pdb, const State &sample,
     const MaxAdditivePDBSubsets &max_additive_subsets) {
     // h_pattern: h-value of the new pattern
-    ap_float h_pattern = pdb.get_value(sample);
+    ap_float h_pattern = pdb.get_value(sample).second;
 
     if (h_pattern == numeric_limits<ap_float>::max()) {
         return true;
@@ -274,7 +274,7 @@ bool PatternCollectionGeneratorHillclimbing::is_heuristic_improved(
         for (const shared_ptr<PatternDatabase> &additive_pdb : subset) {
             /* Experiments showed that it is faster to recompute the
                h values than to cache them in an unordered_map. */
-            ap_float h = additive_pdb->get_value(sample);
+            ap_float h = additive_pdb->get_value(sample).second;
             if (h == numeric_limits<ap_float>::max()) {
                 return false;
             }
