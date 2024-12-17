@@ -60,7 +60,7 @@ class NumericPDBParser(Parser):
         self.add_pattern('number_pruned_subsets', 'Pruned (.+) of [.+] maximal additive subsets', required=False, type=int)
         self.add_pattern('number_pruned_pdbs', 'Pruned (.+) of [.+] PDBs', required=False, type=int)
         self.add_pattern('res_task_construction_time', 'Time to build restricted numeric task: (.+)s', required=False, type=float)
-
+        self.add_pattern('number_failed_pdb_lookups', 'Number of failed heuristic lookups: (.+)', required=False, type=int)
 
         self.add_function(add_initial_h_values)
         self.add_function(add_pdb_constructed)

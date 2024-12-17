@@ -62,8 +62,10 @@ SUITE_NUMERIC_TRANSFORMED = [
 ]
 
 SUITE_NUMERIC_OTHERS = [
-    'depots', 'farmland', 'fn-counters-small_instances', 'petri-net', 
-    'plant-watering', 'rover', 'rover-unit', 'sailing', 'satellite', 
+    'counters-sym', 'depots', 'depots-sym', 'farmland', 'fn-counters-small_instances', 'petri-net', 
+    'plant-watering', 
+    #'rover', # same as IPC instances 
+    'rover-unit', 'sailing', 'satellite', 
     'zenotravel'
 ]
 
@@ -72,8 +74,13 @@ SUITE_NUMERIC_OTHERS_NEW = [
 ]
 
 SUITE_NUMERIC_IPC23_ALL = [
-    'counters', 'delivery', 'drone', 'expedition', 'ext-plant-watering', 'farmland-ipc23', 'hydropower', 
-    'markettrader', 'mprime', 'pathwaysmetric', 'rover-ipc23', 'sailing-ipc23', 'settlersnumeric', 'sugar', 'zenotravel-ipc23'
+    #'block-grounding', # has axioms because of disjunctive goals
+    'counters', 'delivery', 'drone', 'expedition', 'ext-plant-watering', 'farmland-ipc23', 
+    #'fo-counters', 'fo-farmland', 'fo-sailing', # these three domains are not simple 
+    'hydropower', 'markettrader', 'mprime', 'pathwaysmetric', 'rover-ipc23', 'sailing-ipc23', 
+    'settlersnumeric', 'sugar', 
+    #'tpp', # not a simple numeric domain
+    'zenotravel-ipc23'
 ]
 
 SUITE_NUMERIC_IPC23_RT = [
@@ -376,3 +383,35 @@ def add_absolute_report(exp, *, name=None, outfile=None, **kwargs):
     if not REMOTE:
         exp.add_step(f"open-{name}", subprocess.call, ["xdg-open", outfile])
     exp.add_step(f"publish-{name}", subprocess.call, ["publish", outfile])
+
+def add_compress_and_delete_runs_step(exp):
+    runs_dir = exp.path
+    exp.add_step(
+        "remove-output-files",
+        subprocess.call,
+        [
+            "find",
+            f"{runs_dir}",
+            "-type", "f", "(", "-name", "output", "-o", "-name", "output.sas", ")", "-delete",
+        ],
+    )
+    exp.add_step(
+        "compress-runs-dir",
+        subprocess.call,
+        [
+            "tar",
+            "-cjf",
+            f"{runs_dir[:-1] if runs_dir.endswith('/') else runs_dir}.tar.gz",
+            f"{runs_dir if runs_dir.endswith('/') else runs_dir + '/'}",
+        ],
+    )
+    exp.add_step(
+        "delete-runs-dir",
+        subprocess.call,
+        [
+            "rm",
+            "-rf",
+            runs_dir
+        ],
+    )
+
