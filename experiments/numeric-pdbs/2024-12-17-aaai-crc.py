@@ -128,14 +128,20 @@ config_pairs = [(f"blind-{REVISIONS[0][:5]}", f"num-ipdb-{REVISIONS[0][:5]}"),
                 (f"ipdb-{REVISIONS[0][:5]}", f"num-ipdb-{REVISIONS[0][:5]}"),
                 ]
 
+def remove_pn_domain(run):
+    if run["domain"] == "pn-domain":
+        return False
+    return run
+
 for alg1, alg2 in config_pairs:
     for attr in ["expansions_until_last_jump", "planner_time"]:
         exp.add_report(
             ScatterPlotReport(
                 attributes=[attr],
                 filter_algorithm=[alg1, alg2],
+                filter=[remove_pn_domain],
                 #get_category=lambda r1, r2 : r1["domain"],
-                format="tex",
+                format="png",
                 show_missing=True,
             ),
             name=f"scatterplot-{attr.replace('_', '-')}-{alg1}-vs-{alg2}",
