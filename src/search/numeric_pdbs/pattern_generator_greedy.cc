@@ -79,12 +79,12 @@ static shared_ptr<PatternGenerator> _parse(OptionParser &parser) {
     parser.add_option<int>(
             "max_number_pdb_states",
             "maximal number of abstract states in the pattern database.",
-            "1000000",
+            "100000",
             Bounds("1", "infinity"));
     parser.add_option<bool>(
             "prefer_numeric_variables",
             "When selecting the next variable, should it be numeric or propositional?",
-            "false");
+            "true");
     vector<string> variable_order_types = {"CG_GOAL_LEVEL", "CG_GOAL_RANDOM", "GOAL_CG_LEVEL"};
     parser.add_enum_option(
             "variable_order_type",

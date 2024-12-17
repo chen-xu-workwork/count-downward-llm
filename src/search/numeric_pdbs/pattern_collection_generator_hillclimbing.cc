@@ -437,17 +437,17 @@ void add_hillclimbing_options(OptionParser &parser) {
             "max_number_pdb_states",
             "maximal number of generated states for every pattern database that contains a numeric variable; "
             "PDBs without numeric variable are fully explored, the respective limit is given by max_pdb_size",
-            "100000",
+            "10000",
             Bounds("1", "infinity"));
     parser.add_option<int>(
             "max_pdb_size",
             "bound on the domain-size product of variables in a pattern",
-            "2000000",
+            "1000000",
             Bounds("1", "infinity"));
     parser.add_option<int>(
             "collection_max_size",
             "maximal number of states in the pattern collection",
-            "20000000",
+            "10000000",
             Bounds("1", "infinity"));
     parser.add_option<int>(
             "num_samples",
