@@ -91,6 +91,7 @@ class PatternDatabase {
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
 
     Pattern pattern;
+    int hierarchy;
 
     std::unique_ptr<NumericStateRegistry> state_registry;
 
@@ -212,11 +213,13 @@ public:
             const Pattern &pattern,
             std::size_t max_number_states,
             bool dump = false,
+            int hierarchy = 1,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
 
     ~PatternDatabase() = default;
 
     std::pair<bool, ap_float> get_value(const State &state) const;
+    std::pair<bool, ap_float> get_value(const size_t prop_hash_index, const std::vector<ap_float>) const;
 
     // Returns the pattern (i.e. all variables used) of the PDB
     const Pattern &get_pattern() const {

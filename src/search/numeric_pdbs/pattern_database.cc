@@ -17,6 +17,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <optional>
 
 using namespace std;
 using namespace numeric_condition;
@@ -93,10 +94,12 @@ PatternDatabase::PatternDatabase(
         const Pattern &pattern,
         size_t max_number_states,
         bool dump,
+        int hierarchy,
         const vector<ap_float> &operator_costs)
         : task_proxy(task_proxy),
           pattern(pattern),
           min_action_cost(numeric_limits<ap_float>::max()),
+          hierarchy(hierarchy),
           exhausted_abstract_state_space(false) {
 
     assert(operator_costs.empty() ||
@@ -306,6 +309,18 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         num_variable_to_index[pattern.numeric[i]] = i;
     }
 
+    optional<PatternDatabase> pdb;
+    if (hierarchy > 0) {
+        Pattern new_pattern;
+        for (const auto &num_goal: task_proxy->get_numeric_goals()) {
+            if (num_variable_to_index[num_goal.get_var_id()] != -1) {
+                new_pattern.numeric.push_back(num_goal.get_var_id());
+                break;
+            }
+        }
+        pdb.emplace(task_proxy, new_pattern, max_number_states, false, hierarchy - 1, operator_costs);
+    } 
+
     AdaptiveQueue<size_t> pq;
     // size 1 prevents segfault in Dijkstra loop in case no new states are reached
     vector<vector<pair<int, size_t>>> parent_pointers(1);
@@ -454,7 +469,11 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                         is_open_or_closed[succ_id] = true;
                         ++num_reached_states;
                     }
-                    open.push(cost + abs_op->get_cost(), succ_id);
+                    ap_float h = 0;
+                    if (pdb.has_value()) {
+                        h = pdb->get_value(prop_successor, num_successor).second * 100;
+                    } 
+                    open.push(cost + abs_op->get_cost() + h, succ_id);
                 }
             }
 
@@ -493,7 +512,13 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     } else {
                         op_cost = operator_costs[op_id];
                     }
-                    open.push(cost + op_cost, succ_id);
+
+                    ap_float h = 0;
+                    if (pdb.has_value()) {
+                        h = pdb->get_value(state.prop_hash, num_successor).second * 100;
+                    } 
+
+                    open.push(cost + op_cost + h, succ_id);
                 }
             }
         }
@@ -731,6 +756,26 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
         } else if (is_abstract_goal_state(state)) {
             // abstract goals are satisfied
             return {false, 0};
+        } else {
+            // we don't know any better
+            return {false, min_action_cost};
+        }
+    }
+    return {true, distances[abs_state_id]};
+}
+
+pair<bool, ap_float> PatternDatabase::get_value(const size_t prop_hash, const vector<ap_float> num_state) const {
+    if (pattern.numeric.empty()){
+        // purely propositional pattern
+        return {true, distances[prop_hash]};
+    }
+    size_t abs_state_id = state_registry->get_id(NumericState(prop_hash,
+                                                               num_state));
+    if (abs_state_id == numeric_limits<size_t>::max()) {
+        // we have not seen an abstract state that corresponds to state
+        if (exhausted_abstract_state_space) {
+            // here we can guarantee that state is indeed a deadend
+            return {true, numeric_limits<ap_float>::max()};
         } else {
             // we don't know any better
             return {false, min_action_cost};
