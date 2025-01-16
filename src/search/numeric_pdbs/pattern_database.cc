@@ -450,6 +450,17 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                                                                        op,
                                                                        num_variable_to_index);
 
+                ap_float h = 0;
+                if (pdb.has_value()) {
+                    vector<ap_float> proj_num_state;
+                    for (const auto &num_goal: task_proxy->get_numeric_goals()) {
+                        if (num_variable_to_index[num_goal.get_var_id()] != -1) {
+                            proj_num_state.push_back(num_successor[num_variable_to_index[num_goal.get_var_id()]]);
+                            break;
+                        }
+                    }
+                    h = pdb->get_value(0, proj_num_state).second * 100;
+                } 
                 size_t succ_id = tmp_state_registry->insert_state(NumericState(prop_successor, std::move(num_successor)));
 
                 if (succ_id == state_id) {
@@ -469,10 +480,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                         is_open_or_closed[succ_id] = true;
                         ++num_reached_states;
                     }
-                    ap_float h = 0;
-                    if (pdb.has_value()) {
-                        h = pdb->get_value(prop_successor, num_successor).second * 100;
-                    } 
+            
                     open.push(cost + abs_op->get_cost() + h, succ_id);
                 }
             }
@@ -486,6 +494,17 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 vector<ap_float> num_successor = get_numeric_successor(state.num_state,
                                                                        op,
                                                                        num_variable_to_index);
+                ap_float h = 0;
+                if (pdb.has_value()) {
+                    vector<ap_float> proj_num_state;
+                    for (const auto &num_goal: task_proxy->get_numeric_goals()) {
+                        if (num_variable_to_index[num_goal.get_var_id()] != -1) {
+                            proj_num_state.push_back(num_successor[num_variable_to_index[num_goal.get_var_id()]]);
+                            break;
+                        }
+                    }
+                    h = pdb->get_value(0, proj_num_state).second * 100;
+                } 
 
                 size_t succ_id = tmp_state_registry->insert_state(NumericState(state.prop_hash, std::move(num_successor)));
 
@@ -513,11 +532,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                         op_cost = operator_costs[op_id];
                     }
 
-                    ap_float h = 0;
-                    if (pdb.has_value()) {
-                        h = pdb->get_value(state.prop_hash, num_successor).second * 100;
-                    } 
-
+                  
                     open.push(cost + op_cost + h, succ_id);
                 }
             }
@@ -553,7 +568,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 pq.push(min_action_cost, state_id);
             }
         }
-
         if (dump) {
             cout << "Generated abstract states: " << tmp_state_registry->size() + num_open_states << endl;
             cout << "Reached abstract goal states: " << goal_states.size() + num_open_goal_states << endl;
@@ -765,6 +779,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
 }
 
 pair<bool, ap_float> PatternDatabase::get_value(const size_t prop_hash, const vector<ap_float> num_state) const {
+    
     if (pattern.numeric.empty()){
         // purely propositional pattern
         return {true, distances[prop_hash]};
