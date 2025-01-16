@@ -417,7 +417,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
          *
          */
 
-        while (!open.empty() && num_reached_states < max_number_states) {
+        while (!open.empty() && ((num_reached_states < max_number_states && hierarchy == 0) || (goal_states.empty() && hierarchy > 0))) {
             auto [cost, state_id] = open.pop();
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 
@@ -565,7 +565,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 num_open_goal_states++;
             } else {
                 // TODO instead of min_action_cost, compute another heuristic here
-                pq.push(min_action_cost, state_id);
+                //pq.push(min_action_cost, state_id);
             }
         }
         if (dump) {
