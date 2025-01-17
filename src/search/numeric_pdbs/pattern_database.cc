@@ -433,7 +433,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
          *
          */
 
-        while (!open.empty() && ((num_reached_states < max_number_states && hierarchy == 0) || (goal_states.empty() && hierarchy > 0))) {
+        while (!open.empty() && ((num_reached_states < max_number_states && hierarchy >= 0) || (goal_states.empty() && hierarchy > 0))) {
             auto [cost, state_id] = open.pop();
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 
