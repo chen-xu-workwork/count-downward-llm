@@ -32,6 +32,8 @@ def main():
         try:
             if component == "translate":
                 run_components.run_translate(args)
+            elif component == "restricted_task_transformation":
+                run_components.restricted_task_transformation(args)
             elif component == "preprocess":
                 run_components.run_preprocess(args)
             elif component == "search":
