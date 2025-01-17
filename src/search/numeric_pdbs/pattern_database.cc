@@ -433,7 +433,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
          *
          */
 
-        while (!open.empty() && ((num_reached_states < max_number_states && hierarchy >= 0) || (goal_states.empty() && hierarchy > 0))) {
+        while (!open.empty() && ((num_reached_states < max_number_states && hierarchy == 0) || (goal_states.empty() && hierarchy > 0))) {
             auto [cost, state_id] = open.pop();
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 
@@ -554,7 +554,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
         }
 
-        if (num_reached_states < max_number_states) {
+        if (open.empty()) {
             exhausted_abstract_state_space = true;
         }
 
@@ -587,6 +587,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 // TODO instead of min_action_cost, compute another heuristic here
                 if (state_id < original_distance_size) {
                     if (distances[state_id] < numeric_limits<ap_float>::max()) {
+                        assert(false);
                         pq.push(distances[state_id], state_id);
                     }
                 } else {
@@ -601,7 +602,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                             }
                         }
                         ap_float h = pdb->get_value(0, proj_num_state).second;
-                        //cout << "h: " << h << endl;
                         if (h < numeric_limits<ap_float>::max()) {
                             pq.push(h, state_id);
                         } 
@@ -615,10 +615,11 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             cout << "Generated abstract states: " << tmp_state_registry->size() + num_open_states << endl;
             cout << "Reached abstract goal states: " << goal_states.size() + num_open_goal_states << endl;
         }
+
     }
 
-
     size_t num_bwd_reached_states = 0;
+
     // Dijkstra loop
     while (!pq.empty()) {
         auto [distance, state_id] = pq.pop();
@@ -825,6 +826,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
         // we have not seen an abstract state that corresponds to state
         if (exhausted_abstract_state_space) {
             // here we can guarantee that state is indeed a deadend
+            cout << "exhausted" << endl << endl;
             return {true, numeric_limits<ap_float>::max()};
         } else if (is_abstract_goal_state(state)) {
             // abstract goals are satisfied
