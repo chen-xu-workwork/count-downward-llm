@@ -9,7 +9,7 @@
 
 #include <utility>
 #include <vector>
-
+#include <optional>
 
 namespace numeric_pdb_helper {
 class NumericOperatorProxy;
@@ -92,6 +92,8 @@ class PatternDatabase {
 
     Pattern pattern;
     int hierarchy;
+    std::unique_ptr<PatternDatabase> pdb; 
+
 
     std::unique_ptr<NumericStateRegistry> state_registry;
 
@@ -196,6 +198,7 @@ class PatternDatabase {
     std::size_t prop_hash_index(const State &state) const;
 
     const std::vector<ap_float> &get_abstract_numeric_state(const State &state) const;
+    const std::vector<ap_float> &get_abstract_abstract_numeric_state(const State &state) const;
 
 public:
     /*

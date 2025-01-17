@@ -309,7 +309,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         num_variable_to_index[pattern.numeric[i]] = i;
     }
 
-    optional<PatternDatabase> pdb;
     if (hierarchy > 0) {
         Pattern new_pattern;
         for (const auto &num_goal: task_proxy->get_numeric_goals()) {
@@ -318,7 +317,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 break;
             }
         }
-        pdb.emplace(task_proxy, new_pattern, max_number_states, false, hierarchy - 1, operator_costs);
+        pdb = std::make_unique<PatternDatabase>(task_proxy, new_pattern, max_number_states, false, hierarchy - 1, operator_costs);
     } 
 
     AdaptiveQueue<size_t> pq;
@@ -451,7 +450,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                                                                        num_variable_to_index);
 
                 ap_float h = 0;
-                if (pdb.has_value()) {
+                if (static_cast<bool>(pdb)) {
                     vector<ap_float> proj_num_state;
                     for (const auto &num_goal: task_proxy->get_numeric_goals()) {
                         if (num_variable_to_index[num_goal.get_var_id()] != -1) {
@@ -495,7 +494,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                                                                        op,
                                                                        num_variable_to_index);
                 ap_float h = 0;
-                if (pdb.has_value()) {
+                if (static_cast<bool>(pdb)) {
                     vector<ap_float> proj_num_state;
                     for (const auto &num_goal: task_proxy->get_numeric_goals()) {
                         if (num_variable_to_index[num_goal.get_var_id()] != -1) {
@@ -755,6 +754,16 @@ const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State 
     return tmp_abstract_numeric_state;
 }
 
+const vector<ap_float> &PatternDatabase::get_abstract_abstract_numeric_state(const State &state) const {
+    tmp_abstract_numeric_state.resize(pdb->pattern.numeric.size());
+    for (size_t i = 0; i < pdb->pattern.numeric.size(); ++i){
+        int var = pdb->pattern.numeric[i];
+        ap_float val = task_proxy->get_numeric_state_value(state, var);
+        tmp_abstract_numeric_state[i] = val;
+    }
+    return tmp_abstract_numeric_state;
+}
+
 pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
     if (pattern.numeric.empty()){
         // purely propositional pattern
@@ -772,6 +781,10 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
             return {false, 0};
         } else {
             // we don't know any better
+            if (static_cast<bool>(pdb)) {
+                pair<bool, ap_float> value = get_value(0, get_abstract_abstract_numeric_state(state));
+                return {false, value.second};
+            }
             return {false, min_action_cost};
         }
     }
