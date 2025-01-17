@@ -113,6 +113,10 @@ public:
 
     bool is_derived_variable(const VariableProxy &var) const;
 
+    const std::shared_ptr<AbstractTask> &get_task() const {
+        return task;
+    }
+
     const TaskProxy &get_task_proxy() const {
         // TODO try to get rid of this
         return task_proxy;

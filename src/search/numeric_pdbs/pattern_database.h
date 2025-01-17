@@ -5,7 +5,7 @@
 #include "numeric_state_registry.h"
 #include "types.h"
 
-#include "../task_proxy.h" // TODO get rid of this
+#include "../numeric_landmarks/lm_cut_numeric_heuristic.h"
 
 #include <utility>
 #include <vector>
@@ -91,6 +91,8 @@ class PatternDatabase {
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
 
     Pattern pattern;
+
+    std::unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic> lmc;
 
     std::unique_ptr<NumericStateRegistry> state_registry;
 

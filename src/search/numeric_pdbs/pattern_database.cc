@@ -7,6 +7,8 @@
 
 #include "../priority_queue.h"
 
+#include "../tasks/projected_task.h"
+
 #include "../utils/logging.h"
 #include "../utils/math.h"
 
@@ -119,6 +121,12 @@ PatternDatabase::PatternDatabase(
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
+
+    shared_ptr<tasks::ProjectedTask> projected_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern);
+
+    lmc = make_unique<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(projected_task);
+
+    lmc->initialize();
 
     if (pattern.numeric.empty()){
         create_pdb_propositional(domain_size_product, operator_costs);
@@ -717,6 +725,7 @@ const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State 
 }
 
 pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
+    lmc->compute_heuristic(state);
     if (pattern.numeric.empty()){
         // purely propositional pattern
         return {true, distances[prop_hash_index(state)]};

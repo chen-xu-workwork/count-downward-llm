@@ -13,24 +13,36 @@
 using namespace std;
 
 namespace lm_cut_numeric_heuristic {
-    // construction and destruction
-    LandmarkCutNumericHeuristic::LandmarkCutNumericHeuristic(const Options &opts)
-    : Heuristic(opts),
-      landmark_generator(nullptr),
-      ceiling_less_than_one(opts.get<bool>("ceiling_less_than_one")),
-      ignore_numeric(opts.get<bool>("ignore_numeric")),
-      use_random_pcf(opts.get<bool>("random_pcf")),
-      use_irmax(opts.get<bool>("irmax")),
-      disable_ma(opts.get<bool>("disable_ma")),
-      use_second_order_simple(opts.get<bool>("use_second_order_simple")),
-      use_constant_assignment(opts.get<bool>("use_constant_assignment")),
-      bound_iterations(opts.get<int>("bound_iterations")),
-      precision(opts.get<ap_float>("precision")),
-      epsilon(opts.get<ap_float>("epsilon")) {
-    }
-    
-    LandmarkCutNumericHeuristic::~LandmarkCutNumericHeuristic() {
-    }
+// construction and destruction
+LandmarkCutNumericHeuristic::LandmarkCutNumericHeuristic(const shared_ptr<AbstractTask> &task)
+        : Heuristic(task),
+          landmark_generator(nullptr),
+          ceiling_less_than_one(true), // default of the IPC'23 planner
+          ignore_numeric(false),
+          use_random_pcf(false),
+          use_irmax(false),
+          disable_ma(false),
+          use_second_order_simple(true), // default of the IPC'23 planner
+          use_constant_assignment(false),
+          bound_iterations(10), // default of the IPC'23 planner
+          precision(0.000001),
+          epsilon(0) {
+}
+
+LandmarkCutNumericHeuristic::LandmarkCutNumericHeuristic(const Options &opts)
+        : Heuristic(opts),
+          landmark_generator(nullptr),
+          ceiling_less_than_one(opts.get<bool>("ceiling_less_than_one")),
+          ignore_numeric(opts.get<bool>("ignore_numeric")),
+          use_random_pcf(opts.get<bool>("random_pcf")),
+          use_irmax(opts.get<bool>("irmax")),
+          disable_ma(opts.get<bool>("disable_ma")),
+          use_second_order_simple(opts.get<bool>("use_second_order_simple")),
+          use_constant_assignment(opts.get<bool>("use_constant_assignment")),
+          bound_iterations(opts.get<int>("bound_iterations")),
+          precision(opts.get<ap_float>("precision")),
+          epsilon(opts.get<ap_float>("epsilon")) {
+}
     
     // initialization
     void LandmarkCutNumericHeuristic::initialize() {

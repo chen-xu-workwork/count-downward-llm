@@ -77,6 +77,7 @@ protected:
     void compute_multiplicator(ap_float epsilon);
 
 public:
+    Heuristic(const std::shared_ptr<AbstractTask> &task);
     Heuristic(const options::Options &options);
     virtual ~Heuristic() override;
 
