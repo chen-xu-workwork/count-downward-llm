@@ -161,6 +161,7 @@ class PatternDatabase {
     */
     void create_pdb(
             std::size_t max_number_states,
+            std::optional<size_t> initial_state_opt,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>(),
             bool dump = false);
 
@@ -221,8 +222,8 @@ public:
 
     ~PatternDatabase() = default;
 
-    std::pair<bool, ap_float> get_value(const State &state) const;
-    std::pair<bool, ap_float> get_value(const size_t prop_hash_index, const std::vector<ap_float>) const;
+    std::pair<bool, ap_float> get_value(const State &state);
+    std::pair<bool, ap_float> get_value(const size_t prop_hash_index, const std::vector<ap_float>);
 
     // Returns the pattern (i.e. all variables used) of the PDB
     const Pattern &get_pattern() const {

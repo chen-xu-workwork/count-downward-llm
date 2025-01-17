@@ -33,7 +33,7 @@ ap_float NumericPDBHeuristic::compute_heuristic(const GlobalState &global_state)
     return compute_heuristic(state);
 }
 
-ap_float NumericPDBHeuristic::compute_heuristic(const State &state) const {
+ap_float NumericPDBHeuristic::compute_heuristic(const State &state) {
     auto [found_state, h] = pdb.get_value(state);
     if (!found_state){
         number_lookup_misses++;
