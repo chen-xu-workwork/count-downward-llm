@@ -590,7 +590,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                         pq.push(distances[state_id], state_id);
                     }
                 } else {
-                    if (!static_cast<bool>(pdb)) {
+                    if (hierarchy == 0) {
                         pq.push(min_action_cost, state_id);
                     } else {
                         vector<ap_float> proj_num_state;
@@ -604,6 +604,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                         //cout << "h: " << h << endl;
                         if (h < numeric_limits<ap_float>::max()) {
                             pq.push(h, state_id);
+                        } else {
+                            pq.push(min_action_cost, state_id);
                         }
                     }
                     
@@ -848,11 +850,28 @@ pair<bool, ap_float> PatternDatabase::get_value(const size_t prop_hash, const ve
     }
     size_t abs_state_id = state_registry->get_id(NumericState(prop_hash,
                                                                num_state));
+
+    bool is_goal = true;
+    for (size_t i = 0; i < num_state.size(); ++i){
+        size_t goal_var_id = pattern.numeric[i];
+        for (auto num_goal : numeric_goals){
+            if (goal_var_id == num_goal.get_var_id() && !num_goal.satisfied(num_state[i])){
+                is_goal = false;
+                break;
+            }
+            if (is_goal) {
+                break;
+            }
+        }
+    }
     if (abs_state_id == numeric_limits<size_t>::max()) {
         // we have not seen an abstract state that corresponds to state
         if (exhausted_abstract_state_space) {
             // here we can guarantee that state is indeed a deadend
             return {true, numeric_limits<ap_float>::max()};
+        } else if (is_goal) {
+            // abstract goals are satisfied
+            return {false, 0};
         } else {
             // we don't know any better
             return {false, min_action_cost};
