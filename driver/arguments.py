@@ -223,7 +223,10 @@ def _set_components_and_inputs(parser, args):
         parser.error("cannot run translator and search without preprocessor")
 
     if not args.components:
-        _set_components_automatically(parser, args)
+        if args.restricted_task_transformation:
+            args.components = ["translate", "restricted_task_transformation", "preprocess", "search"]
+        else:
+            _set_components_automatically(parser, args)
 
     # We implicitly activate validation in debug mode. However, for
     # validation we need the PDDL input files and a plan, therefore all
@@ -305,6 +308,10 @@ def parse_args():
     components.add_argument(
         "--translate", action="store_true",
         help="run translator component")
+    components.add_argument(
+        "--restricted-task-transformation", action="store_true",
+        help="run a transformation from simple to restricted numeric task"
+             "on the translator output")
     components.add_argument(
         "--preprocess", action="store_true",
         help="run preprocessor component")
