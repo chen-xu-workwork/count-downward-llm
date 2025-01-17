@@ -433,7 +433,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
          *
          */
 
-        while (!open.empty() && ((num_reached_states < max_number_states && hierarchy >= 0) || (goal_states.empty() && hierarchy > 0))) {
+        while(!open.empty() && ((num_reached_states < max_number_states && hierarchy == 0) || (goal_states.empty() && hierarchy > 0))) {
             auto [cost, state_id] = open.pop();
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 
@@ -554,7 +554,11 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
         }
 
-        if (open.empty()) {
+        //if (num_reached_states < max_number_states && hierarchy == 0) {
+        //    exhausted_abstract_state_space = true;
+        //}
+
+        if (num_reached_states < max_number_states) {
             exhausted_abstract_state_space = true;
         }
 
@@ -587,7 +591,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 // TODO instead of min_action_cost, compute another heuristic here
                 if (state_id < original_distance_size) {
                     if (distances[state_id] < numeric_limits<ap_float>::max()) {
-                        assert(false);
                         pq.push(distances[state_id], state_id);
                     }
                 } else {
@@ -834,7 +837,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
         } else {
             if (static_cast<bool>(pdb)) {
                 //abs_state_id = state_registry->insert_state(NumericState(prop_id, num_state));
-                //create_pdb(1000, abs_state_id, vector<ap_float>(), false);
+                //create_pdb(10000, abs_state_id, vector<ap_float>(), false);
                 //return {false, distances[abs_state_id]};
                 pair<bool, ap_float> value = get_value(0, get_abstract_abstract_numeric_state(state));
                 return {false, value.second};
