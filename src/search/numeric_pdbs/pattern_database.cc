@@ -281,9 +281,10 @@ void PatternDatabase::build_goals(const vector<int> &variable_to_index,
 }
 
 void PatternDatabase::create_pdb(size_t max_number_states,
-                                    std::optional<size_t> initial_state_opt,
+                                 std::optional<size_t> initial_state_opt,
                                  const std::vector<ap_float> &operator_costs,
-                                 bool dump) {
+                                 bool dump,
+                                 bool need_goal) {
 
     // TODO: implement specialized efficient variants for the nice cases, e.g.
     //  all numeric variables have an equality goal => we can do regression in this case,
@@ -315,7 +316,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         num_variable_to_index[pattern.numeric[i]] = i;
     }
 
-    if (hierarchy > 0) {
+    if (hierarchy > 0 && !static_cast<bool>(pdb)) {
         Pattern new_pattern;
         for (const auto &num_goal: task_proxy->get_numeric_goals()) {
             if (num_variable_to_index[num_goal.get_var_id()] != -1) {
@@ -433,7 +434,12 @@ void PatternDatabase::create_pdb(size_t max_number_states,
          *
          */
 
-        while(!open.empty() && ((num_reached_states < max_number_states && hierarchy == 0) || (goal_states.empty() && hierarchy >= 0))) {
+
+
+        while(!open.empty() && ((num_reached_states < max_number_states && hierarchy >= 0) || (goal_states.empty() && hierarchy >= 0))) {
+            if (!need_goal && num_reached_states >= max_number_states) {
+                break;
+            }
             auto [cost, state_id] = open.pop();
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 
@@ -554,13 +560,13 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
         }
 
-        if (num_reached_states < max_number_states && hierarchy == 0) {
-            exhausted_abstract_state_space = true;
-        }
-
-        //if (num_reached_states < max_number_states) {
+        //if (num_reached_states < max_number_states && hierarchy == 0) {
         //    exhausted_abstract_state_space = true;
         //}
+
+        if (num_reached_states < max_number_states) {
+            exhausted_abstract_state_space = true;
+        }
 
         if (!init_exists) {
             assert(distances.empty());
@@ -606,7 +612,11 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                         }
                         ap_float h = pdb->get_value(0, proj_num_state).second;
                         if (h < numeric_limits<ap_float>::max()) {
-                            pq.push(h, state_id);
+                            if (state_id < original_distance_size && distances[state_id] < numeric_limits<ap_float>::max()) {
+                                pq.push(max(h, distances[state_id]), state_id);
+                            } else {
+                                pq.push(h, state_id);
+                            }
                         } 
                     }
                     
@@ -835,11 +845,13 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
             return {false, 0};
         } else {
             if (static_cast<bool>(pdb)) {
-                //abs_state_id = state_registry->insert_state(NumericState(prop_id, num_state));
-                //create_pdb(10000, abs_state_id, vector<ap_float>(), false);
-                //return {false, distances[abs_state_id]};
                 pair<bool, ap_float> value = get_value(0, get_abstract_abstract_numeric_state(state));
-                return {false, value.second};
+                if (value.first) {
+                    return {false, value.second};    
+                }
+                abs_state_id = state_registry->insert_state(NumericState(prop_id, num_state));
+                create_pdb(1000, abs_state_id, vector<ap_float>(), false, false);
+                return {false, distances[abs_state_id]};
             }
             return {false, min_action_cost};
         }
