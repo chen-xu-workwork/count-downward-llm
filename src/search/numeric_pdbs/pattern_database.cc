@@ -433,7 +433,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
          *
          */
 
-        while(!open.empty() && ((num_reached_states < max_number_states && hierarchy == 0) || (goal_states.empty() && hierarchy > 0))) {
+        while(!open.empty() && ((num_reached_states < max_number_states && hierarchy == 0) || (goal_states.empty() && hierarchy >= 0))) {
             auto [cost, state_id] = open.pop();
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 
@@ -554,13 +554,13 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
         }
 
-        //if (num_reached_states < max_number_states && hierarchy == 0) {
-        //    exhausted_abstract_state_space = true;
-        //}
-
-        if (num_reached_states < max_number_states) {
+        if (num_reached_states < max_number_states && hierarchy == 0) {
             exhausted_abstract_state_space = true;
         }
+
+        //if (num_reached_states < max_number_states) {
+        //    exhausted_abstract_state_space = true;
+        //}
 
         if (!init_exists) {
             assert(distances.empty());
@@ -829,7 +829,6 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
         // we have not seen an abstract state that corresponds to state
         if (exhausted_abstract_state_space) {
             // here we can guarantee that state is indeed a deadend
-            cout << "exhausted" << endl << endl;
             return {true, numeric_limits<ap_float>::max()};
         } else if (is_abstract_goal_state(state)) {
             // abstract goals are satisfied
