@@ -389,7 +389,7 @@ fast_downward_plugin(
         tasks/domain_abstracted_task_factory.cc
         tasks/modified_goals_task.cc
         tasks/modified_operator_costs_task.cc
-        tasks/projected_task.cpp
+        tasks/projected_task.cc
     DEPENDENCY_ONLY
 )
 
@@ -618,6 +618,7 @@ fast_downward_plugin(
         numeric_pdbs/types.cc
         numeric_pdbs/validation.cc
         numeric_pdbs/variable_order_finder.cc
+    DEPENDS EXTRA_TASKS
 )
 
 fast_downward_plugin(
