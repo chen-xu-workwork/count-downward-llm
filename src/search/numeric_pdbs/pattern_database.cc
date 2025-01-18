@@ -481,7 +481,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                             break;
                         }
                     }
-                    h = pdb->get_value(0, proj_num_state).second * 100;
+                    h = pdb->get_value(0, proj_num_state).second;
+
                 } 
                 size_t succ_id = tmp_state_registry->insert_state(NumericState(prop_successor, std::move(num_successor)));
 
@@ -525,7 +526,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                             break;
                         }
                     }
-                    h = pdb->get_value(0, proj_num_state).second * 100;
+                    h = pdb->get_value(0, proj_num_state).second;
                 } 
 
                 size_t succ_id = tmp_state_registry->insert_state(NumericState(state.prop_hash, std::move(num_successor)));
@@ -596,9 +597,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             } else {
                 // TODO instead of min_action_cost, compute another heuristic here
                 if (state_id < original_distance_size) {
-                    if (distances[state_id] < numeric_limits<ap_float>::max()) {
-                        pq.push(distances[state_id], state_id);
-                    }
+                    pq.push(distances[state_id], state_id);
                 } else {
                     if (hierarchy == 0) {
                         pq.push(min_action_cost, state_id);
@@ -612,11 +611,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                         }
                         ap_float h = pdb->get_value(0, proj_num_state).second;
                         if (h < numeric_limits<ap_float>::max()) {
-                            if (state_id < original_distance_size && distances[state_id] < numeric_limits<ap_float>::max()) {
-                                pq.push(max(h, distances[state_id]), state_id);
-                            } else {
-                                pq.push(h, state_id);
-                            }
+                            pq.push(h, state_id);
                         } 
                     }
                     
@@ -849,9 +844,10 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
                 if (value.first) {
                     return {false, value.second};    
                 }
-                abs_state_id = state_registry->insert_state(NumericState(prop_id, num_state));
-                create_pdb(1000, abs_state_id, vector<ap_float>(), false, false);
-                return {false, distances[abs_state_id]};
+                //abs_state_id = state_registry->insert_state(NumericState(prop_id, num_state));
+                //create_pdb(1000, abs_state_id, vector<ap_float>(), false, false);
+                //return {false, distances[abs_state_id]};
+                return {false, value.second};  
             }
             return {false, min_action_cost};
         }
@@ -867,29 +863,33 @@ pair<bool, ap_float> PatternDatabase::get_value(const size_t prop_hash, const ve
     size_t abs_state_id = state_registry->get_id(NumericState(prop_hash,
                                                                num_state));
 
-    bool is_goal = true;
-    for (size_t i = 0; i < num_state.size(); ++i){
-        size_t goal_var_id = pattern.numeric[i];
-        for (auto num_goal : numeric_goals){
-            if (goal_var_id == num_goal.get_var_id() && !num_goal.satisfied(num_state[i])){
-                is_goal = false;
-                break;
-            }
-            if (is_goal) {
-                break;
-            }
-        }
-    }
     if (abs_state_id == numeric_limits<size_t>::max()) {
         // we have not seen an abstract state that corresponds to state
         if (exhausted_abstract_state_space) {
             // here we can guarantee that state is indeed a deadend
             return {true, numeric_limits<ap_float>::max()};
-        } else if (is_goal) {
+        }  
+        bool is_goal = true;
+        for (size_t i = 0; i < num_state.size(); ++i) {
+            size_t goal_var_id = pattern.numeric[i];
+            for (auto num_goal : numeric_goals) {
+                if (goal_var_id == num_goal.get_var_id() && !num_goal.satisfied(num_state[i])){
+                    is_goal = false;
+                    break;
+                }
+            }
+            if (!is_goal) {
+                break;
+            }
+        }
+        if (is_goal) {
             // abstract goals are satisfied
             return {false, 0};
         } else {
             // we don't know any better
+            //size_t abs_state_id = state_registry->insert_state(NumericState(prop_hash, num_state));
+            //create_pdb(1000, abs_state_id, vector<ap_float>(), false, false);
+            //return {false, distances[abs_state_id]};
             return {false, min_action_cost};
         }
     }
