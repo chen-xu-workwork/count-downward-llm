@@ -486,6 +486,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 } 
                 size_t succ_id = tmp_state_registry->insert_state(NumericState(prop_successor, std::move(num_successor)));
 
+                
+
                 if (succ_id == state_id) {
                     // no need to keep self-loops
                     continue;
@@ -505,6 +507,9 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     }
             
                     open.push(cost + abs_op->get_cost() + h, succ_id);
+                    if (need_goal && succ_id < original_distance_size && distances[succ_id] < numeric_limits<ap_float>::max()) {
+                        break;
+                    }
                 }
             }
 
@@ -557,6 +562,9 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
                   
                     open.push(cost + op_cost + h, succ_id);
+                    if (need_goal && succ_id < original_distance_size && distances[succ_id] < numeric_limits<ap_float>::max()) {
+                        break;
+                    }
                 }
             }
         }
@@ -595,7 +603,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 pq.push(0, state_id);
                 num_open_goal_states++;
             } else {
-                // TODO instead of min_action_cost, compute another heuristic here
                 if (state_id < original_distance_size) {
                     pq.push(distances[state_id], state_id);
                 } else {
@@ -610,9 +617,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                             }
                         }
                         ap_float h = pdb->get_value(0, proj_num_state).second;
-                        if (h < numeric_limits<ap_float>::max()) {
-                            pq.push(h, state_id);
-                        } 
+                        pq.push(h, state_id);
                     }
                     
                 }
@@ -845,7 +850,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
                     return {false, value.second};    
                 }
                 //abs_state_id = state_registry->insert_state(NumericState(prop_id, num_state));
-                //create_pdb(1000, abs_state_id, vector<ap_float>(), false, false);
+                //create_pdb(1000, abs_state_id, vector<ap_float>(), false, true);
                 //return {false, distances[abs_state_id]};
                 return {false, value.second};  
             }
@@ -888,7 +893,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const size_t prop_hash, const ve
         } else {
             // we don't know any better
             //size_t abs_state_id = state_registry->insert_state(NumericState(prop_hash, num_state));
-            //create_pdb(1000, abs_state_id, vector<ap_float>(), false, false);
+            //create_pdb(1000, abs_state_id, vector<ap_float>(), false, true);
             //return {false, distances[abs_state_id]};
             return {false, min_action_cost};
         }
