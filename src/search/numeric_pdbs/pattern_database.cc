@@ -617,7 +617,9 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                             }
                         }
                         ap_float h = pdb->get_value(0, proj_num_state).second;
-                        pq.push(h, state_id);
+                        if (h != numeric_limits<ap_float>::max()) {
+                            pq.push(h, state_id);
+                        }
                     }
                     
                 }
@@ -632,6 +634,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     }
 
     size_t num_bwd_reached_states = 0;
+
+    
 
     // Dijkstra loop
     while (!pq.empty()) {
@@ -658,6 +662,23 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             } 
         }
     }
+
+    for (size_t i = 0; i < distances.size(); ++i) {
+        NumericState state = tmp_state_registry->lookup_state(i);
+        ap_float h = 0;
+        if (hierarchy > 0 && static_cast<bool>(pdb)) {
+            vector<ap_float> proj_num_state;
+            for (const auto &num_goal: task_proxy->get_numeric_goals()) {
+                if (num_variable_to_index[num_goal.get_var_id()] != -1) {
+                    proj_num_state.push_back(state.num_state[num_variable_to_index[num_goal.get_var_id()]]);
+                    break;
+                }
+            }
+            h = pdb->get_value(0, proj_num_state).second;
+        }
+        distances[i] = max(h, distances[i]);  
+    }
+
     if (dump) {
         cout << "Number backwards reachable abstract states: " << num_bwd_reached_states << endl;
     }
