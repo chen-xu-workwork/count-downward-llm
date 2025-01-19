@@ -725,7 +725,8 @@ const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State 
 }
 
 pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
-    lmc->compute_heuristic(state);
+    cout << lmc->compute_heuristic(state) << endl;
+    exit(0);
     if (pattern.numeric.empty()){
         // purely propositional pattern
         return {true, distances[prop_hash_index(state)]};
