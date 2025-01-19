@@ -1,4 +1,3 @@
-
 #include "lm_cut_numeric_heuristic.h"
 
 #include "../option_parser.h"
