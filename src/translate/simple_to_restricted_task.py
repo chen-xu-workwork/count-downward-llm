@@ -9,9 +9,9 @@ with open(input_file_path, "r") as f:
 # 1. Extract Variables
 variables = {}
 for var_match in re.finditer(
-    r"begin_variable\s+(var\d+)\s+(\d+)\s+(\d+)\s+(.*?)\s+end_variable",
-    sas_output,
-    re.DOTALL,
+        r"begin_variable\s+(var\d+)\s+(\d+)\s+(\d+)\s+(.*?)\s+end_variable",
+        sas_output,
+        re.DOTALL,
 ):
     var_name, num1, num2, values = var_match.groups()
     variables[var_name] = {
@@ -35,7 +35,7 @@ if num_vars_match:
 # 3. Extract Rules
 rules = []
 for rule_match in re.finditer(
-    r"begin_rule\s+(.*?)\s+end_rule", sas_output, re.DOTALL
+        r"begin_rule\s+(.*?)\s+end_rule", sas_output, re.DOTALL
 ):
     rules.append([v.strip() for v in rule_match.group(1).splitlines()])
 
@@ -82,6 +82,7 @@ if initial_numeric_state_match:
         if v.strip()
     ]
 
+
 # Print or process the extracted information as needed
 def print_all():
     print("Variables:", variables)
@@ -93,13 +94,16 @@ def print_all():
     print("Real numeric variables", real_numeric_variables)
     print("Operators:", operators)
 
+
 #print_all()
 
 def get_var_value(var_number):
     return initial_numeric_state[var_number]
 
+
 def is_real_variable(var_number):
     return numeric_vars[var_number][0] == 'R'
+
 
 real_numeric_variables = []
 for i in range(len(numeric_vars)):
@@ -158,7 +162,6 @@ def parse_operators(sas_output):
 operators = parse_operators(sas_output)
 
 
-
 def update_var(var, upd_var_number, is_update_multiplication):
     if is_real_variable(upd_var_number):
         print("Trying to operate on multiple real variables outside of formula!")
@@ -184,11 +187,13 @@ def update_var(var, upd_var_number, is_update_multiplication):
                 return
 
             if var1 == var:
-                numeric_vars.append("C " + str(len(numeric_vars)) + " PNE derived! " + str(var2) + " * " + str(upd_var_number))
+                numeric_vars.append(
+                    "C " + str(len(numeric_vars)) + " PNE derived! " + str(var2) + " * " + str(upd_var_number))
                 initial_numeric_state.append(get_var_value(var2) * upd_val)
                 var2 = len(initial_numeric_state) - 1
 
                 operator['effects'][i] = vals[0] + " " + str(var1) + " " + vals[2] + " " + str(var2)
+
 
 def replace_var(var1, var2):
     for i in range(1, len(axioms['comparison'])):
@@ -205,6 +210,7 @@ def replace_var(var1, var2):
                 vals[val] = var2
         axioms['numeric'][i].join(" ")
 
+
 #We want to make a formula for each numeric var according to numeric axiom tree
 #We store the formula in the following way:
 #[(c0, const), (c1, rv1), (c2, rv2), ... (cn, real_variable_n)]
@@ -214,6 +220,7 @@ def replace_var(var1, var2):
 #ROOM FOR IMPROVEMENT: we maybe can re-use formulas
 
 formulas = {}
+
 
 def add_or_minus_formulas(f1, f2, op):
     f3 = [0] * len(f1)
@@ -225,10 +232,11 @@ def add_or_minus_formulas(f1, f2, op):
             f3[i] = f1[i] - f2[i]
     return f3
 
+
 def mult_formula(f1, f2, op):
     f3 = [0] * len(f1)
     flag = 1 if any(x != 0 for x in f1[1:]) else 0
-    if(flag):
+    if (flag):
         for i in range(len(f1)):
             f3[i] = f1[i] * f2[0]
     else:
@@ -237,11 +245,13 @@ def mult_formula(f1, f2, op):
 
     return f3
 
+
 def operate(f1, f2, op):
     if op == "*":
         return mult_formula(f1, f2, op)
     else:
         return add_or_minus_formulas(f1, f2, op)
+
 
 def gen_initial_formula(var):
     f = [0] * (len(real_numeric_variables) + 1)
@@ -255,6 +265,7 @@ def gen_initial_formula(var):
     else:
         f[0] = get_var_value(var)
     return f
+
 
 def gen_all_formulas_for_all_vars_met_in_axiom(axiom):
     var_final = int(axiom.split()[0])
@@ -279,14 +290,17 @@ def gen_all_formulas_for_all_vars_met_in_axiom(axiom):
     #print(var_final, f3, var1, f1, var2, f2)
     formulas[var_final] = f3
 
+
 def is_var_final_in_axiom(var):
     for i in range(len(axioms['numeric'])):
         axiom = axioms['numeric'][i]
         var_final = int(axiom.split()[0])
-        if(var == var_final):
+        if (var == var_final):
             return i
     return -1
 
+
+"""
 def gen_all_formulas():
     axiom_que = []
     axioms_visited = [False] * len(axioms['numeric'])
@@ -321,16 +335,101 @@ def gen_all_formulas():
                     pass
 
     axiom_que = sorted(range(len(axioms['numeric'])), key=lambda i: axioms_dist[i])
-    #print(axiom_que)
+    print(axiom_que)
     for i in range(len(axiom_que)):
         gen_all_formulas_for_all_vars_met_in_axiom(axioms['numeric'][axiom_que[-i-1]])
 
         #gen_all_formulas_for_all_vars_met_in_axiom(axioms['numeric'][-i-1])
 
 gen_all_formulas()
+"""
+from collections import defaultdict
+
+
+def topological_sort_predecessors(predecessors_list):
+    """
+    Performs a topological sort given a list of predecessors for each node.
+
+    Args:
+      predecessors_list: A dictionary where keys are nodes and values are lists
+                          of their predecessors.
+
+    Returns:
+      A list of nodes in topological order, or None if the graph
+      contains a cycle.
+    """
+
+    graph = defaultdict(list)  # Create the graph in the usual format
+    in_degree = defaultdict(int)
+
+    for node in predecessors_list:
+        for predecessor in predecessors_list[node]:
+            graph[predecessor].append(node)  # Reverse the edges
+            in_degree[node] += 1
+
+    queue = [node for node in predecessors_list if in_degree[node] == 0]
+    result = []
+
+    #print(graph)
+    #print(queue)
+    while queue:
+        node = queue.pop(0)
+        result.append(node)
+
+        for neighbor in graph[node]:
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+
+    if len(result) != len(predecessors_list):  # Cycle detected
+        return None
+    else:
+        return result
+
+
+# Example usage:
+predecessors_list = {}
+
+for axiom in axioms['numeric']:
+    var_final = int(axiom.split()[0])
+    op = axiom.split()[1]
+    var1 = int(axiom.split()[2])
+    var2 = int(axiom.split()[3])
+
+    predecessors_list[var_final] = [var1, var2]
+
+for i in range(len(numeric_vars)):
+    if i not in predecessors_list.keys():
+        predecessors_list[i] = []
+
+sorted_nodes = topological_sort_predecessors(predecessors_list)
+
+"""
+if sorted_nodes:
+    print("Topological Sort:", sorted_nodes)
+else:
+    print("The graph contains a cycle.")
+"""
+
+
+def get_axiom_by_var_final(var):
+    for i in range(len(axioms['numeric'])):
+        axiom = axioms['numeric'][i]
+        var_final = int(axiom.split()[0])
+        if (var_final == var):
+            return i
+    return -1
+
+
+for i in range(len(sorted_nodes)):
+    ax_num = get_axiom_by_var_final(sorted_nodes[i])
+    if (ax_num == -1):
+        continue
+    gen_all_formulas_for_all_vars_met_in_axiom(axioms['numeric'][ax_num])
+
 
 def update_var_with_formula(var):
-    if(var in formulas.keys()):
+    if (var in formulas.keys()):
         formula = formulas[var]
     else:
         formula = gen_initial_formula(var)
@@ -354,17 +453,19 @@ def update_var_with_formula(var):
             #    print(effect, var1, (var1 in real_numeric_variables), op)
             if var1 not in real_numeric_variables:
                 continue
-            if(op == "+"):
+            if (op == "+"):
                 total_effect_upd_value += formula[real_numeric_variables.index(var1) + 1] * get_var_value(var2)
             elif op == "-":
                 total_effect_upd_value -= formula[real_numeric_variables.index(var1) + 1] * get_var_value(var2)
             else:
                 print("SUKA BLYAT UMNOZHENIE EBANOE")
-        if(total_effect_upd_value != 0):
+        if (total_effect_upd_value != 0):
             operator['num_effects'] += 1
-            numeric_vars.append("C -1 " + "!derived" + str(total_effect_upd_value) + "from" + str(var) + " : " + str(formula))
+            numeric_vars.append(
+                "C -1 " + "!derived" + str(total_effect_upd_value) + "from" + str(var) + " : " + str(formula))
             initial_numeric_state.append(total_effect_upd_value)
             operator['effects'].append("0 " + str(var) + " + " + str(len(numeric_vars) - 1))
+
 
 for i in range(len(axioms['comparison'])):
     axiom = axioms['comparison'][i]
@@ -375,7 +476,8 @@ for i in range(len(axioms['comparison'])):
     numeric_vars[var1] = "R" + numeric_vars[var1][1:]
     numeric_vars.append("C -1 " + str(var2) + " " + str(get_var_value(var2) - formulas[var1][0]))
     initial_numeric_state.append(get_var_value(var2) - formulas[var1][0])
-    axioms['comparison'][i] = " ".join([str(axiom.split()[0]), str(axiom.split()[1]), str(var1), str(len(numeric_vars) - 1)])
+    axioms['comparison'][i] = " ".join(
+        [str(axiom.split()[0]), str(axiom.split()[1]), str(var1), str(len(numeric_vars) - 1)])
 #print_all()
 
 # 10. Goal
