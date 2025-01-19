@@ -662,11 +662,11 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             } 
         }
     }
-
-    for (size_t i = 0; i < distances.size(); ++i) {
-        NumericState state = tmp_state_registry->lookup_state(i);
-        ap_float h = 0;
-        if (hierarchy > 0 && static_cast<bool>(pdb)) {
+    if (hierarchy > 0 && static_cast<bool>(pdb)) {
+        for (size_t i = 0; i < distances.size(); ++i) {
+            NumericState state = tmp_state_registry->lookup_state(i);
+            ap_float h = 0;
+            
             vector<ap_float> proj_num_state;
             for (const auto &num_goal: task_proxy->get_numeric_goals()) {
                 if (num_variable_to_index[num_goal.get_var_id()] != -1) {
@@ -675,8 +675,9 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 }
             }
             h = pdb->get_value(0, proj_num_state).second;
+            
+            distances[i] = max(h, distances[i]);  
         }
-        distances[i] = max(h, distances[i]);  
     }
 
     if (dump) {
