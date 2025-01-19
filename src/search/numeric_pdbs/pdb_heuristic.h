@@ -23,7 +23,7 @@ protected:
        and change the interface to only use State objects. While we are doing
        this, the following method already allows to get the heuristic value
        for a State object. */
-    ap_float compute_heuristic(const State &state);
+    ap_float compute_heuristic(const State &state) const;
 public:
     /*
       Important: It is assumed that the pattern (passed via Options) is

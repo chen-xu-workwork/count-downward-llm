@@ -98,7 +98,7 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
       the h-value of the current pattern collection.
     */
     bool is_heuristic_improved(
-        PatternDatabase &pdb,
+        const PatternDatabase &pdb,
         const State &sample,
         const MaxAdditivePDBSubsets &max_additive_subsets);
 

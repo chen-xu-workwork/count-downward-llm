@@ -9,7 +9,7 @@
 
 #include <utility>
 #include <vector>
-#include <optional>
+
 
 namespace numeric_pdb_helper {
 class NumericOperatorProxy;
@@ -102,6 +102,7 @@ class PatternDatabase {
 
     // multipliers for each propositional variable for perfect hash function
     std::vector<std::size_t> prop_hash_multipliers;
+    std::vector<int> num_variable_to_index;
 
     std::vector<std::pair<int, int>> propositional_goals;
     std::vector<numeric_condition::RegularNumericCondition> numeric_goals;
@@ -161,11 +162,9 @@ class PatternDatabase {
     */
     void create_pdb(
             std::size_t max_number_states,
-            std::optional<size_t> initial_state_opt,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>(),
             bool dump = false,
-            bool need_goal = true
-            );
+            bool need_goal = true);
 
     void create_pdb_propositional(
             size_t number_states,
@@ -201,7 +200,10 @@ class PatternDatabase {
     std::size_t prop_hash_index(const State &state) const;
 
     const std::vector<ap_float> &get_abstract_numeric_state(const State &state) const;
-    const std::vector<ap_float> &get_abstract_abstract_numeric_state(const State &state) const;
+
+    NumericState project_numeric_state(const NumericState &state,
+                                       const Pattern &superset_pattern,
+                                       const std::vector<size_t> &sup_hash_multipliers);
 
 public:
     /*
@@ -215,7 +217,7 @@ public:
        empty, default operator costs are used.
     */
     PatternDatabase(
-            const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
+            const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &task_proxy,
             const Pattern &pattern,
             std::size_t max_number_states,
             bool dump = false,
@@ -224,8 +226,8 @@ public:
 
     ~PatternDatabase() = default;
 
-    std::pair<bool, ap_float> get_value(const State &state);
-    std::pair<bool, ap_float> get_value(const size_t prop_hash_index, const std::vector<ap_float>);
+    std::pair<bool, ap_float> get_value(const State &state) const;
+    ap_float get_value(const NumericState &state) const;
 
     // Returns the pattern (i.e. all variables used) of the PDB
     const Pattern &get_pattern() const {

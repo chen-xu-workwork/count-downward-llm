@@ -254,7 +254,7 @@ std::pair<int, int> PatternCollectionGeneratorHillclimbing::find_best_improving_
 }
 
 bool PatternCollectionGeneratorHillclimbing::is_heuristic_improved(
-    PatternDatabase &pdb, const State &sample,
+    const PatternDatabase &pdb, const State &sample,
     const MaxAdditivePDBSubsets &max_additive_subsets) {
     // h_pattern: h-value of the new pattern
     ap_float h_pattern = pdb.get_value(sample).second;
