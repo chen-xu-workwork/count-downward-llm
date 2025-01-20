@@ -439,6 +439,7 @@ for i in range(len(sorted_nodes)):
         continue
     gen_all_formulas_for_all_vars_met_in_axiom(axioms['numeric'][ax_num])
 
+added_constants = {} #val : idx
 
 def update_var_with_formula(var):
     if (var in formulas.keys()):
@@ -473,10 +474,16 @@ def update_var_with_formula(var):
                 print("SUKA BLYAT UMNOZHENIE EBANOE")
         if (total_effect_upd_value != 0):
             operator['num_effects'] += 1
-            numeric_vars.append(
-                "C -1 " + "!derived" + str(total_effect_upd_value) + "from" + str(var) + " : " + str(formula))
-            initial_numeric_state.append(total_effect_upd_value)
-            operator['effects'].append("0 " + str(var) + " + " + str(len(numeric_vars) - 1))
+            add_idx = len(numeric_vars)
+            if total_effect_upd_value in added_constants.keys():
+                add_idx = added_constants[total_effect_upd_value]
+                operator['effects'].append("0 " + str(var) + " + " + str(add_idx))
+            else:
+                numeric_vars.append(
+                    "C -1 " + "!derived" + str(total_effect_upd_value) + "from" + str(var) + " : " + str(formula))
+                initial_numeric_state.append(total_effect_upd_value)
+                operator['effects'].append("0 " + str(var) + " + " + str(add_idx))
+                added_constants[total_effect_upd_value] = add_idx
 
 
 for i in range(len(axioms['comparison'])):
@@ -486,10 +493,16 @@ for i in range(len(axioms['comparison'])):
     update_var_with_formula(var1)
     #update_var_with_formula(var2)
     numeric_vars[var1] = "R" + numeric_vars[var1][1:]
-    numeric_vars.append("C -1 " + str(var2) + " " + str(get_var_value(var2) - formulas[var1][0]))
-    initial_numeric_state.append(get_var_value(var2) - formulas[var1][0])
-    axioms['comparison'][i] = " ".join(
-        [str(axiom.split()[0]), str(axiom.split()[1]), str(var1), str(len(numeric_vars) - 1)])
+    upd_val = get_var_value(var2) - formulas[var1][0]
+    if upd_val in added_constants:
+        axioms['comparison'][i] = " ".join(
+            [str(axiom.split()[0]), str(axiom.split()[1]), str(var1), str(added_constants[upd_val])])
+    else:
+        added_constants[upd_val] = len(numeric_vars)
+        numeric_vars.append("C -1 " + str(var2) + " " + str(upd_val))
+        initial_numeric_state.append(get_var_value(var2) - formulas[var1][0])
+        axioms['comparison'][i] = " ".join(
+            [str(axiom.split()[0]), str(axiom.split()[1]), str(var1), str(len(numeric_vars) - 1)])
 #print_all()
 
 # 10. Goal
@@ -516,6 +529,33 @@ if version_match:
 metric_match = re.search(r"begin_metric\s+(.*?)\s+end_metric", sas_output, re.DOTALL)
 if metric_match:
     metric = metric_match.group(1).strip()
+
+formula_to_var = {}
+def duplicate_detect_formulas():
+    flag_idx = []
+    for var in range(len(numeric_vars)):
+        if(is_real_variable(var)):
+            continue
+        if var in formulas.keys():
+            formula = formulas[var]
+        else:
+            formula = gen_initial_formula(var)
+
+        formula = " ".join(map(str, formula))
+        if formula not in formula_to_var.keys():
+            formula_to_var[formula] = var
+            continue
+        replace_var(var, formula_to_var[formula])
+        #initial_numeric_state = initial_state[:var] + initial_numeric_state[var + 1:]
+        flag_idx.append(numeric_vars[var])
+
+    #print("Flag: ", flag_idx, file = out)
+
+    new_numeric_vars = [var for var in numeric_vars if var not in flag_idx]
+    new_initial_numeric_state = [val for i, val in enumerate(initial_numeric_state) if numeric_vars[i] not in flag_idx]
+    return  new_numeric_vars, new_initial_numeric_state
+
+#numeric_vars, initial_numeric_state = duplicate_detect_formulas()
 
 
 def print_result(output_file):
