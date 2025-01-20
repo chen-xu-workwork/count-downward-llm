@@ -9,16 +9,20 @@ with open(input_file_path, "r") as f:
 # 1. Extract Variables
 variables = {}
 for var_match in re.finditer(
-        r"begin_variable\s+(var\d+)\s+(\d+)\s+(\d+)\s+(.*?)\s+end_variable",
+        r"begin_variable\s+(var\d+)\s+(.*?\d+)\s+(\d+)\s+(.*?)\s+end_variable",
         sas_output,
         re.DOTALL,
 ):
     var_name, num1, num2, values = var_match.groups()
+
+    #print(var_name)
     variables[var_name] = {
         "num1": int(num1),
         "num2": int(num2),
         "values": [v.strip() for v in values.splitlines()],
     }
+
+#print(variables)
 
 # 2. Extract Numeric Variables
 numeric_vars = []
@@ -132,7 +136,8 @@ def parse_operators(sas_output):
         operator = {
             "name": op_lines[0],
             "num_preconditions": int(op_lines[1]),
-            "num_effects": int(op_lines[2 + int(op_lines[1])]),
+            "num_ass_effects": 0,
+            "num_effects": 1,
             "cost": float(op_lines[-1]),  # Assuming cost is always a float
         }
 
@@ -143,7 +148,16 @@ def parse_operators(sas_output):
             preconditions.append(op_lines[precondition_start + i])
         operator["preconditions"] = preconditions
 
-        effects_start = precondition_start + operator["num_preconditions"] + 2
+        operator["num_ass_effects"] = int(op_lines[precondition_start + operator["num_preconditions"]])
+
+        operator['num_effects'] = int(op_lines[precondition_start + operator["num_preconditions"] + 1 + operator['num_ass_effects']])
+        ass_eff = []
+        ass_eff_start = precondition_start + operator["num_preconditions"] + 1
+        for i in range(operator['num_ass_effects']):
+            ass_eff.append(op_lines[ass_eff_start + i])
+
+        operator['ass_effects'] = ass_eff
+        effects_start = ass_eff_start + operator['num_ass_effects'] + 1
         effects = []
         for i in range(operator["num_effects"]):
             effects.append(op_lines[effects_start + i])
@@ -504,85 +518,86 @@ if metric_match:
     metric = metric_match.group(1).strip()
 
 
+def print_result():
+    print("begin_version")
+    print(version)
+    print("end_version")
+    print("begin_metric")
+    print(metric)
+    print("end_metric")
+    print(len(variables))
+    for varname in variables.keys():
+        print("begin_variable")
+        print(varname)
+        print(variables[varname]['num1'])
+        #print(len(numeric_vars) + (varname == "var0" or varname == "var1"))
+        print(variables[varname]['num2'])
+        for vl in variables[varname]['values']:
+            print(vl)
+        print("end_variable")
 
-def print_result(output_file):
-    with open(output_file, "w") as out:
-        print("begin_version", file=out)
-        print(version, file=out)
-        print("end_version", file=out)
-        print("begin_metric", file=out)
-        print(metric, file=out)
-        print("end_metric", file=out)
-        print(len(variables), file=out)
-        for varname in variables.keys():
-            print("begin_variable", file=out)
-            print(varname, file=out)
-            print(variables[varname]['num1'], file=out)
-            #print(len(numeric_vars) + (varname == "var0" or varname == "var1"))
-            print(variables[varname]['num2'], file=out)
-            for vl in variables[varname]['values']:
-                print(vl, file=out)
-            print("end_variable", file=out)
+    print(len(numeric_vars))
+    print("begin_numeric_variables")
+    for i in numeric_vars:
+        print(i)
+    print("end_numeric_variables")
+    print(0)
+    print("begin_state")
+    for i in initial_state:
+        print(i)
+    print("end_state")
 
-        print(len(numeric_vars), file=out)
-        print("begin_numeric_variables", file=out)
-        for i in numeric_vars:
-            print(i, file=out)
-        print("end_numeric_variables", file=out)
-        print(0, file=out)
-        print("begin_state", file=out)
-        for i in initial_state:
-            print(i, file=out)
-        print("end_state", file=out)
+    print("begin_numeric_state")
+    for i in initial_numeric_state:
+        print(i)
+    print("end_numeric_state")
+    print("begin_goal")
+    for g in goal:
+        print(g)
+    print("end_goal")
 
-        print("begin_numeric_state", file=out)
-        for i in initial_numeric_state:
-            print(i, file=out)
-        print("end_numeric_state", file=out)
-        print("begin_goal", file=out)
-        print("""1
-    1 0""", file=out)
-        print("end_goal", file=out)
+    print(len(operators))
+    for op in operators:
+        print("begin_operator")
+        print(op['name'])
+        print(op['num_preconditions'])
+        for pr in op['preconditions']:
+            print(pr)
+        print(op['num_ass_effects'])
+        for ef in op['ass_effects']:
+            print(ef)
+        print(op['num_effects'])
+        for ef in op['effects']:
+            print(ef)
+        print(op['cost'])
+        print("end_operator")
 
-        print(len(operators), file=out)
-        for op in operators:
-            print("begin_operator", file=out)
-            print(op['name'], file=out)
-            print(op['num_preconditions'], file=out)
-            for pr in op['preconditions']:
-                print(pr, file=out)
-            print(0, file=out)
-            print(op['num_effects'], file=out)
-            for ef in op['effects']:
-                print(ef, file=out)
-            print(op['cost'], file=out)
-            print("end_operator", file=out)
+    print(len(rules))
+    for rule in rules:
+        print("begin_rule")
+        print(int(rule[0]))
+        for i in range(int(rule[0])):
+            print(rule[1 + i])
 
-        print(len(rules), file=out)
-        for rule in rules:
-            print("begin_rule", file=out)
-            print(int(rule[0]), file=out)
-            for i in range(int(rule[0])):
-                print(rule[1 + i], file=out)
+        print(rule[-1])
+        print("end_rule")
 
-            print(rule[-1], file=out)
-            print("end_rule", file=out)
+    print(len(axioms['comparison']))
+    print("begin_comparison_axioms")
+    for ax in axioms['comparison']:
+        print(ax)
+    print("end_comparison_axioms")
+    print("""0
+begin_numeric_axioms""")
+    #for axiom in axioms['numeric']:
+    #    print(axiom)
+    print("""end_numeric_axioms""")
+    #for key in formulas.keys():
+    #    print(key, formulas[key])
+    print("begin_global_constraint")
+    for global_constraint in global_constraints:
+        print(global_constraint)
+    print("end_global_constraint")
 
-        print(len(axioms['comparison']), file=out)
-        print("begin_comparison_axioms", file=out)
-        for ax in axioms['comparison']:
-            print(ax, file=out)
-        print("end_comparison_axioms", file=out)
-        print("""0
-    begin_numeric_axioms""", file=out)
-        #for axiom in axioms['numeric']:
-        #    print(axiom)
-        print("""end_numeric_axioms""", file=out)
-        #for key in formulas.keys():
-        #    print(key, formulas[key])
-        print("begin_global_constraint", file=out)
-        for global_constraint in global_constraints:
-            print(global_constraint, file=out)
-        print("end_global_constraint", file=out)
 
-print_result("output.sas")
+print_result()
