@@ -352,7 +352,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     }
 
     if (hierarchy > 0 && pattern.regular.size() + pattern.numeric.size() > 1) {
-	assert(!static_cast<bool>(pdb));
+	    assert(!static_cast<bool>(pdb));
         Pattern new_pattern;
         for (const auto &num_goal: task_proxy->get_numeric_goals()) {
             if (num_variable_to_index[num_goal.get_var_id()] != -1) {
@@ -601,7 +601,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
         }
 
-        if (num_reached_states < max_number_states) {
+        if (open.empty()) {
             exhausted_abstract_state_space = true;
         }
 
@@ -630,10 +630,13 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 if (hierarchy == 0) {
                     pq.push(min_action_cost, state_id);
                 } else {
-                    NumericState proj_state = pdb->project_numeric_state(state,
-                                                                         pattern,
-                                                                         prop_hash_multipliers);
-                    ap_float h = pdb->get_value(proj_state);
+                    ap_float h = 0;
+                    if (pdb){
+                        NumericState proj_state = pdb->project_numeric_state(state,
+                                                                             pattern,
+                                                                             prop_hash_multipliers);
+                        h = pdb->get_value(proj_state);
+                    }
                     if (h < numeric_limits<ap_float>::max()) {
                         pq.push(h, state_id);
                     }
