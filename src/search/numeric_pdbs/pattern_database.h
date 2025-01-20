@@ -203,7 +203,7 @@ class PatternDatabase {
 
     NumericState project_numeric_state(const NumericState &state,
                                        const Pattern &superset_pattern,
-                                       const std::vector<size_t> &sup_hash_multipliers);
+                                       const std::vector<size_t> &sup_hash_multipliers) const;
 
 public:
     /*

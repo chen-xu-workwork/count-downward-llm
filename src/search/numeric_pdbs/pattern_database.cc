@@ -281,7 +281,7 @@ void PatternDatabase::build_goals(const vector<int> &variable_to_index,
 
 NumericState PatternDatabase::project_numeric_state(const NumericState &state,
                                                     const Pattern &superset_pattern,
-                                                    const vector<size_t> &sup_hash_multipliers) {
+                                                    const vector<size_t> &sup_hash_multipliers) const {
     assert(std::all_of(pattern.regular.begin(),
                        pattern.regular.end(),
                        [&superset_pattern] (int var) {
@@ -312,9 +312,10 @@ NumericState PatternDatabase::project_numeric_state(const NumericState &state,
         prop_hash += prop_hash_multipliers[i] * prop_state[var];
     }
 
-    vector<ap_float> proj_num_state(pattern.numeric.size());
+    vector<ap_float> proj_num_state;
     for (int var : pattern.numeric) {
         auto it = find(superset_pattern.numeric.begin(), superset_pattern.numeric.end(), var);
+        assert(it != superset_pattern.numeric.end());
         proj_num_state.push_back(state.num_state[it - superset_pattern.numeric.begin()]);
     }
     return {prop_hash, proj_num_state};
@@ -376,12 +377,12 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 new_pattern.regular.clear();
             }
         }
-        pdb = std::make_unique<PatternDatabase>(task_proxy, new_pattern, max_number_states, true, hierarchy - 1, operator_costs);
+        pdb = std::make_unique<PatternDatabase>(task_proxy, new_pattern, max((size_t) 1000, max_number_states / 10), true, hierarchy - 1, operator_costs);
     } 
 
     AdaptiveQueue<size_t> pq;
     // size 1 prevents segfault in Dijkstra loop in case no new states are reached
-    vector<vector<pair<int, size_t>>> parent_pointers(1);
+    vector<vector<pair<int, size_t>>> parent_pointers;
 
     {
         // compute all abstract operators
@@ -477,10 +478,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
 
 
-        while(!open.empty() && ((num_reached_states < max_number_states && hierarchy >= 0) || (goal_states.empty() && hierarchy >= 0))) {
-            if (!need_goal && num_reached_states >= max_number_states) {
-                break;
-            }
+        while(!open.empty() &&
+              ((num_reached_states < max_number_states && !need_goal) || (goal_states.empty() && need_goal))) {
             auto [cost, state_pair] = open.pop();
             size_t state_id = state_pair.first;
             ap_float g_value = state_pair.second;
@@ -863,7 +862,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
             if (static_cast<bool>(pdb)) {
                 // TODO instead of doing this, delete pdb after create_pdb(), and store the "inner" h-value
                 //  of all open states, which will probably be much lighter in terms of memory usage
-                ap_float value = get_value(NumericState(pdb->prop_hash_index(state),
+                ap_float value = pdb->get_value(NumericState(pdb->prop_hash_index(state),
                                                         pdb->get_abstract_numeric_state(state)));
                 return {false, value};
             }
