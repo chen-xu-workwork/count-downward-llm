@@ -132,7 +132,7 @@ def parse_operators(sas_output):
         operator = {
             "name": op_lines[0],
             "num_preconditions": int(op_lines[1]),
-            "num_effects": int(op_lines[3]),
+            "num_effects": int(op_lines[2 + int(op_lines[1])]),
             "cost": float(op_lines[-1]),  # Assuming cost is always a float
         }
 
@@ -142,8 +142,6 @@ def parse_operators(sas_output):
         for i in range(operator["num_preconditions"]):
             preconditions.append(op_lines[precondition_start + i])
         operator["preconditions"] = preconditions
-
-        operator['num_effects'] = int(op_lines[precondition_start + operator["num_preconditions"] + 1])
 
         effects_start = precondition_start + operator["num_preconditions"] + 2
         effects = []
