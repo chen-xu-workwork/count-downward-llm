@@ -490,9 +490,13 @@ for i in range(len(axioms['comparison'])):
     axiom = axioms['comparison'][i]
     var1 = int(axiom.split()[2])
     var2 = int(axiom.split()[-1])
-    update_var_with_formula(var1)
+    #update_var_with_formula(var1)
     #update_var_with_formula(var2)
     numeric_vars[var1] = "R" + numeric_vars[var1][1:]
+    if var1 not in formulas.keys():
+        formula = gen_initial_formula(var1)
+        formulas[var1] = formula
+
     upd_val = get_var_value(var2) - formulas[var1][0]
     if upd_val in added_constants:
         axioms['comparison'][i] = " ".join(
@@ -504,6 +508,11 @@ for i in range(len(axioms['comparison'])):
         axioms['comparison'][i] = " ".join(
             [str(axiom.split()[0]), str(axiom.split()[1]), str(var1), str(len(numeric_vars) - 1)])
 #print_all()
+
+for i in range(len(numeric_vars)):
+    if is_real_variable(i):
+        update_var_with_formula(i)
+
 
 # 10. Goal
 goal_match = re.search(r"begin_goal\s+(.*?)\s+end_goal", sas_output, re.DOTALL)
