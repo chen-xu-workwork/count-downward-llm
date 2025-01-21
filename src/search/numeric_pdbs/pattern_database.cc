@@ -384,7 +384,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
     AdaptiveQueue<size_t> pq;
     // size 1 prevents segfault in Dijkstra loop in case no new states are reached
-    vector<vector<pair<int, size_t>>> parent_pointers;
+    vector<vector<pair<int, size_t>>> parent_pointers(1);
 
     {
         // compute all abstract operators
