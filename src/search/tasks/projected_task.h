@@ -38,6 +38,14 @@ public:
     ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
                   const numeric_pdbs::Pattern &pattern);
 
+    const std::vector<int> &get_projected_variables() const {
+        return variables;
+    }
+
+    const std::vector<int> &get_projected_numeric_variables() const {
+        return numeric_variables;
+    }
+
     int get_num_variables() const override;
     int get_num_numeric_variables() const override;
     const std::string &get_variable_name(int var) const override;

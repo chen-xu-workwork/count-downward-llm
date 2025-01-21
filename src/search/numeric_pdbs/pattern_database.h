@@ -92,6 +92,7 @@ class PatternDatabase {
 
     Pattern pattern;
 
+    Pattern lmc_vars;
     std::unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic> lmc;
 
     std::unique_ptr<NumericStateRegistry> state_registry;
