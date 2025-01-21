@@ -9,6 +9,7 @@
 
 #include <utility>
 #include <vector>
+#include <optional>
 
 
 namespace numeric_pdb_helper {
@@ -92,6 +93,12 @@ class PatternDatabase {
 
     Pattern pattern;
     int hierarchy;
+    bool extend_abstract_state_space;
+    int extension_h0_until_goal;
+    int extension_h1_until_goal;
+    double f_layer_offset_ratio = false;
+    std::unique_ptr<PatternDatabase> pdb; 
+
 
     std::unique_ptr<NumericStateRegistry> state_registry;
 
@@ -160,6 +167,7 @@ class PatternDatabase {
     */
     void create_pdb(
             std::size_t max_number_states,
+            std::optional<size_t> initial_state_opt,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>(),
             bool dump = false,
             bool need_goal = true);
@@ -218,14 +226,18 @@ public:
             const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &task_proxy,
             const Pattern &pattern,
             std::size_t max_number_states,
+            bool extend_abstract_state_space,
+            int extension_h0_until_goal, 
+            int extension_h1_until_goal, 
+            double f_layer_offset_ratio,
             bool dump = false,
             int hierarchy = 1,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
 
     ~PatternDatabase() = default;
 
-    std::pair<bool, ap_float> get_value(const State &state) const;
-    ap_float get_value(const NumericState &state) const;
+    std::pair<bool, ap_float> get_value(const State &state);
+    std::pair<bool, ap_float> get_value(const NumericState &state);
 
     // Returns the pattern (i.e. all variables used) of the PDB
     const Pattern &get_pattern() const {

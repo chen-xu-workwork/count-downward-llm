@@ -28,6 +28,11 @@ class PatternCollectionGeneratorSystematic : public PatternCollectionGenerator {
     using PatternSet = std::unordered_set<Pattern>;
 
     const size_t pattern_max_size;
+    bool extend_abstract_state_space;
+    int extension_h0_until_goal;
+    int extension_h1_until_goal;
+    double f_layer_offset_ratio;
+
     const bool only_interesting_patterns;
     std::shared_ptr<PatternCollection> patterns;
     PatternSet pattern_set;  // Cleared after pattern computation.

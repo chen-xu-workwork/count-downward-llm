@@ -39,6 +39,10 @@ PatternCollectionGeneratorHillclimbing::PatternCollectionGeneratorHillclimbing(c
       min_improvement(opts.get<int>("min_improvement")),
       max_time(opts.get<double>("max_time")),
       max_pdb_size(opts.get<int>("max_pdb_size")),
+      extend_abstract_state_space(opts.get<int>("extend_abstract_state_space")),
+      extension_h0_until_goal(opts.get<int>("extension_h0_until_goal")), 
+      extension_h1_until_goal(opts.get<int>("extension_h1_until_goal")), 
+      f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
       num_rejected(0),
       hill_climbing_timer(nullptr) {
 }
@@ -161,7 +165,10 @@ size_t PatternCollectionGeneratorHillclimbing::generate_pdbs_for_candidates(
     for (const Pattern &new_candidate : new_candidates) {
         if (generated_patterns.count(new_candidate) == 0) {
             candidate_pdbs.push_back(
-                make_shared<PatternDatabase>(task_proxy, new_candidate, max_number_pdb_states));
+                make_shared<PatternDatabase>(task_proxy, new_candidate, max_number_pdb_states, extend_abstract_state_space,
+            extension_h0_until_goal, 
+            extension_h1_until_goal, 
+            f_layer_offset_ratio));
             max_pdb_size = max(max_pdb_size,
                                candidate_pdbs.back()->get_size());
             generated_patterns.insert(new_candidate);
@@ -254,7 +261,7 @@ std::pair<int, int> PatternCollectionGeneratorHillclimbing::find_best_improving_
 }
 
 bool PatternCollectionGeneratorHillclimbing::is_heuristic_improved(
-    const PatternDatabase &pdb, const State &sample,
+    PatternDatabase &pdb, const State &sample,
     const MaxAdditivePDBSubsets &max_additive_subsets) {
     // h_pattern: h-value of the new pattern
     ap_float h_pattern = pdb.get_value(sample).second;
@@ -402,7 +409,11 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
     }
 
     current_pdbs = utils::make_unique_ptr<IncrementalCanonicalPDBs>(
-        task, num_task_proxy, initial_pattern_collection, max_number_pdb_states);
+        task, num_task_proxy, initial_pattern_collection, max_number_pdb_states, 
+            extend_abstract_state_space,
+            extension_h0_until_goal, 
+            extension_h1_until_goal, 
+            f_layer_offset_ratio);
 
     State initial_state = num_task_proxy->get_original_initial_state();
     if (!current_pdbs->is_dead_end(initial_state)) {
@@ -468,6 +479,30 @@ void add_hillclimbing_options(OptionParser &parser) {
             "collection via hill climbing. If set to 0, no hill climbing "
             "is performed at all.",
             "infinity",
+            Bounds("0.0", "infinity"));
+
+    parser.add_option<int>(
+            "extend_abstract_state_space",
+            "extend abstract PDB state spaces on misses.",
+            "0",
+            Bounds("0", "1"));
+
+    parser.add_option<int>(
+            "extension_h0_until_goal",
+            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
+            "0",
+            Bounds("-1", "infinity"));
+
+    parser.add_option<int>(
+            "extension_h1_until_goal",
+            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
+            "0",
+            Bounds("-1", "infinity"));
+
+    parser.add_option<double>(
+            "f_layer_offset_ratio",
+            "stop A* in abstract state space until all states in the open list have f value >= f(goal) + x * g(goal) .",
+            "0.0",
             Bounds("0.0", "infinity"));
 }
 

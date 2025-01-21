@@ -80,6 +80,30 @@ static Heuristic *_parse(OptionParser &parser) {
         "collection.",
         "true");
 
+    parser.add_option<int>(
+            "extend_abstract_state_space",
+            "extend abstract PDB state spaces on misses.",
+            "0",
+            Bounds("0", "1"));
+
+    parser.add_option<int>(
+            "extension_h0_until_goal",
+            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
+            "0",
+            Bounds("-1", "infinity"));
+
+    parser.add_option<int>(
+            "extension_h1_until_goal",
+            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
+            "0",
+            Bounds("-1", "infinity"));
+
+    parser.add_option<double>(
+            "f_layer_offset_ratio",
+            "stop A* in abstract state space until all states in the open list have f value >= f(goal) + x * g(goal) .",
+            "0.0",
+            Bounds("0.0", "infinity"));
+
     Heuristic::add_options_to_parser(parser);
 
     Options opts = parser.parse();

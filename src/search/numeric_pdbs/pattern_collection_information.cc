@@ -15,12 +15,20 @@ namespace numeric_pdbs {
 PatternCollectionInformation::PatternCollectionInformation(
         shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
         shared_ptr<PatternCollection> patterns,
-        size_t max_number_pdb_states)
+        size_t max_number_pdb_states,
+        bool extend_abstract_state_space,
+        int extension_h0_until_goal, 
+        int extension_h1_until_goal, 
+        double f_layer_offset_ratio)
         : task_proxy(task_proxy),
           patterns(patterns),
           pdbs(nullptr),
           max_additive_subsets(nullptr),
-          max_number_pdb_states(max_number_pdb_states) {
+          max_number_pdb_states(max_number_pdb_states),
+          extend_abstract_state_space(extend_abstract_state_space),
+          extension_h0_until_goal(extension_h0_until_goal), 
+          extension_h1_until_goal(extension_h1_until_goal), 
+          f_layer_offset_ratio(f_layer_offset_ratio) {
     assert(patterns);
     validate_and_normalize_patterns(*task_proxy, *patterns);
 }
@@ -75,7 +83,14 @@ void PatternCollectionInformation::create_pdbs_if_missing() {
         pdbs = make_shared<PDBCollection>();
         for (const Pattern &pattern : *patterns) {
             shared_ptr<PatternDatabase> pdb =
-                make_shared<PatternDatabase>(task_proxy, pattern, max_number_pdb_states);
+                make_shared<PatternDatabase>(
+                    task_proxy, 
+                    pattern, 
+                    max_number_pdb_states, 
+                    extend_abstract_state_space,
+                    extension_h0_until_goal, 
+                    extension_h1_until_goal, 
+                    f_layer_offset_ratio);
             pdbs->push_back(pdb);
         }
     }

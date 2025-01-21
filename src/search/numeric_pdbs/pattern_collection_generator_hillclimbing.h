@@ -38,7 +38,14 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
     const int min_improvement;
     const double max_time;
 
+    
+
     const int max_pdb_size;
+
+    bool extend_abstract_state_space;
+    int extension_h0_until_goal; 
+    int extension_h1_until_goal; 
+    double f_layer_offset_ratio;
 
     std::unique_ptr<IncrementalCanonicalPDBs> current_pdbs;
 
@@ -98,7 +105,7 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
       the h-value of the current pattern collection.
     */
     bool is_heuristic_improved(
-        const PatternDatabase &pdb,
+        PatternDatabase &pdb,
         const State &sample,
         const MaxAdditivePDBSubsets &max_additive_subsets);
 

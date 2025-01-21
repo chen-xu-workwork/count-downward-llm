@@ -17,9 +17,16 @@ PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
                                      const Options &opts) {
     auto pattern_generator =
         opts.get<shared_ptr<PatternGenerator>>("pattern");
+
+    bool extend_abstract_state_space = opts.get<int>("extend_abstract_state_space");
+    int extension_h0_until_goal = opts.get<int>("extension_h0_until_goal");
+    int extension_h1_until_goal = opts.get<int>("extension_h1_until_goal");
+    double f_layer_offset_ratio = opts.get<double>("f_layer_offset_ratio");
+
+    
     shared_ptr<NumericTaskProxy> task_proxy = make_shared<NumericTaskProxy>(task);
     Pattern pattern = pattern_generator->generate(task, task_proxy);
-    return {task_proxy, pattern, pattern_generator->get_max_number_pdb_states(), true};
+    return {task_proxy, pattern, pattern_generator->get_max_number_pdb_states(), extend_abstract_state_space, extension_h0_until_goal, extension_h1_until_goal, f_layer_offset_ratio, true};
 }
 
 NumericPDBHeuristic::NumericPDBHeuristic(const Options &opts)
@@ -33,7 +40,7 @@ ap_float NumericPDBHeuristic::compute_heuristic(const GlobalState &global_state)
     return compute_heuristic(state);
 }
 
-ap_float NumericPDBHeuristic::compute_heuristic(const State &state) const {
+ap_float NumericPDBHeuristic::compute_heuristic(const State &state) {
     auto [found_state, h] = pdb.get_value(state);
     if (!found_state){
         number_lookup_misses++;
@@ -62,6 +69,30 @@ static Heuristic *_parse(OptionParser &parser) {
         "pattern",
         "pattern generation method",
         "greedy_numeric()");
+
+    parser.add_option<int>(
+            "extend_abstract_state_space",
+            "extend abstract PDB state spaces on misses.",
+            "0",
+            Bounds("0", "1"));
+
+    parser.add_option<int>(
+            "extension_h0_until_goal",
+            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
+            "0",
+            Bounds("-1", "infinity"));
+
+    parser.add_option<int>(
+            "extension_h1_until_goal",
+            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
+            "0",
+            Bounds("-1", "infinity"));
+
+    parser.add_option<double>(
+            "f_layer_offset_ratio",
+            "stop A* in abstract state space until all states in the open list have f value >= f(goal) + x * g(goal) .",
+            "0.0",
+            Bounds("0.0", "infinity"));
 
     Heuristic::add_options_to_parser(parser);
 

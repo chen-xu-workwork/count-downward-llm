@@ -69,7 +69,11 @@ PatternCollectionGeneratorSystematic::PatternCollectionGeneratorSystematic(
     const Options &opts)
     : PatternCollectionGenerator(opts.get<int>("max_number_pdb_states")),
       pattern_max_size(opts.get<int>("pattern_max_size")),
-      only_interesting_patterns(opts.get<bool>("only_interesting_patterns")) {
+      only_interesting_patterns(opts.get<bool>("only_interesting_patterns")),
+      extend_abstract_state_space(opts.get<bool>("extend_abstract_state_space")),
+      extension_h0_until_goal(opts.get<int>("extension_h0_until_goal")), 
+      extension_h1_until_goal(opts.get<int>("extension_h1_until_goal")), 
+      f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")) {
 }
 
 void PatternCollectionGeneratorSystematic::compute_eff_pre_neighbors(
@@ -367,7 +371,11 @@ PatternCollectionInformation PatternCollectionGeneratorSystematic::generate(
     } else {
         build_patterns_naive(*task_proxy);
     }
-    return {task_proxy, patterns, max_number_pdb_states};
+    return {task_proxy, patterns, max_number_pdb_states, 
+            extend_abstract_state_space,
+            extension_h0_until_goal, 
+            extension_h1_until_goal, 
+            f_layer_offset_ratio};
 }
 
 static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
@@ -401,6 +409,30 @@ static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
             "Only consider the union of two disjoint patterns if the union has "
             "more information than the individual patterns.",
             "true");
+
+    parser.add_option<int>(
+            "extend_abstract_state_space",
+            "extend abstract PDB state spaces on misses.",
+            "0",
+            Bounds("0", "1"));
+
+    parser.add_option<int>(
+            "extension_h0_until_goal",
+            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
+            "0",
+            Bounds("-1", "infinity"));
+
+    parser.add_option<int>(
+            "extension_h1_until_goal",
+            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
+            "0",
+            Bounds("-1", "infinity"));
+
+    parser.add_option<double>(
+            "f_layer_offset_ratio",
+            "stop A* in abstract state space until all states in the open list have f value >= f(goal) + x * g(goal) .",
+            "0.0",
+            Bounds("0.0", "infinity"));
 
     Options opts = parser.parse();
     if (parser.dry_run())

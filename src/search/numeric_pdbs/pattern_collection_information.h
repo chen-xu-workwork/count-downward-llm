@@ -21,6 +21,10 @@ class PatternCollectionInformation {
     std::shared_ptr<PatternCollection> patterns;
     std::shared_ptr<PDBCollection> pdbs;
     std::shared_ptr<MaxAdditivePDBSubsets> max_additive_subsets;
+    bool extend_abstract_state_space;
+    int extension_h0_until_goal; 
+    int extension_h1_until_goal; 
+    double f_layer_offset_ratio;
 
     // approximate upper bound on the number of abstract states per PDB possibly reachable within the pattern
     size_t max_number_pdb_states;
@@ -33,7 +37,11 @@ public:
     PatternCollectionInformation(
             std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
             std::shared_ptr<PatternCollection> patterns,
-            size_t max_number_pdb_states);
+            size_t max_number_pdb_states,
+            bool extend_abstract_state_space,
+            int extension_h0_until_goal, 
+            int extension_h1_until_goal, 
+            double f_layer_offset_ratio);
     ~PatternCollectionInformation() = default;
 
     void set_pdbs(std::shared_ptr<PDBCollection> pdbs);
