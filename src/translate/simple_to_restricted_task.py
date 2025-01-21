@@ -1,5 +1,6 @@
 import re
 import sys
+from logging import exception
 
 input_file_path = sys.argv[1]
 # Assuming 'sas_output' holds the content of your SAS output
@@ -471,7 +472,8 @@ def update_var_with_formula(var):
             elif op == "-":
                 total_effect_upd_value -= formula[real_numeric_variables.index(var1) + 1] * get_var_value(var2)
             else:
-                print("SUKA BLYAT UMNOZHENIE EBANOE")
+                raise Exception("Encountered assignment effect")
+                #print("SUKA BLYAT UMNOZHENIE EBANOE")
         if (total_effect_upd_value != 0):
             operator['num_effects'] += 1
             add_idx = len(numeric_vars)
@@ -510,7 +512,7 @@ for i in range(len(axioms['comparison'])):
 #print_all()
 
 for i in range(len(numeric_vars)):
-    if is_real_variable(i):
+    if is_real_variable(i) and i not in real_numeric_variables:
         update_var_with_formula(i)
 
 
