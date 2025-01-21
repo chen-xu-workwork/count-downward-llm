@@ -479,10 +479,11 @@ void PatternDatabase::create_pdb(size_t max_number_states,
          */
 
 
-
+        ap_float last_cost = 0;
         while(!open.empty() &&
-              ((num_reached_states < max_number_states && !need_goal) || (goal_states.empty() && need_goal))) {
+              ((num_reached_states < max_number_states && !need_goal) || (( num_reached_states < max_number_states && last_cost == 0) && goal_states.empty() && need_goal))) {
             auto [cost, state_pair] = open.pop();
+            last_cost = cost;
             size_t state_id = state_pair.first;
             ap_float g_value = state_pair.second;
 
