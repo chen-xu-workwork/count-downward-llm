@@ -365,18 +365,20 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 new_pattern.regular.push_back(var);
             }
         }
-        if (new_pattern.numeric.size() == pattern.numeric.size() && new_pattern.regular.size() == pattern.regular.size()){
+        if (new_pattern.numeric.size() == pattern.numeric.size() && new_pattern.regular.size() == pattern.regular.size()) {
             if (new_pattern.numeric.size() > 1){
                 new_pattern.numeric.resize(pattern.numeric.size() / 2);
             }
             if (new_pattern.regular.size() > 1){
                 new_pattern.regular.resize(pattern.regular.size() / 2);
             }
-            if (new_pattern.numeric.size() == pattern.numeric.size() && new_pattern.regular.size() == pattern.regular.size()){
+            if (new_pattern.numeric.size() == pattern.numeric.size() && new_pattern.regular.size() == pattern.regular.size()) {
                 // both parts of pattern have exactly one variable, need to clear one of them
                 new_pattern.regular.clear();
             }
         }
+        sort(new_pattern.regular.begin(), new_pattern.regular.end());
+        sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
         pdb = std::make_unique<PatternDatabase>(task_proxy, new_pattern, max((size_t) 1000, max_number_states / 10), true, hierarchy - 1, operator_costs);
     } 
 
