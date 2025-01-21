@@ -1,6 +1,10 @@
 import re
 import sys
+import math
+
 from logging import exception
+
+from PIL.Image import effect_noise
 
 input_file_path = sys.argv[1]
 # Assuming 'sas_output' holds the content of your SAS output
@@ -174,6 +178,33 @@ def parse_operators(sas_output):
 
 operators = parse_operators(sas_output)
 
+print("INPUT PARSED!")
+
+"""
+for i in range(len(initial_numeric_state)):
+    initial_numeric_state[i] *= 100
+    initial_numeric_state[i] = int(initial_numeric_state[i])
+
+total_cost_idx = 1
+for i in range(len(numeric_vars)):
+    if numeric_vars[i][0] == 'I':
+        total_cost_idx = i
+
+flaggg = 0
+for op_str in operators:  # Iterate through operator strings
+    op = op_str
+    for i in range(len(op['effects'])):
+        effect = op['effects'][i]
+        parts = effect.split()
+        var11 = int(parts[1])
+        var22 = int(parts[3])
+        operator_symbol = parts[2]  # Corrected variable name to avoid shadowing
+
+        if var11 == total_cost_idx:
+            if flaggg == 0:
+                initial_numeric_state[var22] //= 100
+                flaggg = 1
+"""
 
 def update_var(var, upd_var_number, is_update_multiplication):
     if is_real_variable(upd_var_number):
@@ -208,20 +239,9 @@ def update_var(var, upd_var_number, is_update_multiplication):
                 operator['effects'][i] = vals[0] + " " + str(var1) + " " + vals[2] + " " + str(var2)
 
 
-def replace_var(var1, var2):
-    for i in range(1, len(axioms['comparison'])):
-        vals = axioms['comparison'][i].split()
-        for val in range(len(vals)):
-            if vals[val] == str(var1):
-                vals[val] = var2
-        axioms['comparison'][i].join(" ")
 
-    for i in range(len(axioms['numeric'])):
-        vals = axioms['numeric'][i].split()
-        for val in range(len(vals)):
-            if vals[val] == str(var1):
-                vals[val] = var2
-        axioms['numeric'][i].join(" ")
+
+
 
 
 #We want to make a formula for each numeric var according to numeric axiom tree
@@ -265,6 +285,7 @@ def operate(f1, f2, op):
     else:
         return add_or_minus_formulas(f1, f2, op)
 
+coefficent_for_ints = 100
 
 def gen_initial_formula(var):
     f = [0] * (len(real_numeric_variables) + 1)
@@ -277,6 +298,7 @@ def gen_initial_formula(var):
             pass  # Handle the case where var is not found
     else:
         f[0] = get_var_value(var)
+    #f = [int(i * coefficent_for_ints) for i in f]
     return f
 
 
@@ -359,6 +381,8 @@ gen_all_formulas()
 from collections import defaultdict
 
 
+from collections import defaultdict, deque
+
 def topological_sort_predecessors(predecessors_list):
     """
     Performs a topological sort given a list of predecessors for each node.
@@ -372,21 +396,21 @@ def topological_sort_predecessors(predecessors_list):
       contains a cycle.
     """
 
-    graph = defaultdict(list)  # Create the graph in the usual format
+    graph = defaultdict(list)
     in_degree = defaultdict(int)
 
-    for node in predecessors_list:
-        for predecessor in predecessors_list[node]:
-            graph[predecessor].append(node)  # Reverse the edges
-            in_degree[node] += 1
+    # Build the graph and calculate in-degrees more efficiently
+    for node, predecessors in predecessors_list.items():
+        in_degree[node] = len(predecessors)
+        for predecessor in predecessors:
+            graph[predecessor].append(node)
 
-    queue = [node for node in predecessors_list if in_degree[node] == 0]
+    # Use a deque for the queue (faster appends and pops)
+    queue = deque([node for node in predecessors_list if in_degree[node] == 0])
     result = []
 
-    #print(graph)
-    #print(queue)
     while queue:
-        node = queue.pop(0)
+        node = queue.popleft()  # Use popleft() for deque
         result.append(node)
 
         for neighbor in graph[node]:
@@ -394,28 +418,39 @@ def topological_sort_predecessors(predecessors_list):
             if in_degree[neighbor] == 0:
                 queue.append(neighbor)
 
-    if len(result) != len(predecessors_list):  # Cycle detected
+    if len(result) != len(predecessors_list):
         return None
     else:
         return result
 
-
-# Example usage:
+# Example usage (optimized):
 predecessors_list = {}
+var_to_axiom_index = {}  # Dictionary to store the mapping
 
-for axiom in axioms['numeric']:
-    var_final = int(axiom.split()[0])
-    op = axiom.split()[1]
-    var1 = int(axiom.split()[2])
-    var2 = int(axiom.split()[3])
+for i, axiom in enumerate(axioms['numeric']):
+    parts = axiom.split()
+    var_final = int(parts[0])
+    var1 = int(parts[2])
+    var2 = int(parts[3])
 
     predecessors_list[var_final] = [var1, var2]
+    var_to_axiom_index[var_final] = i  # Store the index for fast lookup
 
+# Add missing nodes with empty predecessor lists more efficiently
 for i in range(len(numeric_vars)):
-    if i not in predecessors_list.keys():
-        predecessors_list[i] = []
+    predecessors_list.setdefault(i, [])
 
 sorted_nodes = topological_sort_predecessors(predecessors_list)
+print("NODES SORTED")
+
+# Optimized get_axiom_by_var_final using the dictionary
+def get_axiom_by_var_final(var, var_to_axiom_index):
+    return var_to_axiom_index.get(var, -1)  # Use .get() with a default value
+
+for node in sorted_nodes:
+    ax_num = get_axiom_by_var_final(node, var_to_axiom_index)
+    if ax_num != -1:
+        gen_all_formulas_for_all_vars_met_in_axiom(axioms['numeric'][ax_num])
 
 """
 if sorted_nodes:
@@ -425,95 +460,136 @@ else:
 """
 
 
-def get_axiom_by_var_final(var):
-    for i in range(len(axioms['numeric'])):
-        axiom = axioms['numeric'][i]
-        var_final = int(axiom.split()[0])
-        if (var_final == var):
-            return i
-    return -1
 
 
-for i in range(len(sorted_nodes)):
-    ax_num = get_axiom_by_var_final(sorted_nodes[i])
-    if (ax_num == -1):
-        continue
-    gen_all_formulas_for_all_vars_met_in_axiom(axioms['numeric'][ax_num])
+
 
 added_constants = {} #val : idx
 
-def update_var_with_formula(var):
-    if (var in formulas.keys()):
+import math
+
+
+def update_var_with_formula(var, formulas, initial_numeric_state, operators, real_numeric_variables, numeric_vars,
+                            added_constants):
+    """
+    Updates a variable based on its formula and processes operators' effects.
+
+    Args:
+        var: The variable index to update.
+        formulas: A dictionary mapping variable indices to formulas.
+        initial_numeric_state: A list representing the initial state of numeric variables.
+        operators: A list of operators.
+        real_numeric_variables: A list of indices of real numeric variables.
+        numeric_vars: A list of numeric variables.
+        added_constants: A dictionary mapping constant values to their indices in numeric_vars.
+    """
+
+    if var in formulas:
         formula = formulas[var]
     else:
         formula = gen_initial_formula(var)
         formulas[var] = formula
-    total_initial_upd_value = 0
-    for i in range(1, len(formula)):
-        #if(var == 9):
-        #    print(formula[i], real_numeric_variables[i - 1], get_var_value(real_numeric_variables[i - 1]))
-        total_initial_upd_value += formula[i] * get_var_value(real_numeric_variables[i - 1])
 
-    initial_numeric_state[var] += total_initial_upd_value
+    # Optimize formula calculation using pre-computation and caching
+    formula_values = {}
+    for i in range(1, len(formula)):
+        val = get_var_value(real_numeric_variables[i - 1])  # Cache these values
+        formula_values[i] = val
+
+    total_initial_upd_value = sum(formula[i] * formula_values[i] for i in range(1, len(formula)))
+
+    initial_numeric_state[var] = math.ceil(total_initial_upd_value * 100) / 100
 
     for operator in operators:
         total_effect_upd_value = 0
         for effect in operator['effects']:
-
-            var1 = int(effect.split()[1])
-            var2 = int(effect.split()[3])
-            op = effect.split()[2]
-            #if(var == 2):
-            #    print(effect, var1, (var1 in real_numeric_variables), op)
+            parts = effect.split()
+            var1 = int(parts[1])
             if var1 not in real_numeric_variables:
                 continue
-            if (op == "+"):
-                total_effect_upd_value += formula[real_numeric_variables.index(var1) + 1] * get_var_value(var2)
+            var2 = int(parts[3])
+            op = parts[2]
+
+            # Optimize indexing and avoid repeated lookups
+            var1_index_plus_1 = real_numeric_variables.index(var1) + 1
+            if var1_index_plus_1 >= len(formula):
+                continue
+
+            formula_val = formula[var1_index_plus_1]
+
+            # Use a dictionary for faster operation lookup
+            if op == "+":
+                total_effect_upd_value += formula_val * get_var_value(var2)
             elif op == "-":
-                total_effect_upd_value -= formula[real_numeric_variables.index(var1) + 1] * get_var_value(var2)
+                total_effect_upd_value -= formula_val * get_var_value(var2)
             else:
                 raise Exception("Encountered assignment effect")
-                #print("SUKA BLYAT UMNOZHENIE EBANOE")
-        if (total_effect_upd_value != 0):
+
+        if total_effect_upd_value != 0:
             operator['num_effects'] += 1
-            add_idx = len(numeric_vars)
-            if total_effect_upd_value in added_constants.keys():
-                add_idx = added_constants[total_effect_upd_value]
-                operator['effects'].append("0 " + str(var) + " + " + str(add_idx))
+            rounded_effect_val = math.ceil(total_effect_upd_value * 100) / 100
+
+            if rounded_effect_val in added_constants:
+                add_idx = added_constants[rounded_effect_val]
             else:
+                add_idx = len(numeric_vars)
                 numeric_vars.append(
-                    "C -1 " + "!derived" + str(total_effect_upd_value) + "from" + str(var) + " : " + str(formula))
-                initial_numeric_state.append(total_effect_upd_value)
-                operator['effects'].append("0 " + str(var) + " + " + str(add_idx))
-                added_constants[total_effect_upd_value] = add_idx
+                    f"C -1 PNE derived!{rounded_effect_val}()"
+                )
+                initial_numeric_state.append(rounded_effect_val)
+                added_constants[rounded_effect_val] = add_idx
+
+            operator['effects'].append(f"0 {var} + {add_idx}")
 
 
-for i in range(len(axioms['comparison'])):
-    axiom = axioms['comparison'][i]
-    var1 = int(axiom.split()[2])
-    var2 = int(axiom.split()[-1])
-    #update_var_with_formula(var1)
-    #update_var_with_formula(var2)
-    numeric_vars[var1] = "R" + numeric_vars[var1][1:]
-    if var1 not in formulas.keys():
-        formula = gen_initial_formula(var1)
-        formulas[var1] = formula
+def speed_up_axiom_processing(axioms, numeric_vars, formulas, initial_numeric_state, added_constants):
+    """
+    Optimizes the processing of axioms for improved performance.
 
-    upd_val = get_var_value(var2) - formulas[var1][0]
-    if upd_val in added_constants:
-        axioms['comparison'][i] = " ".join(
-            [str(axiom.split()[0]), str(axiom.split()[1]), str(var1), str(added_constants[upd_val])])
-    else:
-        added_constants[upd_val] = len(numeric_vars)
-        numeric_vars.append("C -1 " + str(var2) + " " + str(upd_val))
-        initial_numeric_state.append(get_var_value(var2) - formulas[var1][0])
-        axioms['comparison'][i] = " ".join(
-            [str(axiom.split()[0]), str(axiom.split()[1]), str(var1), str(len(numeric_vars) - 1)])
-#print_all()
+    Args:
+        axioms: A dictionary containing axiom data, including 'comparison' key.
+        numeric_vars: A list of numeric variables.
+        formulas: A dictionary mapping variable indices to formulas.
+        initial_numeric_state: A list representing the initial state of numeric variables.
+        added_constants: A dictionary mapping constant values to their indices in numeric_vars.
+    """
+
+    for i, axiom in enumerate(axioms['comparison']):
+        parts = axiom.split()
+        var1 = int(parts[2])
+        var2 = int(parts[-1])
+
+        # Pre-calculate values that are reused
+        axiom_op = parts[0]
+        axiom_rel = parts[1]
+
+        numeric_vars[var1] = "R -1 PNE " + "zalupa" + str(var1) + "()"  # Consider optimizing this if it's a bottleneck
+        if var1 not in formulas:
+            formulas[var1] = gen_initial_formula(var1)
+
+        # Optimize get_var_value if possible (see notes below)
+        upd_val = get_var_value(var2) - formulas[var1][0]
+
+        if upd_val in added_constants:
+            constant_index = added_constants[upd_val]
+        else:
+            constant_index = len(numeric_vars)
+            added_constants[upd_val] = constant_index
+            numeric_vars.append("C -1 PNE " + str(var2) + " " + str(upd_val))
+            initial_numeric_state.append(upd_val)  # directly use upd_val
+
+        axioms['comparison'][i] = f"{axiom_op} {axiom_rel} {var1} {constant_index}"
+
+
+# Example usage (assuming you have the necessary variables defined)
+speed_up_axiom_processing(axioms, numeric_vars, formulas, initial_numeric_state, added_constants)
+
+print("VARS UPDATED")
 
 for i in range(len(numeric_vars)):
     if is_real_variable(i) and i not in real_numeric_variables:
-        update_var_with_formula(i)
+        update_var_with_formula(i, formulas, initial_numeric_state, operators, real_numeric_variables, numeric_vars,
+                            added_constants)
 
 
 # 10. Goal
@@ -541,32 +617,90 @@ metric_match = re.search(r"begin_metric\s+(.*?)\s+end_metric", sas_output, re.DO
 if metric_match:
     metric = metric_match.group(1).strip()
 
+def replace_var(var1, var2, axioms, operators):
+    """
+    Replaces occurrences of var1 with var2 in axioms and operators.
+
+    Args:
+        var1: The variable to be replaced.
+        var2: The variable to replace with.
+        axioms: The axioms dictionary.
+        operators: The list of operators.
+    """
+    str_var1 = str(var1)
+    str_var2 = str(var2)
+
+    # Optimize axiom replacement using a single loop and pre-compiled replacements
+    for axiom_type in ['comparison', 'numeric']:
+        for i in range(len(axioms[axiom_type])):
+            vals = axioms[axiom_type][i].split()
+            new_vals = [str_var2 if val == str_var1 else val for val in vals]
+            axioms[axiom_type][i] = " ".join(new_vals)
+
+    # Optimize operator replacement using a dictionary for effect parts
+    for operator in operators:
+        for i in range(len(operator['effects'])):
+            parts = operator['effects'][i].split()
+            effect_dict = {
+                "var1": int(parts[1]),
+                "op": parts[2],
+                "var2": int(parts[3]),
+                "rest": parts[4:]
+            }
+
+            if effect_dict["var1"] == var1:
+                effect_dict["var1"] = var2
+            if effect_dict["var2"] == var1:
+                effect_dict["var2"] = var2
+
+            operator['effects'][i] = f"{parts[0]} {effect_dict['var1']} {effect_dict['op']} {effect_dict['var2']} {' '.join(effect_dict['rest'])}"
+
+
 formula_to_var = {}
-def duplicate_detect_formulas():
+def duplicate_detect_formulas(numeric_vars, real_numeric_variables, formulas, initial_numeric_state, axioms, operators):
     flag_idx = []
+    flag = 0
     for var in range(len(numeric_vars)):
-        if(is_real_variable(var)):
+        if numeric_vars[var][0] == 'D':
+            numeric_vars[var] = "D " + str(numeric_vars[var].split()[1]) + " PNE"
+            if flag == 0:
+                flag = 1
             continue
-        if var in formulas.keys():
-            formula = formulas[var]
-        else:
+        if var in real_numeric_variables:
+            if numeric_vars[var][0] != 'I' and numeric_vars[var][-6:] != 'cost()':
+                continue
+        if(is_real_variable(var) or numeric_vars[var][0] == 'I'):
+            continue
+
+        # Use the formula directly if available
+        formula = formulas.get(var)
+        if formula is None:
             formula = gen_initial_formula(var)
+            formulas[var] = formula
 
-        formula = " ".join(map(str, formula))
-        if formula not in formula_to_var.keys():
-            formula_to_var[formula] = var
+        formula_str = " ".join(map(str, formula)) # Convert to string once
+
+        if formula_str not in formula_to_var:
+            formula_to_var[formula_str] = var
             continue
-        replace_var(var, formula_to_var[formula])
-        #initial_numeric_state = initial_state[:var] + initial_numeric_state[var + 1:]
-        flag_idx.append(numeric_vars[var])
 
-    #print("Flag: ", flag_idx, file = out)
+        replace_var(var, formula_to_var[formula_str], axioms, operators)
+        flag_idx.append(var)
 
-    new_numeric_vars = [var for var in numeric_vars if var not in flag_idx]
-    new_initial_numeric_state = [val for i, val in enumerate(initial_numeric_state) if numeric_vars[i] not in flag_idx]
-    return  new_numeric_vars, new_initial_numeric_state
+    print("Flag: ", flag_idx)
 
-#numeric_vars, initial_numeric_state = duplicate_detect_formulas()
+    new_numeric_vars = [numeric_vars[var] for var in range(len(numeric_vars)) if var not in flag_idx]
+    new_initial_numeric_state = [val for i, val in enumerate(initial_numeric_state) if i not in flag_idx]
+    old_idx = [i for i in range(len(numeric_vars)) if i not in flag_idx]
+
+    # Optimize re-indexing using a dictionary
+    old_idx_map = {old_val: new_val for new_val, old_val in enumerate(old_idx)}
+
+    for old_var, new_var in old_idx_map.items():
+        replace_var(old_var, new_var, axioms, operators)
+
+    return new_numeric_vars, new_initial_numeric_state
+
 
 
 def print_result(output_file):
@@ -582,7 +716,7 @@ def print_result(output_file):
             print("begin_variable", file=out)
             print(varname, file=out)
             print(variables[varname]['num1'], file=out)
-            #print(len(numeric_vars) + (varname == "var0" or varname == "var1"))
+            #print(0 + (varname == "var0" or varname == "var1"), file=out)
             print(variables[varname]['num2'], file=out)
             for vl in variables[varname]['values']:
                 print(vl, file=out)
@@ -650,5 +784,60 @@ begin_numeric_axioms""", file=out)
         for global_constraint in global_constraints:
             print(global_constraint, file=out)
         print("end_global_constraint", file=out)
+
+
+#print_result("output_compare.sas")
+
+
+#numeric_vars, initial_numeric_state = duplicate_detect_formulas(numeric_vars, real_numeric_variables, formulas, initial_numeric_state, axioms, operators)
+print("FINAL MOD")
+
+#for i in range(len(numeric_vars)):
+#    numeric_vars[i] = numeric_vars[i][:5]
+
+
+
+for i in range(len(initial_numeric_state)):
+    initial_numeric_state[i] *= 10
+    initial_numeric_state[i] = int(initial_numeric_state[i])
+
+total_cost_idx = 1
+for i in range(len(numeric_vars)):
+    if numeric_vars[i][0] == 'I':
+        total_cost_idx = i
+
+
+flaggg = 0
+add_idx = 0
+for op_str in operators:  # Iterate through operator strings
+    op = op_str
+    for i in range(len(op['effects'])):
+        effect = op['effects'][i]
+        parts = effect.split()
+        var11 = int(parts[1])
+        var22 = int(parts[3])
+        operator_symbol = parts[2]  # Corrected variable name to avoid shadowing
+
+        if var11 == total_cost_idx:
+            if flaggg == 0:
+                initial_numeric_state[var22] //= 10
+                #numeric_vars.append(
+                #    "C -1 " + "!derived" + str(initial_numeric_state[var22]//10) + " from" + str(var11) + " : " + str(formulas[var22]))
+                #initial_numeric_state.append(initial_numeric_state[var22]//10)
+                flaggg = 1
+                break
+                #add_idx = len(numeric_vars)
+                #var22 = add_idx
+            #else:
+            #    var22 = add_idx
+        #effect = str(effect.split()[0]) + " " + str(var11) + " " + operator_symbol + " " + str(var22) + " " + " ".join(
+            #map(str, effect.split()[4:]))
+        # print(effect)
+        #op['effects'][i] = effect
+
+
+
+import shutil
+shutil.copy2("output.sas", "output_compare.sas")
 
 print_result("output.sas")
