@@ -125,6 +125,8 @@ PatternDatabase::PatternDatabase(
     shared_ptr<tasks::ProjectedTask> projected_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern);
 
     lmc = make_unique<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(projected_task);
+    lmc_vars.regular = projected_task->get_projected_variables();
+    lmc_vars.numeric = projected_task->get_projected_numeric_variables();
 
     lmc->initialize();
 
@@ -725,7 +727,19 @@ const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State 
 }
 
 pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
-    cout << lmc->compute_heuristic(state) << endl;
+    vector<int> projected_prop_state(lmc_vars.regular.size(), -1);
+    for (size_t i = 0; i < lmc_vars.regular.size(); ++i){
+        int var = lmc_vars.regular[i];
+        assert(var == state[var].get_variable().get_id());
+        projected_prop_state[i] = state[var].get_value();
+    }
+    vector<ap_float> projected_num_state;
+    for (size_t i = 0; i < lmc_vars.numeric.size(); ++i){
+        int var = lmc_vars.numeric[i];
+        projected_num_state.push_back(state.nval(var));
+    }
+
+    cout << lmc->compute_heuristic(State(*lmc->task, std::move(projected_prop_state), std::move(projected_num_state))) << endl;
     exit(0);
     if (pattern.numeric.empty()){
         // purely propositional pattern
