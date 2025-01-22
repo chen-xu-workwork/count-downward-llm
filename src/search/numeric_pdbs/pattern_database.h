@@ -92,8 +92,6 @@ class PatternDatabase {
 
     Pattern pattern;
     int hierarchy;
-    std::unique_ptr<PatternDatabase> pdb; 
-
 
     std::unique_ptr<NumericStateRegistry> state_registry;
 

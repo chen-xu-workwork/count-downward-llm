@@ -351,8 +351,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         num_variable_to_index[pattern.numeric[i]] = i;
     }
 
+    std::unique_ptr<PatternDatabase> pdb;
     if (hierarchy > 0 && pattern.regular.size() + pattern.numeric.size() > 1) {
-	    assert(!static_cast<bool>(pdb));
         Pattern new_pattern;
         for (const auto &num_goal: task_proxy->get_numeric_goals()) {
             if (num_variable_to_index[num_goal.get_var_id()] != -1) {
@@ -639,7 +639,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                         h = pdb->get_value(proj_state);
                     }
                     if (h < numeric_limits<ap_float>::max()) {
-                        pq.push(h, state_id);
+                        pq.push(max(min_action_cost, h), state_id);
                     }
                 }
             }
@@ -863,13 +863,6 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
             // abstract goals are satisfied
             return {false, 0};
         } else {
-            if (static_cast<bool>(pdb)) {
-                // TODO instead of doing this, delete pdb after create_pdb(), and store the "inner" h-value
-                //  of all open states, which will probably be much lighter in terms of memory usage
-                ap_float value = pdb->get_value(NumericState(pdb->prop_hash_index(state),
-                                                        pdb->get_abstract_numeric_state(state)));
-                return {false, value};
-            }
             // we don't know any better
             return {false, min_action_cost};
         }
