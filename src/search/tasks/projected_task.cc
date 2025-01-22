@@ -92,12 +92,14 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
 
     // project initial state
     vector<int> original_initial_state = parent->get_initial_state_values();
+    assert(projected_initial_state.empty());
     for (int var_id : variables) {
         projected_initial_state.push_back(original_initial_state[var_id]);
     }
 
     // project numeric initial state
     vector<ap_float> original_numeric_initial_state = parent->get_initial_state_numeric_values();
+    assert(projected_numeric_initial_state.empty());
     for (int var_id : numeric_variables) {
         projected_numeric_initial_state.push_back(original_numeric_initial_state[var_id]);
     }
@@ -106,6 +108,7 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
     for (int goal_id = 0; goal_id < parent->get_num_goals(); ++goal_id) {
         Fact original_fact = parent->get_goal_fact(goal_id);
         if (is_fact_relevant(original_fact)) {
+            original_fact.var = var_to_index[original_fact.var];
             projected_goals.push_back(original_fact);
         }
     }
