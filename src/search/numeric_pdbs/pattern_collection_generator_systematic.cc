@@ -70,7 +70,7 @@ PatternCollectionGeneratorSystematic::PatternCollectionGeneratorSystematic(
     : PatternCollectionGenerator(opts.get<int>("max_number_pdb_states")),
       pattern_max_size(opts.get<int>("pattern_max_size")),
       only_interesting_patterns(opts.get<bool>("only_interesting_patterns")),
-      extend_abstract_state_space(opts.get<bool>("extend_abstract_state_space")),
+      extend_abstract_state_space(opts.get<int>("extend_abstract_state_space")),
       extension_h0_until_goal(opts.get<int>("extension_h0_until_goal")), 
       extension_h1_until_goal(opts.get<int>("extension_h1_until_goal")), 
       f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")) {
