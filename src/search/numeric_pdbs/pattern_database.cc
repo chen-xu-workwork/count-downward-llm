@@ -348,7 +348,12 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     //  is as dense as possible, and only having it just large enough to fit the abstract state with highest ID that has
     //  a finite heuristic value, with all others being deadends or mapped to min_action_cost by convention.
 
-    auto tmp_state_registry = new NumericStateRegistry();
+    NumericStateRegistry *tmp_state_registry;
+    if (initial_state_opt.has_value()) {
+        tmp_state_registry = state_registry.get();
+    } else {
+        tmp_state_registry = new NumericStateRegistry();
+    }
 
     VariablesProxy vars = task_proxy->get_variables();
     vector<int> variable_to_index(vars.size(), -1);
@@ -653,7 +658,9 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             exhausted_abstract_state_space = true;
         }
 
-        assert(distances.empty());
+        if (!init_exists) {
+            assert(distances.empty());
+        }
         distances.resize(tmp_state_registry->size(), numeric_limits<ap_float>::max());
 
         for (const auto &goal_state_id: goal_states) {
@@ -741,7 +748,10 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         cout << "Number backwards reachable abstract states: " << num_bwd_reached_states << endl;
     }
 
-    if (num_bwd_reached_states < 0.75 * tmp_state_registry->size()) {
+    if (initial_state_opt.has_value()) {
+        
+    }
+    else if (num_bwd_reached_states < 0.75 * tmp_state_registry->size()) {
         state_registry = make_unique<NumericStateRegistry>();
         size_t state_id = 0;
         for (size_t i = 0; i < distances.size(); ++i) {
