@@ -30,22 +30,24 @@ inline set<int> get_derived_var_ids(const TaskProxy &proxy) {
 inline void get_regular_numeric_vars_recursive(const TaskProxy &proxy,
                                                const AssignmentAxiomProxy &op,
                                                set<int> &regular_vars) {
-    vector<int> var_ids;
+    set<int> var_ids;
     if (op.get_left_variable().get_var_type() == numType::regular){
         regular_vars.insert(op.get_left_variable().get_id());
     } else {
-        var_ids.push_back(op.get_left_variable().get_id());
+        var_ids.insert(op.get_left_variable().get_id());
     }
     if (op.get_right_variable().get_var_type() == numType::regular){
         regular_vars.insert(op.get_right_variable().get_id());
     } else {
-        var_ids.push_back(op.get_right_variable().get_id());
+        var_ids.insert(op.get_right_variable().get_id());
     }
 
-    for (const auto &ax : proxy.get_assignment_axioms()) {
-        for (int var_id : var_ids){
-            if (ax.get_assignment_variable().get_id() == var_id){
-                get_regular_numeric_vars_recursive(proxy, ax, regular_vars);
+    if (!var_ids.empty()) {
+        for (const auto &ax: proxy.get_assignment_axioms()) {
+            for (int var_id: var_ids) {
+                if (ax.get_assignment_variable().get_id() == var_id) {
+                    get_regular_numeric_vars_recursive(proxy, ax, regular_vars);
+                }
             }
         }
     }
@@ -62,30 +64,35 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
 
     // Initialize variable index mapping
     var_to_index.resize(parent->get_num_variables(), -1);
+//    cout << "variables:" << endl;
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
         var_to_index[pattern.regular[i]] = i;
+//        cout << parent_proxy.get_variables()[pattern.regular[i]].get_fact(0).get_name() << endl;
     }
     for (int var : get_derived_var_ids(parent_proxy)){
         // TODO: instead of adding all derived variables, compute only the relevant ones
         var_to_index[var] = variables.size();
         variables.push_back(var);
+//        cout << parent_proxy.get_variables()[var].get_fact(0).get_name() << endl;
     }
-    cout << "variables: " << variables << endl;
+//    cout << "variables: " << variables << endl;
 //    variables.resize(var_to_index.size(), -1);
 //    std::iota(var_to_index.begin(), var_to_index.end(), 0);
 //    std::iota(variables.begin(), variables.end(), 0);
     num_var_to_index.resize(parent->get_num_numeric_variables(), -1);
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
         num_var_to_index[pattern.numeric[i]] = i;
+//        cout << parent_proxy.get_numeric_variables()[pattern.numeric[i]].get_name() << endl;
     }
     for (const auto &num_var : parent_proxy.get_numeric_variables()){
         if (num_var.get_var_type() != numType::regular){
             // TODO: instead of adding all non-regular variables, compute only the relevant ones
             num_var_to_index[num_var.get_id()] = numeric_variables.size();
             numeric_variables.push_back(num_var.get_id());
+//            cout << num_var.get_name() << endl;
         }
     }
-    cout << "numeric variables: " << numeric_variables << endl;
+//    cout << "numeric variables: " << numeric_variables << endl;
 //    numeric_variables.resize(num_var_to_index.size(), -1);
 //    std::iota(num_var_to_index.begin(), num_var_to_index.end(), 0);
 //    std::iota(numeric_variables.begin(), numeric_variables.end(), 0);
@@ -103,13 +110,13 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
     for (int var_id : numeric_variables) {
         projected_numeric_initial_state.push_back(original_numeric_initial_state[var_id]);
     }
+//    cout << "initial state: " << projected_initial_state << projected_numeric_initial_state << endl;
 
     // project goal
     for (int goal_id = 0; goal_id < parent->get_num_goals(); ++goal_id) {
         Fact original_fact = parent->get_goal_fact(goal_id);
         if (is_fact_relevant(original_fact)) {
-            original_fact.var = var_to_index[original_fact.var];
-            projected_goals.push_back(original_fact);
+            projected_goals.push_back(project_fact(original_fact));
         }
     }
 
@@ -482,14 +489,14 @@ Fact ProjectedTask::get_comparison_axiom_effect(int axiom_index,
                                                 bool evaluation_result) const {
     assert(axiom_index >= 0 && axiom_index < projected_comp_axiom_to_original_comp_axiom.size());
     int original_index = projected_comp_axiom_to_original_comp_axiom[axiom_index];
-    return parent->get_comparison_axiom_effect(original_index, evaluation_result);
+    return project_fact(parent->get_comparison_axiom_effect(original_index, evaluation_result));
 }
 
 int ProjectedTask::get_comparison_axiom_argument(int axiom_index,
                                                  bool left) const {
     assert(axiom_index >= 0 && axiom_index < projected_comp_axiom_to_original_comp_axiom.size());
     int original_index = projected_comp_axiom_to_original_comp_axiom[axiom_index];
-    return parent->get_comparison_axiom_argument(original_index, left);
+    return num_var_to_index[parent->get_comparison_axiom_argument(original_index, left)];
 }
 
 comp_operator ProjectedTask::get_comparison_axiom_operator(int axiom_index) const {
@@ -501,14 +508,14 @@ comp_operator ProjectedTask::get_comparison_axiom_operator(int axiom_index) cons
 int ProjectedTask::get_assignment_axiom_effect(int axiom_index) const {
     assert(axiom_index >= 0 && axiom_index < projected_asgn_axiom_to_original_asgn_axiom.size());
     int original_index = projected_asgn_axiom_to_original_asgn_axiom[axiom_index];
-    return parent->get_assignment_axiom_effect(original_index);
+    return num_var_to_index[parent->get_assignment_axiom_effect(original_index)];
 }
 
 int ProjectedTask::get_assignment_axiom_argument(int axiom_index,
                                                  bool left) const {
     assert(axiom_index >= 0 && axiom_index < projected_asgn_axiom_to_original_asgn_axiom.size());
     int original_index = projected_asgn_axiom_to_original_asgn_axiom[axiom_index];
-    return parent->get_assignment_axiom_argument(original_index, left);
+    return num_var_to_index[parent->get_assignment_axiom_argument(original_index, left)];
 }
 
 cal_operator ProjectedTask::get_assignment_axiom_operator(int axiom_index) const {
