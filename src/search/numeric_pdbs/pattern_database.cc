@@ -740,7 +740,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
     }
 
     cout << lmc->compute_heuristic(State(*lmc->task, std::move(projected_prop_state), std::move(projected_num_state))) << endl;
-    exit(0);
+//    exit(0);
     if (pattern.numeric.empty()){
         // purely propositional pattern
         return {true, distances[prop_hash_index(state)]};
