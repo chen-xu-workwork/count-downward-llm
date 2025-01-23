@@ -1,5 +1,6 @@
 import re
 import sys
+from logging import exception
 
 input_file_path = sys.argv[1]
 # Assuming 'sas_output' holds the content of your SAS output
@@ -9,16 +10,20 @@ with open(input_file_path, "r") as f:
 # 1. Extract Variables
 variables = {}
 for var_match in re.finditer(
-        r"begin_variable\s+(var\d+)\s+(\d+)\s+(\d+)\s+(.*?)\s+end_variable",
+        r"begin_variable\s+(var\d+)\s+(.*?\d+)\s+(\d+)\s+(.*?)\s+end_variable",
         sas_output,
         re.DOTALL,
 ):
     var_name, num1, num2, values = var_match.groups()
+
+    #print(var_name)
     variables[var_name] = {
         "num1": int(num1),
         "num2": int(num2),
         "values": [v.strip() for v in values.splitlines()],
     }
+
+#print(variables)
 
 # 2. Extract Numeric Variables
 numeric_vars = []
@@ -132,7 +137,8 @@ def parse_operators(sas_output):
         operator = {
             "name": op_lines[0],
             "num_preconditions": int(op_lines[1]),
-            "num_effects": int(op_lines[2 + int(op_lines[1])]),
+            "num_ass_effects": 0,
+            "num_effects": 1,
             "cost": float(op_lines[-1]),  # Assuming cost is always a float
         }
 
@@ -143,7 +149,16 @@ def parse_operators(sas_output):
             preconditions.append(op_lines[precondition_start + i])
         operator["preconditions"] = preconditions
 
-        effects_start = precondition_start + operator["num_preconditions"] + 2
+        operator["num_ass_effects"] = int(op_lines[precondition_start + operator["num_preconditions"]])
+
+        operator['num_effects'] = int(op_lines[precondition_start + operator["num_preconditions"] + 1 + operator['num_ass_effects']])
+        ass_eff = []
+        ass_eff_start = precondition_start + operator["num_preconditions"] + 1
+        for i in range(operator['num_ass_effects']):
+            ass_eff.append(op_lines[ass_eff_start + i])
+
+        operator['ass_effects'] = ass_eff
+        effects_start = ass_eff_start + operator['num_ass_effects'] + 1
         effects = []
         for i in range(operator["num_effects"]):
             effects.append(op_lines[effects_start + i])
@@ -425,6 +440,7 @@ for i in range(len(sorted_nodes)):
         continue
     gen_all_formulas_for_all_vars_met_in_axiom(axioms['numeric'][ax_num])
 
+added_constants = {} #val : idx
 
 def update_var_with_formula(var):
     if (var in formulas.keys()):
@@ -456,27 +472,49 @@ def update_var_with_formula(var):
             elif op == "-":
                 total_effect_upd_value -= formula[real_numeric_variables.index(var1) + 1] * get_var_value(var2)
             else:
-                print("SUKA BLYAT UMNOZHENIE EBANOE")
+                raise Exception("Encountered assignment effect")
+                #print("SUKA BLYAT UMNOZHENIE EBANOE")
         if (total_effect_upd_value != 0):
             operator['num_effects'] += 1
-            numeric_vars.append(
-                "C -1 " + "!derived" + str(total_effect_upd_value) + "from" + str(var) + " : " + str(formula))
-            initial_numeric_state.append(total_effect_upd_value)
-            operator['effects'].append("0 " + str(var) + " + " + str(len(numeric_vars) - 1))
+            add_idx = len(numeric_vars)
+            if total_effect_upd_value in added_constants.keys():
+                add_idx = added_constants[total_effect_upd_value]
+                operator['effects'].append("0 " + str(var) + " + " + str(add_idx))
+            else:
+                numeric_vars.append(
+                    "C -1 " + "!derived" + str(total_effect_upd_value) + "from" + str(var) + " : " + str(formula))
+                initial_numeric_state.append(total_effect_upd_value)
+                operator['effects'].append("0 " + str(var) + " + " + str(add_idx))
+                added_constants[total_effect_upd_value] = add_idx
 
 
 for i in range(len(axioms['comparison'])):
     axiom = axioms['comparison'][i]
     var1 = int(axiom.split()[2])
     var2 = int(axiom.split()[-1])
-    update_var_with_formula(var1)
+    #update_var_with_formula(var1)
     #update_var_with_formula(var2)
     numeric_vars[var1] = "R" + numeric_vars[var1][1:]
-    numeric_vars.append("C -1 " + str(var2) + " " + str(get_var_value(var2) - formulas[var1][0]))
-    initial_numeric_state.append(get_var_value(var2) - formulas[var1][0])
-    axioms['comparison'][i] = " ".join(
-        [str(axiom.split()[0]), str(axiom.split()[1]), str(var1), str(len(numeric_vars) - 1)])
+    if var1 not in formulas.keys():
+        formula = gen_initial_formula(var1)
+        formulas[var1] = formula
+
+    upd_val = get_var_value(var2) - formulas[var1][0]
+    if upd_val in added_constants:
+        axioms['comparison'][i] = " ".join(
+            [str(axiom.split()[0]), str(axiom.split()[1]), str(var1), str(added_constants[upd_val])])
+    else:
+        added_constants[upd_val] = len(numeric_vars)
+        numeric_vars.append("C -1 " + str(var2) + " " + str(upd_val))
+        initial_numeric_state.append(get_var_value(var2) - formulas[var1][0])
+        axioms['comparison'][i] = " ".join(
+            [str(axiom.split()[0]), str(axiom.split()[1]), str(var1), str(len(numeric_vars) - 1)])
 #print_all()
+
+for i in range(len(numeric_vars)):
+    if is_real_variable(i) and i not in real_numeric_variables:
+        update_var_with_formula(i)
+
 
 # 10. Goal
 goal_match = re.search(r"begin_goal\s+(.*?)\s+end_goal", sas_output, re.DOTALL)
@@ -503,6 +541,32 @@ metric_match = re.search(r"begin_metric\s+(.*?)\s+end_metric", sas_output, re.DO
 if metric_match:
     metric = metric_match.group(1).strip()
 
+formula_to_var = {}
+def duplicate_detect_formulas():
+    flag_idx = []
+    for var in range(len(numeric_vars)):
+        if(is_real_variable(var)):
+            continue
+        if var in formulas.keys():
+            formula = formulas[var]
+        else:
+            formula = gen_initial_formula(var)
+
+        formula = " ".join(map(str, formula))
+        if formula not in formula_to_var.keys():
+            formula_to_var[formula] = var
+            continue
+        replace_var(var, formula_to_var[formula])
+        #initial_numeric_state = initial_state[:var] + initial_numeric_state[var + 1:]
+        flag_idx.append(numeric_vars[var])
+
+    #print("Flag: ", flag_idx, file = out)
+
+    new_numeric_vars = [var for var in numeric_vars if var not in flag_idx]
+    new_initial_numeric_state = [val for i, val in enumerate(initial_numeric_state) if numeric_vars[i] not in flag_idx]
+    return  new_numeric_vars, new_initial_numeric_state
+
+#numeric_vars, initial_numeric_state = duplicate_detect_formulas()
 
 
 def print_result(output_file):
@@ -540,8 +604,8 @@ def print_result(output_file):
             print(i, file=out)
         print("end_numeric_state", file=out)
         print("begin_goal", file=out)
-        print("""1
-    1 0""", file=out)
+        for g in goal:
+            print(g, file=out)
         print("end_goal", file=out)
 
         print(len(operators), file=out)
@@ -551,7 +615,9 @@ def print_result(output_file):
             print(op['num_preconditions'], file=out)
             for pr in op['preconditions']:
                 print(pr, file=out)
-            print(0, file=out)
+            print(op['num_ass_effects'], file=out)
+            for ef in op['ass_effects']:
+                print(ef, file=out)
             print(op['num_effects'], file=out)
             for ef in op['effects']:
                 print(ef, file=out)
@@ -574,7 +640,7 @@ def print_result(output_file):
             print(ax, file=out)
         print("end_comparison_axioms", file=out)
         print("""0
-    begin_numeric_axioms""", file=out)
+begin_numeric_axioms""", file=out)
         #for axiom in axioms['numeric']:
         #    print(axiom)
         print("""end_numeric_axioms""", file=out)
