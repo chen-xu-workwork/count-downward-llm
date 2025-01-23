@@ -70,6 +70,7 @@ PatternCollectionGeneratorSystematic::PatternCollectionGeneratorSystematic(
     : PatternCollectionGenerator(opts.get<int>("max_number_pdb_states")),
       pattern_max_size(opts.get<int>("pattern_max_size")),
       only_interesting_patterns(opts.get<bool>("only_interesting_patterns")),
+      blind_if_no_goal(opts.get<int>("blind_if_no_goal")),
       extend_abstract_state_space(opts.get<int>("extend_abstract_state_space")),
       extension_h0_until_goal(opts.get<int>("extension_h0_until_goal")), 
       extension_h1_until_goal(opts.get<int>("extension_h1_until_goal")), 
@@ -371,7 +372,8 @@ PatternCollectionInformation PatternCollectionGeneratorSystematic::generate(
     } else {
         build_patterns_naive(*task_proxy);
     }
-    return {task_proxy, patterns, max_number_pdb_states, 
+    return {task_proxy, patterns, max_number_pdb_states,
+            blind_if_no_goal, 
             extend_abstract_state_space,
             extension_h0_until_goal, 
             extension_h1_until_goal, 
@@ -409,6 +411,12 @@ static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
             "Only consider the union of two disjoint patterns if the union has "
             "more information than the individual patterns.",
             "true");
+
+    parser.add_option<int>(
+            "blind_if_no_goal",
+            "throw away pdb if no abstract goal found.",
+            "0",
+            Bounds("0", "1"));
 
     parser.add_option<int>(
             "extend_abstract_state_space",

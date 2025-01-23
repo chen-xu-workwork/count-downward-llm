@@ -93,6 +93,7 @@ PatternDatabase::PatternDatabase(
         const shared_ptr<NumericTaskProxy> &task_proxy,
         const Pattern &pattern,
         size_t max_number_states,
+        bool blind_if_no_goal,
         bool extend_abstract_state_space,
         int extension_h0_until_goal, 
         int extension_h1_until_goal, 
@@ -103,6 +104,7 @@ PatternDatabase::PatternDatabase(
         : task_proxy(task_proxy),
           pattern(pattern),
           min_action_cost(numeric_limits<ap_float>::max()),
+          blind_if_no_goal(blind_if_no_goal),
           extend_abstract_state_space(extend_abstract_state_space),
           extension_h0_until_goal(extension_h0_until_goal), 
           extension_h1_until_goal(extension_h1_until_goal), 
@@ -398,6 +400,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                                             task_proxy, 
                                             new_pattern, 
                                             max((size_t) 1000, max_number_states / 10), 
+                                            blind_if_no_goal,
                                             extend_abstract_state_space,
                                             extension_h0_until_goal,
                                             extension_h1_until_goal,
@@ -546,7 +549,11 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 goal_states.push_back(state_id);
                 if (goal_g == numeric_limits<ap_float>::max()) {
                     goal_g = cost;
-                    goal_g += f_layer_offset_ratio * cost;
+                    if (f_layer_offset_ratio > 0) {
+                        goal_g += f_layer_offset_ratio * cost;
+                    } else {
+                        goal_g += abs(f_layer_offset_ratio) * min_action_cost;
+                    }
                     if (hierarchy == 1) {
                         cout << "goal_g: " << goal_g << endl;
                     }

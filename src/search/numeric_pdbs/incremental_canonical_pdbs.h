@@ -26,6 +26,7 @@ class IncrementalCanonicalPDBs {
     // approximate upper bound on the number of abstract states per PDB possibly reachable within the pattern
     const size_t max_number_pdb_states;
 
+    bool blind_if_no_goal;
     bool extend_abstract_state_space;
     int extension_h0_until_goal; 
     int extension_h1_until_goal; 
@@ -41,6 +42,7 @@ public:
                                       std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
                                       const PatternCollection &intitial_patterns,
                                       size_t max_number_pdb_states,
+                                      bool blind_if_no_goal,
                                       bool extend_abstract_state_space, 
                                       int extension_h0_until_goal, 
                                       int extension_h1_until_goal, 

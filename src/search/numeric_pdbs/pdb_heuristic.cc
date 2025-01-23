@@ -18,6 +18,7 @@ PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
     auto pattern_generator =
         opts.get<shared_ptr<PatternGenerator>>("pattern");
 
+    bool blind_if_no_goal = opts.get<int>("blind_if_no_goal");
     bool extend_abstract_state_space = opts.get<int>("extend_abstract_state_space");
     int extension_h0_until_goal = opts.get<int>("extension_h0_until_goal");
     int extension_h1_until_goal = opts.get<int>("extension_h1_until_goal");
@@ -69,6 +70,12 @@ static Heuristic *_parse(OptionParser &parser) {
         "pattern",
         "pattern generation method",
         "greedy_numeric()");
+
+    parser.add_option<int>(
+            "blind_if_no_goal",
+            "throw away pdb if not abstract goal found.",
+            "0",
+            Bounds("0", "1"));
 
     parser.add_option<int>(
             "extend_abstract_state_space",

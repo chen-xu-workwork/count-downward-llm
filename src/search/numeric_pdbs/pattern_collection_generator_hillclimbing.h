@@ -42,6 +42,7 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
 
     const int max_pdb_size;
 
+    bool blind_if_no_goal;
     bool extend_abstract_state_space;
     int extension_h0_until_goal; 
     int extension_h1_until_goal; 
