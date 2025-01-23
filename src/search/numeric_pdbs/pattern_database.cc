@@ -122,11 +122,9 @@ PatternDatabase::PatternDatabase(
         }
     }
 
-    shared_ptr<tasks::ProjectedTask> projected_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern);
+    lmc_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern);
 
-    lmc = make_unique<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(projected_task);
-    lmc_vars.regular = projected_task->get_projected_variables();
-    lmc_vars.numeric = projected_task->get_projected_numeric_variables();
+    lmc = make_unique<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(lmc_task);
 
     lmc->initialize();
 
@@ -534,8 +532,13 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 pq.push(0, state_id);
                 num_open_goal_states++;
             } else {
-                // TODO instead of min_action_cost, compute another heuristic here
-                pq.push(min_action_cost, state_id);
+                ap_float h = lmc->compute_heuristic(lmc_task->get_projected_state(
+                        unpack_prop_state(state.prop_hash),
+                        state.num_state,
+                        pattern));
+                if (h < numeric_limits<ap_float>::max()) {
+                    pq.push(max(h, min_action_cost), state_id);
+                }
             }
         }
 
@@ -716,6 +719,18 @@ size_t PatternDatabase::prop_hash_index(const State &state) const {
     return index;
 }
 
+vector<int> PatternDatabase::unpack_prop_state(size_t prop_hash) const {
+    vector<int> prop_state(pattern.regular.size(), -1);
+    for (size_t i = 0; i < pattern.regular.size(); ++i) {
+        int var_id = pattern.regular[i];
+        VariableProxy var = task_proxy->get_variables()[var_id];
+        int temp = prop_hash / prop_hash_multipliers[i];
+        int val = temp % var.get_domain_size();
+        prop_state[i] = val;
+    }
+    return prop_state;
+}
+
 const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State &state) const {
     tmp_abstract_numeric_state.resize(pattern.numeric.size());
     for (size_t i = 0; i < pattern.numeric.size(); ++i){
@@ -727,20 +742,6 @@ const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State 
 }
 
 pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
-    vector<int> projected_prop_state(lmc_vars.regular.size(), -1);
-    for (size_t i = 0; i < lmc_vars.regular.size(); ++i){
-        int var = lmc_vars.regular[i];
-        assert(var == state[var].get_variable().get_id());
-        projected_prop_state[i] = state[var].get_value();
-    }
-    vector<ap_float> projected_num_state;
-    for (size_t i = 0; i < lmc_vars.numeric.size(); ++i){
-        int var = lmc_vars.numeric[i];
-        projected_num_state.push_back(state.nval(var));
-    }
-
-    cout << lmc->compute_heuristic(State(*lmc->task, std::move(projected_prop_state), std::move(projected_num_state))) << endl;
-//    exit(0);
     if (pattern.numeric.empty()){
         // purely propositional pattern
         return {true, distances[prop_hash_index(state)]};
@@ -757,6 +758,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
             return {false, 0};
         } else {
             // we don't know any better
+            // ap_float lmc_h = lmc->compute_heuristic(lmc_task->get_projected_state(state)); TODO this seems to be really slow
             return {false, min_action_cost};
         }
     }

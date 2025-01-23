@@ -77,8 +77,7 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
     }
 //    cout << "variables: " << variables << endl;
 //    variables.resize(var_to_index.size(), -1);
-//    std::iota(var_to_index.begin(), var_to_index.end(), 0);
-//    std::iota(variables.begin(), variables.end(), 0);
+
     num_var_to_index.resize(parent->get_num_numeric_variables(), -1);
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
         num_var_to_index[pattern.numeric[i]] = i;
@@ -94,8 +93,6 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
     }
 //    cout << "numeric variables: " << numeric_variables << endl;
 //    numeric_variables.resize(num_var_to_index.size(), -1);
-//    std::iota(num_var_to_index.begin(), num_var_to_index.end(), 0);
-//    std::iota(numeric_variables.begin(), numeric_variables.end(), 0);
 
     // project initial state
     vector<int> original_initial_state = parent->get_initial_state_values();
@@ -154,7 +151,9 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
     // project comparison axioms
     for (const auto &op : parent_proxy.get_comparison_axioms()) {
         assert(op.get_true_fact().get_variable() == op.get_false_fact().get_variable());
-        if (is_fact_relevant(op.get_true_fact())) {
+        if (is_fact_relevant(op.get_true_fact()) &&
+            is_numeric_var_relevant(op.get_left_variable().get_id()) &&
+            is_numeric_var_relevant(op.get_right_variable().get_id())) {
             projected_comp_axiom_to_original_comp_axiom.push_back(op.get_id());
         }
     }
@@ -532,5 +531,193 @@ const GlobalOperator *ProjectedTask::get_global_operator(int index, bool is_axio
 numType ProjectedTask::get_numeric_var_type(int index) const {
     assert(index >= 0 && index < numeric_variables.size());
     return parent->get_numeric_var_type(numeric_variables[index]);
+}
+
+State ProjectedTask::get_projected_state(const State &state) const {
+    vector<int> projected_prop_state(variables.size(), -1);
+    for (size_t i = 0; i < variables.size(); ++i){
+        int var = variables[i];
+        assert(var == state[var].get_variable().get_id());
+        projected_prop_state[i] = state[var].get_value();
+    }
+    vector<ap_float> projected_num_state(numeric_variables.size());
+    for (size_t i = 0; i < numeric_variables.size(); ++i){
+        int var = numeric_variables[i];
+        projected_num_state[i] = state.nval(var);
+    }
+    return {*this, std::move(projected_prop_state), std::move(projected_num_state)};
+}
+
+State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
+                                         const std::vector<ap_float> &num_state,
+                                         const numeric_pdbs::Pattern &pattern) const {
+    vector<int> projected_prop_state(variables.size(), -1);
+    vector<bool> set_var(variables.size(), false);
+    // copy&map variable values from prop_state
+    for (size_t i = 0; i < pattern.regular.size(); ++i){
+        int var = pattern.regular[i];
+        int projected_id = var_to_index[var];
+        assert(projected_id != -1);
+        projected_prop_state[projected_id] = prop_state[i];
+        assert(!set_var[projected_id]);
+        set_var[projected_id] = true;
+    }
+    vector<bool> set_numeric_var(numeric_variables.size(), false);
+    vector<ap_float> projected_num_state(numeric_variables.size(), -11.11);
+    // copy&map variable values from num_state
+    for (size_t i = 0; i < pattern.numeric.size(); ++i){
+        int var = pattern.numeric[i];
+        int projected_id = num_var_to_index[var];
+        assert(projected_id != -1);
+        projected_num_state[projected_id] = num_state[i];
+        assert(!set_numeric_var[projected_id]);
+        set_numeric_var[projected_id] = true;
+    }
+    for (size_t var = 0; var < numeric_variables.size(); ++var){
+        if (get_numeric_var_type(var) == numType::constant){
+            projected_num_state[var] = get_initial_state_numeric_values()[var];
+            assert(!set_numeric_var[var]);
+            set_numeric_var[var] = true;
+        }
+    }
+    // evaluate assignment axioms
+    for (int ax_id = 0; ax_id < get_num_ass_axioms(); ++ax_id){
+        // all these variables are numeric
+        int eff_var = get_assignment_axiom_effect(ax_id);
+        int left_var = get_assignment_axiom_argument(ax_id, true);
+        int right_var = get_assignment_axiom_argument(ax_id, false);
+        cal_operator op = get_assignment_axiom_operator(ax_id);
+
+        ap_float left_val = 0;
+        if (get_numeric_var_type(left_var) == numType::regular){
+            assert(std::find(pattern.numeric.begin(), pattern.numeric.end(), numeric_variables[left_var]) != pattern.numeric.end());
+            left_val = projected_num_state[left_var];
+            assert(set_numeric_var[left_var]);
+        } else {
+            if (get_numeric_var_type(left_var) == numType::constant){
+                left_val = get_initial_state_numeric_values()[left_var];
+            } else {
+                assert(get_numeric_var_type(left_var) == numType::instrumentation);
+                // must be the costs variable
+            }
+        }
+        ap_float right_val = 0;
+        if (get_numeric_var_type(right_var) == numType::regular){
+            assert(std::find(pattern.numeric.begin(), pattern.numeric.end(), numeric_variables[right_var]) != pattern.numeric.end());
+            right_val = projected_num_state[right_var];
+            assert(set_numeric_var[right_var]);
+        } else {
+            if (get_numeric_var_type(right_var) == numType::constant){
+                right_val = get_initial_state_numeric_values()[right_var];
+            } else {
+                assert(get_numeric_var_type(right_var) == numType::instrumentation);
+                // must be the costs variable
+            }
+        }
+
+        ap_float res;
+        switch (op) {
+            case cal_operator::diff:
+                res = left_val - right_val;
+                break;
+            case cal_operator::sum:
+                res = left_val + right_val;
+                break;
+            case cal_operator::mult:
+                res = left_val * right_val;
+                break;
+            default:
+                cerr << "unsupported cal_operator in ProjectedTask: " << op << endl;
+                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
+
+        projected_num_state[eff_var] = res;
+        assert(!set_numeric_var[eff_var]);
+        set_numeric_var[eff_var] = true;
+    }
+
+    // evaluate comparison axioms
+    for (int ax_id = 0; ax_id < get_num_cmp_axioms(); ++ax_id){
+        // these are numeric variables
+        int left_var = get_comparison_axiom_argument(ax_id, true);
+        int right_var = get_comparison_axiom_argument(ax_id, false);
+        comp_operator op = get_comparison_axiom_operator(ax_id);
+
+        assert(set_numeric_var[left_var]);
+        assert(set_numeric_var[right_var]);
+
+        bool res;
+        switch (op) {
+            case comp_operator::le:
+                res = projected_num_state[left_var] <= projected_num_state[right_var];
+                break;
+            case comp_operator::eq:
+                res = projected_num_state[left_var] == projected_num_state[right_var];
+                break;
+            case comp_operator::ge:
+                res = projected_num_state[left_var] >= projected_num_state[right_var];
+                break;
+            case comp_operator::gt:
+                res = projected_num_state[left_var] > projected_num_state[right_var];
+                break;
+            case comp_operator::lt:
+                res = projected_num_state[left_var] < projected_num_state[right_var];
+                break;
+            case comp_operator::ue:
+                res = projected_num_state[left_var] != projected_num_state[right_var];
+                break;
+            default:
+                cerr << "unsupported comp_operator in ProjectedTask: " << op << endl;
+                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
+
+        Fact eff = get_comparison_axiom_effect(ax_id, res); // this is a propositional var
+        assert(projected_prop_state[eff.var] == -1);
+
+        projected_prop_state[eff.var] = eff.value;
+
+        assert(!set_var[eff.var]);
+        set_var[eff.var] = true;
+    }
+
+    // evaluate axioms to get values of derived variables
+    // we need to do this here because this might have numeric preconditions
+    for (int ax_id = 0; ax_id < get_num_axioms(); ++ax_id){
+        bool applicable = true;
+        int num_pre = get_num_operator_preconditions(ax_id, true);
+        for (int pre_id = 0; pre_id < num_pre; ++pre_id){
+            Fact pre = get_operator_precondition(ax_id, pre_id, true);
+            assert(set_var[pre.var]);
+            assert(projected_prop_state[pre.var] != -1);
+            if (projected_prop_state[pre.var] != pre.value){
+                applicable = false;
+                break;
+            }
+        }
+
+        int num_eff = get_num_operator_effects(ax_id, true);
+        for (int eff_id = 0; eff_id < num_eff; ++eff_id){
+            // NOTE: the default value for derived variables in NFD seems to be 1
+            Fact eff = get_operator_effect(ax_id, eff_id, true);
+            if (applicable){
+                assert(projected_prop_state[eff.var] == -1);
+                assert(eff.value == 0);
+                projected_prop_state[eff.var] = eff.value;
+            } else {
+                projected_prop_state[eff.var] = 1;
+            }
+
+            assert(!set_var[eff.var]);
+            set_var[eff.var] = true;
+        }
+    }
+    for (size_t i = 0; i < variables.size(); ++i){
+        if (projected_prop_state[i] == -1){
+            // TODO verify that this variable is the result of a comparison axiom that is not relevant for the variables in this ProjectedTask
+            //  therefore, we set its value to 0, which indicates that the condition is true
+            projected_prop_state[i] = 0;
+        }
+    }
+    return {*this, std::move(projected_prop_state), std::move(projected_num_state)};
 }
 }

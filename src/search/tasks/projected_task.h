@@ -6,9 +6,13 @@
 #include <vector>
 
 #include "delegating_task.h"
-#include "../numeric_pdbs/types.h"
 
 class FactProxy;
+class State;
+
+namespace numeric_pdbs {
+class Pattern;
+}
 
 namespace tasks {
 
@@ -98,6 +102,12 @@ public:
     std::vector<ap_float> get_numeric_state_values(const GlobalState &global_state) const override;
 
     numType get_numeric_var_type(int index) const override;
+
+    State get_projected_state(const State &state) const;
+
+    State get_projected_state(const std::vector<int> &prop_state,
+                              const std::vector<ap_float> &num_state,
+                              const numeric_pdbs::Pattern &pattern) const;
 
 };
 }  // namespace tasks

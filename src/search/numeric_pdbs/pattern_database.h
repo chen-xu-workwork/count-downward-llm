@@ -6,6 +6,7 @@
 #include "types.h"
 
 #include "../numeric_landmarks/lm_cut_numeric_heuristic.h"
+#include "../tasks/projected_task.h"
 
 #include <utility>
 #include <vector>
@@ -92,7 +93,7 @@ class PatternDatabase {
 
     Pattern pattern;
 
-    Pattern lmc_vars;
+    std::shared_ptr<tasks::ProjectedTask> lmc_task;
     std::unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic> lmc;
 
     std::unique_ptr<NumericStateRegistry> state_registry;
@@ -196,6 +197,8 @@ class PatternDatabase {
       (distances) during search.
     */
     std::size_t prop_hash_index(const State &state) const;
+
+    std::vector<int> unpack_prop_state(size_t prop_hash) const;
 
     const std::vector<ap_float> &get_abstract_numeric_state(const State &state) const;
 
