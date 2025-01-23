@@ -368,7 +368,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         num_variable_to_index[pattern.numeric[i]] = i;
     }
 
-    //std::unique_ptr<PatternDatabase> pdb;
+    unique_ptr<PatternDatabase> pdb;
     if (hierarchy > 0 && pattern.regular.size() + pattern.numeric.size() > 1) {
         Pattern new_pattern;
         for (const auto &num_goal: task_proxy->get_numeric_goals()) {
