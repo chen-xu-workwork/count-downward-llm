@@ -75,7 +75,7 @@ SUITE_NUMERIC_OTHERS_NEW = [
 
 SUITE_NUMERIC_IPC23_ALL = [
     #'block-grounding', # has axioms because of disjunctive goals
-    'counters', 'delivery', 'drone', 'expedition', 'ext-plant-watering', 'farmland-ipc23', 
+    'counters', 'delivery', 'drone', 'expedition', 'ext-plant-watering', 'farmland-adapted-goal-factors', 
     #'fo-counters', 'fo-farmland', 'fo-sailing', # these three domains are not simple 
     'hydropower', 'markettrader', 'mprime', 'pathwaysmetric', 'rover-ipc23', 'sailing-ipc23', 
     'settlersnumeric', 'sugar', 
