@@ -366,7 +366,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         num_variable_to_index[pattern.numeric[i]] = i;
     }
 
-    std::unique_ptr<PatternDatabase> pdb;
+    //std::unique_ptr<PatternDatabase> pdb;
     if (hierarchy > 0 && pattern.regular.size() + pattern.numeric.size() > 1) {
         Pattern new_pattern;
         for (const auto &num_goal: task_proxy->get_numeric_goals()) {
@@ -682,18 +682,24 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 pq.push(0, state_id);
                 num_open_goal_states++;
             } else {
-                if (hierarchy == 0) {
-                    pq.push(min_action_cost, state_id);
+                if (state_id < original_distance_size) {
+                    if (distances[state_id] < numeric_limits<ap_float>::max()) {
+                        pq.push(distances[state_id], state_id);
+                    } 
                 } else {
-                    ap_float h = 0;
-                    if (pdb){
-                        NumericState proj_state = pdb->project_numeric_state(state,
-                                                                             pattern,
-                                                                             prop_hash_multipliers);
-                        h = pdb->get_value(proj_state).second;
-                    }
-                    if (h < numeric_limits<ap_float>::max()) {
-                        pq.push(max(min_action_cost, h), state_id);
+                    if (hierarchy == 0) {
+                        pq.push(min_action_cost, state_id);
+                    } else {
+                        ap_float h = 0;
+                        if (pdb){
+                            NumericState proj_state = pdb->project_numeric_state(state,
+                                                                                pattern,
+                                                                                prop_hash_multipliers);
+                            h = pdb->get_value(proj_state).second;
+                        }
+                        if (h < numeric_limits<ap_float>::max()) {
+                            pq.push(max(min_action_cost, h), state_id);
+                        }
                     }
                 }
             }
