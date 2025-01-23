@@ -813,7 +813,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             } else {
                 alternative_cost += operator_costs[op_id];
             }
-            if (alternative_cost < distances[parent_state_id]) {
+            if (parent_state_id >= original_distance_size && alternative_cost < distances[parent_state_id]) {
+                assert(alternative_cost >= 0);
                 pq.push(alternative_cost, parent_state_id);
             }
         }
@@ -1019,11 +1020,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
             // abstract goals are satisfied
             return {false, 0};
         } else {
-            if (extend_abstract_state_space) {
-                abs_state_id = state_registry->insert_state(abs_state);
-                create_pdb((size_t) abs(extension_h1_until_goal), abs_state_id, vector<ap_float>(), false, extension_h1_until_goal == -1);
-                return {false, distances[abs_state_id]};
-            } 
+            
             pair<bool, ap_float> value;
             if (use_lmcut) {
                 value = compute_heuristic(abs_state);
@@ -1033,6 +1030,15 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
                                                                  pattern,
                                                                  prop_hash_multipliers);
                 value = pdb->get_value(proj_state);
+                if (value.first) {
+                    return {false, value.second};
+                } 
+                if (extend_abstract_state_space) {
+                    abs_state_id = state_registry->insert_state(abs_state);
+                    create_pdb((size_t) abs(extension_h1_until_goal), abs_state_id, vector<ap_float>(), false, extension_h1_until_goal == -1);
+                    return {false, distances[abs_state_id]};
+                } 
+                
                 return {false, value.second};  
             }
             return {false, min_action_cost};
@@ -1060,7 +1066,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
         } else {
             // we don't know any better
             //return {false, min_action_cost};
-            if (extend_abstract_state_space && false) {
+            if (extend_abstract_state_space && true) {
                 abs_state_id = state_registry->insert_state(state);
                 create_pdb(abs(extension_h0_until_goal), abs_state_id, vector<ap_float>(), false, extension_h0_until_goal == -1);
                 return {false, distances[abs_state_id]};
