@@ -135,11 +135,9 @@ PatternDatabase::PatternDatabase(
         }
     }
 
-    lmc_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern);
-
-    lmc = make_unique<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(lmc_task);
-
-    lmc->initialize();
+    if (use_lmcut) {
+        init_lmcut();
+    }
 
     if (pattern.numeric.empty()){
         create_pdb_propositional(domain_size_product, operator_costs);
@@ -148,6 +146,38 @@ PatternDatabase::PatternDatabase(
     }
     if (dump)
         cout << "PDB construction time: " << timer << endl;
+}
+
+void PatternDatabase::init_lmcut() {
+    cout << "HERE!" << endl;
+    lmc_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern);
+
+    lmc = make_unique<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(lmc_task);
+
+    lmc->initialize();
+    cout << "HERE!" << endl;
+}
+
+std::pair<bool, ap_float> PatternDatabase::compute_heuristic(const State &state) {
+    if (use_lmcut) {
+        cout << "HERE!" << endl;
+        ap_float lmc_h = lmc->compute_heuristic(lmc_task->get_projected_state(state)); //TODO this seems to be really slow
+        return {true, lmc_h};
+    } else {
+        return get_value(state);
+    }
+}
+
+std::pair<bool, ap_float> PatternDatabase::compute_heuristic(const NumericState &state) {
+    if (use_lmcut) {
+        ap_float h = lmc->compute_heuristic(lmc_task->get_projected_state(
+                        unpack_prop_state(state.prop_hash),
+                        state.num_state,
+                        pattern));
+        return {true, h};
+    } else {
+        return get_value(state);
+    }
 }
 
 void PatternDatabase::multiply_out(
@@ -617,11 +647,17 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                         ++num_reached_states;
                     }
                     ap_float h = 0;
-                    if (static_cast<bool>(pdb)) {
+                    if (use_lmcut) {
                         NumericState proj_state = pdb->project_numeric_state(succ_state,
                                                                              pattern,
                                                                              prop_hash_multipliers);
-                        h = pdb->get_value(proj_state).second;
+                        h = compute_heuristic(proj_state).second;
+                        
+                    } else if (static_cast<bool>(pdb)) {
+                        NumericState proj_state = pdb->project_numeric_state(succ_state,
+                                                                             pattern,
+                                                                             prop_hash_multipliers);
+                        h = pdb->compute_heuristic(proj_state).second;
                     }
                     if (h < numeric_limits<ap_float>::max()) {
                         open.push(g_value + abs_op->get_cost() + h, {succ_id, g_value + abs_op->get_cost()});
@@ -668,7 +704,12 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     }
 
                     ap_float h = 0;
-                    if (static_cast<bool>(pdb)) {
+                    if (use_lmcut) {
+                        NumericState proj_state = pdb->project_numeric_state(succ_state,
+                                                                             pattern,
+                                                                             prop_hash_multipliers);
+                        h = compute_heuristic(proj_state).second;
+                    } else if (static_cast<bool>(pdb)) {
                         NumericState proj_state = pdb->project_numeric_state(succ_state,
                                                                              pattern,
                                                                              prop_hash_multipliers);
@@ -711,7 +752,12 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 num_open_goal_states++;
             } else {
                 ap_float h = min_action_cost;
-                if (pdb){
+                if (use_lmcut) {
+                    NumericState proj_state = pdb->project_numeric_state(state,
+                                                                         pattern,
+                                                                         prop_hash_multipliers);
+                    h = compute_heuristic(proj_state).second;
+                } else if (pdb){
                     NumericState proj_state = pdb->project_numeric_state(state,
                                                                         pattern,
                                                                         prop_hash_multipliers);
@@ -764,8 +810,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             NumericState proj_state = pdb->project_numeric_state(tmp_state_registry->lookup_state(i),
                                                                  pattern,
                                                                  prop_hash_multipliers);
-
-            ap_float h = pdb->get_value(proj_state).second;
+            //NOTE: No need to use lmcut since this it would have been already in the pattern. 
+            ap_float h = pdb->compute_heuristic(proj_state).second;
             
             distances[i] = max(h, distances[i]);  
         }
@@ -799,7 +845,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     }
 
     if (dump) {
-        cout << "Initial state h: " << get_value(task_proxy->get_original_initial_state()).second << endl;
+        cout << "Initial state h: " << compute_heuristic(task_proxy->get_original_initial_state()).second << endl;
     }
 }
 
@@ -964,12 +1010,16 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
                 abs_state_id = state_registry->insert_state(abs_state);
                 create_pdb((size_t) abs(extension_h1_until_goal), abs_state_id, vector<ap_float>(), false, extension_h1_until_goal == -1);
                 return {false, distances[abs_state_id]};
-            }
-            if (static_cast<bool>(pdb)) {
+            } 
+            pair<bool, ap_float> value;
+            if (use_lmcut) {
+                value = compute_heuristic(abs_state);
+                return {false, value.second};
+            } else if (static_cast<bool>(pdb)) {
                 NumericState proj_state = pdb->project_numeric_state(abs_state,
                                                                  pattern,
                                                                  prop_hash_multipliers);
-                pair<bool, ap_float> value = pdb->get_value(proj_state);
+                value = pdb->get_value(proj_state);
                 return {false, value.second};  
             }
             return {false, min_action_cost};

@@ -100,7 +100,7 @@ class PatternDatabase {
     int extension_h1_until_goal;
     double f_layer_offset_ratio;
 
-    bool use_lmcut = false;
+    bool use_lmcut = true;
 
 
     std::unique_ptr<PatternDatabase> pdb; 
