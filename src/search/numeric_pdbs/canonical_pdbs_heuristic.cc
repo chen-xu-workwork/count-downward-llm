@@ -108,7 +108,7 @@ static Heuristic *_parse(OptionParser &parser) {
             "f_layer_offset_ratio",
             "stop A* in abstract state space until all states in the open list have f value >= f(goal) + x * g(goal) .",
             "0.0",
-            Bounds("0.0", "infinity"));
+            Bounds("-1000", "infinity"));
 
     Heuristic::add_options_to_parser(parser);
 

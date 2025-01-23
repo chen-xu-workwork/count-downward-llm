@@ -368,8 +368,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         num_variable_to_index[pattern.numeric[i]] = i;
     }
 
-    unique_ptr<PatternDatabase> pdb;
-    if (hierarchy > 0 && pattern.regular.size() + pattern.numeric.size() > 1) {
+    //unique_ptr<PatternDatabase> pdb;
+    if (static_cast<bool>(pdb) && hierarchy > 0 && pattern.regular.size() + pattern.numeric.size() > 1) {
         Pattern new_pattern;
         for (const auto &num_goal: task_proxy->get_numeric_goals()) {
             if (num_variable_to_index[num_goal.get_var_id()] != -1) {
@@ -523,7 +523,11 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         ap_float goal_g = numeric_limits<ap_float>::max();
         ap_float last_cost = 0;
         bool stop_early_when_goal_found = false;
-        while(!open.empty() && (num_reached_states < max_number_states || (min_action_cost > 0 && last_cost < goal_g && need_goal))) {
+        while (!open.empty() && (num_reached_states < max_number_states || (min_action_cost > 0 && last_cost < goal_g && need_goal))) {
+            if (blind_if_no_goal && num_reached_states >= 2 * max_number_states && last_cost == 0) {
+                state_registry = make_unique<NumericStateRegistry>();
+                break;
+            }
             auto [cost, state_pair] = open.pop();
             last_cost = cost;
             size_t state_id = state_pair.first;
@@ -755,9 +759,9 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     }
 
     if (initial_state_opt.has_value()) {
+        cout << "This is the Hierarchy: " << hierarchy << endl;
         
-    }
-    else if (num_bwd_reached_states < 0.75 * tmp_state_registry->size()) {
+    } else if (num_bwd_reached_states < 0.75 * tmp_state_registry->size()) {
         state_registry = make_unique<NumericStateRegistry>();
         size_t state_id = 0;
         for (size_t i = 0; i < distances.size(); ++i) {
@@ -928,21 +932,16 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
             // abstract goals are satisfied
             return {false, 0};
         } else {
+            if (extend_abstract_state_space) {
+                abs_state_id = state_registry->insert_state(abs_state);
+                create_pdb((size_t) abs(extension_h1_until_goal), abs_state_id, vector<ap_float>(), false, extension_h1_until_goal == -1);
+                return {false, distances[abs_state_id]};
+            }
             if (static_cast<bool>(pdb)) {
                 NumericState proj_state = pdb->project_numeric_state(abs_state,
                                                                  pattern,
                                                                  prop_hash_multipliers);
                 pair<bool, ap_float> value = pdb->get_value(proj_state);
-                if (value.first) {
-                    return {false, value.second};    
-                } else if (extend_abstract_state_space) {
-                    abs_state_id = state_registry->insert_state(NumericState(prop_hash_index(state),
-                                                               get_abstract_numeric_state(state)));
-
-                    create_pdb((size_t) abs(extension_h1_until_goal), abs_state_id, vector<ap_float>(), false, extension_h1_until_goal == -1);
-                    return {false, distances[abs_state_id]};
-                }
-                
                 return {false, value.second};  
             }
             return {false, min_action_cost};
@@ -970,7 +969,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
         } else {
             // we don't know any better
 
-            if (extend_abstract_state_space) {
+            if (extend_abstract_state_space && false) {
                 abs_state_id = state_registry->insert_state(state);
                 create_pdb(abs(extension_h0_until_goal), abs_state_id, vector<ap_float>(), false, extension_h0_until_goal == -1);
                 return {false, distances[abs_state_id]};

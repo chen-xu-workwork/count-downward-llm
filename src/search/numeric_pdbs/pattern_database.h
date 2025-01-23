@@ -97,7 +97,9 @@ class PatternDatabase {
     bool extend_abstract_state_space;
     int extension_h0_until_goal;
     int extension_h1_until_goal;
-    double f_layer_offset_ratio = false;
+    double f_layer_offset_ratio;
+
+
     std::unique_ptr<PatternDatabase> pdb; 
 
 
