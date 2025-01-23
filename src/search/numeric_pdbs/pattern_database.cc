@@ -527,6 +527,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         while (!open.empty() && (num_reached_states < max_number_states || (min_action_cost > 0 && last_cost < goal_g && need_goal))) {
             if (blind_if_no_goal && num_reached_states >= 2 * max_number_states && last_cost == 0) {
                 state_registry = make_unique<NumericStateRegistry>();
+                pdb = nullptr;
                 break;
             }
             if (!need_goal && num_reached_states >= max_number_states) {
