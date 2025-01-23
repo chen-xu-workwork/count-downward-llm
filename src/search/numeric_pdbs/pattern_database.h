@@ -94,14 +94,12 @@ class PatternDatabase {
 
     Pattern pattern;
     int hierarchy;
+    bool use_lmcut;
     bool blind_if_no_goal;
     bool extend_abstract_state_space;
     int extension_h0_until_goal;
     int extension_h1_until_goal;
     double f_layer_offset_ratio;
-
-    bool use_lmcut = true;
-
 
     std::unique_ptr<PatternDatabase> pdb; 
 
@@ -237,6 +235,7 @@ public:
             const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
             const Pattern &pattern,
             std::size_t max_number_states,
+            bool use_lmcut,
             bool blind_if_no_goal,
             bool extend_abstract_state_space,
             int extension_h0_until_goal, 

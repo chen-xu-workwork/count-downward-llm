@@ -81,6 +81,12 @@ static Heuristic *_parse(OptionParser &parser) {
         "true");
 
     parser.add_option<int>(
+            "use_lmcut",
+            "lmcut vs hier.",
+            "0",
+            Bounds("0", "1"));
+
+    parser.add_option<int>(
             "blind_if_no_goal",
             "throw away PDB if no abstract goal has been found.",
             "0",

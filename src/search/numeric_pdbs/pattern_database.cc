@@ -95,6 +95,7 @@ PatternDatabase::PatternDatabase(
         const shared_ptr<NumericTaskProxy> task_proxy,
         const Pattern &pattern,
         size_t max_number_states,
+        bool use_lmcut,
         bool blind_if_no_goal,
         bool extend_abstract_state_space,
         int extension_h0_until_goal, 
@@ -106,6 +107,7 @@ PatternDatabase::PatternDatabase(
         : task_proxy(task_proxy),
           pattern(pattern),
           min_action_cost(numeric_limits<ap_float>::max()),
+          use_lmcut(use_lmcut),
           blind_if_no_goal(blind_if_no_goal),
           extend_abstract_state_space(extend_abstract_state_space),
           extension_h0_until_goal(extension_h0_until_goal), 
@@ -114,11 +116,12 @@ PatternDatabase::PatternDatabase(
           hierarchy(hierarchy),
           exhausted_abstract_state_space(false) {
 
+
     assert(operator_costs.empty() ||
            operator_costs.size() == task_proxy->get_operators().size());
     assert(utils::is_sorted_unique(pattern.regular));
     assert(utils::is_sorted_unique(pattern.numeric));
-
+    
     utils::Timer timer;
     prop_hash_multipliers.reserve(pattern.regular.size());
     size_t domain_size_product = 1;
@@ -135,11 +138,14 @@ PatternDatabase::PatternDatabase(
         }
     }
 
-    lmc_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern);
+    if (use_lmcut) {
+        lmc_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern);
 
-    lmc = make_unique<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(lmc_task);
+        lmc = make_unique<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(lmc_task);
 
-    lmc->initialize();
+        lmc->initialize();
+    }
+    
 
     if (pattern.numeric.empty()){
         create_pdb_propositional(domain_size_product, operator_costs);
@@ -436,6 +442,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                                             task_proxy, 
                                             new_pattern, 
                                             max((size_t) 1000, max_number_states / 10), 
+                                            use_lmcut,
                                             blind_if_no_goal,
                                             extend_abstract_state_space,
                                             extension_h0_until_goal,
