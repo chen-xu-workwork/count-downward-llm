@@ -369,7 +369,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     }
 
     //unique_ptr<PatternDatabase> pdb;
-    if (static_cast<bool>(pdb) && hierarchy > 0 && pattern.regular.size() + pattern.numeric.size() > 1) {
+    if (!static_cast<bool>(pdb) && hierarchy > 0 && pattern.regular.size() + pattern.numeric.size() > 1) {
+        cout << "TEST!!" << endl;
         Pattern new_pattern;
         for (const auto &num_goal: task_proxy->get_numeric_goals()) {
             if (num_variable_to_index[num_goal.get_var_id()] != -1) {
@@ -528,14 +529,21 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 state_registry = make_unique<NumericStateRegistry>();
                 break;
             }
+            if (!need_goal && num_reached_states >= max_number_states) {
+                break;
+            }
             auto [cost, state_pair] = open.pop();
             last_cost = cost;
             size_t state_id = state_pair.first;
             ap_float g_value = state_pair.second;
 
-            if (need_goal && state_id < original_distance_size) {
-                break;
-            }
+            //if (need_goal && state_id < original_distance_size && distances[state_id] < numeric_limits<ap_float>::max() && distances[state_id] > min_action_cost) {
+            //    //cout << "Hierarchy: " << hierarchy << " " << "State ID: " << state_id << endl;
+            //    //cout << "Original Distance Size: " << original_distance_size << endl;
+            //    //cout << "Distances: " << distances[state_id] << endl;
+            //    open.push(cost, state_pair);
+            //    break;
+            //}
 
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 
@@ -559,7 +567,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                         goal_g += abs(f_layer_offset_ratio) * min_action_cost;
                     }
                     if (hierarchy == 1) {
-                        cout << "goal_g: " << goal_g << endl;
+                        cout << "Hierarchy: " << hierarchy << " " << "goal_g: " << goal_g << endl;
                     }
                 }
             }
@@ -673,6 +681,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             assert(distances.empty());
         }
         distances.resize(tmp_state_registry->size(), numeric_limits<ap_float>::max());
+        //cout << "Hierarchy: " << hierarchy << " " << "Distances: " << distances.size() << endl;
 
         for (const auto &goal_state_id: goal_states) {
             pq.push(0, goal_state_id);
@@ -759,7 +768,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     }
 
     if (initial_state_opt.has_value()) {
-        cout << "This is the Hierarchy: " << hierarchy << endl;
         
     } else if (num_bwd_reached_states < 0.75 * tmp_state_registry->size()) {
         state_registry = make_unique<NumericStateRegistry>();
@@ -968,8 +976,8 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
             return {true, 0};
         } else {
             // we don't know any better
-
-            if (extend_abstract_state_space && false) {
+            //return {false, min_action_cost};
+            if (extend_abstract_state_space) {
                 abs_state_id = state_registry->insert_state(state);
                 create_pdb(abs(extension_h0_until_goal), abs_state_id, vector<ap_float>(), false, extension_h0_until_goal == -1);
                 return {false, distances[abs_state_id]};
