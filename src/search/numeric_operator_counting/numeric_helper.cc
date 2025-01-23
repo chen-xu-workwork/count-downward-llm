@@ -719,8 +719,8 @@ void NumericTaskProxy::generate_possible_achievers(const TaskProxy &task) {
 
 void NumericTaskProxy::build_numeric_goals(const TaskProxy &task) {
   // check other axioms
-  numeric_goals.assign(task.get_goals().size(), *(new list<int>()));
-  propositional_goals.assign(task.get_goals().size(), *(new list<pair<int, int>>()));
+  numeric_goals.resize(task.get_goals().size());
+  propositional_goals.resize(task.get_goals().size());
   unordered_map<int, list<int>> axiom_table;
   unordered_map<int, list<pair<int, int>>> fact_table;
   {

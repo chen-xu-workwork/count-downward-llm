@@ -7,6 +7,8 @@
 
 #include "../priority_queue.h"
 
+#include "../tasks/projected_task.h"
+
 #include "../utils/logging.h"
 #include "../utils/math.h"
 
@@ -132,6 +134,12 @@ PatternDatabase::PatternDatabase(
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
+
+    lmc_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern);
+
+    lmc = make_unique<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(lmc_task);
+
+    lmc->initialize();
 
     if (pattern.numeric.empty()){
         create_pdb_propositional(domain_size_product, operator_costs);
@@ -370,7 +378,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
     //unique_ptr<PatternDatabase> pdb;
     if (!static_cast<bool>(pdb) && hierarchy > 0 && pattern.regular.size() + pattern.numeric.size() > 1) {
-        cout << "TEST!!" << endl;
         Pattern new_pattern;
         for (const auto &num_goal: task_proxy->get_numeric_goals()) {
             if (num_variable_to_index[num_goal.get_var_id()] != -1) {
@@ -912,6 +919,18 @@ size_t PatternDatabase::prop_hash_index(const State &state) const {
     return index;
 }
 
+vector<int> PatternDatabase::unpack_prop_state(size_t prop_hash) const {
+    vector<int> prop_state(pattern.regular.size(), -1);
+    for (size_t i = 0; i < pattern.regular.size(); ++i) {
+        int var_id = pattern.regular[i];
+        VariableProxy var = task_proxy->get_variables()[var_id];
+        int temp = prop_hash / prop_hash_multipliers[i];
+        int val = temp % var.get_domain_size();
+        prop_state[i] = val;
+    }
+    return prop_state;
+}
+
 const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State &state) const {
     tmp_abstract_numeric_state.resize(pattern.numeric.size());
     for (size_t i = 0; i < pattern.numeric.size(); ++i){
@@ -978,7 +997,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
         } else {
             // we don't know any better
             //return {false, min_action_cost};
-            if (extend_abstract_state_space) {
+            if (extend_abstract_state_space && false) {
                 abs_state_id = state_registry->insert_state(state);
                 create_pdb(abs(extension_h0_until_goal), abs_state_id, vector<ap_float>(), false, extension_h0_until_goal == -1);
                 return {false, distances[abs_state_id]};

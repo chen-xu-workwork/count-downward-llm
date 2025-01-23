@@ -5,7 +5,8 @@
 #include "numeric_state_registry.h"
 #include "types.h"
 
-#include "../task_proxy.h" // TODO get rid of this
+#include "../numeric_landmarks/lm_cut_numeric_heuristic.h"
+#include "../tasks/projected_task.h"
 
 #include <utility>
 #include <vector>
@@ -102,6 +103,9 @@ class PatternDatabase {
 
     std::unique_ptr<PatternDatabase> pdb; 
 
+
+    std::shared_ptr<tasks::ProjectedTask> lmc_task;
+    std::unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic> lmc;
 
     std::unique_ptr<NumericStateRegistry> state_registry;
 
@@ -207,6 +211,8 @@ class PatternDatabase {
       (distances) during search.
     */
     std::size_t prop_hash_index(const State &state) const;
+
+    std::vector<int> unpack_prop_state(size_t prop_hash) const;
 
     const std::vector<ap_float> &get_abstract_numeric_state(const State &state) const;
 
