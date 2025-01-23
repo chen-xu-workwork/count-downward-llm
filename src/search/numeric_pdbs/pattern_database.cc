@@ -682,25 +682,18 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 pq.push(0, state_id);
                 num_open_goal_states++;
             } else {
+                ap_float h = min_action_cost;
+                if (pdb){
+                    NumericState proj_state = pdb->project_numeric_state(state,
+                                                                        pattern,
+                                                                        prop_hash_multipliers);
+                    h = pdb->get_value(proj_state).second;
+                }
                 if (state_id < original_distance_size) {
-                    if (distances[state_id] < numeric_limits<ap_float>::max()) {
-                        pq.push(distances[state_id], state_id);
-                    } 
-                } else {
-                    if (hierarchy == 0) {
-                        pq.push(min_action_cost, state_id);
-                    } else {
-                        ap_float h = 0;
-                        if (pdb){
-                            NumericState proj_state = pdb->project_numeric_state(state,
-                                                                                pattern,
-                                                                                prop_hash_multipliers);
-                            h = pdb->get_value(proj_state).second;
-                        }
-                        if (h < numeric_limits<ap_float>::max()) {
-                            pq.push(max(min_action_cost, h), state_id);
-                        }
-                    }
+                    h = max(distances[state_id], h);
+                } 
+                if (h < numeric_limits<ap_float>::max()) {
+                    pq.push(h, state_id);
                 }
             }
         }
@@ -929,9 +922,6 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
             return {false, 0};
         } else {
             if (static_cast<bool>(pdb)) {
-                abs_state_id = state_registry->insert_state(NumericState(prop_hash_index(state),
-                                                               get_abstract_numeric_state(state)));
-
                 NumericState proj_state = pdb->project_numeric_state(abs_state,
                                                                  pattern,
                                                                  prop_hash_multipliers);
@@ -939,6 +929,8 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
                 if (value.first) {
                     return {false, value.second};    
                 } else if (extend_abstract_state_space) {
+                    abs_state_id = state_registry->insert_state(NumericState(prop_hash_index(state),
+                                                               get_abstract_numeric_state(state)));
 
                     create_pdb((size_t) abs(extension_h1_until_goal), abs_state_id, vector<ap_float>(), false, extension_h1_until_goal == -1);
                     return {false, distances[abs_state_id]};
