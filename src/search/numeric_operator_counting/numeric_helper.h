@@ -222,7 +222,9 @@ class NumericTaskProxy {
     return actions[op_id].linear_eff_num_conditions;
   }
   double get_action_cost(int op_id) const { return actions[op_id].cost; }
-  bool is_action_linear_cost(int op_id) const { return actions[op_id].linear_cost; }
+  bool is_action_linear_cost(int op_id) const { 
+    std::cout << "";
+    return actions[op_id].linear_cost; }
   const std::vector<double> &get_action_cost_coefficients(int op_id) const { return actions[op_id].cost_coefficients; }
   double get_action_cost_constant(int op_id) const { return actions[op_id].cost_constant; }
   const LinearNumericCondition &get_condition(int cond_id) const {

@@ -1399,4 +1399,3 @@ namespace numeric_lm_cut_heuristic {
     }
 
 }
-

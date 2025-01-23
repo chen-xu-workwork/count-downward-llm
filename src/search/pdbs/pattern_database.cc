@@ -5,6 +5,8 @@
 #include "../priority_queue.h"
 #include "../task_tools.h"
 
+#include "../tasks/projected_task.h"
+
 #include "../utils/collections.h"
 #include "../utils/logging.h"
 #include "../utils/math.h"

@@ -92,7 +92,7 @@ void AbstractOperator::dump(const Pattern &pattern,
 
 
 PatternDatabase::PatternDatabase(
-        const shared_ptr<NumericTaskProxy> &task_proxy,
+        const shared_ptr<NumericTaskProxy> task_proxy,
         const Pattern &pattern,
         size_t max_number_states,
         bool blind_if_no_goal,
@@ -135,9 +135,11 @@ PatternDatabase::PatternDatabase(
         }
     }
 
-    if (use_lmcut) {
-        init_lmcut();
-    }
+    lmc_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern);
+
+    lmc = make_unique<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(lmc_task);
+
+    lmc->initialize();
 
     if (pattern.numeric.empty()){
         create_pdb_propositional(domain_size_product, operator_costs);
@@ -149,19 +151,12 @@ PatternDatabase::PatternDatabase(
 }
 
 void PatternDatabase::init_lmcut() {
-    cout << "HERE!" << endl;
-    lmc_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern);
-
-    lmc = make_unique<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(lmc_task);
-
-    lmc->initialize();
-    cout << "HERE!" << endl;
+    
 }
 
 std::pair<bool, ap_float> PatternDatabase::compute_heuristic(const State &state) {
     if (use_lmcut) {
-        cout << "HERE!" << endl;
-        ap_float lmc_h = lmc->compute_heuristic(lmc_task->get_projected_state(state)); //TODO this seems to be really slow
+        ap_float lmc_h = lmc->compute_heuristic(state); //TODO this seems to be really slow
         return {true, lmc_h};
     } else {
         return get_value(state);
@@ -376,6 +371,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                                  bool dump,
                                  bool need_goal) {
 
+    
+
     // TODO: implement specialized efficient variants for the nice cases, e.g.
     //  all numeric variables have an equality goal => we can do regression in this case,
     //  as there are finitely many abstract goal states.
@@ -406,8 +403,9 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         num_variable_to_index[pattern.numeric[i]] = i;
     }
 
+
     //unique_ptr<PatternDatabase> pdb;
-    if (!static_cast<bool>(pdb) && hierarchy > 0 && pattern.regular.size() + pattern.numeric.size() > 1) {
+    if (!static_cast<bool>(pdb) && !use_lmcut && hierarchy > 0 && pattern.regular.size() + pattern.numeric.size() > 1) {
         Pattern new_pattern;
         for (const auto &num_goal: task_proxy->get_numeric_goals()) {
             if (num_variable_to_index[num_goal.get_var_id()] != -1) {
@@ -572,6 +570,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
             auto [cost, state_pair] = open.pop();
             last_cost = cost;
+
             size_t state_id = state_pair.first;
             ap_float g_value = state_pair.second;
 
@@ -591,6 +590,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 // we don't do duplicate checking in the open list
                 continue;
             }
+
             closed[state_id] = true;
 
             const NumericState &state = tmp_state_registry->lookup_state(state_id);
@@ -612,6 +612,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
             vector<const AbstractOperator *> applicable_operators;
             match_tree.get_applicable_operators(state.prop_hash, applicable_operators);
+
 
             for (auto abs_op: applicable_operators) {
                 const auto &op = task_proxy->get_operators()[abs_op->get_op_id()];
@@ -648,9 +649,11 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     }
                     ap_float h = 0;
                     if (use_lmcut) {
-                        NumericState proj_state = pdb->project_numeric_state(succ_state,
-                                                                             pattern,
-                                                                             prop_hash_multipliers);
+
+                        State proj_state = lmc_task->get_projected_state(
+                                unpack_prop_state(succ_state.prop_hash),
+                                succ_state.num_state,
+                                pattern);
                         h = compute_heuristic(proj_state).second;
                         
                     } else if (static_cast<bool>(pdb)) {
@@ -704,10 +707,12 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     }
 
                     ap_float h = 0;
+
                     if (use_lmcut) {
-                        NumericState proj_state = pdb->project_numeric_state(succ_state,
-                                                                             pattern,
-                                                                             prop_hash_multipliers);
+                        State proj_state = lmc_task->get_projected_state(
+                                unpack_prop_state(succ_state.prop_hash),
+                                succ_state.num_state,
+                                pattern);
                         h = compute_heuristic(proj_state).second;
                     } else if (static_cast<bool>(pdb)) {
                         NumericState proj_state = pdb->project_numeric_state(succ_state,
@@ -753,9 +758,10 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             } else {
                 ap_float h = min_action_cost;
                 if (use_lmcut) {
-                    NumericState proj_state = pdb->project_numeric_state(state,
-                                                                         pattern,
-                                                                         prop_hash_multipliers);
+                    State proj_state = lmc_task->get_projected_state(
+                                unpack_prop_state(state.prop_hash),
+                                state.num_state,
+                                pattern);
                     h = compute_heuristic(proj_state).second;
                 } else if (pdb){
                     NumericState proj_state = pdb->project_numeric_state(state,
