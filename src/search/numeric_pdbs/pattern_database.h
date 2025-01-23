@@ -100,6 +100,8 @@ class PatternDatabase {
     int extension_h1_until_goal;
     double f_layer_offset_ratio;
 
+    bool use_lmcut = false;
+
 
     std::unique_ptr<PatternDatabase> pdb; 
 
@@ -248,6 +250,9 @@ public:
 
     std::pair<bool, ap_float> get_value(const State &state);
     std::pair<bool, ap_float> get_value(const NumericState &state);
+    std::pair<bool, ap_float> compute_heuristic(const NumericState &state);
+    std::pair<bool, ap_float> compute_heuristic(const State &state);
+    void init_lmcut();
 
     // Returns the pattern (i.e. all variables used) of the PDB
     const Pattern &get_pattern() const {
