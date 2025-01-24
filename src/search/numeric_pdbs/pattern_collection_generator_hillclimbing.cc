@@ -39,6 +39,7 @@ PatternCollectionGeneratorHillclimbing::PatternCollectionGeneratorHillclimbing(c
       min_improvement(opts.get<int>("min_improvement")),
       max_time(opts.get<double>("max_time")),
       max_pdb_size(opts.get<int>("max_pdb_size")),
+      drop_pdb(opts.get<int>("drop_pdb")),
       use_lmcut(opts.get<int>("use_lmcut")),
       blind_if_no_goal(opts.get<int>("blind_if_no_goal")),
       extend_abstract_state_space(opts.get<int>("extend_abstract_state_space")),
@@ -167,7 +168,7 @@ size_t PatternCollectionGeneratorHillclimbing::generate_pdbs_for_candidates(
     for (const Pattern &new_candidate : new_candidates) {
         if (generated_patterns.count(new_candidate) == 0) {
             candidate_pdbs.push_back(
-                make_shared<PatternDatabase>(task_proxy, new_candidate, max_number_pdb_states, use_lmcut, blind_if_no_goal, extend_abstract_state_space,
+                make_shared<PatternDatabase>(task_proxy, new_candidate, max_number_pdb_states, drop_pdb, use_lmcut, blind_if_no_goal, extend_abstract_state_space,
             extension_h0_until_goal, 
             extension_h1_until_goal, 
             f_layer_offset_ratio));
@@ -412,6 +413,7 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
 
     current_pdbs = utils::make_unique_ptr<IncrementalCanonicalPDBs>(
         task, num_task_proxy, initial_pattern_collection, max_number_pdb_states, 
+            drop_pdb,
             use_lmcut,
             blind_if_no_goal,
             extend_abstract_state_space,
@@ -484,6 +486,12 @@ void add_hillclimbing_options(OptionParser &parser) {
             "is performed at all.",
             "infinity",
             Bounds("0.0", "infinity"));
+
+    parser.add_option<int>(
+            "drop_pdb",
+            "drop inner pdb.",
+            "0",
+            Bounds("0", "1"));
 
     parser.add_option<int>(
             "use_lmcut",

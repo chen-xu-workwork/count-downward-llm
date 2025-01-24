@@ -94,6 +94,7 @@ class PatternDatabase {
 
     Pattern pattern;
     int hierarchy;
+    bool drop_pdb;
     bool use_lmcut;
     bool blind_if_no_goal;
     bool extend_abstract_state_space;
@@ -235,6 +236,7 @@ public:
             const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
             const Pattern &pattern,
             std::size_t max_number_states,
+            bool drop_pdb,
             bool use_lmcut,
             bool blind_if_no_goal,
             bool extend_abstract_state_space,

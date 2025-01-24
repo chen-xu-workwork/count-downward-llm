@@ -28,6 +28,7 @@ class PatternCollectionGeneratorSystematic : public PatternCollectionGenerator {
     using PatternSet = std::unordered_set<Pattern>;
 
     const size_t pattern_max_size;
+    bool drop_pdb;
     bool use_lmcut;
     bool blind_if_no_goal;
     bool extend_abstract_state_space;

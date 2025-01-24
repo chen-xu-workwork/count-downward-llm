@@ -81,6 +81,12 @@ static Heuristic *_parse(OptionParser &parser) {
         "true");
 
     parser.add_option<int>(
+            "drop_pdb",
+            "drop inner pdb.",
+            "0",
+            Bounds("0", "1"));
+
+    parser.add_option<int>(
             "use_lmcut",
             "lmcut vs hier.",
             "0",

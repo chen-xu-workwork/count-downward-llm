@@ -18,6 +18,7 @@ PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
     auto pattern_generator =
         opts.get<shared_ptr<PatternGenerator>>("pattern");
 
+    bool drop_pdb = opts.get<int>("drop_pdb");
     bool use_lmcut = opts.get<int>("use_lmcut");
     bool blind_if_no_goal = opts.get<int>("blind_if_no_goal");
     bool extend_abstract_state_space = opts.get<int>("extend_abstract_state_space");
@@ -29,7 +30,7 @@ PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
     
     shared_ptr<NumericTaskProxy> task_proxy = make_shared<NumericTaskProxy>(task);
     Pattern pattern = pattern_generator->generate(task, task_proxy);
-    return {task_proxy, pattern, pattern_generator->get_max_number_pdb_states(), use_lmcut, blind_if_no_goal, extend_abstract_state_space, extension_h0_until_goal, extension_h1_until_goal, f_layer_offset_ratio, true};
+    return {task_proxy, pattern, pattern_generator->get_max_number_pdb_states(), drop_pdb, use_lmcut, blind_if_no_goal, extend_abstract_state_space, extension_h0_until_goal, extension_h1_until_goal, f_layer_offset_ratio, true};
 }
 
 NumericPDBHeuristic::NumericPDBHeuristic(const Options &opts)
@@ -72,6 +73,12 @@ static Heuristic *_parse(OptionParser &parser) {
         "pattern",
         "pattern generation method",
         "greedy_numeric()");
+
+    parser.add_option<int>(
+            "drop_pdb",
+            "drop inner pdb.",
+            "0",
+            Bounds("0", "1"));
 
     parser.add_option<int>(
             "use_lmcut",

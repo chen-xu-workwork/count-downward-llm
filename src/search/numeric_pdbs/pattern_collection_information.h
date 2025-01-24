@@ -21,6 +21,7 @@ class PatternCollectionInformation {
     std::shared_ptr<PatternCollection> patterns;
     std::shared_ptr<PDBCollection> pdbs;
     std::shared_ptr<MaxAdditivePDBSubsets> max_additive_subsets;
+    bool drop_pdb;
     bool use_lmcut;
     bool blind_if_no_goal;
     bool extend_abstract_state_space;
@@ -40,6 +41,7 @@ public:
             std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
             std::shared_ptr<PatternCollection> patterns,
             size_t max_number_pdb_states,
+            bool drop_pdb,
             bool use_lmcut,
             bool blind_if_no_goal,
             bool extend_abstract_state_space,

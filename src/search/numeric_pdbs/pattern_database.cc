@@ -95,6 +95,7 @@ PatternDatabase::PatternDatabase(
         const shared_ptr<NumericTaskProxy> task_proxy,
         const Pattern &pattern,
         size_t max_number_states,
+        bool drop_pdb,
         bool use_lmcut,
         bool blind_if_no_goal,
         bool extend_abstract_state_space,
@@ -107,6 +108,7 @@ PatternDatabase::PatternDatabase(
         : task_proxy(task_proxy),
           pattern(pattern),
           min_action_cost(numeric_limits<ap_float>::max()),
+          drop_pdb(drop_pdb),
           use_lmcut(use_lmcut),
           blind_if_no_goal(blind_if_no_goal),
           extend_abstract_state_space(extend_abstract_state_space),
@@ -442,6 +444,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                                             task_proxy, 
                                             new_pattern, 
                                             max((size_t) 1000, max_number_states / 10), 
+                                            drop_pdb,
                                             use_lmcut,
                                             blind_if_no_goal,
                                             extend_abstract_state_space,
@@ -860,6 +863,10 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
     if (dump) {
         cout << "Initial state h: " << compute_heuristic(task_proxy->get_original_initial_state()).second << endl;
+    }
+
+    if (drop_pdb) {
+        pdb = nullptr;
     }
 }
 

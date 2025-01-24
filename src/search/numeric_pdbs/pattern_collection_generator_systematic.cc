@@ -70,6 +70,7 @@ PatternCollectionGeneratorSystematic::PatternCollectionGeneratorSystematic(
     : PatternCollectionGenerator(opts.get<int>("max_number_pdb_states")),
       pattern_max_size(opts.get<int>("pattern_max_size")),
       only_interesting_patterns(opts.get<bool>("only_interesting_patterns")),
+      drop_pdb(opts.get<int>("drop_pdb")),
       use_lmcut(opts.get<int>("use_lmcut")),
       blind_if_no_goal(opts.get<int>("blind_if_no_goal")),
       extend_abstract_state_space(opts.get<int>("extend_abstract_state_space")),
@@ -374,6 +375,7 @@ PatternCollectionInformation PatternCollectionGeneratorSystematic::generate(
         build_patterns_naive(*task_proxy);
     }
     return {task_proxy, patterns, max_number_pdb_states,
+            drop_pdb,
             use_lmcut,
             blind_if_no_goal, 
             extend_abstract_state_space,
@@ -413,6 +415,12 @@ static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
             "Only consider the union of two disjoint patterns if the union has "
             "more information than the individual patterns.",
             "true");
+
+    parser.add_option<int>(
+            "drop_pdb",
+            "drop inner pdb.",
+            "0",
+            Bounds("0", "1"));
 
     parser.add_option<int>(
             "use_lmcut",
