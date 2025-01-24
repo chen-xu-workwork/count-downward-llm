@@ -24,23 +24,8 @@ ENV = TetralithEnvironment(
 )
 
 REVISIONS = [#"12fb9f81b03c2fea6d66c1b73e6db1cc1b8c98da",
-             "a95cde2f603b28985072c0e4fd1b036ec63e9b7f", # astar-exploration
+             "9fa796b73026b90300f70af02b1fbbd8182c2ace", # astar-exploration
              ]
-
-CONFIGS = [
-    ("num-pdb-greedy", ["--search", "astar(numeric_pdb(pattern=greedy_numeric()))"]),
-    #("num-cpdbs-sys", ["--search", "astar(numeric_cpdbs(patterns=numeric_systematic()))"]),
-    ("num-ipdb", ["--search", "astar(numeric_ipdb(max_time=150))"]),
-
-    ("hier1", ["--search", "astar(numeric_ipdb(max_time=150, extend_abstract_state_space=0, f_layer_offset_ratio=-1.0))"]),
-    ("hier2", ["--search", "astar(numeric_ipdb(max_time=150, extend_abstract_state_space=1, extension_h0_until_goal=-1,  extension_h1_until_goal=-1,  f_layer_offset_ratio=0.1))"]),
-    ("hier3", ["--search", "astar(numeric_ipdb(max_time=150, extend_abstract_state_space=1, extension_h0_until_goal=1000, extension_h1_until_goal=-1,  f_layer_offset_ratio=0.1))"]),
-    ("hier4", ["--search", "astar(numeric_ipdb(max_time=150, extend_abstract_state_space=1, extension_h0_until_goal=-1,  extension_h1_until_goal=1000, f_layer_offset_ratio=0.1))"]),
-    ("hier5", ["--search", "astar(numeric_ipdb(max_time=150, extend_abstract_state_space=1, extension_h0_until_goal=1000, extension_h1_until_goal=1000, f_layer_offset_ratio=0.1))"]),
-    ("hier6", ["--search", "astar(numeric_ipdb(max_time=150, extend_abstract_state_space=1, extension_h0_until_goal=1000, extension_h1_until_goal=-1, f_layer_offset_ratio=-1.0))"]),
-    ("lmcut", ["--search", "astar(numeric_ipdb(max_time=150, use_lmcut=1, f_layer_offset_ratio=-1.0))"]),
-
-]
 
 prefix = "astar(numeric_ipdb(max_time=150, extension_h0_until_goal=100, extension_h1_until_goal=100, "
 
@@ -69,9 +54,10 @@ lmcut_configs = [
 
 configs.extend(lmcut_configs)
 
+configs = [["--search", config] for config in configs]
 
 BUILD_OPTIONS = ["release64", "-j6"]
-DRIVER_OPTIONS = ["--overall-time-limit", "5m", "--build", "release64", "--overall-memory-limit", "8G"]
+DRIVER_OPTIONS = ["--overall-time-limit", "15m", "--build", "release64", "--overall-memory-limit", "8G"]
 
 ATTRIBUTES = [
     "cost",
@@ -112,6 +98,7 @@ for rev in REVISIONS:
                 build_options=BUILD_OPTIONS,
                 driver_options=DRIVER_OPTIONS + add_trans,
             )
+            print(config)
 
 exp.add_suite(BENCHMARKS_DIR_IPC, project.SUITE_NUMERIC_IPC23_ALL)
 exp.add_suite(BENCHMARKS_DIR_OTHERS, project.SUITE_NUMERIC_OTHERS)
