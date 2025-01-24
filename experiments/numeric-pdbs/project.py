@@ -66,7 +66,7 @@ SUITE_NUMERIC_OTHERS = [
     'plant-watering', 
     #'rover', # same as IPC instances 
     'rover-unit', 'sailing', 'satellite', 
-    'zenotravel'
+    #'zenotravel'
 ]
 
 SUITE_NUMERIC_OTHERS_NEW = [
@@ -75,12 +75,16 @@ SUITE_NUMERIC_OTHERS_NEW = [
 
 SUITE_NUMERIC_IPC23_ALL = [
     #'block-grounding', # has axioms because of disjunctive goals
-    'counters', 'delivery', 'drone', 'expedition', 'ext-plant-watering', 'farmland-ipc23-adapted-goal-factors', 
+    'counters', 'delivery', #'drone', 
+    'expedition', #'ext-plant-watering', 
+    'farmland-ipc23-adapted-goal-factors', 
     #'fo-counters', 'fo-farmland', 'fo-sailing', # these three domains are not simple 
-    'hydropower', 'markettrader', 'mprime', 'pathwaysmetric', 'rover-ipc23', 'sailing-ipc23', 
-    'settlersnumeric', 'sugar', 
+    'hydropower', #'markettrader', 
+    'mprime', 'pathwaysmetric', 'rover-ipc23', 'sailing-ipc23', 
+    #'settlersnumeric', 
+    'sugar', 
     #'tpp', # not a simple numeric domain
-    'zenotravel-ipc23'
+    #'zenotravel-ipc23'
 ]
 
 SUITE_NUMERIC_IPC23_RT = [
