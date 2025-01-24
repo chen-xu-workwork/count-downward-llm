@@ -102,7 +102,7 @@ for rev in REVISIONS:
     for config_nick, config in enumerate(configs):
         for extra in [False, True]:
             add_trans = ["--restricted-task-transformation"] if extra else []
-            if not extra and "lmcut" not in config:
+            if not extra and "lmcut" in config:
                 continue
             exp.add_algorithm(
                 f"{config_nick}-{extra}-{rev[:5]}",
