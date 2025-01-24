@@ -73,6 +73,14 @@ SUITE_NUMERIC_OTHERS_NEW = [
     'forestfire', 'minecraft-pogo-advanced', 'minecraft-sword-advanced', 
 ]
 
+SUITE_FARMLAND_NEW = [
+    "farmland-ipc23", "farmland-others"
+]
+
+SUITE_FARMLAND_OTHERS = [
+    "farmland-others"
+]
+
 SUITE_NUMERIC_IPC23_ALL = [
     #'block-grounding', # has axioms because of disjunctive goals
     'counters', 'delivery', #'drone', 
