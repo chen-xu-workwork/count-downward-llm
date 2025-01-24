@@ -10,3 +10,6 @@ output
 output.sas
 sas_plan
 .idea/
+
+experiments/numeric-pdbs/data/
+experiments/numeric-pdbs/data/*
