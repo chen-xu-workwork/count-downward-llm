@@ -148,7 +148,6 @@ PatternDatabase::PatternDatabase(
         lmc->initialize();
     }
     
-
     if (pattern.numeric.empty()){
         create_pdb_propositional(domain_size_product, operator_costs);
     } else {
@@ -497,6 +496,27 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
         }
 
+        bool preconditions_unconditioned = true;
+
+        //NOTE: Check if numeric preconditions are empty. 
+        for (auto op_id: num_operators) {
+            const NumericOperatorProxy &op = task_proxy->get_operators()[op_id];
+            NumericPreconditionsProxy preconditions = op.get_numeric_preconditions();
+            preconditions_unconditioned = preconditions.size() == 0;
+            if (!preconditions_unconditioned) {
+                break;
+            }
+        }
+        if (preconditions_unconditioned) {
+            std::cout << "Pattern has no numeric precondition: [Hierarchy: ";
+            std::cout << hierarchy << "], ";
+            std::cout << "Pattern: " << pattern << std::endl;
+        } else {
+            std::cout << "Pattern has numeric precondition: [Hierarchy: ";
+            std::cout << hierarchy << "], ";
+            std::cout << "Pattern: " << pattern << std::endl;
+        }
+
         // build the match tree
         MatchTree match_tree(task_proxy, pattern, prop_hash_multipliers);
         for (const AbstractOperator &op: operators) {
@@ -568,7 +588,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         // we go beyond the state limit iff there are no 0-cost actions, need_goal is set, and no goal state has been reached, yet.
         ap_float goal_g = numeric_limits<ap_float>::max();
         ap_float last_cost = 0;
-        bool stop_early_when_goal_found = false;
         while (!open.empty() && (num_reached_states < max_number_states || (min_action_cost > 0 && last_cost < goal_g && need_goal))) {
             if (blind_if_no_goal && num_reached_states >= 2 * max_number_states && last_cost == 0) {
                 state_registry = make_unique<NumericStateRegistry>();
