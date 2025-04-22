@@ -120,7 +120,6 @@ PatternDatabase::PatternDatabase(
           hierarchy(hierarchy),
           exhausted_abstract_state_space(false) {
 
-
     assert(operator_costs.empty() ||
            operator_costs.size() == task_proxy->get_operators().size());
     assert(utils::is_sorted_unique(pattern.regular));

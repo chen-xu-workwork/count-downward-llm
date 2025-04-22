@@ -105,6 +105,7 @@ void PatternCollectionInformation::create_pdbs_if_missing() {
                     extension_h1_until_goal, 
                     f_layer_offset_ratio,
                     need_goal, 
+                    false,
                     hierarchy);
             pdbs->push_back(pdb);
         }

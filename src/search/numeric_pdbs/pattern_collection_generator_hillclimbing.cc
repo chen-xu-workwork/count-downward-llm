@@ -173,7 +173,7 @@ size_t PatternCollectionGeneratorHillclimbing::generate_pdbs_for_candidates(
                 make_shared<PatternDatabase>(task_proxy, new_candidate, max_number_pdb_states, drop_pdb, use_lmcut, blind_if_no_goal, extend_abstract_state_space,
             extension_h0_until_goal, 
             extension_h1_until_goal, 
-            f_layer_offset_ratio, need_goal, hierarchy));
+            f_layer_offset_ratio, need_goal, false, hierarchy));
             max_pdb_size = max(max_pdb_size,
                                candidate_pdbs.back()->get_size());
             generated_patterns.insert(new_candidate);
