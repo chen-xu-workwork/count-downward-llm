@@ -76,7 +76,8 @@ PatternCollectionGeneratorSystematic::PatternCollectionGeneratorSystematic(
       extend_abstract_state_space(opts.get<int>("extend_abstract_state_space")),
       extension_h0_until_goal(opts.get<int>("extension_h0_until_goal")), 
       extension_h1_until_goal(opts.get<int>("extension_h1_until_goal")), 
-      f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")) {
+      f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
+      need_goal(need_goal) {
 }
 
 void PatternCollectionGeneratorSystematic::compute_eff_pre_neighbors(
@@ -381,7 +382,8 @@ PatternCollectionInformation PatternCollectionGeneratorSystematic::generate(
             extend_abstract_state_space,
             extension_h0_until_goal, 
             extension_h1_until_goal, 
-            f_layer_offset_ratio};
+            f_layer_offset_ratio,
+            need_goal};
 }
 
 static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
@@ -457,6 +459,12 @@ static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
             "stop A* in abstract state space until all states in the open list have f value >= f(goal) + x * g(goal) .",
             "0.0",
             Bounds("-1000", "infinity"));
+
+    parser.add_option<int>(
+            "need_goal",
+            "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
+            "0",
+            Bounds("0", "1"));
 
     Options opts = parser.parse();
     if (parser.dry_run())

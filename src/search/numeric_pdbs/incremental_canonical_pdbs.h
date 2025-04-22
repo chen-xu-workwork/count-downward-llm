@@ -33,6 +33,7 @@ class IncrementalCanonicalPDBs {
     int extension_h0_until_goal; 
     int extension_h1_until_goal; 
     double f_layer_offset_ratio;
+    int need_goal;
 
 
     // Adds a PDB for pattern but does not recompute max_additive_subsets.
@@ -50,7 +51,8 @@ public:
                                       bool extend_abstract_state_space, 
                                       int extension_h0_until_goal, 
                                       int extension_h1_until_goal, 
-                                      double f_layer_offset_ratio);
+                                      double f_layer_offset_ratio,
+                                      int need_goal);
     virtual ~IncrementalCanonicalPDBs() = default;
 
     // Adds a new pattern to the collection and recomputes max_additive_subsets.

@@ -101,6 +101,7 @@ class PatternDatabase {
     int extension_h0_until_goal;
     int extension_h1_until_goal;
     double f_layer_offset_ratio;
+    int need_goal;
 
     std::unique_ptr<PatternDatabase> pdb; 
 
@@ -243,6 +244,7 @@ public:
             int extension_h0_until_goal, 
             int extension_h1_until_goal, 
             double f_layer_offset_ratio,
+            int need_goal,
             bool dump = false,
             int hierarchy = 1,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>());

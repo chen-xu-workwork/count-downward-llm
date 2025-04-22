@@ -102,6 +102,7 @@ PatternDatabase::PatternDatabase(
         int extension_h0_until_goal, 
         int extension_h1_until_goal, 
         double f_layer_offset_ratio,
+        int need_goal,
         bool dump,
         int hierarchy,
         const vector<ap_float> &operator_costs)
@@ -115,6 +116,7 @@ PatternDatabase::PatternDatabase(
           extension_h0_until_goal(extension_h0_until_goal), 
           extension_h1_until_goal(extension_h1_until_goal), 
           f_layer_offset_ratio(f_layer_offset_ratio),
+          need_goal(need_goal),
           hierarchy(hierarchy),
           exhausted_abstract_state_space(false) {
 
@@ -151,7 +153,7 @@ PatternDatabase::PatternDatabase(
     if (pattern.numeric.empty()){
         create_pdb_propositional(domain_size_product, operator_costs);
     } else {
-        create_pdb(max_number_states, std::nullopt, operator_costs, dump);
+        create_pdb(max_number_states, std::nullopt, operator_costs, dump, static_cast<bool>(need_goal));
     }
     if (dump)
         cout << "PDB construction time: " << timer << endl;
@@ -450,7 +452,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                                             extension_h0_until_goal,
                                             extension_h1_until_goal,
                                             f_layer_offset_ratio,
-                                            true, 
+                                            need_goal, 
+                                            true,
                                             hierarchy - 1,  
                                             operator_costs);
     } 
@@ -511,12 +514,12 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             std::cout << "Pattern has no numeric precondition: [Hierarchy: ";
             std::cout << hierarchy << "], ";
             std::cout << "Pattern: " << pattern << std::endl;
-            need_goal = true;
+            //need_goal = true;
         } else {
             std::cout << "Pattern has numeric precondition: [Hierarchy: ";
             std::cout << hierarchy << "], ";
             std::cout << "Pattern: " << pattern << std::endl;
-            need_goal = false;
+            //need_goal = false;
         }
 
         // build the match tree
@@ -590,15 +593,18 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         // we go beyond the state limit iff there are no 0-cost actions, need_goal is set, and no goal state has been reached, yet.
         ap_float goal_g = numeric_limits<ap_float>::max();
         ap_float last_cost = 0;
-        while (!open.empty() && (num_reached_states < max_number_states || (min_action_cost > 0 && last_cost < goal_g && need_goal))) {
-            if (blind_if_no_goal && num_reached_states >= 2 * max_number_states && last_cost == 0) {
+        while (!open.empty() && (num_reached_states < max_number_states || (min_action_cost > 0 && last_cost < goal_g))) {
+
+            if (!need_goal && num_reached_states >= max_number_states) {
+                break;
+            }
+
+            if (blind_if_no_goal && num_reached_states >= 2 * max_number_states) { // TODO:  && last_cost == 0) was last condition. Why?
                 state_registry = make_unique<NumericStateRegistry>();
                 pdb = nullptr;
                 break;
             }
-            if (!need_goal && num_reached_states >= max_number_states) {
-                break;
-            }
+
             auto [cost, state_pair] = open.pop();
             last_cost = cost;
 

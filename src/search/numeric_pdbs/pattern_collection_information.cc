@@ -22,7 +22,8 @@ PatternCollectionInformation::PatternCollectionInformation(
         bool extend_abstract_state_space,
         int extension_h0_until_goal, 
         int extension_h1_until_goal, 
-        double f_layer_offset_ratio)
+        double f_layer_offset_ratio,
+        int need_goal)
         : task_proxy(task_proxy),
           patterns(patterns),
           pdbs(nullptr),
@@ -34,7 +35,8 @@ PatternCollectionInformation::PatternCollectionInformation(
           extend_abstract_state_space(extend_abstract_state_space),
           extension_h0_until_goal(extension_h0_until_goal), 
           extension_h1_until_goal(extension_h1_until_goal), 
-          f_layer_offset_ratio(f_layer_offset_ratio) {
+          f_layer_offset_ratio(f_layer_offset_ratio),
+          need_goal(need_goal) {
     assert(patterns);
     validate_and_normalize_patterns(*task_proxy, *patterns);
 }
@@ -99,7 +101,8 @@ void PatternCollectionInformation::create_pdbs_if_missing() {
                     extend_abstract_state_space,
                     extension_h0_until_goal, 
                     extension_h1_until_goal, 
-                    f_layer_offset_ratio);
+                    f_layer_offset_ratio,
+                    need_goal);
             pdbs->push_back(pdb);
         }
     }

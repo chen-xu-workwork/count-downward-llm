@@ -46,6 +46,7 @@ PatternCollectionGeneratorHillclimbing::PatternCollectionGeneratorHillclimbing(c
       extension_h0_until_goal(opts.get<int>("extension_h0_until_goal")), 
       extension_h1_until_goal(opts.get<int>("extension_h1_until_goal")), 
       f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
+      need_goal(opts.get<int>("need_goal")),
       num_rejected(0),
       hill_climbing_timer(nullptr) {
 }
@@ -171,7 +172,7 @@ size_t PatternCollectionGeneratorHillclimbing::generate_pdbs_for_candidates(
                 make_shared<PatternDatabase>(task_proxy, new_candidate, max_number_pdb_states, drop_pdb, use_lmcut, blind_if_no_goal, extend_abstract_state_space,
             extension_h0_until_goal, 
             extension_h1_until_goal, 
-            f_layer_offset_ratio));
+            f_layer_offset_ratio, need_goal));
             max_pdb_size = max(max_pdb_size,
                                candidate_pdbs.back()->get_size());
             generated_patterns.insert(new_candidate);
@@ -419,7 +420,8 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
             extend_abstract_state_space,
             extension_h0_until_goal, 
             extension_h1_until_goal, 
-            f_layer_offset_ratio);
+            f_layer_offset_ratio,
+            need_goal);
 
     State initial_state = num_task_proxy->get_original_initial_state();
     if (!current_pdbs->is_dead_end(initial_state)) {
@@ -528,6 +530,12 @@ void add_hillclimbing_options(OptionParser &parser) {
             "stop A* in abstract state space until all states in the open list have f value >= f(goal) + x * g(goal) .",
             "0.0",
             Bounds("-1000", "infinity"));
+
+    parser.add_option<int>(
+            "need_goal",
+            "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
+            "0",
+            Bounds("0", "1"));
 }
 
 void check_hillclimbing_options(

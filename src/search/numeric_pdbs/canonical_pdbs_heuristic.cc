@@ -122,6 +122,12 @@ static Heuristic *_parse(OptionParser &parser) {
             "0.0",
             Bounds("-1000", "infinity"));
 
+    parser.add_option<int>(
+            "need_goal",
+            "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
+            "0",
+            Bounds("0", "1"));
+
     Heuristic::add_options_to_parser(parser);
 
     Options opts = parser.parse();

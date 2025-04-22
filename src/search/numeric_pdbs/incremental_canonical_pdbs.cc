@@ -23,7 +23,8 @@ IncrementalCanonicalPDBs::IncrementalCanonicalPDBs(
     bool extend_abstract_state_space, 
     int extension_h0_until_goal, 
     int extension_h1_until_goal, 
-    double f_layer_offset_ratio)
+    double f_layer_offset_ratio,
+    int need_goal)
     : task(std::move(task)),
       task_proxy(std::move(task_proxy)),
       patterns(make_shared<PatternCollection>(intitial_patterns.begin(),
@@ -38,7 +39,8 @@ IncrementalCanonicalPDBs::IncrementalCanonicalPDBs(
       extend_abstract_state_space(extend_abstract_state_space),
       extension_h0_until_goal(extension_h0_until_goal), 
       extension_h1_until_goal(extension_h1_until_goal), 
-      f_layer_offset_ratio(f_layer_offset_ratio) {
+      f_layer_offset_ratio(f_layer_offset_ratio),
+      need_goal(need_goal) {
     utils::Timer timer;
     pattern_databases->reserve(patterns->size());
     for (const Pattern &pattern : *patterns)
@@ -49,7 +51,7 @@ IncrementalCanonicalPDBs::IncrementalCanonicalPDBs(
 }
 
 void IncrementalCanonicalPDBs::add_pdb_for_pattern(const Pattern &pattern) {
-    pattern_databases->emplace_back(new PatternDatabase(task_proxy, pattern, max_number_pdb_states, drop_pdb, use_lmcut, blind_if_no_goal, extend_abstract_state_space, extension_h0_until_goal, extension_h1_until_goal, f_layer_offset_ratio));
+    pattern_databases->emplace_back(new PatternDatabase(task_proxy, pattern, max_number_pdb_states, drop_pdb, use_lmcut, blind_if_no_goal, extend_abstract_state_space, extension_h0_until_goal, extension_h1_until_goal, f_layer_offset_ratio, need_goal));
     size += pattern_databases->back()->get_size();
 }
 
@@ -84,7 +86,7 @@ bool IncrementalCanonicalPDBs::is_dead_end(const State &state) const {
 
 PatternCollectionInformation
 IncrementalCanonicalPDBs::get_pattern_collection_information() const {
-    PatternCollectionInformation result(task_proxy, patterns, max_number_pdb_states, drop_pdb, use_lmcut, blind_if_no_goal, extend_abstract_state_space, extension_h0_until_goal, extension_h1_until_goal, f_layer_offset_ratio);
+    PatternCollectionInformation result(task_proxy, patterns, max_number_pdb_states, drop_pdb, use_lmcut, blind_if_no_goal, extend_abstract_state_space, extension_h0_until_goal, extension_h1_until_goal, f_layer_offset_ratio, need_goal);
     result.set_pdbs(pattern_databases);
     result.set_max_additive_subsets(max_additive_subsets);
     return result;
