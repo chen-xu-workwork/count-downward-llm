@@ -537,7 +537,7 @@ void add_hillclimbing_options(OptionParser &parser) {
             "need_goal",
             "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
             "0",
-            Bounds("0", "1"));
+            Bounds("0", "2"));
 
     parser.add_option<int>(
             "hierarchy",

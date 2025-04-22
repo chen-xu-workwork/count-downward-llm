@@ -179,7 +179,7 @@ class PatternDatabase {
             std::optional<size_t> initial_state_opt,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>(),
             bool dump = false,
-            bool need_goal = true);
+            int need_goal = 2);
 
     void create_pdb_propositional(
             size_t number_states,

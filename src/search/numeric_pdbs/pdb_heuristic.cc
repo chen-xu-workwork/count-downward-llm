@@ -28,11 +28,12 @@ PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
     int hierarchy = opts.get<int>("hierarchy");
     int need_goal = opts.get<int>("need_goal");
     cout << "f_layer_offset_ratio!!!!!!!!!!: " << f_layer_offset_ratio << endl;
+    cout << "need_goal!!!!!!!!!!: " << need_goal << endl;
 
     
     shared_ptr<NumericTaskProxy> task_proxy = make_shared<NumericTaskProxy>(task);
     Pattern pattern = pattern_generator->generate(task, task_proxy);
-    return {task_proxy, pattern, pattern_generator->get_max_number_pdb_states(), drop_pdb, use_lmcut, blind_if_no_goal, extend_abstract_state_space, extension_h0_until_goal, extension_h1_until_goal, f_layer_offset_ratio, static_cast<bool>(need_goal), true, hierarchy};
+    return {task_proxy, pattern, pattern_generator->get_max_number_pdb_states(), drop_pdb, use_lmcut, blind_if_no_goal, extend_abstract_state_space, extension_h0_until_goal, extension_h1_until_goal, f_layer_offset_ratio, need_goal, true, hierarchy};
 }
 
 NumericPDBHeuristic::NumericPDBHeuristic(const Options &opts)
@@ -122,7 +123,7 @@ static Heuristic *_parse(OptionParser &parser) {
             "need_goal",
             "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
             "0",
-            Bounds("0", "1"));
+            Bounds("0", "2"));
 
     parser.add_option<int>(
             "hierarchy",

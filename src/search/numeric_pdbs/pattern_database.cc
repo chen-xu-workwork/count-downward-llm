@@ -152,7 +152,7 @@ PatternDatabase::PatternDatabase(
     if (pattern.numeric.empty()){
         create_pdb_propositional(domain_size_product, operator_costs);
     } else {
-        create_pdb(max_number_states, std::nullopt, operator_costs, dump, static_cast<bool>(need_goal));
+        create_pdb(max_number_states, std::nullopt, operator_costs, dump, need_goal);
     }
     if (dump)
         cout << "PDB construction time: " << timer << endl;
@@ -377,7 +377,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                                  std::optional<size_t> initial_state_opt,
                                  const std::vector<ap_float> &operator_costs,
                                  bool dump,
-                                 bool need_goal) {
+                                 int need_goal) {
 
     
 
@@ -592,9 +592,12 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         // we go beyond the state limit iff there are no 0-cost actions, need_goal is set, and no goal state has been reached, yet.
         ap_float goal_g = numeric_limits<ap_float>::max();
         ap_float last_cost = 0;
-        while (!open.empty() && (num_reached_states < max_number_states || (need_goal && min_action_cost > 0))) {
+        while (!open.empty() && (num_reached_states < max_number_states || (need_goal == 2 && min_action_cost > 0))) {
 
             if (last_cost >= goal_g) {
+                break;
+            }
+            if (need_goal <= 1 && num_reached_states >= max_number_states) {
                 break;
             }
             
@@ -634,7 +637,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
             if (is_goal_state(state, num_variable_to_index)) {
                 goal_states.push_back(state_id);
-                if (goal_g == numeric_limits<ap_float>::max()) {
+                if (goal_g == numeric_limits<ap_float>::max() && need_goal > 0) {
                     goal_g = cost;
                     if (f_layer_offset_ratio > 0) {
                         goal_g += f_layer_offset_ratio * cost;
@@ -1072,7 +1075,8 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
                 } 
                 if (extend_abstract_state_space) {
                     abs_state_id = state_registry->insert_state(abs_state);
-                    create_pdb((size_t) abs(extension_h1_until_goal), abs_state_id, vector<ap_float>(), false, extension_h1_until_goal == -1);
+                    int find_goal = 2 ? extension_h1_until_goal == -1 : 0;
+                    create_pdb((size_t) abs(extension_h1_until_goal), abs_state_id, vector<ap_float>(), false, find_goal);
                     return {false, distances[abs_state_id]};
                 } 
                 
@@ -1105,7 +1109,8 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
             //return {false, min_action_cost};
             if (extend_abstract_state_space && true) {
                 abs_state_id = state_registry->insert_state(state);
-                create_pdb(abs(extension_h0_until_goal), abs_state_id, vector<ap_float>(), false, extension_h0_until_goal == -1);
+                int find_goal = 2 ? extension_h0_until_goal == -1 : 0;
+                create_pdb(abs(extension_h0_until_goal), abs_state_id, vector<ap_float>(), false, find_goal);
                 return {false, distances[abs_state_id]};
             }
             return {false, min_action_cost};
