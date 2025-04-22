@@ -594,7 +594,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         ap_float last_cost = 0;
         while (!open.empty() && (num_reached_states < max_number_states || (need_goal && min_action_cost > 0))) {
 
-            if (need_goal && last_cost >= goal_g) {
+            if (last_cost >= goal_g) {
                 break;
             }
             
@@ -643,6 +643,9 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     }
                     if (hierarchy == 1) {
                         cout << "Hierarchy: " << hierarchy << " " << "goal_g: " << goal_g << endl;
+                        cout << "Num states: " << tmp_state_registry->size() << endl;
+                        cout << "Num reached states: " << num_reached_states << endl;
+                        cout << "Need goal: " << need_goal << endl;
                     }
                 }
             }
