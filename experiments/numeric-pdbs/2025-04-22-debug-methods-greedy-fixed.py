@@ -24,7 +24,7 @@ ENV = TetralithEnvironment(
 )
 
 REVISIONS = [
-             "cc0d5e1119779e93886b7c3b268c13f65ea404ae", # astar-exploration
+             "139d9caba1131b98efc80d89ac43d507ae69aee7", # astar-exploration
              ]
 
 prefix = "astar(numeric_pdb(pattern=greedy_numeric(), extension_h0_until_goal=0, extension_h1_until_goal=0, "
