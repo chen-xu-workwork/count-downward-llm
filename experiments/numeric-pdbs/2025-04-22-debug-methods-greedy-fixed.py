@@ -24,7 +24,7 @@ ENV = TetralithEnvironment(
 )
 
 REVISIONS = [
-             "139d9caba1131b98efc80d89ac43d507ae69aee7", # astar-exploration
+             "38585021c9e9f70c18899159930f9c773a25fe76", # astar-exploration
              ]
 
 prefix = "astar(numeric_pdb(pattern=greedy_numeric(), extension_h0_until_goal=0, extension_h1_until_goal=0, "
@@ -82,19 +82,15 @@ ATTRIBUTES = [
 exp = project.FastDownwardExperiment(environment=ENV)
 for rev in REVISIONS:
     for config_nick, config in enumerate(configs):
-        for extra in [False, True]:
-            add_trans = ["--restricted-task-transformation"] if extra else []
-            if not extra and "lmcut" in config:
-                continue
-            exp.add_algorithm(
-                f"{config_nick}-{extra}-{rev[:5]}",
-                REPO,
-                rev,
-                config,
-                build_options=BUILD_OPTIONS,
-                driver_options=DRIVER_OPTIONS + add_trans,
-            )
-            print(config_nick, config)
+        exp.add_algorithm(
+            f"{config_nick}-{rev[:5]}",
+            REPO,
+            rev,
+            config,
+            build_options=BUILD_OPTIONS,
+            driver_options=DRIVER_OPTIONS,
+        )
+        print(config_nick, config)
 
 exp.add_suite(BENCHMARKS_DIR_IPC, project.SUITE_NUMERIC_IPC23_ALL)
 exp.add_suite(BENCHMARKS_DIR_OTHERS, project.SUITE_NUMERIC_OTHERS)
@@ -130,11 +126,11 @@ def add_score_planner_time(run):
         )
     return run
 
-filtered_algos = [f"{i}-False-{REVISIONS[0][:5]}" for i in range(len(configs))]
+filtered_algos = [f"{i}-{REVISIONS[0][:5]}" for i in range(len(configs))]
 print(filtered_algos)
 
 
-project.add_absolute_report(exp, attributes=ATTRIBUTES, filter=[add_failed_lookup_ratio, add_score_planner_time], filter_algorithm=filtered_algos)
+project.add_absolute_report(exp, attributes=ATTRIBUTES, filter=[add_failed_lookup_ratio, add_score_planner_time])
 
 exp.add_report(AbsoluteReport(attributes=["coverage"], 
                               filter_algorithm=filtered_algos,
