@@ -29,6 +29,7 @@ class PatternCollectionInformation {
     int extension_h1_until_goal; 
     double f_layer_offset_ratio;
     int need_goal;
+    int hierarchy;
 
     // approximate upper bound on the number of abstract states per PDB possibly reachable within the pattern
     size_t max_number_pdb_states;
@@ -49,7 +50,8 @@ public:
             int extension_h0_until_goal, 
             int extension_h1_until_goal, 
             double f_layer_offset_ratio,
-            int need_goal);
+            int need_goal,
+            int hierarchy);
     ~PatternCollectionInformation() = default;
 
     void set_pdbs(std::shared_ptr<PDBCollection> pdbs);

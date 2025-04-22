@@ -93,7 +93,6 @@ class PatternDatabase {
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
 
     Pattern pattern;
-    int hierarchy;
     bool drop_pdb;
     bool use_lmcut;
     bool blind_if_no_goal;
@@ -102,6 +101,7 @@ class PatternDatabase {
     int extension_h1_until_goal;
     double f_layer_offset_ratio;
     int need_goal;
+    int hierarchy;
 
     std::unique_ptr<PatternDatabase> pdb; 
 

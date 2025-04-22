@@ -36,6 +36,7 @@ class PatternCollectionGeneratorSystematic : public PatternCollectionGenerator {
     int extension_h1_until_goal;
     double f_layer_offset_ratio;
     int need_goal;
+    int hierarchy;
 
     const bool only_interesting_patterns;
     std::shared_ptr<PatternCollection> patterns;

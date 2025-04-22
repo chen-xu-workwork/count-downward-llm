@@ -50,6 +50,7 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
     int extension_h1_until_goal; 
     double f_layer_offset_ratio;
     int need_goal;
+    int hierarchy;
 
     std::unique_ptr<IncrementalCanonicalPDBs> current_pdbs;
 

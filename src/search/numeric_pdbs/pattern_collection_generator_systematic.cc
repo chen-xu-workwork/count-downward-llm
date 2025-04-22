@@ -77,7 +77,8 @@ PatternCollectionGeneratorSystematic::PatternCollectionGeneratorSystematic(
       extension_h0_until_goal(opts.get<int>("extension_h0_until_goal")), 
       extension_h1_until_goal(opts.get<int>("extension_h1_until_goal")), 
       f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
-      need_goal(need_goal) {
+      need_goal(need_goal), 
+      hierarchy(hierarchy) {
 }
 
 void PatternCollectionGeneratorSystematic::compute_eff_pre_neighbors(
@@ -383,7 +384,8 @@ PatternCollectionInformation PatternCollectionGeneratorSystematic::generate(
             extension_h0_until_goal, 
             extension_h1_until_goal, 
             f_layer_offset_ratio,
-            need_goal};
+            need_goal,
+            hierarchy};
 }
 
 static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
@@ -464,6 +466,12 @@ static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
             "need_goal",
             "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
             "0",
+            Bounds("0", "1"));
+
+    parser.add_option<int>(
+            "hierarchy",
+            "What stage of hierarchy (0: BFS).",
+            "1",
             Bounds("0", "1"));
 
     Options opts = parser.parse();

@@ -122,6 +122,12 @@ static Heuristic *_parse(OptionParser &parser) {
             "0",
             Bounds("0", "1"));
 
+    parser.add_option<int>(
+            "hierarchy",
+            "What stage of hierarchy (0: BFS).",
+            "1",
+            Bounds("0", "1"));
+
     Heuristic::add_options_to_parser(parser);
 
     Options opts = parser.parse();

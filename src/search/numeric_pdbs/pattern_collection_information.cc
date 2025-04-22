@@ -23,7 +23,8 @@ PatternCollectionInformation::PatternCollectionInformation(
         int extension_h0_until_goal, 
         int extension_h1_until_goal, 
         double f_layer_offset_ratio,
-        int need_goal)
+        int need_goal,
+        int hierarchy)
         : task_proxy(task_proxy),
           patterns(patterns),
           pdbs(nullptr),
@@ -36,7 +37,8 @@ PatternCollectionInformation::PatternCollectionInformation(
           extension_h0_until_goal(extension_h0_until_goal), 
           extension_h1_until_goal(extension_h1_until_goal), 
           f_layer_offset_ratio(f_layer_offset_ratio),
-          need_goal(need_goal) {
+          need_goal(need_goal), 
+          hierarchy(hierarchy) {
     assert(patterns);
     validate_and_normalize_patterns(*task_proxy, *patterns);
 }
@@ -102,7 +104,8 @@ void PatternCollectionInformation::create_pdbs_if_missing() {
                     extension_h0_until_goal, 
                     extension_h1_until_goal, 
                     f_layer_offset_ratio,
-                    need_goal);
+                    need_goal, 
+                    hierarchy);
             pdbs->push_back(pdb);
         }
     }
