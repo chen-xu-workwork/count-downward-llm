@@ -592,11 +592,12 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         // we go beyond the state limit iff there are no 0-cost actions, need_goal is set, and no goal state has been reached, yet.
         ap_float goal_g = numeric_limits<ap_float>::max();
         ap_float last_cost = 0;
-        while (!open.empty() && (num_reached_states < max_number_states || (min_action_cost > 0 && last_cost < goal_g))) {
+        while (!open.empty() && (num_reached_states < max_number_states || (need_goal && min_action_cost > 0))) {
 
-            if (!need_goal && num_reached_states >= max_number_states) {
+            if (need_goal && last_cost >= goal_g) {
                 break;
             }
+            
 
             if (blind_if_no_goal && num_reached_states >= 2 * max_number_states) { // TODO:  && last_cost == 0) was last condition. Why?
                 state_registry = make_unique<NumericStateRegistry>();

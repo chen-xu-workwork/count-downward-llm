@@ -31,7 +31,9 @@ prefix = "astar(numeric_ipdb(max_time=60, extension_h0_until_goal=0, extension_h
 
 postfix = "))"
 
-f_layer_offsets = ["f_layer_offset_ratio=-1.0"]
+f_layer_offsets = ["f_layer_offset_ratio=-1.0", "f_layer_offset_ratio=0"]
+need_goal = ["need_goal=1", "need_goal=0"]
+hierarchy = ["hierarchy=0", "hierarchy=1"]
 extend_abstract_state_space = ["extend_abstract_state_space=0"]
 drop_pdb = ["drop_pdb=1"]
 blind_if_no_goal = ["blind_if_no_goal=0"]
@@ -43,7 +45,9 @@ for f in f_layer_offsets:
     for e in extend_abstract_state_space:
         for d in drop_pdb:
             for b in blind_if_no_goal:
-                configs.append(prefix + f + ", " + e + ", " + d + ", " + b + postfix)
+                for h in hierarchy:
+                    for n in need_goal:
+                        configs.append(prefix + f + ", " + e + ", " + d + ", " + b + ", " + h + ", " + n + postfix)
 
 
 configs = [["--search", config] for config in configs]
