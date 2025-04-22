@@ -511,10 +511,12 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             std::cout << "Pattern has no numeric precondition: [Hierarchy: ";
             std::cout << hierarchy << "], ";
             std::cout << "Pattern: " << pattern << std::endl;
+            need_goal = true;
         } else {
             std::cout << "Pattern has numeric precondition: [Hierarchy: ";
             std::cout << hierarchy << "], ";
             std::cout << "Pattern: " << pattern << std::endl;
+            need_goal = false;
         }
 
         // build the match tree
