@@ -452,7 +452,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                                             extension_h1_until_goal,
                                             f_layer_offset_ratio,
                                             need_goal, 
-                                            true,
+                                            false,
                                             hierarchy - 1,  
                                             operator_costs);
     } 
@@ -594,13 +594,9 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         ap_float last_cost = 0;
         while (!open.empty() && (num_reached_states < max_number_states || (need_goal == 2 && min_action_cost > 0))) {
 
-            if (last_cost >= goal_g) {
-                break;
+            if (last_cost >= goal_g && (need_goal == 1 || num_reached_states >= max_number_states)) {
+                break; 
             }
-            if (need_goal <= 1 && num_reached_states >= max_number_states) {
-                break;
-            }
-            
 
             if (blind_if_no_goal && num_reached_states >= 2 * max_number_states) { // TODO:  && last_cost == 0) was last condition. Why?
                 state_registry = make_unique<NumericStateRegistry>();
@@ -656,7 +652,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             vector<const AbstractOperator *> applicable_operators;
             match_tree.get_applicable_operators(state.prop_hash, applicable_operators);
 
-
             for (auto abs_op: applicable_operators) {
                 const auto &op = task_proxy->get_operators()[abs_op->get_op_id()];
                 if (!is_applicable(state, op, num_variable_to_index)) {
@@ -710,7 +705,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     }
                 }
             }
-
             for (auto op_id: num_operators) {
                 const auto &op = task_proxy->get_operators()[op_id];
                 if (!is_applicable(state, op, num_variable_to_index)) {
