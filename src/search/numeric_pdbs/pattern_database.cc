@@ -395,6 +395,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
     NumericStateRegistry *tmp_state_registry;
     if (initial_state_opt.has_value()) {
+        //cout << "Using initial state: " << initial_state_opt.value() << endl;
         tmp_state_registry = state_registry.get();
     } else {
         tmp_state_registry = new NumericStateRegistry();
@@ -509,17 +510,21 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 break;
             }
         }
-        if (preconditions_unconditioned) {
-            std::cout << "Pattern has no numeric precondition: [Hierarchy: ";
-            std::cout << hierarchy << "], ";
-            std::cout << "Pattern: " << pattern << std::endl;
-            //need_goal = true;
-        } else {
-            std::cout << "Pattern has numeric precondition: [Hierarchy: ";
-            std::cout << hierarchy << "], ";
-            std::cout << "Pattern: " << pattern << std::endl;
-            //need_goal = false;
+        if (dump) {
+            if (preconditions_unconditioned) {
+                std::cout << "Pattern has no numeric precondition: [Hierarchy: ";
+                std::cout << hierarchy << "], ";
+                std::cout << "Pattern: " << pattern << std::endl;
+                //need_goal = true;
+            } else {
+                std::cout << "Pattern has numeric precondition: [Hierarchy: ";
+                std::cout << hierarchy << "], ";
+                std::cout << "Pattern: " << pattern << std::endl;
+                //need_goal = false;
+            }
+
         }
+        
 
         // build the match tree
         MatchTree match_tree(task_proxy, pattern, prop_hash_multipliers);
@@ -1054,8 +1059,19 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
             // abstract goals are satisfied
             return {false, 0};
         } else {
-            
             pair<bool, ap_float> value;
+
+            if (extend_abstract_state_space) {
+                abs_state_id = state_registry->insert_state(abs_state);
+                int find_goal = 2 ? extension_h1_until_goal == -1 : 0;
+                hierarchy = 0;
+                create_pdb((size_t) abs(extension_h1_until_goal), abs_state_id, vector<ap_float>(), false, find_goal);
+                hierarchy = 1;
+                //restore class member pdb
+                return {false, distances[abs_state_id]};
+            } 
+
+
             if (use_lmcut) {
                 value = compute_heuristic(abs_state);
                 return {false, value.second};
@@ -1067,12 +1083,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
                 if (value.first) {
                     return {false, value.second};
                 } 
-                if (extend_abstract_state_space) {
-                    abs_state_id = state_registry->insert_state(abs_state);
-                    int find_goal = 2 ? extension_h1_until_goal == -1 : 0;
-                    create_pdb((size_t) abs(extension_h1_until_goal), abs_state_id, vector<ap_float>(), false, find_goal);
-                    return {false, distances[abs_state_id]};
-                } 
+                
                 
                 return {false, value.second};  
             }
