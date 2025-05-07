@@ -18,22 +18,26 @@ PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
     auto pattern_generator =
         opts.get<shared_ptr<PatternGenerator>>("pattern");
 
-    bool drop_pdb = opts.get<int>("drop_pdb");
-    bool use_lmcut = opts.get<int>("use_lmcut");
-    bool blind_if_no_goal = opts.get<int>("blind_if_no_goal");
-    bool extend_abstract_state_space = opts.get<int>("extend_abstract_state_space");
-    int extension_h0_until_goal = opts.get<int>("extension_h0_until_goal");
-    int extension_h1_until_goal = opts.get<int>("extension_h1_until_goal");
-    double f_layer_offset_ratio = opts.get<double>("f_layer_offset_ratio");
-    int hierarchy = opts.get<int>("hierarchy");
-    int need_goal = opts.get<int>("need_goal");
-    cout << "f_layer_offset_ratio!!!!!!!!!!: " << f_layer_offset_ratio << endl;
-    cout << "need_goal!!!!!!!!!!: " << need_goal << endl;
+    InnerHeuristic exploration_h = InnerHeuristic(opts.get_enum("exploration_heuristic"));
+    InnerHeuristic frontier_h = InnerHeuristic(opts.get_enum("frontier_heuristic"));
+    InnerHeuristic failed_lookup_h = InnerHeuristic(opts.get_enum("failed_lookup_heuristic"));
 
-    
+
+    bool extend_abstract_state_space = opts.get<bool>("extend_abstract_state_space");
+    ap_float f_layer_offset_ratio = opts.get<double>("f_layer_offset_ratio");
+    bool need_goal = opts.get<bool>("need_goal");
+
     shared_ptr<NumericTaskProxy> task_proxy = make_shared<NumericTaskProxy>(task);
     Pattern pattern = pattern_generator->generate(task, task_proxy);
-    return {task_proxy, pattern, pattern_generator->get_max_number_pdb_states(), drop_pdb, use_lmcut, blind_if_no_goal, extend_abstract_state_space, extension_h0_until_goal, extension_h1_until_goal, f_layer_offset_ratio, need_goal, true, hierarchy};
+    return {task_proxy,
+            pattern,
+            pattern_generator->get_max_number_pdb_states(),
+            extend_abstract_state_space,
+            need_goal,
+            f_layer_offset_ratio,
+            exploration_h,
+            frontier_h,
+            failed_lookup_h};
 }
 
 NumericPDBHeuristic::NumericPDBHeuristic(const Options &opts)
@@ -73,45 +77,32 @@ static Heuristic *_parse(OptionParser &parser) {
     parser.document_property("preferred operators", "no");
 
     parser.add_option<shared_ptr<PatternGenerator>>(
-        "pattern",
-        "pattern generation method",
-        "greedy_numeric()");
+            "pattern",
+            "pattern generation method",
+            "greedy_numeric()");
 
-    parser.add_option<int>(
-            "drop_pdb",
-            "drop inner pdb.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "use_lmcut",
-            "lmcut vs hierarchical pdbs.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "blind_if_no_goal",
-            "throw away pdb if not abstract goal found.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
+    parser.add_option<bool>(
             "extend_abstract_state_space",
             "extend abstract PDB state spaces on misses.",
-            "0",
-            Bounds("0", "1"));
+            "false");
 
-    parser.add_option<int>(
-            "extension_h0_until_goal",
-            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
-            "0",
-            Bounds("-1", "infinity"));
+    parser.add_enum_option(
+            "exploration_heuristic",
+            {"BLIND", "LMCUT", "PDB"},
+            "TODO",
+            "BLIND", {});
 
-    parser.add_option<int>(
-            "extension_h1_until_goal",
-            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
-            "0",
-            Bounds("-1", "infinity"));
+    parser.add_enum_option(
+            "frontier_heuristic",
+            {"BLIND", "LMCUT", "PDB"},
+            "TODO",
+            "BLIND", {});
+
+    parser.add_enum_option(
+            "failed_lookup_heuristic",
+            {"BLIND", "LMCUT", "PDB"},
+            "TODO",
+            "BLIND", {});
 
     parser.add_option<double>(
             "f_layer_offset_ratio",
@@ -119,17 +110,10 @@ static Heuristic *_parse(OptionParser &parser) {
             "0.0",
             Bounds("-1000", "infinity"));
 
-    parser.add_option<int>(
+    parser.add_option<bool>(
             "need_goal",
             "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
-            "0",
-            Bounds("0", "2"));
-
-    parser.add_option<int>(
-            "hierarchy",
-            "What stage of hierarchy (0: BFS).",
-            "1",
-            Bounds("0", "1"));
+            "false");
 
     Heuristic::add_options_to_parser(parser);
 

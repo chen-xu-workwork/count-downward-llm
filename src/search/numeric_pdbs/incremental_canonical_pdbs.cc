@@ -53,7 +53,7 @@ IncrementalCanonicalPDBs::IncrementalCanonicalPDBs(
 }
 
 void IncrementalCanonicalPDBs::add_pdb_for_pattern(const Pattern &pattern) {
-    pattern_databases->emplace_back(new PatternDatabase(task_proxy, pattern, max_number_pdb_states, drop_pdb, use_lmcut, blind_if_no_goal, extend_abstract_state_space, extension_h0_until_goal, extension_h1_until_goal, f_layer_offset_ratio, need_goal, false, hierarchy));
+    pattern_databases->emplace_back(new PatternDatabase(task_proxy, pattern, max_number_pdb_states, extend_abstract_state_space, need_goal, f_layer_offset_ratio));
     size += pattern_databases->back()->get_size();
 }
 

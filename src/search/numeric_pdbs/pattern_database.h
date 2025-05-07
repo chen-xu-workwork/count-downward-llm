@@ -88,26 +88,28 @@ public:
               const numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
 };
 
+enum class InnerHeuristic {
+    BLIND, //HMAX,
+    LMCUT, PDB
+};
+
 // Implements a single pattern database
 class PatternDatabase {
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
 
     Pattern pattern;
-    bool drop_pdb;
-    bool use_lmcut;
-    bool blind_if_no_goal;
+
+    InnerHeuristic exploration_h;
+    InnerHeuristic frontier_h;
+    InnerHeuristic failed_lookup_h;
+
     bool extend_abstract_state_space;
-    int extension_h0_until_goal;
-    int extension_h1_until_goal;
-    double f_layer_offset_ratio;
-    int need_goal;
-    int hierarchy;
+    bool need_goal;
+    ap_float f_layer_offset_ratio; // this should go eventually in favor of only using a limit on the number of states
 
-    std::unique_ptr<PatternDatabase> pdb; 
-
-
-    std::shared_ptr<tasks::ProjectedTask> lmc_task;
+    std::shared_ptr<tasks::ProjectedTask> inner_h_task;
     std::unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic> lmc;
+    std::unique_ptr<PatternDatabase> pdb;
 
     std::unique_ptr<NumericStateRegistry> state_registry;
 
@@ -157,12 +159,10 @@ class PatternDatabase {
         bool regression);
 
     bool is_applicable(const NumericState &state,
-                       const numeric_pdb_helper::NumericOperatorProxy &op,
-                       const std::vector<int> &num_variable_to_index) const;
+                       const numeric_pdb_helper::NumericOperatorProxy &op) const;
 
     std::vector<ap_float> get_numeric_successor(std::vector<ap_float> state,
-                                                const numeric_pdb_helper::NumericOperatorProxy &op,
-                                                const std::vector<int> &num_variable_to_index) const;
+                                                const numeric_pdb_helper::NumericOperatorProxy &op) const;
 
     void build_goals(const std::vector<int> &variable_to_index,
                      const std::vector<int> &num_variable_to_index);
@@ -178,21 +178,10 @@ class PatternDatabase {
             std::size_t max_number_states,
             std::optional<size_t> initial_state_opt,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>(),
-            bool dump = false,
-            int need_goal = 2);
+            bool dump = false);
 
     void create_pdb_propositional(
             size_t number_states,
-            const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
-
-    /*
-      Sets the pattern for the PDB and initializes prop_hash_multipliers and
-      num_states. operator_costs can specify individual operator costs
-      for each operator for action cost partitioning. If left empty,
-      default operator costs are used.
-    */
-    void set_pattern(
-            const Pattern &pattern,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
 
     /*
@@ -202,8 +191,7 @@ class PatternDatabase {
       state is a goal state.
     */
     bool is_goal_state(
-            const NumericState &state,
-            const std::vector<int> &num_variable_to_index) const;
+            const NumericState &state) const;
 
     bool is_abstract_goal_state(const State &state) const;
 
@@ -222,6 +210,12 @@ class PatternDatabase {
                                        const Pattern &superset_pattern,
                                        const std::vector<size_t> &sup_hash_multipliers) const;
 
+    void construct_inner_heuristics(size_t max_number_states,
+                                    const std::vector<int> &variable_to_index,
+                                    const std::vector<ap_float> &operator_costs);
+
+    std::pair<bool, ap_float> compute_inner_h(InnerHeuristic h_type, const NumericState &succ_state) const;
+
 public:
     /*
       Important: It is assumed that the pattern (passed via Options) is
@@ -234,28 +228,27 @@ public:
        empty, default operator costs are used.
     */
     PatternDatabase(
-            const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
+            const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &task_proxy,
             const Pattern &pattern,
             std::size_t max_number_states,
-            bool drop_pdb,
-            bool use_lmcut,
-            bool blind_if_no_goal,
             bool extend_abstract_state_space,
-            int extension_h0_until_goal, 
-            int extension_h1_until_goal, 
+            bool need_goal,
             double f_layer_offset_ratio,
-            int need_goal,
-            bool dump = false,
-            int hierarchy = 1,
-            const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
+            InnerHeuristic exploration_h = InnerHeuristic::BLIND,
+            InnerHeuristic frontier_h = InnerHeuristic::BLIND,
+            InnerHeuristic failed_lookup_h = InnerHeuristic::BLIND,
+            const std::vector<ap_float> &operator_costs = std::vector<ap_float>(),
+            bool dump = false);
 
     ~PatternDatabase() = default;
 
     std::pair<bool, ap_float> get_value(const State &state);
+
     std::pair<bool, ap_float> get_value(const NumericState &state);
-    std::pair<bool, ap_float> compute_heuristic(const NumericState &state);
+
     std::pair<bool, ap_float> compute_heuristic(const State &state);
-    void init_lmcut();
+
+    std::pair<bool, ap_float> compute_heuristic(const NumericState &state);
 
     // Returns the pattern (i.e. all variables used) of the PDB
     const Pattern &get_pattern() const {

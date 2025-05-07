@@ -166,20 +166,22 @@ size_t PatternCollectionGeneratorHillclimbing::generate_pdbs_for_candidates(
       candidates before and thus already a PDB has been created an inserted into
       candidate_pdbs.
     */
-    size_t max_pdb_size = 0;
+    size_t max_size_of_pdb = 0;
     for (const Pattern &new_candidate : new_candidates) {
         if (generated_patterns.count(new_candidate) == 0) {
             candidate_pdbs.push_back(
-                make_shared<PatternDatabase>(task_proxy, new_candidate, max_number_pdb_states, drop_pdb, use_lmcut, blind_if_no_goal, extend_abstract_state_space,
-            extension_h0_until_goal, 
-            extension_h1_until_goal, 
-            f_layer_offset_ratio, need_goal, false, hierarchy));
-            max_pdb_size = max(max_pdb_size,
-                               candidate_pdbs.back()->get_size());
+                make_shared<PatternDatabase>(task_proxy,
+                                             new_candidate,
+                                             max_number_pdb_states,
+                                             extend_abstract_state_space,
+                                             need_goal,
+                                             f_layer_offset_ratio));
+            max_size_of_pdb = max(max_size_of_pdb,
+                                  candidate_pdbs.back()->get_size());
             generated_patterns.insert(new_candidate);
         }
     }
-    return max_pdb_size;
+    return max_size_of_pdb;
 }
 
 void PatternCollectionGeneratorHillclimbing::sample_states(

@@ -19,10 +19,6 @@ public:
     }
 
     virtual PatternCollectionInformation generate(std::shared_ptr<AbstractTask> task) = 0;
-
-    size_t get_max_number_pdb_states() const {
-        return max_number_pdb_states;
-    }
 };
 
 class PatternGenerator {
