@@ -371,6 +371,8 @@ void PatternDatabase::build_goals(const vector<int> &variable_to_index,
 NumericState PatternDatabase::project_numeric_state(const NumericState &state,
                                                     const Pattern &superset_pattern,
                                                     const vector<size_t> &sup_hash_multipliers) const {
+    //cout << "Pattern numeric: " << pattern.numeric << endl;
+    //cout << "Pattern regular: " << pattern.regular << endl;
     assert(std::all_of(pattern.regular.begin(),
                        pattern.regular.end(),
                        [&superset_pattern] (int var) {
@@ -429,6 +431,9 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
         }
         case InnerHeuristic::PDB:
         {
+            if (pdb == nullptr) {
+                return {false, 0};
+            } 
             NumericState proj_state = pdb->project_numeric_state(succ_state,
                                                                  pattern,
                                                                  prop_hash_multipliers);
@@ -1013,6 +1018,10 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
                     break;
                 case InnerHeuristic::PDB:
                 {
+                    if (pdb == nullptr) {
+                        h = min_action_cost;
+                        break;
+                    }
                     NumericState proj_state = pdb->project_numeric_state(abs_state,
                                                                          pattern,
                                                                          prop_hash_multipliers);
