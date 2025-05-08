@@ -32,7 +32,7 @@ prefix = "astar(numeric_pdb(pattern=greedy_numeric(), extension_h0_until_goal=0,
 postfix = "))"
 
 f_layer_offsets = ["f_layer_offset_ratio=-1.0", "f_layer_offset_ratio=0"]
-need_goal = ["need_goal=1", "need_goal=0"]
+need_goal = ["need_goal=2", "need_goal=1", "need_goal=0"]
 hierarchy = ["hierarchy=0", "hierarchy=1"]
 extend_abstract_state_space = ["extend_abstract_state_space=0"]
 drop_pdb = ["drop_pdb=1"]
