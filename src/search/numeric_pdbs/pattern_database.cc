@@ -204,7 +204,7 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
                     new_pattern,
                     max((size_t) 1000, max_number_states / 10), // TODO don't hard-code the limit
                     extend_abstract_state_space,
-                    need_goal,
+                    true, // TODO make this an option
                     f_layer_offset_ratio,
                     InnerHeuristic::BLIND,
                     InnerHeuristic::BLIND,
@@ -618,6 +618,11 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         while (!open.empty() && (num_reached_states < max_number_states || need_goal)) {
 
             if (need_goal && last_cost >= goal_g) {
+                // stop when goal reached
+                break;
+            }
+            if (need_goal && num_reached_states >= 10 * max_number_states) {
+                // stop when we are way above the limit
                 break;
             }
 
