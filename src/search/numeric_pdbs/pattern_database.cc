@@ -198,6 +198,7 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
             sort(new_pattern.regular.begin(), new_pattern.regular.end());
             sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
             cout << "Inner pattern: " << new_pattern.regular << new_pattern.numeric << endl; // TODO remove this
+
             pdb = std::make_unique<PatternDatabase>(
                     task_proxy,
                     new_pattern,
@@ -210,6 +211,17 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
                     InnerHeuristic::BLIND,
                     operator_costs,
                     false);
+        } else {
+            cout << "WARNING: no variables in inner pattern, fall back to blind" << endl;
+            if (exploration_h == InnerHeuristic::PDB){
+                exploration_h = InnerHeuristic::BLIND;
+            }
+            if (frontier_h == InnerHeuristic::PDB){
+                frontier_h = InnerHeuristic::BLIND;
+            }
+            if (failed_lookup_h == InnerHeuristic::PDB){
+                failed_lookup_h = InnerHeuristic::BLIND;
+            }
         }
     }
 }
@@ -371,8 +383,6 @@ void PatternDatabase::build_goals(const vector<int> &variable_to_index,
 NumericState PatternDatabase::project_numeric_state(const NumericState &state,
                                                     const Pattern &superset_pattern,
                                                     const vector<size_t> &sup_hash_multipliers) const {
-    //cout << "Pattern numeric: " << pattern.numeric << endl;
-    //cout << "Pattern regular: " << pattern.regular << endl;
     assert(std::all_of(pattern.regular.begin(),
                        pattern.regular.end(),
                        [&superset_pattern] (int var) {
@@ -842,6 +852,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             lmc.reset();
             break;
         case InnerHeuristic::BLIND:
+            pdb.reset();
+            lmc.reset();
             break;
         default:
             cerr << "ERROR: unknown inner heuristic type " << int(failed_lookup_h) << endl;
@@ -1018,10 +1030,6 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
                     break;
                 case InnerHeuristic::PDB:
                 {
-                    if (pdb == nullptr) {
-                        h = min_action_cost;
-                        break;
-                    }
                     NumericState proj_state = pdb->project_numeric_state(abs_state,
                                                                          pattern,
                                                                          prop_hash_multipliers);
