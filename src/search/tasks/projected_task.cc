@@ -141,7 +141,11 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
     vector<ap_float> original_numeric_initial_state = parent->get_initial_state_numeric_values();
     assert(projected_numeric_initial_state.empty());
     for (int var_id : numeric_variables) {
-        //cout << "size: " << original_numeric_initial_state.size() << ", " << var_id << endl;
+        if (var_id >= original_numeric_initial_state.size()) {
+            //TODO: figure out if placeholder is correct. Auxiliary variables are out of range
+            projected_numeric_initial_state.push_back(-1);
+            continue;
+        }
         projected_numeric_initial_state.push_back(original_numeric_initial_state[var_id]);
     }
 
