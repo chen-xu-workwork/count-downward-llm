@@ -14,12 +14,12 @@ namespace tasks {
 
 inline set<int> get_derived_var_ids(const TaskProxy &proxy) {
     set<int> derived_var_ids;
-    for (const auto &axiom : proxy.get_axioms()){
-        for (const auto &eff : axiom.get_effects()){
+    for (const auto &axiom : proxy.get_axioms()) {
+        for (const auto &eff : axiom.get_effects()) {
             derived_var_ids.insert(eff.get_fact().get_variable().get_id());
         }
     }
-    for (const auto &axiom : proxy.get_comparison_axioms()){
+    for (const auto &axiom : proxy.get_comparison_axioms()) {
         const auto &eff = axiom.get_true_fact();
         assert(axiom.get_false_fact().get_variable() == eff.get_variable());
         derived_var_ids.insert(eff.get_variable().get_id());
@@ -69,15 +69,35 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
         var_to_index[pattern.regular[i]] = i;
 //        cout << parent_proxy.get_variables()[pattern.regular[i]].get_fact(0).get_name() << endl;
     }
-    for (int var : get_derived_var_ids(parent_proxy)){
-        // TODO: instead of adding all derived variables, compute only the relevant ones
-        var_to_index[var] = variables.size();
-        variables.push_back(var);
-//        cout << parent_proxy.get_variables()[var].get_fact(0).get_name() << endl;
+
+    for (const OperatorProxy  &var1 : parent_proxy.get_axioms()) {
+        vector<int> var_ids;
+        for (const auto &eff : var1.get_effects()){
+            if (is_fact_relevant(eff.get_fact())){
+                var_ids.push_back(eff.get_fact().get_variable().get_id());
+            }
+        }
+        for (const FactProxy &pre : var1.get_preconditions()){
+            if (is_fact_relevant(pre)) {
+                var_ids.push_back(pre.get_variable().get_id());
+            }
+        }
     }
+
+
+
+
+
+
+
+    //for (int var : get_derived_var_ids(parent_proxy)){
+    //    // TODO: instead of adding all derived variables, compute only the relevant ones
+    //    var_to_index[var] = variables.size();
+    //    variables.push_back(var);
+    //    // cout << parent_proxy.get_variables()[var].get_fact(0).get_name() << endl;
+    //}
 //    cout << "variables: " << variables << endl;
 //    variables.resize(var_to_index.size(), -1);
-    cout << "DEBUG: " << numeric_variables << ", " << parent->get_num_numeric_variables() << endl;
     num_var_to_index.resize(parent->get_num_numeric_variables(), -1);
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
         num_var_to_index[pattern.numeric[i]] = i;
@@ -103,16 +123,19 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
             numeric_variables.push_back(op.get_assignment_variable().get_id());
         }
     }
+
+
+
+
     for (const auto &op : parent_proxy.get_comparison_axioms()) {
         assert(op.get_true_fact().get_variable() == op.get_false_fact().get_variable());
         int lhs = op.get_left_variable().get_id();
         int rhs = op.get_right_variable().get_id();
         if (is_numeric_var_relevant(op.get_left_variable().get_id()) &&
             is_numeric_var_relevant(op.get_right_variable().get_id())) {
-
-            num_var_to_index[op.get_true_fact().get_variable().get_id()] = numeric_variables.size();
-            numeric_variables.push_back(op.get_true_fact().get_variable().get_id());
-            
+                    
+            var_to_index[op.get_true_fact().get_variable().get_id()] = variables.size();
+            variables.push_back(op.get_true_fact().get_variable().get_id());
         }
     }
 
@@ -191,7 +214,6 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
             is_numeric_var_relevant(op.get_left_variable().get_id()) &&
             is_numeric_var_relevant(op.get_right_variable().get_id())) {
             projected_comp_axiom_to_original_comp_axiom.push_back(op.get_id());
-            
         }
     }
 
@@ -589,6 +611,7 @@ State ProjectedTask::get_projected_state(const State &state) const {
 State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
                                          const std::vector<ap_float> &num_state,
                                          const numeric_pdbs::Pattern &pattern) const {
+    //cout << "get_projected_state: " << prop_state << num_state << endl;
     vector<int> projected_prop_state(variables.size(), -1);
     vector<bool> set_var(variables.size(), false);
     // copy&map variable values from prop_state
@@ -616,13 +639,7 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
             projected_num_state[var] = get_initial_state_numeric_values()[var];
             assert(!set_numeric_var[var]);
             set_numeric_var[var] = true;
-        } else if (get_numeric_var_type(var) == numType::derived){
-            // must be the costs variable
-            projected_num_state[var] = 0;
-            //cout << "Test - " << set_numeric_var.size() <<  " " << var << endl;
-            //assert(!set_numeric_var[var]);
-            //set_numeric_var[var] = true;
-        }
+        } 
     }
     // evaluate assignment axioms
     for (int ax_id = 0; ax_id < get_num_ass_axioms(); ++ax_id){
@@ -734,6 +751,8 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         int num_pre = get_num_operator_preconditions(ax_id, true);
         for (int pre_id = 0; pre_id < num_pre; ++pre_id){
             Fact pre = get_operator_precondition(ax_id, pre_id, true);
+            //cout << "TEST1: " << pre.var << ", " << pre.value << ", " << projected_prop_state.size() << endl;
+            //cout << "TEST2: " << projected_prop_state[pre.var] << endl;
             assert(set_var[pre.var]);
             assert(projected_prop_state[pre.var] != -1);
             if (projected_prop_state[pre.var] != pre.value){
