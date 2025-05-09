@@ -77,22 +77,58 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
     }
 //    cout << "variables: " << variables << endl;
 //    variables.resize(var_to_index.size(), -1);
-
+    cout << "DEBUG: " << numeric_variables << ", " << parent->get_num_numeric_variables() << endl;
     num_var_to_index.resize(parent->get_num_numeric_variables(), -1);
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
         num_var_to_index[pattern.numeric[i]] = i;
 //        cout << parent_proxy.get_numeric_variables()[pattern.numeric[i]].get_name() << endl;
     }
-    for (const auto &num_var : parent_proxy.get_numeric_variables()){
+
+    for (const auto &num_var : parent_proxy.get_numeric_variables()) {
+        if (num_var.get_var_type() == numType::instrumentation || num_var.get_var_type() == numType::constant){
+            num_var_to_index[num_var.get_id()] = numeric_variables.size();
+            numeric_variables.push_back(num_var.get_id());
+        }
+    }
+
+    for (const auto &op : parent_proxy.get_assignment_axioms()) {
+        assert(op.get_assignment_variable().get_var_type() == numType::derived);
+        set<int> regular_numeric_vars_in_expression;
+        get_regular_numeric_vars_recursive(parent_proxy, op, regular_numeric_vars_in_expression);
+        if (std::all_of(regular_numeric_vars_in_expression.begin(),
+                        regular_numeric_vars_in_expression.end(),
+                        [this] (int var) {
+                            return is_numeric_var_relevant(var);})) {
+            num_var_to_index[op.get_assignment_variable().get_id()] = numeric_variables.size();
+            numeric_variables.push_back(op.get_assignment_variable().get_id());
+        }
+    }
+    for (const auto &op : parent_proxy.get_comparison_axioms()) {
+        assert(op.get_true_fact().get_variable() == op.get_false_fact().get_variable());
+        int lhs = op.get_left_variable().get_id();
+        int rhs = op.get_right_variable().get_id();
+        if (is_numeric_var_relevant(op.get_left_variable().get_id()) &&
+            is_numeric_var_relevant(op.get_right_variable().get_id())) {
+
+            num_var_to_index[op.get_true_fact().get_variable().get_id()] = numeric_variables.size();
+            numeric_variables.push_back(op.get_true_fact().get_variable().get_id());
+            
+        }
+    }
+
+    /*
+    for (const auto &num_var : parent_proxy.get_numeric_variables()) {
         if (num_var.get_var_type() != numType::regular){
             // TODO: instead of adding all non-regular variables, compute only the relevant ones
             num_var_to_index[num_var.get_id()] = numeric_variables.size();
             numeric_variables.push_back(num_var.get_id());
+            cout << "non-regular variable: " << num_var_to_index[num_var.get_id()] << ", " << num_var.get_var_type() << endl;
 //            cout << num_var.get_name() << endl;
         }
     }
-//    cout << "numeric variables: " << numeric_variables << endl;
-//    numeric_variables.resize(num_var_to_index.size(), -1);
+    */
+
+
 
     // project initial state
     vector<int> original_initial_state = parent->get_initial_state_values();
@@ -155,6 +191,7 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
             is_numeric_var_relevant(op.get_left_variable().get_id()) &&
             is_numeric_var_relevant(op.get_right_variable().get_id())) {
             projected_comp_axiom_to_original_comp_axiom.push_back(op.get_id());
+            
         }
     }
 
@@ -163,6 +200,7 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
         if (is_numeric_var_relevant(op.get_assignment_variable().get_id())) {
             set<int> regular_numeric_vars_in_expression;
             get_regular_numeric_vars_recursive(parent_proxy, op, regular_numeric_vars_in_expression);
+            // print regular_numeric_vars_in_expression
             if (std::all_of(regular_numeric_vars_in_expression.begin(),
                             regular_numeric_vars_in_expression.end(),
                             [this] (int var) {
@@ -578,6 +616,12 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
             projected_num_state[var] = get_initial_state_numeric_values()[var];
             assert(!set_numeric_var[var]);
             set_numeric_var[var] = true;
+        } else if (get_numeric_var_type(var) == numType::derived){
+            // must be the costs variable
+            projected_num_state[var] = 0;
+            //cout << "Test - " << set_numeric_var.size() <<  " " << var << endl;
+            //assert(!set_numeric_var[var]);
+            //set_numeric_var[var] = true;
         }
     }
     // evaluate assignment axioms
@@ -593,6 +637,8 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
             assert(std::find(pattern.numeric.begin(), pattern.numeric.end(), numeric_variables[left_var]) != pattern.numeric.end());
             left_val = projected_num_state[left_var];
             assert(set_numeric_var[left_var]);
+        } else if (get_numeric_var_type(left_var) == numType::derived) {
+            //TODO: compute value of derived var here
         } else {
             if (get_numeric_var_type(left_var) == numType::constant){
                 left_val = get_initial_state_numeric_values()[left_var];
@@ -606,6 +652,8 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
             assert(std::find(pattern.numeric.begin(), pattern.numeric.end(), numeric_variables[right_var]) != pattern.numeric.end());
             right_val = projected_num_state[right_var];
             assert(set_numeric_var[right_var]);
+        } else if (get_numeric_var_type(right_var) == numType::derived) {
+            //TODO: compute value of derived var here
         } else {
             if (get_numeric_var_type(right_var) == numType::constant){
                 right_val = get_initial_state_numeric_values()[right_var];
@@ -635,14 +683,13 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         assert(!set_numeric_var[eff_var]);
         set_numeric_var[eff_var] = true;
     }
-
+    
     // evaluate comparison axioms
     for (int ax_id = 0; ax_id < get_num_cmp_axioms(); ++ax_id){
         // these are numeric variables
         int left_var = get_comparison_axiom_argument(ax_id, true);
         int right_var = get_comparison_axiom_argument(ax_id, false);
         comp_operator op = get_comparison_axiom_operator(ax_id);
-
         assert(set_numeric_var[left_var]);
         assert(set_numeric_var[right_var]);
 
