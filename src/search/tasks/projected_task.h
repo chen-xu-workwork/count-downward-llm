@@ -33,6 +33,8 @@ private:
     std::vector<int> projected_comp_axiom_to_original_comp_axiom;
     std::vector<int> projected_asgn_axiom_to_original_asgn_axiom;
 
+    float calculate_derived_variable_value(const int var_id, const std::vector<ap_float> &state) const;
+
     Fact project_fact(const Fact &fact) const;
     bool is_fact_relevant(const Fact &fact) const;
     bool is_fact_relevant(const FactProxy &fact) const;

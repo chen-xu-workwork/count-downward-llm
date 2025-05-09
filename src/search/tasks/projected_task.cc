@@ -53,6 +53,8 @@ inline void get_regular_numeric_vars_recursive(const TaskProxy &proxy,
     }
 }
 
+
+
 ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
                              const numeric_pdbs::Pattern &pattern)
         : DelegatingTask(parent),
@@ -64,44 +66,20 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
 
     // Initialize variable index mapping
     var_to_index.resize(parent->get_num_variables(), -1);
-//    cout << "variables:" << endl;
+    //    cout << "variables:" << endl;
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
         var_to_index[pattern.regular[i]] = i;
-//        cout << parent_proxy.get_variables()[pattern.regular[i]].get_fact(0).get_name() << endl;
+        //        cout << parent_proxy.get_variables()[pattern.regular[i]].get_fact(0).get_name() << endl;
     }
 
-    for (const OperatorProxy  &var1 : parent_proxy.get_axioms()) {
-        vector<int> var_ids;
-        for (const auto &eff : var1.get_effects()){
-            if (is_fact_relevant(eff.get_fact())){
-                var_ids.push_back(eff.get_fact().get_variable().get_id());
-            }
-        }
-        for (const FactProxy &pre : var1.get_preconditions()){
-            if (is_fact_relevant(pre)) {
-                var_ids.push_back(pre.get_variable().get_id());
-            }
-        }
-    }
-
-
-
-
-
-
-
-    //for (int var : get_derived_var_ids(parent_proxy)){
-    //    // TODO: instead of adding all derived variables, compute only the relevant ones
-    //    var_to_index[var] = variables.size();
-    //    variables.push_back(var);
-    //    // cout << parent_proxy.get_variables()[var].get_fact(0).get_name() << endl;
-    //}
-//    cout << "variables: " << variables << endl;
-//    variables.resize(var_to_index.size(), -1);
     num_var_to_index.resize(parent->get_num_numeric_variables(), -1);
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
+        if (pattern.numeric[i] >= num_var_to_index.size()){
+            num_var_to_index.resize(pattern.numeric[i] + 1, -1);
+        }
         num_var_to_index[pattern.numeric[i]] = i;
-//        cout << parent_proxy.get_numeric_variables()[pattern.numeric[i]].get_name() << endl;
+
+        //        cout << parent_proxy.get_numeric_variables()[pattern.numeric[i]].get_name() << endl;
     }
 
     for (const auto &num_var : parent_proxy.get_numeric_variables()) {
@@ -124,9 +102,6 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
         }
     }
 
-
-
-
     for (const auto &op : parent_proxy.get_comparison_axioms()) {
         assert(op.get_true_fact().get_variable() == op.get_false_fact().get_variable());
         int lhs = op.get_left_variable().get_id();
@@ -139,17 +114,19 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
         }
     }
 
-    /*
-    for (const auto &num_var : parent_proxy.get_numeric_variables()) {
-        if (num_var.get_var_type() != numType::regular){
-            // TODO: instead of adding all non-regular variables, compute only the relevant ones
-            num_var_to_index[num_var.get_id()] = numeric_variables.size();
-            numeric_variables.push_back(num_var.get_id());
-            cout << "non-regular variable: " << num_var_to_index[num_var.get_id()] << ", " << num_var.get_var_type() << endl;
-//            cout << num_var.get_name() << endl;
+    for (const OperatorProxy  &var1 : parent_proxy.get_axioms()) {
+        vector<int> var_ids;
+        for (const auto &eff : var1.get_effects()){
+            if (is_fact_relevant(eff.get_fact())){
+                var_ids.push_back(eff.get_fact().get_variable().get_id());
+            }
+        }
+        for (const FactProxy &pre : var1.get_preconditions()){
+            if (is_fact_relevant(pre)) {
+                var_ids.push_back(pre.get_variable().get_id());
+            }
         }
     }
-    */
 
 
 
@@ -164,16 +141,24 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
     vector<ap_float> original_numeric_initial_state = parent->get_initial_state_numeric_values();
     assert(projected_numeric_initial_state.empty());
     for (int var_id : numeric_variables) {
+        //cout << "size: " << original_numeric_initial_state.size() << ", " << var_id << endl;
         projected_numeric_initial_state.push_back(original_numeric_initial_state[var_id]);
     }
+
 //    cout << "initial state: " << projected_initial_state << projected_numeric_initial_state << endl;
 
     // project goal
+    cout << "pattern: " << pattern << endl;
     for (int goal_id = 0; goal_id < parent->get_num_goals(); ++goal_id) {
         Fact original_fact = parent->get_goal_fact(goal_id);
+        cout << "goal id: " << original_fact.var << endl;
         if (is_fact_relevant(original_fact)) {
             projected_goals.push_back(project_fact(original_fact));
         }
+    }
+    cout << "projected goals: (size): " << projected_goals.size() << ", ";
+    for (const auto &goal : projected_goals) {
+        cout << goal.var << ", " << goal.value << " --";
     }
 
     // project operators
@@ -231,6 +216,41 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
             }
         }
     }
+}
+
+float ProjectedTask::calculate_derived_variable_value(const int var_id, const vector<ap_float> &state) const {
+    //Input is id of projected variable
+
+    numType var_type = get_numeric_var_type(var_id);
+    if (var_type != numType::constant) {
+        return get_initial_state_numeric_values()[var_id];
+    } else if (var_type == numType::regular) {
+        return state[var_id];
+    } 
+    assert(var_type == numType::derived);
+
+    int eff_var = get_assignment_axiom_effect(var_id);
+    int left_var = get_assignment_axiom_argument(var_id, true);
+    int right_var = get_assignment_axiom_argument(var_id, false);
+    //TODO: Make check that lhs and rhs are relevant
+    cal_operator op = get_assignment_axiom_operator(var_id);
+
+    switch (op) {
+        case cal_operator::sum:
+            return state[left_var] + state[right_var];
+        case cal_operator::diff:
+            return state[left_var] - state[right_var];
+        case cal_operator::mult:
+            return state[left_var] * state[right_var];
+        case cal_operator::divi:
+            if (state[right_var] == 0) {
+                throw runtime_error("Division by zero in derived variable calculation");
+            }
+            return state[left_var] / state[right_var];
+        default:
+            throw runtime_error("Unknown operator in derived variable calculation");
+    }
+    throw runtime_error("Should be unreachable");
 }
 
 Fact ProjectedTask::project_fact(const Fact &fact) const {
@@ -650,12 +670,14 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         cal_operator op = get_assignment_axiom_operator(ax_id);
 
         ap_float left_val = 0;
+        //TODO: entire next blocks can be sinplified by using the "calculate_derived_variable_value" function
         if (get_numeric_var_type(left_var) == numType::regular){
             assert(std::find(pattern.numeric.begin(), pattern.numeric.end(), numeric_variables[left_var]) != pattern.numeric.end());
             left_val = projected_num_state[left_var];
             assert(set_numeric_var[left_var]);
         } else if (get_numeric_var_type(left_var) == numType::derived) {
-            //TODO: compute value of derived var here
+            const vector<ap_float> state_argument = projected_num_state;
+            left_val = calculate_derived_variable_value(left_var, state_argument);
         } else {
             if (get_numeric_var_type(left_var) == numType::constant){
                 left_val = get_initial_state_numeric_values()[left_var];
@@ -670,7 +692,9 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
             right_val = projected_num_state[right_var];
             assert(set_numeric_var[right_var]);
         } else if (get_numeric_var_type(right_var) == numType::derived) {
-            //TODO: compute value of derived var here
+            const vector<ap_float> state_argument = projected_num_state;
+            right_val = calculate_derived_variable_value(right_var, state_argument);
+            cout << "right_val: " << right_val << endl;
         } else {
             if (get_numeric_var_type(right_var) == numType::constant){
                 right_val = get_initial_state_numeric_values()[right_var];
@@ -784,6 +808,10 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
             projected_prop_state[i] = 0;
         }
     }
+    //cout << "projected_prop_state: " << projected_prop_state << endl;
+    //cout << "projected_num_state: " << projected_num_state << endl;
+    //cout << "pre-projected state: " << prop_state << endl;
+    //cout << "pre-projected num state: " << num_state << endl;
     return {*this, std::move(projected_prop_state), std::move(projected_num_state)};
 }
 }

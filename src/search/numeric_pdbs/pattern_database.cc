@@ -434,6 +434,7 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
                     succ_state.num_state,
                     pattern);
             h = lmc->compute_heuristic(proj_state);
+            //cout << "LMCUT heuristic: " << h << endl;
             if (h == numeric_limits<ap_float>::min()){
                 dead_end = true;
             }
