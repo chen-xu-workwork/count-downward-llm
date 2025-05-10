@@ -12,20 +12,20 @@ using namespace std;
 
 namespace tasks {
 
-inline set<int> get_derived_var_ids(const TaskProxy &proxy) {
-    set<int> derived_var_ids;
-    for (const auto &axiom : proxy.get_axioms()) {
-        for (const auto &eff : axiom.get_effects()) {
-            derived_var_ids.insert(eff.get_fact().get_variable().get_id());
-        }
-    }
-    for (const auto &axiom : proxy.get_comparison_axioms()) {
-        const auto &eff = axiom.get_true_fact();
-        assert(axiom.get_false_fact().get_variable() == eff.get_variable());
-        derived_var_ids.insert(eff.get_variable().get_id());
-    }
-    return derived_var_ids;
-}
+//inline set<int> get_derived_var_ids(const TaskProxy &proxy) {
+//    set<int> derived_var_ids;
+//    for (const auto &axiom : proxy.get_axioms()) {
+//        for (const auto &eff : axiom.get_effects()) {
+//            derived_var_ids.insert(eff.get_fact().get_variable().get_id());
+//        }
+//    }
+//    for (const auto &axiom : proxy.get_comparison_axioms()) {
+//        const auto &eff = axiom.get_true_fact();
+//        assert(axiom.get_false_fact().get_variable() == eff.get_variable());
+//        derived_var_ids.insert(eff.get_variable().get_id());
+//    }
+//    return derived_var_ids;
+//}
 
 inline void get_regular_numeric_vars_recursive(const TaskProxy &proxy,
                                                const AssignmentAxiomProxy &op,
@@ -53,6 +53,16 @@ inline void get_regular_numeric_vars_recursive(const TaskProxy &proxy,
     }
 }
 
+inline bool is_derived_variable(const VariableProxy &var, const TaskProxy &task_proxy) {
+    for (auto ax : task_proxy.get_axioms()){
+        for (auto eff : ax.get_effects()) {
+            if (eff.get_fact().get_variable().get_id() == var.get_id()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
 
 
 ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
@@ -75,6 +85,8 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
     num_var_to_index.resize(parent->get_num_numeric_variables(), -1);
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
         if (pattern.numeric[i] >= num_var_to_index.size()){
+            // this is an auxiliary variable added by numeric_pdb_helper::NumericTaskProxy
+            // TODO check if these are handled correctly everywhere
             num_var_to_index.resize(pattern.numeric[i] + 1, -1);
         }
         num_var_to_index[pattern.numeric[i]] = i;
@@ -102,31 +114,49 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
         }
     }
 
+    // project goals
+    for (int goal_id = 0; goal_id < parent->get_num_goals(); ++goal_id) {
+        Fact original_fact = parent->get_goal_fact(goal_id);
+        cout << parent->get_fact_name(original_fact);
+        cout << "goal id: " << original_fact.var << endl;
+        if (is_fact_relevant(original_fact)) {
+            projected_goals.push_back(project_fact(original_fact));
+        }
+        if (is_derived_variable(parent_proxy.get_variables()[original_fact.var], parent_proxy)){
+            // TODO if there are numeric goals in the pattern, then we need to add the derived variable that represents the numeric goals here
+        }
+    }
+    cout << "projected goals: (size): " << projected_goals.size() << ", ";
+    for (const auto &goal : projected_goals) {
+        cout << goal.var << ", " << goal.value << " --";
+    }
+
     for (const auto &op : parent_proxy.get_comparison_axioms()) {
         assert(op.get_true_fact().get_variable() == op.get_false_fact().get_variable());
         int lhs = op.get_left_variable().get_id();
         int rhs = op.get_right_variable().get_id();
-        if (is_numeric_var_relevant(op.get_left_variable().get_id()) &&
-            is_numeric_var_relevant(op.get_right_variable().get_id())) {
+        if (is_numeric_var_relevant(lhs) &&
+            is_numeric_var_relevant(rhs)) {
                     
             var_to_index[op.get_true_fact().get_variable().get_id()] = variables.size();
             variables.push_back(op.get_true_fact().get_variable().get_id());
         }
     }
 
-    for (const OperatorProxy  &var1 : parent_proxy.get_axioms()) {
-        vector<int> var_ids;
-        for (const auto &eff : var1.get_effects()){
-            if (is_fact_relevant(eff.get_fact())){
-                var_ids.push_back(eff.get_fact().get_variable().get_id());
-            }
-        }
-        for (const FactProxy &pre : var1.get_preconditions()){
-            if (is_fact_relevant(pre)) {
-                var_ids.push_back(pre.get_variable().get_id());
-            }
-        }
-    }
+    // TODO this is not doing anything!?
+//    for (const OperatorProxy  &var : parent_proxy.get_axioms()) {
+//        vector<int> var_ids;
+//        for (const auto &eff : var.get_effects()){
+//            if (is_fact_relevant(eff.get_fact())){
+//                var_ids.push_back(eff.get_fact().get_variable().get_id());
+//            }
+//        }
+//        for (const FactProxy &pre : var.get_preconditions()){
+//            if (is_fact_relevant(pre)) {
+//                var_ids.push_back(pre.get_variable().get_id());
+//            }
+//        }
+//    }
 
 
 
@@ -150,20 +180,6 @@ ProjectedTask::ProjectedTask(const shared_ptr<AbstractTask>& parent,
     }
 
 //    cout << "initial state: " << projected_initial_state << projected_numeric_initial_state << endl;
-
-    // project goal
-    cout << "pattern: " << pattern << endl;
-    for (int goal_id = 0; goal_id < parent->get_num_goals(); ++goal_id) {
-        Fact original_fact = parent->get_goal_fact(goal_id);
-        cout << "goal id: " << original_fact.var << endl;
-        if (is_fact_relevant(original_fact)) {
-            projected_goals.push_back(project_fact(original_fact));
-        }
-    }
-    cout << "projected goals: (size): " << projected_goals.size() << ", ";
-    for (const auto &goal : projected_goals) {
-        cout << goal.var << ", " << goal.value << " --";
-    }
 
     // project operators
     for (const auto &op : parent_proxy.get_operators()) {
