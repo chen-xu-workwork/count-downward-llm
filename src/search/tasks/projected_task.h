@@ -34,6 +34,8 @@ private:
     std::vector<int> projected_comp_axiom_to_original_comp_axiom;
     std::vector<int> projected_asgn_axiom_to_original_asgn_axiom;
 
+    std::vector<int> aux_numeric_vars;
+
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
 
 

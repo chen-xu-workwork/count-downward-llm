@@ -184,6 +184,7 @@ inline int get_achieving_comp_axiom(const TaskProxy &proxy, const FactProxy &con
 }
 
 shared_ptr<ArithmeticExpressionVar> NumericTaskProxy::create_auxiliary_variable(
+        const int derived_var_id,
         const string &name,
         shared_ptr<ArithmeticExpression> expr) {
 
@@ -208,6 +209,17 @@ shared_ptr<ArithmeticExpressionVar> NumericTaskProxy::create_auxiliary_variable(
 
     auxiliary_num_vars_expressions[name] = auxiliary_numeric_variables.size();
     auxiliary_numeric_variables.emplace_back(var_id, name, std::move(expr));
+
+    if (aux_id_to_derived_id.size() <= static_cast<size_t>(var_id)){
+        aux_id_to_derived_id.resize(var_id + 1, -1);
+    }
+    aux_id_to_derived_id[var_id] = derived_var_id;
+
+    if (derived_id_to_aux_id.size() <= static_cast<size_t>(derived_var_id)){
+        derived_id_to_aux_id.resize(derived_var_id + 1, -1);
+    }
+    derived_id_to_aux_id[derived_var_id] = var_id;
+
     return make_shared<ArithmeticExpressionVar>(var_id);
 }
 
@@ -246,7 +258,8 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::build_condition(FactProxy 
 
     if (!lhs->is_constant() && !rhs->is_constant()) {
         auto expr = make_shared<ArithmeticExpressionOp>(lhs, cal_operator::diff, rhs);
-        auto var = create_auxiliary_variable(pre.get_name(), expr);
+        assert(is_derived_numeric_variable(pre.get_variable()));
+        auto var = create_auxiliary_variable(var_id, pre.get_name(), expr);
         auto zero = make_shared<ArithmeticExpressionConst>(0);
 
         return make_shared<RegularNumericCondition>(var, c_op.get_comparison_operator_type(), zero);
@@ -274,6 +287,20 @@ void NumericTaskProxy::build_numeric_preconditions() {
             }
         }
     }
+}
+
+int NumericTaskProxy::map_to_derived_variable_id(int var_id) const {
+    assert(var_id >= 0);
+    assert(static_cast<size_t>(var_id) < aux_id_to_derived_id.size());
+    return aux_id_to_derived_id[var_id];
+}
+
+int NumericTaskProxy::map_to_auxiliary_variable_id(int var_id) const {
+    assert(var_id >= 0);
+    if (var_id >= static_cast<int>(aux_id_to_derived_id.size())){
+        return -1;
+    }
+    return derived_id_to_aux_id[var_id];
 }
 
 void NumericTaskProxy::build_goals() {
@@ -367,7 +394,7 @@ shared_ptr<arithmetic_expression::ArithmeticExpression> NumericTaskProxy::parse_
                     rhs);
 
             if (!lhs->is_constant() && !rhs->is_constant()){
-                return create_auxiliary_variable(num_var.get_name(), expr);
+                return create_auxiliary_variable(num_var.get_id(), num_var.get_name(), expr);
             }
 
             return expr;
