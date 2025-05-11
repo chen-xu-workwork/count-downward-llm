@@ -157,7 +157,7 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
         failed_lookup_h == InnerHeuristic::LMCUT) {
 
         assert(!inner_h_task);
-        inner_h_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern);
+        inner_h_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern, task_proxy);
 
         assert(!lmc);
         lmc = make_unique<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(inner_h_task);

@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "delegating_task.h"
+#include "../numeric_pdbs/numeric_helper.h"
 
 class FactProxy;
 class State;
@@ -33,6 +34,9 @@ private:
     std::vector<int> projected_comp_axiom_to_original_comp_axiom;
     std::vector<int> projected_asgn_axiom_to_original_asgn_axiom;
 
+    std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
+
+
     float calculate_derived_variable_value(const int var_id, const std::vector<ap_float> &state) const;
 
     Fact project_fact(const Fact &fact) const;
@@ -42,7 +46,8 @@ private:
 
 public:
     ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
-                  const numeric_pdbs::Pattern &pattern);
+                  const numeric_pdbs::Pattern &pattern,
+                  const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &numeric_task_proxy);
 
     const std::vector<int> &get_projected_variables() const {
         return variables;
