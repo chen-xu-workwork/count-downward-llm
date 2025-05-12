@@ -153,6 +153,23 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
         } 
         ////cout << "map to aux var: " << task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id()) << endl;
         
+    }    
+    
+    for (const OperatorProxy  &var : parent_proxy.get_axioms()) {
+        vector<int> var_ids;
+        
+        for (const FactProxy &pre : var.get_preconditions()){
+            if (is_fact_relevant(pre)) {
+                var_to_index[pre.get_variable().get_id()] = variables.size();
+                variables.push_back(pre.get_variable().get_id());
+            }
+        }
+        for (const auto &eff : var.get_effects()){
+            if (is_fact_relevant(eff.get_fact())){
+                var_to_index[eff.get_fact().get_variable().get_id()] = variables.size();
+                variables.push_back(eff.get_fact().get_variable().get_id());
+            }
+        }
     }
 
     // project goals
@@ -196,7 +213,6 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
                     
             var_to_index[op.get_true_fact().get_variable().get_id()] = variables.size();
             variables.push_back(op.get_true_fact().get_variable().get_id());
-            //cout << "HJDADHDSHS " << op.get_true_fact().get_variable().get_id() << endl;
         }
     }
 
@@ -214,6 +230,7 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
 //            }
 //        }
 //    }
+
 
 
 
@@ -316,7 +333,7 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
     //cout << endl;
 }
 
-float ProjectedTask::calculate_derived_variable_value(const int var_id, const vector<ap_float> &state) const {
+ap_float ProjectedTask::calculate_derived_variable_value(const int var_id, const vector<ap_float> &state) const {
     //Input is id of projected variable
 
     numType var_type = get_numeric_var_type(var_id);
@@ -767,7 +784,7 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
     vector<bool> set_numeric_var(numeric_variables.size(), false);
     vector<ap_float> projected_num_state(numeric_variables.size(), -11.11);
     // copy&map variable values from num_state
-    for (size_t i = 0; i < pattern.numeric.size(); ++i){
+    for (size_t i = 0; i < pattern.numeric.size(); ++i) { //TODO: Think that doesn't do anything anymore
         int var = pattern.numeric[i];
         if (var >= num_var_to_index.size()) {
             int derived_var_id = task_proxy->map_to_derived_variable_id(var);
@@ -785,7 +802,7 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         set_numeric_var[projected_id] = true;
     }
     for (size_t var = 0; var < numeric_variables.size(); ++var){
-        if (get_numeric_var_type(var) == numType::constant){
+        if (get_numeric_var_type(var) == numType::constant || get_numeric_var_type(var) == numType::instrumentation) {
             projected_num_state[var] = get_initial_state_numeric_values()[var];
             assert(!set_numeric_var[var]);
             set_numeric_var[var] = true;
@@ -801,24 +818,22 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
 
         ap_float left_val = 0;
         //TODO: entire next blocks can be sinplified by using the "calculate_derived_variable_value" function
-        if (get_numeric_var_type(left_var) == numType::regular){
+        if (find(aux_numeric_vars.begin(), aux_numeric_vars.end(), numeric_variables[left_var]) != aux_numeric_vars.end()) {
+            left_val = projected_num_state[left_var];
+            assert(op == cal_operator::sum);
+        } else if (get_numeric_var_type(left_var) == numType::regular){
             assert(std::find(pattern.numeric.begin(), pattern.numeric.end(), numeric_variables[left_var]) != pattern.numeric.end());
             left_val = projected_num_state[left_var];
             assert(set_numeric_var[left_var]);
         } else if (get_numeric_var_type(left_var) == numType::derived) {
             const vector<ap_float> state_argument = projected_num_state;
             left_val = calculate_derived_variable_value(left_var, state_argument);
+            cout << "DEBUG: " << left_var << ", " << left_val << endl;
         } else {
             if (get_numeric_var_type(left_var) == numType::constant){
                 left_val = get_initial_state_numeric_values()[left_var];
             } else {
-                //cout << "left_var: " << left_var << endl;
-                if (find(aux_numeric_vars.begin(), aux_numeric_vars.end(), numeric_variables[left_var]) != aux_numeric_vars.end()) {
-                    left_val = projected_num_state[left_var];
-                    assert(op == cal_operator::sum);
-                } else {
-                    assert(get_numeric_var_type(left_var) == numType::instrumentation);
-                }
+                assert(get_numeric_var_type(left_var) == numType::instrumentation);
                 // must be the costs variable
             }
         }

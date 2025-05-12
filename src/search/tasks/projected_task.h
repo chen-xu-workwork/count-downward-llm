@@ -39,7 +39,7 @@ private:
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
     int constant_0_id;
 
-    float calculate_derived_variable_value(const int var_id, const std::vector<ap_float> &state) const;
+   ap_float calculate_derived_variable_value(const int var_id, const std::vector<ap_float> &state) const;
 
     Fact project_fact(const Fact &fact) const;
     bool is_fact_relevant(const Fact &fact) const;
