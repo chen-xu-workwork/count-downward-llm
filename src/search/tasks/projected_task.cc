@@ -787,7 +787,13 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
             if (get_numeric_var_type(left_var) == numType::constant){
                 left_val = get_initial_state_numeric_values()[left_var];
             } else {
-                assert(get_numeric_var_type(left_var) == numType::instrumentation);
+                cout << "left_var: " << left_var << endl;
+                if (find(aux_numeric_vars.begin(), aux_numeric_vars.end(), numeric_variables[left_var]) != aux_numeric_vars.end()){
+                    assert(get_numeric_var_type(left_var) == numType::unknown);
+                    left_val = projected_num_state[left_var];
+                } else {
+                    assert(get_numeric_var_type(left_var) == numType::instrumentation);
+                }
                 // must be the costs variable
             }
         }
