@@ -145,6 +145,9 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
             numeric_variables.push_back(op.get_assignment_variable().get_id());
         } else if (task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id()) != -1) {
             int ass_var = task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id());
+            if (num_var_to_index.size() <= ass_var) {
+                num_var_to_index.resize(ass_var + 1, -1);
+            }
             if (num_var_to_index[ass_var] != -1) {
                 //cout << "Add new ass var: " << op.get_assignment_variable().get_id() << endl;
                 num_var_to_index[op.get_assignment_variable().get_id()] = numeric_variables.size();
@@ -747,6 +750,11 @@ const GlobalOperator *ProjectedTask::get_global_operator(int index, bool is_axio
 
 numType ProjectedTask::get_numeric_var_type(int index) const {
     assert(index >= 0 && index < numeric_variables.size());
+    int original_id = numeric_variables[index];
+    if (original_id >= parent->get_num_numeric_variables()) {
+        // this is an auxiliary variable added by numeric_pdb_helper::NumericTaskProxy
+        return numType::unknown;
+    }
     return parent->get_numeric_var_type(numeric_variables[index]);
 }
 
@@ -801,6 +809,8 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         assert(!set_numeric_var[projected_id]);
         set_numeric_var[projected_id] = true;
     }
+
+    //cout << "numeric variables: " << numeric_variables << endl;
     for (size_t var = 0; var < numeric_variables.size(); ++var){
         if (get_numeric_var_type(var) == numType::constant || get_numeric_var_type(var) == numType::instrumentation) {
             projected_num_state[var] = get_initial_state_numeric_values()[var];
@@ -828,7 +838,7 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         } else if (get_numeric_var_type(left_var) == numType::derived) {
             const vector<ap_float> state_argument = projected_num_state;
             left_val = calculate_derived_variable_value(left_var, state_argument);
-            cout << "DEBUG: " << left_var << ", " << left_val << endl;
+            //cout << "DEBUG: " << left_var << ", " << left_val << endl;
         } else {
             if (get_numeric_var_type(left_var) == numType::constant){
                 left_val = get_initial_state_numeric_values()[left_var];
@@ -960,10 +970,10 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
             projected_prop_state[i] = 0;
         }
     }
-    cout << "projected_prop_state: " << projected_prop_state << endl;
-    cout << "projected_num_state: " << projected_num_state << endl;
-    cout << "pre-projected state: " << prop_state << endl;
-    cout << "pre-projected num state: " << num_state << endl;
+    //cout << "projected_prop_state: " << projected_prop_state << endl;
+    //cout << "projected_num_state: " << projected_num_state << endl;
+    //cout << "pre-projected state: " << prop_state << endl;
+    //cout << "pre-projected num state: " << num_state << endl;
     return {*this, std::move(projected_prop_state), std::move(projected_num_state)};
 }
 }
