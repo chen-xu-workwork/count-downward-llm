@@ -32,12 +32,18 @@ inline void get_regular_numeric_vars_recursive(const TaskProxy &proxy,
                                                set<int> &regular_vars) {
     //cout << "WARNING: Need to check if derived var is aux var and return early" << endl;
     set<int> var_ids;
-    if (op.get_left_variable().get_var_type() == numType::regular){
+    if (op.get_left_variable().get_var_type() == numType::regular || op.get_left_variable().get_var_type() == numType::unknown) {
+        if (op.get_left_variable().get_var_type() == numType::unknown) {
+            cout << "AUXILIARY: Unknown var type in get_regular_numeric_vars_recursive" << endl;
+        }
         regular_vars.insert(op.get_left_variable().get_id());
     } else {
         var_ids.insert(op.get_left_variable().get_id());
     }
-    if (op.get_right_variable().get_var_type() == numType::regular){
+    if (op.get_right_variable().get_var_type() == numType::regular || op.get_left_variable().get_var_type() == numType::unknown) {
+        if (op.get_left_variable().get_var_type() == numType::unknown) {
+            cout << "AUXILIARY: Unknown var type in get_regular_numeric_vars_recursive" << endl;
+        }
         regular_vars.insert(op.get_right_variable().get_id());
     } else {
         var_ids.insert(op.get_right_variable().get_id());
