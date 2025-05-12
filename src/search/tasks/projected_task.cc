@@ -344,13 +344,14 @@ ap_float ProjectedTask::calculate_derived_variable_value(const int var_id, const
     //Input is id of projected variable
 
     numType var_type = get_numeric_var_type(var_id);
-    if (var_type != numType::constant) {
+    if (var_type == numType::constant) {
         return get_initial_state_numeric_values()[var_id];
     } else if (var_type == numType::regular) {
         return state[var_id];
     } 
     assert(var_type == numType::derived);
 
+    // TODO accessing an axiom with an ID of a variable cannot work!
     int eff_var = get_assignment_axiom_effect(var_id);
     int left_var = get_assignment_axiom_argument(var_id, true);
     int right_var = get_assignment_axiom_argument(var_id, false);
