@@ -30,11 +30,11 @@ namespace tasks {
 inline void get_regular_numeric_vars_recursive(const TaskProxy &proxy,
                                                const AssignmentAxiomProxy &op,
                                                set<int> &regular_vars) {
-    //cout << "WARNING: Need to check if derived var is aux var and return early" << endl;
+    ////cout << "WARNING: Need to check if derived var is aux var and return early" << endl;
     set<int> var_ids;
     if (op.get_left_variable().get_var_type() == numType::regular || op.get_left_variable().get_var_type() == numType::unknown) {
         if (op.get_left_variable().get_var_type() == numType::unknown) {
-            cout << "AUXILIARY: Unknown var type in get_regular_numeric_vars_recursive" << endl;
+            //cout << "AUXILIARY: Unknown var type in get_regular_numeric_vars_recursive" << endl;
         }
         regular_vars.insert(op.get_left_variable().get_id());
     } else {
@@ -42,7 +42,7 @@ inline void get_regular_numeric_vars_recursive(const TaskProxy &proxy,
     }
     if (op.get_right_variable().get_var_type() == numType::regular || op.get_left_variable().get_var_type() == numType::unknown) {
         if (op.get_left_variable().get_var_type() == numType::unknown) {
-            cout << "AUXILIARY: Unknown var type in get_regular_numeric_vars_recursive" << endl;
+            //cout << "AUXILIARY: Unknown var type in get_regular_numeric_vars_recursive" << endl;
         }
         regular_vars.insert(op.get_right_variable().get_id());
     } else {
@@ -86,10 +86,10 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
 
     // Initialize variable index mapping
     var_to_index.resize(parent->get_num_variables(), -1);
-    //    cout << "variables:" << endl;
+    //    //cout << "variables:" << endl;
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
         var_to_index[pattern.regular[i]] = i;
-        //        cout << parent_proxy.get_variables()[pattern.regular[i]].get_fact(0).get_name() << endl;
+        //        //cout << parent_proxy.get_variables()[pattern.regular[i]].get_fact(0).get_name() << endl;
     }
 
     //init numeric variables here. Cannot be done in the constructor because we want to filter aux vars
@@ -106,12 +106,12 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
             //var_id = task_proxy->map_to_derived_variable_id(pattern.numeric[i]);
             aux_numeric_vars.push_back(var_id);
 
-            cout << "Should be mapped: " << pattern.numeric[i] << endl;
+            //cout << "Should be mapped: " << pattern.numeric[i] << endl;
         }
         numeric_variables.push_back(pattern.numeric[i]);
         num_var_to_index[var_id] = i;
-        cout << "numeric var: " << var_id << endl;
-        //        cout << parent_proxy.get_numeric_variables()[pattern.numeric[i]].get_name() << endl;
+        //cout << "numeric var: " << var_id << endl;
+        //        //cout << parent_proxy.get_numeric_variables()[pattern.numeric[i]].get_name() << endl;
     }
 
     for (const auto &num_var : parent_proxy.get_numeric_variables()) {
@@ -121,13 +121,13 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
         }
     }
 
-    cout << "Debug constants: " << endl;
+    //cout << "Debug constants: " << endl;
     for (const auto &num_var : parent_proxy.get_numeric_variables()) {
         if (num_var.get_var_type() == numType::constant) {
-            cout << num_var.get_id() << ", " << num_var.get_initial_state_value() << endl;
+            //cout << num_var.get_id() << ", " << num_var.get_initial_state_value() << endl;
             if (num_var.get_initial_state_value() == 0) {
                 constant_0_id = num_var_to_index[num_var.get_id()];
-                cout << "constant 0 id: " << constant_0_id << endl;
+                //cout << "constant 0 id: " << constant_0_id << endl;
                 break;
             }
         }
@@ -142,37 +142,51 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
                         [this] (int var) {
                             return is_numeric_var_relevant(var);})) {
             num_var_to_index[op.get_assignment_variable().get_id()] = numeric_variables.size();
-            cout << "Add new ass var: " << op.get_assignment_variable().get_id() << ", " << regular_numeric_vars_in_expression << endl;
+            //cout << "Add new ass var: " << op.get_assignment_variable().get_id() << ", " << regular_numeric_vars_in_expression << endl;
             numeric_variables.push_back(op.get_assignment_variable().get_id());
         } else if (task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id()) != -1) {
             int ass_var = task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id());
             if (num_var_to_index[ass_var] != -1) {
-                cout << "Add new ass var: " << op.get_assignment_variable().get_id() << endl;
+                //cout << "Add new ass var: " << op.get_assignment_variable().get_id() << endl;
                 num_var_to_index[op.get_assignment_variable().get_id()] = numeric_variables.size();
                 numeric_variables.push_back(op.get_assignment_variable().get_id());
             }
         } 
-        //cout << "map to aux var: " << task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id()) << endl;
+        ////cout << "map to aux var: " << task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id()) << endl;
         
     }
 
     // project goals
     for (int goal_id = 0; goal_id < parent->get_num_goals(); ++goal_id) {
         Fact original_fact = parent->get_goal_fact(goal_id);
-        cout << parent->get_fact_name(original_fact);
-        cout << "goal id: " << original_fact.var << endl;
+        //cout << "goal id: " << original_fact.var << endl;
         if (is_fact_relevant(original_fact)) {
             projected_goals.push_back(project_fact(original_fact));
         }
-        if (is_derived_variable(parent_proxy.get_variables()[original_fact.var], parent_proxy)){
+        if (is_derived_variable(parent_proxy.get_variables()[original_fact.var], parent_proxy)) {
             // TODO if there are numeric goals in the pattern, then we need to add the derived variable that represents the numeric goals here
+            var_to_index[original_fact.var] = variables.size();
+            variables.push_back(original_fact.var);
+            projected_goals.push_back(project_fact(original_fact));
         }
     }
-    cout << "projected goals: (size): " << projected_goals.size() << ", ";
-    for (const auto &goal : projected_goals) {
-        cout << goal.var << ", " << goal.value << " --";
+
+    for (auto axiom : parent_proxy.get_axioms()) {
+        assert(axiom.get_preconditions().empty() || axiom.get_effects().size() == 1);
+        if (!axiom.get_preconditions().empty()) {
+            for (auto pre: axiom.get_preconditions()) {
+                //cout << "axiom precondition: " << pre.get_variable().get_id() << endl;
+            }
+        }
     }
-    cout << endl;
+
+
+
+    //cout << "projected goals: (size): " << projected_goals.size() << ", ";
+    for (const auto &goal : projected_goals) {
+        //cout << goal.var << ", " << goal.value << " --";
+    }
+    //cout << endl;
 
     for (const auto &op : parent_proxy.get_comparison_axioms()) {
         assert(op.get_true_fact().get_variable() == op.get_false_fact().get_variable());
@@ -183,6 +197,7 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
                     
             var_to_index[op.get_true_fact().get_variable().get_id()] = variables.size();
             variables.push_back(op.get_true_fact().get_variable().get_id());
+            //cout << "HJDADHDSHS " << op.get_true_fact().get_variable().get_id() << endl;
         }
     }
 
@@ -223,12 +238,12 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
         projected_numeric_initial_state.push_back(original_numeric_initial_state[var_id]);
     }
 
-    cout << "PROJ. initial numeric state: ";
+    //cout << "PROJ. initial numeric state: ";
     for (int i = 0; i < projected_numeric_initial_state.size(); i++) {
-        cout << "(" << i << ", " << projected_numeric_initial_state[i] << ")";
+        //cout << "(" << i << ", " << projected_numeric_initial_state[i] << ")";
     }
-    cout << endl;
-    cout << numeric_variables.size() << endl;
+    //cout << endl;
+    //cout << numeric_variables.size() << endl;
 
     // project operators
     for (const auto &op : parent_proxy.get_operators()) {
@@ -281,13 +296,13 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
                             regular_numeric_vars_in_expression.end(),
                             [this] (int var) {
                                 return is_numeric_var_relevant(var);})) {
-                cout << "[NON-SEGFAULT DEBUG]: " << op.get_assignment_variable().get_id() << ", " << op.get_id() << ", " << projected_asgn_axiom_to_original_asgn_axiom.size()  << endl;
+                //cout << "[NON-SEGFAULT DEBUG]: " << op.get_assignment_variable().get_id() << ", " << op.get_id() << ", " << projected_asgn_axiom_to_original_asgn_axiom.size()  << endl;
                 projected_asgn_axiom_to_original_asgn_axiom.push_back(op.get_id());
             } else if (task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id()) != -1) {
                 int ass_var = task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id());
                 if (num_var_to_index[ass_var] != -1) {
                     //TODO: next line results in a segfault later on.... why?
-                    cout << "[SEGFAULT DEBUG]: " << ass_var << ", " << op.get_id() << ", " << projected_asgn_axiom_to_original_asgn_axiom.size() << endl;
+                    //cout << "[SEGFAULT DEBUG]: " << ass_var << ", " << op.get_id() << ", " << projected_asgn_axiom_to_original_asgn_axiom.size() << endl;
                     projected_asgn_axiom_to_original_asgn_axiom.push_back(op.get_id());
                 }
                 
@@ -295,11 +310,11 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
         }
     }
 
-    cout << "Numeric vars: " << numeric_variables << endl;
+    //cout << "Numeric vars: " << numeric_variables << endl;
     for (int i = 0; i < num_var_to_index.size(); i++) {
-        cout << "(" << i << ", " << num_var_to_index[i] << ")";
+        //cout << "(" << i << ", " << num_var_to_index[i] << ")";
     }
-    cout << endl;
+    //cout << endl;
 }
 
 float ProjectedTask::calculate_derived_variable_value(const int var_id, const vector<ap_float> &state) const {
@@ -317,7 +332,7 @@ float ProjectedTask::calculate_derived_variable_value(const int var_id, const ve
     int left_var = get_assignment_axiom_argument(var_id, true);
     int right_var = get_assignment_axiom_argument(var_id, false);
     //TODO: Make check that lhs and rhs are relevant
-    cout << "calculate_derived_variable_value: " << var_id << ", " << left_var << ", " << right_var << endl;
+    //cout << "calculate_derived_variable_value: " << var_id << ", " << left_var << ", " << right_var << endl;
     cal_operator op = get_assignment_axiom_operator(var_id);
 
     switch (op) {
@@ -671,10 +686,10 @@ comp_operator ProjectedTask::get_comparison_axiom_operator(int axiom_index) cons
 
 int ProjectedTask::get_assignment_axiom_effect(int axiom_index) const {
     assert(axiom_index >= 0 && axiom_index < projected_asgn_axiom_to_original_asgn_axiom.size());
-    cout << "get_assignment_axiom_effect: " << axiom_index << endl;
+    //cout << "get_assignment_axiom_effect: " << axiom_index << endl;
     int original_index = projected_asgn_axiom_to_original_asgn_axiom[axiom_index];
     int eff = parent->get_assignment_axiom_effect(original_index);
-    cout << "get_assignment_axiom_effect: " << original_index << ", " << eff << endl;
+    //cout << "get_assignment_axiom_effect: " << original_index << ", " << eff << endl;
     return num_var_to_index[parent->get_assignment_axiom_effect(original_index)];
 }
 
@@ -685,21 +700,21 @@ int ProjectedTask::get_assignment_axiom_argument(int axiom_index,
     int effect_var = parent->get_assignment_axiom_effect(original_index);
     int aux_var_id = task_proxy->map_to_auxiliary_variable_id(effect_var);
     if (aux_var_id != -1 && num_var_to_index[aux_var_id] != -1) { //check if aux eff is aux var and if it is in pattern
-        cout << "TRIGGER" << endl;
+        //cout << "TRIGGER" << endl;
         if (left) {
-            cout << "left: " << aux_var_id << ", " << num_var_to_index[aux_var_id] << endl;
+            //cout << "left: " << aux_var_id << ", " << num_var_to_index[aux_var_id] << endl;
             return num_var_to_index[aux_var_id];
         }
-        cout << "right: " << constant_0_id << endl;
+        //cout << "right: " << constant_0_id << endl;
         return constant_0_id;
     }
-    cout << "NO TRIGGER: " << num_var_to_index[parent->get_assignment_axiom_argument(original_index, left)] << endl;
+    //cout << "NO TRIGGER: " << num_var_to_index[parent->get_assignment_axiom_argument(original_index, left)] << endl;
     return num_var_to_index[parent->get_assignment_axiom_argument(original_index, left)];
 }
 
 cal_operator ProjectedTask::get_assignment_axiom_operator(int axiom_index) const {
     assert(axiom_index >= 0 && axiom_index < projected_asgn_axiom_to_original_asgn_axiom.size());
-    cout << "get_assignment_axiom_operator: " << axiom_index << endl;
+    //cout << "get_assignment_axiom_operator: " << axiom_index << endl;
     return parent->get_assignment_axiom_operator(projected_asgn_axiom_to_original_asgn_axiom[axiom_index]);
 }
 
@@ -732,8 +747,8 @@ State ProjectedTask::get_projected_state(const State &state) const {
 State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
                                          const std::vector<ap_float> &num_state,
                                          const numeric_pdbs::Pattern &pattern) const {
-    cout << "debug" <<  endl;
-    //cout << "get_projected_state: " << prop_state << num_state << endl;
+    //cout << "debug" <<  endl;
+    ////cout << "get_projected_state: " << prop_state << num_state << endl;
     vector<int> projected_prop_state(variables.size(), -1);
     vector<bool> set_var(variables.size(), false);
     // copy&map variable values from prop_state
@@ -752,11 +767,11 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         int var = pattern.numeric[i];
         if (var >= num_var_to_index.size()) {
             int derived_var_id = task_proxy->map_to_derived_variable_id(var);
-            cout << "derived_var_id: " << derived_var_id << endl;
+            //cout << "derived_var_id: " << derived_var_id << endl;
             assert(derived_var_id >= 0 && derived_var_id < parent->get_num_numeric_variables());
             int projected_derived_var_id = num_var_to_index[derived_var_id];
             projected_num_state[projected_derived_var_id] = num_state[i];
-            cout << "projected_derived_var_id: " << projected_derived_var_id << endl;
+            //cout << "projected_derived_var_id: " << projected_derived_var_id << endl;
             continue;
         }
         int projected_id = num_var_to_index[var];
@@ -793,7 +808,7 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
             if (get_numeric_var_type(left_var) == numType::constant){
                 left_val = get_initial_state_numeric_values()[left_var];
             } else {
-                cout << "left_var: " << left_var << endl;
+                //cout << "left_var: " << left_var << endl;
                 if (find(aux_numeric_vars.begin(), aux_numeric_vars.end(), numeric_variables[left_var]) != aux_numeric_vars.end()){
                     assert(get_numeric_var_type(left_var) == numType::unknown);
                     left_val = projected_num_state[left_var];
@@ -811,7 +826,7 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         } else if (get_numeric_var_type(right_var) == numType::derived) {
             const vector<ap_float> state_argument = projected_num_state;
             right_val = calculate_derived_variable_value(right_var, state_argument);
-            cout << "right_val: " << right_val << endl;
+            //cout << "right_val: " << right_val << endl;
         } else {
             if (get_numeric_var_type(right_var) == numType::constant){
                 right_val = get_initial_state_numeric_values()[right_var];
@@ -848,7 +863,7 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         int left_var = get_comparison_axiom_argument(ax_id, true);
         int right_var = get_comparison_axiom_argument(ax_id, false);
         comp_operator op = get_comparison_axiom_operator(ax_id);
-        cout << "left_var: " << left_var << ", right_var: " << right_var << endl;
+        //cout << "left_var: " << left_var << ", right_var: " << right_var << endl;
         assert(set_numeric_var[left_var]);
         assert(set_numeric_var[right_var]);
 
@@ -893,8 +908,8 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         int num_pre = get_num_operator_preconditions(ax_id, true);
         for (int pre_id = 0; pre_id < num_pre; ++pre_id){
             Fact pre = get_operator_precondition(ax_id, pre_id, true);
-            //cout << "TEST1: " << pre.var << ", " << pre.value << ", " << projected_prop_state.size() << endl;
-            //cout << "TEST2: " << projected_prop_state[pre.var] << endl;
+            ////cout << "TEST1: " << pre.var << ", " << pre.value << ", " << projected_prop_state.size() << endl;
+            ////cout << "TEST2: " << projected_prop_state[pre.var] << endl;
             assert(set_var[pre.var]);
             assert(projected_prop_state[pre.var] != -1);
             if (projected_prop_state[pre.var] != pre.value){
@@ -926,10 +941,10 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
             projected_prop_state[i] = 0;
         }
     }
-    cout << "projected_prop_state: " << projected_prop_state << endl;
-    cout << "projected_num_state: " << projected_num_state << endl;
-    cout << "pre-projected state: " << prop_state << endl;
-    cout << "pre-projected num state: " << num_state << endl;
+    //cout << "projected_prop_state: " << projected_prop_state << endl;
+    //cout << "projected_num_state: " << projected_num_state << endl;
+    //cout << "pre-projected state: " << prop_state << endl;
+    //cout << "pre-projected num state: " << num_state << endl;
     return {*this, std::move(projected_prop_state), std::move(projected_num_state)};
 }
 }
