@@ -71,17 +71,16 @@ inline bool is_derived_variable(const VariableProxy &var, const TaskProxy &task_
 }
 
 
-ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
-    const numeric_pdbs::Pattern &pattern,
-    const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &numeric_task_proxy)
+ProjectedTask::ProjectedTask(
+        const std::shared_ptr<AbstractTask>& parent,
+        const numeric_pdbs::Pattern &pattern,
+        const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &numeric_task_proxy)
         : DelegatingTask(parent),
           variables(pattern.regular),
           task_proxy(numeric_task_proxy) {
     // TODO precompute & store some of the expensive to compute structures
 
     TaskProxy parent_proxy(*parent);
-
-    
 
     // Initialize variable index mapping
     var_to_index.resize(parent->get_num_variables(), -1);

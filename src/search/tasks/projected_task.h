@@ -39,7 +39,7 @@ private:
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
     int constant_0_id;
 
-   ap_float calculate_derived_variable_value(const int var_id, const std::vector<ap_float> &state) const;
+    ap_float calculate_derived_variable_value(const int var_id, const std::vector<ap_float> &state) const;
 
     Fact project_fact(const Fact &fact) const;
     bool is_fact_relevant(const Fact &fact) const;
@@ -50,14 +50,6 @@ public:
     ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
                   const numeric_pdbs::Pattern &pattern,
                   const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &numeric_task_proxy);
-
-    const std::vector<int> &get_projected_variables() const {
-        return variables;
-    }
-
-    const std::vector<int> &get_projected_numeric_variables() const {
-        return numeric_variables;
-    }
 
     int get_num_variables() const override;
     int get_num_numeric_variables() const override;
