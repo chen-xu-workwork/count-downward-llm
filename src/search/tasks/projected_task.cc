@@ -29,21 +29,20 @@ namespace tasks {
 
 inline void get_regular_numeric_vars_recursive(const TaskProxy &proxy,
                                                const AssignmentAxiomProxy &op,
+                                               vector<int> &aux_numeric_vars,
                                                set<int> &regular_vars) {
     ////cout << "WARNING: Need to check if derived var is aux var and return early" << endl;
     set<int> var_ids;
-    if (op.get_left_variable().get_var_type() == numType::regular || op.get_left_variable().get_var_type() == numType::unknown) {
-        if (op.get_left_variable().get_var_type() == numType::unknown) {
-            //cout << "AUXILIARY: Unknown var type in get_regular_numeric_vars_recursive" << endl;
-        }
+    //cout << "num aux vars: " << aux_numeric_vars << endl;
+    //cout << "left: " << op.get_left_variable().get_id() << ", right: " << op.get_right_variable().get_id() << endl; 
+    if (find(aux_numeric_vars.begin(), aux_numeric_vars.end(), op.get_left_variable().get_var_type()) != aux_numeric_vars.end() ||
+        op.get_left_variable().get_var_type() == numType::regular) {
         regular_vars.insert(op.get_left_variable().get_id());
     } else {
         var_ids.insert(op.get_left_variable().get_id());
     }
-    if (op.get_right_variable().get_var_type() == numType::regular || op.get_left_variable().get_var_type() == numType::unknown) {
-        if (op.get_left_variable().get_var_type() == numType::unknown) {
-            //cout << "AUXILIARY: Unknown var type in get_regular_numeric_vars_recursive" << endl;
-        }
+    if (find(aux_numeric_vars.begin(), aux_numeric_vars.end(), op.get_right_variable().get_var_type()) != aux_numeric_vars.end() ||
+        op.get_right_variable().get_var_type() == numType::regular) {
         regular_vars.insert(op.get_right_variable().get_id());
     } else {
         var_ids.insert(op.get_right_variable().get_id());
@@ -53,7 +52,7 @@ inline void get_regular_numeric_vars_recursive(const TaskProxy &proxy,
         for (const auto &ax: proxy.get_assignment_axioms()) {
             for (int var_id: var_ids) {
                 if (ax.get_assignment_variable().get_id() == var_id) {
-                    get_regular_numeric_vars_recursive(proxy, ax, regular_vars);
+                    get_regular_numeric_vars_recursive(proxy, ax, aux_numeric_vars, regular_vars);
                 }
             }
         }
@@ -136,7 +135,7 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
     for (const auto &op : parent_proxy.get_assignment_axioms()) {
         assert(op.get_assignment_variable().get_var_type() == numType::derived);
         set<int> regular_numeric_vars_in_expression;
-        get_regular_numeric_vars_recursive(parent_proxy, op, regular_numeric_vars_in_expression);
+        get_regular_numeric_vars_recursive(parent_proxy, op, aux_numeric_vars, regular_numeric_vars_in_expression);
         if (std::all_of(regular_numeric_vars_in_expression.begin(),
                         regular_numeric_vars_in_expression.end(),
                         [this] (int var) {
@@ -182,11 +181,11 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
 
 
 
-    //cout << "projected goals: (size): " << projected_goals.size() << ", ";
+    cout << "projected goals: (size): " << projected_goals.size() << endl;
     for (const auto &goal : projected_goals) {
-        //cout << goal.var << ", " << goal.value << " --";
+        cout << goal.var << ", " << goal.value << " --";
     }
-    //cout << endl;
+    cout << endl;
 
     for (const auto &op : parent_proxy.get_comparison_axioms()) {
         assert(op.get_true_fact().get_variable() == op.get_false_fact().get_variable());
@@ -290,7 +289,7 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
     for (const auto &op : parent_proxy.get_assignment_axioms()) {
         if (is_numeric_var_relevant(op.get_assignment_variable().get_id())) {
             set<int> regular_numeric_vars_in_expression;
-            get_regular_numeric_vars_recursive(parent_proxy, op, regular_numeric_vars_in_expression);
+            get_regular_numeric_vars_recursive(parent_proxy, op, aux_numeric_vars, regular_numeric_vars_in_expression);
             // print regular_numeric_vars_in_expression
             if (std::all_of(regular_numeric_vars_in_expression.begin(),
                             regular_numeric_vars_in_expression.end(),
@@ -814,9 +813,9 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
                 left_val = get_initial_state_numeric_values()[left_var];
             } else {
                 //cout << "left_var: " << left_var << endl;
-                if (find(aux_numeric_vars.begin(), aux_numeric_vars.end(), numeric_variables[left_var]) != aux_numeric_vars.end()){
-                    assert(get_numeric_var_type(left_var) == numType::unknown);
+                if (find(aux_numeric_vars.begin(), aux_numeric_vars.end(), numeric_variables[left_var]) != aux_numeric_vars.end()) {
                     left_val = projected_num_state[left_var];
+                    assert(op == cal_operator::sum);
                 } else {
                     assert(get_numeric_var_type(left_var) == numType::instrumentation);
                 }
@@ -946,10 +945,10 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
             projected_prop_state[i] = 0;
         }
     }
-    //cout << "projected_prop_state: " << projected_prop_state << endl;
-    //cout << "projected_num_state: " << projected_num_state << endl;
-    //cout << "pre-projected state: " << prop_state << endl;
-    //cout << "pre-projected num state: " << num_state << endl;
+    cout << "projected_prop_state: " << projected_prop_state << endl;
+    cout << "projected_num_state: " << projected_num_state << endl;
+    cout << "pre-projected state: " << prop_state << endl;
+    cout << "pre-projected num state: " << num_state << endl;
     return {*this, std::move(projected_prop_state), std::move(projected_num_state)};
 }
 }
