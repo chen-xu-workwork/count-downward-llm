@@ -713,6 +713,11 @@ int ProjectedTask::get_assignment_axiom_argument(int axiom_index,
 }
 
 cal_operator ProjectedTask::get_assignment_axiom_operator(int axiom_index) const {
+    int eff = parent->get_assignment_axiom_effect(projected_asgn_axiom_to_original_asgn_axiom[axiom_index]);
+    if (task_proxy->map_to_auxiliary_variable_id(eff) != -1) {
+        //cout << "MAP TO SUM: " << eff << endl;
+        return cal_operator::sum;
+    }
     assert(axiom_index >= 0 && axiom_index < projected_asgn_axiom_to_original_asgn_axiom.size());
     //cout << "get_assignment_axiom_operator: " << axiom_index << endl;
     return parent->get_assignment_axiom_operator(projected_asgn_axiom_to_original_asgn_axiom[axiom_index]);
