@@ -299,7 +299,7 @@ int NumericTaskProxy::map_to_derived_variable_id(int var_id) const {
 
 int NumericTaskProxy::map_to_auxiliary_variable_id(int var_id) const {
     assert(var_id >= 0);
-    if (var_id >= static_cast<int>(aux_id_to_derived_id.size())){
+    if (var_id >= static_cast<int>(derived_id_to_aux_id.size())){
         return -1;
     }
     return derived_id_to_aux_id[var_id];
