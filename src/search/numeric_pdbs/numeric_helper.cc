@@ -220,6 +220,8 @@ shared_ptr<ArithmeticExpressionVar> NumericTaskProxy::create_auxiliary_variable(
     }
     derived_id_to_aux_id[derived_var_id] = var_id;
 
+    //cout << "CREATE - " << "Aux VAR ID: " << var_id << ", derived var ID: " << derived_var_id << endl;
+
     return make_shared<ArithmeticExpressionVar>(var_id);
 }
 

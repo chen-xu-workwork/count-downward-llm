@@ -112,10 +112,8 @@ void NumericTaskProxy::build_numeric_variables(const TaskProxy &task_proxy) {
 
 void NumericTaskProxy::build_artificial_variables(const TaskProxy &task_proxy) {
   // variables initialization
-  cout << "test" << endl;
   NumericVariablesProxy num_variables = task_proxy.get_numeric_variables();
   AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms(); 
-  cout << "test2" << endl;
   artificial_variables.assign(num_variables.size(),
                               LinearNumericCondition(n_numeric_variables));
   for (size_t num_id = 0; num_id < num_variables.size(); ++num_id) {
@@ -143,12 +141,6 @@ void NumericTaskProxy::build_artificial_variables(const TaskProxy &task_proxy) {
     int lhs = assignment_axioms[ax_id].get_left_variable().get_id();
     int rhs = assignment_axioms[ax_id].get_right_variable().get_id();
     
-    cout << "print axioms: " << assignment_axioms.size() << endl;
-    for (const auto axiom : assignment_axioms) {
-      cout << axiom.get_id() << ", ";
-    }
-    cout << endl;
-    cout << assignment_axioms[ax_id].get_arithmetic_operator_type() << ", " << assignment_axioms[ax_id].get_assignment_variable().get_id() << endl;;
     switch (assignment_axioms[ax_id].get_arithmetic_operator_type()) {
       case sum:
         for (size_t num_id = 0; num_id < n_numeric_variables; ++num_id) {
@@ -162,7 +154,6 @@ void NumericTaskProxy::build_artificial_variables(const TaskProxy &task_proxy) {
         break;
       case diff:
         for (size_t num_id = 0; num_id < n_numeric_variables; ++num_id) {
-          cout << "right before error: " << lhs << ", " << rhs << ", " << affected_variable << endl;
           artificial_variables[affected_variable].coefficients[num_id] =
               artificial_variables[lhs].coefficients[num_id] -
               artificial_variables[rhs].coefficients[num_id];

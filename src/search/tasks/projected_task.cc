@@ -30,6 +30,7 @@ namespace tasks {
 inline void get_regular_numeric_vars_recursive(const TaskProxy &proxy,
                                                const AssignmentAxiomProxy &op,
                                                set<int> &regular_vars) {
+    //cout << "WARNING: Need to check if derived var is aux var and return early" << endl;
     set<int> var_ids;
     if (op.get_left_variable().get_var_type() == numType::regular){
         regular_vars.insert(op.get_left_variable().get_id());
@@ -89,15 +90,17 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
     num_var_to_index.resize(parent->get_num_numeric_variables(), -1);
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
         int var_id = pattern.numeric[i];
-        if (pattern.numeric[i] >= num_var_to_index.size()) {
+        if (pattern.numeric[i] >= parent->get_num_numeric_variables()) {
             // this is an auxiliary variable added by numeric_pdb_helper::NumericTaskProxy
             // TODO check if these are handled correctly everywhere
 
-            num_var_to_index.resize(pattern.numeric[i] + 1, -1);
-            aux_numeric_vars.push_back(pattern.numeric[i]);
+            if (num_var_to_index.size() <= pattern.numeric[i]) {
+                num_var_to_index.resize(pattern.numeric[i] + 1, -1);
+            }
+            //var_id = task_proxy->map_to_derived_variable_id(pattern.numeric[i]);
+            aux_numeric_vars.push_back(var_id);
 
-            var_id = task_proxy->map_to_derived_variable_id(pattern.numeric[i]);
-            cout << "Should be mapped: " << task_proxy->map_to_derived_variable_id(pattern.numeric[i]) << endl;
+            cout << "Should be mapped: " << pattern.numeric[i] << endl;
         }
         numeric_variables.push_back(pattern.numeric[i]);
         num_var_to_index[var_id] = i;
@@ -112,6 +115,18 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
         }
     }
 
+    cout << "Debug constants: " << endl;
+    for (const auto &num_var : parent_proxy.get_numeric_variables()) {
+        if (num_var.get_var_type() == numType::constant) {
+            cout << num_var.get_id() << ", " << num_var.get_initial_state_value() << endl;
+            if (num_var.get_initial_state_value() == 0) {
+                constant_0_id = num_var_to_index[num_var.get_id()];
+                cout << "constant 0 id: " << constant_0_id << endl;
+                break;
+            }
+        }
+    }
+
     for (const auto &op : parent_proxy.get_assignment_axioms()) {
         assert(op.get_assignment_variable().get_var_type() == numType::derived);
         set<int> regular_numeric_vars_in_expression;
@@ -121,10 +136,15 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
                         [this] (int var) {
                             return is_numeric_var_relevant(var);})) {
             num_var_to_index[op.get_assignment_variable().get_id()] = numeric_variables.size();
+            cout << "Add new ass var: " << op.get_assignment_variable().get_id() << ", " << regular_numeric_vars_in_expression << endl;
             numeric_variables.push_back(op.get_assignment_variable().get_id());
         } else if (task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id()) != -1) {
-            num_var_to_index[op.get_assignment_variable().get_id()] = numeric_variables.size();
-            numeric_variables.push_back(op.get_assignment_variable().get_id());
+            int ass_var = task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id());
+            if (num_var_to_index[ass_var] != -1) {
+                cout << "Add new ass var: " << op.get_assignment_variable().get_id() << endl;
+                num_var_to_index[op.get_assignment_variable().get_id()] = numeric_variables.size();
+                numeric_variables.push_back(op.get_assignment_variable().get_id());
+            }
         } 
         //cout << "map to aux var: " << task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id()) << endl;
         
@@ -189,15 +209,20 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
     assert(projected_numeric_initial_state.empty());
     for (int var_id : numeric_variables) {
         if (var_id >= original_numeric_initial_state.size()) {
-            // we got rid of aux vars. this branch should never be reached
-            cout << "WARNING: should not be here" << endl;
-            projected_numeric_initial_state.push_back(-1);
+            int derived_var_id = task_proxy->map_to_derived_variable_id(var_id);
+            assert(derived_var_id < original_numeric_initial_state.size());
+            projected_numeric_initial_state.push_back(original_numeric_initial_state[derived_var_id]);
             continue;
         }
         projected_numeric_initial_state.push_back(original_numeric_initial_state[var_id]);
     }
 
-//    cout << "initial state: " << projected_initial_state << projected_numeric_initial_state << endl;
+    cout << "PROJ. initial numeric state: ";
+    for (int i = 0; i < projected_numeric_initial_state.size(); i++) {
+        cout << "(" << i << ", " << projected_numeric_initial_state[i] << ")";
+    }
+    cout << endl;
+    cout << numeric_variables.size() << endl;
 
     // project operators
     for (const auto &op : parent_proxy.get_operators()) {
@@ -250,15 +275,25 @@ ProjectedTask::ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
                             regular_numeric_vars_in_expression.end(),
                             [this] (int var) {
                                 return is_numeric_var_relevant(var);})) {
+                cout << "[NON-SEGFAULT DEBUG]: " << op.get_assignment_variable().get_id() << ", " << op.get_id() << ", " << projected_asgn_axiom_to_original_asgn_axiom.size()  << endl;
                 projected_asgn_axiom_to_original_asgn_axiom.push_back(op.get_id());
-                cout << op.get_assignment_variable().get_id() << ", " << op.get_id() << endl;
             } else if (task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id()) != -1) {
-                //TODO: next line results in a segfault later on.... why?
-                projected_asgn_axiom_to_original_asgn_axiom.push_back(op.get_id());
-                cout << op.get_assignment_variable().get_id() << ", " << op.get_id() << endl;
+                int ass_var = task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id());
+                if (num_var_to_index[ass_var] != -1) {
+                    //TODO: next line results in a segfault later on.... why?
+                    cout << "[SEGFAULT DEBUG]: " << ass_var << ", " << op.get_id() << ", " << projected_asgn_axiom_to_original_asgn_axiom.size() << endl;
+                    projected_asgn_axiom_to_original_asgn_axiom.push_back(op.get_id());
+                }
+                
             } 
         }
     }
+
+    cout << "Numeric vars: " << numeric_variables << endl;
+    for (int i = 0; i < num_var_to_index.size(); i++) {
+        cout << "(" << i << ", " << num_var_to_index[i] << ")";
+    }
+    cout << endl;
 }
 
 float ProjectedTask::calculate_derived_variable_value(const int var_id, const vector<ap_float> &state) const {
@@ -632,6 +667,8 @@ int ProjectedTask::get_assignment_axiom_effect(int axiom_index) const {
     assert(axiom_index >= 0 && axiom_index < projected_asgn_axiom_to_original_asgn_axiom.size());
     cout << "get_assignment_axiom_effect: " << axiom_index << endl;
     int original_index = projected_asgn_axiom_to_original_asgn_axiom[axiom_index];
+    int eff = parent->get_assignment_axiom_effect(original_index);
+    cout << "get_assignment_axiom_effect: " << original_index << ", " << eff << endl;
     return num_var_to_index[parent->get_assignment_axiom_effect(original_index)];
 }
 
@@ -639,7 +676,18 @@ int ProjectedTask::get_assignment_axiom_argument(int axiom_index,
                                                  bool left) const {
     assert(axiom_index >= 0 && axiom_index < projected_asgn_axiom_to_original_asgn_axiom.size());
     int original_index = projected_asgn_axiom_to_original_asgn_axiom[axiom_index];
-    cout << "get_assignment_axiom_argument: " << original_index << endl;
+    int effect_var = parent->get_assignment_axiom_effect(original_index);
+    int aux_var_id = task_proxy->map_to_auxiliary_variable_id(effect_var);
+    if (aux_var_id != -1 && num_var_to_index[aux_var_id] != -1) { //check if aux eff is aux var and if it is in pattern
+        cout << "TRIGGER" << endl;
+        if (left) {
+            cout << "left: " << aux_var_id << ", " << num_var_to_index[aux_var_id] << endl;
+            return num_var_to_index[aux_var_id];
+        }
+        cout << "right: " << constant_0_id << endl;
+        return constant_0_id;
+    }
+    cout << "NO TRIGGER: " << num_var_to_index[parent->get_assignment_axiom_argument(original_index, left)] << endl;
     return num_var_to_index[parent->get_assignment_axiom_argument(original_index, left)];
 }
 
