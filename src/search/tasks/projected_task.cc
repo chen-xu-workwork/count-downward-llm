@@ -1,6 +1,7 @@
 #include "projected_task.h"
 
 #include "../numeric_pdbs/types.h"
+#include "../state_registry.h"
 #include "../task_proxy.h"
 #include "../utils/logging.h"
 
@@ -11,53 +12,6 @@
 using namespace std;
 
 namespace tasks {
-
-//inline set<int> get_derived_var_ids(const TaskProxy &proxy) {
-//    set<int> derived_var_ids;
-//    for (const auto &axiom : proxy.get_axioms()) {
-//        for (const auto &eff : axiom.get_effects()) {
-//            derived_var_ids.insert(eff.get_fact().get_variable().get_id());
-//        }
-//    }
-//    for (const auto &axiom : proxy.get_comparison_axioms()) {
-//        const auto &eff = axiom.get_true_fact();
-//        assert(axiom.get_false_fact().get_variable() == eff.get_variable());
-//        derived_var_ids.insert(eff.get_variable().get_id());
-//    }
-//    return derived_var_ids;
-//}
-
-inline void get_regular_numeric_vars_recursive(const TaskProxy &proxy,
-                                               const AssignmentAxiomProxy &op,
-                                               vector<int> &aux_numeric_vars,
-                                               set<int> &regular_vars) {
-    ////cout << "WARNING: Need to check if derived var is aux var and return early" << endl;
-    set<int> var_ids;
-    //cout << "num aux vars: " << aux_numeric_vars << endl;
-    //cout << "left: " << op.get_left_variable().get_id() << ", right: " << op.get_right_variable().get_id() << endl; 
-    if (find(aux_numeric_vars.begin(), aux_numeric_vars.end(), op.get_left_variable().get_var_type()) != aux_numeric_vars.end() ||
-        op.get_left_variable().get_var_type() == numType::regular) {
-        regular_vars.insert(op.get_left_variable().get_id());
-    } else {
-        var_ids.insert(op.get_left_variable().get_id());
-    }
-    if (find(aux_numeric_vars.begin(), aux_numeric_vars.end(), op.get_right_variable().get_var_type()) != aux_numeric_vars.end() ||
-        op.get_right_variable().get_var_type() == numType::regular) {
-        regular_vars.insert(op.get_right_variable().get_id());
-    } else {
-        var_ids.insert(op.get_right_variable().get_id());
-    }
-
-    if (!var_ids.empty()) {
-        for (const auto &ax: proxy.get_assignment_axioms()) {
-            for (int var_id: var_ids) {
-                if (ax.get_assignment_variable().get_id() == var_id) {
-                    get_regular_numeric_vars_recursive(proxy, ax, aux_numeric_vars, regular_vars);
-                }
-            }
-        }
-    }
-}
 
 inline bool is_derived_variable(const TaskProxy &task_proxy, const VariableProxy &var) {
     for (auto ax : task_proxy.get_axioms()){
@@ -82,99 +36,82 @@ ProjectedTask::ProjectedTask(
 
     TaskProxy parent_proxy(*parent);
 
-    // Initialize variable index mapping
+    // Initialize variable index mapping for pattern variables
     var_to_index.resize(parent->get_num_variables(), -1);
-    //    //cout << "variables:" << endl;
+    //cout << "variables:" << endl;
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
-        var_to_index[pattern.regular[i]] = i;
-        //        //cout << parent_proxy.get_variables()[pattern.regular[i]].get_fact(0).get_name() << endl;
+        var_to_index[pattern.regular[i]] = static_cast<int>(i);
+        //cout << parent_proxy.get_variables()[pattern.regular[i]].get_fact(0).get_name() << endl;
     }
 
-    //init numeric variables here. Cannot be done in the constructor because we want to filter aux vars
+    // init numeric variables from pattern here
     num_var_to_index.resize(parent->get_num_numeric_variables(), -1);
+    is_auxiliary_num_var.resize(parent->get_num_numeric_variables(), false);
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
         int var_id = pattern.numeric[i];
         if (var_id >= parent->get_num_numeric_variables()) {
             // this is an auxiliary variable added by numeric_pdb_helper::NumericTaskProxy
-            // TODO check if these are handled correctly everywhere
-
-            if (static_cast<int>(num_var_to_index.size()) <= var_id) {
-                num_var_to_index.resize(var_id + 1, -1);
-            }
-            //var_id = task_proxy->map_to_derived_variable_id(var_id);
-            aux_numeric_vars.push_back(var_id);
-
-            //cout << "Should be mapped: " << var_id << endl;
+            var_id = task_proxy->map_to_derived_variable_id(var_id);
+            is_auxiliary_num_var[i] = true;
         }
-        numeric_variables.push_back(var_id); // TODO instead of var_id, I think we should push the mapped derived ID from the NumericTaskProxy
-        num_var_to_index[var_id] = i;
+        numeric_variables.push_back(var_id);
+        assert(num_var_to_index[var_id] == -1);
+        num_var_to_index[var_id] = static_cast<int>(i);
         //cout << "numeric var: " << var_id << endl;
-        //        //cout << parent_proxy.get_numeric_variables()[var_id].get_name() << endl;
+        //cout << parent_proxy.get_numeric_variables()[var_id].get_name() << endl;
     }
 
     for (const auto &num_var : parent_proxy.get_numeric_variables()) {
         if (num_var.get_var_type() == numType::instrumentation || num_var.get_var_type() == numType::constant) {
-            num_var_to_index[num_var.get_id()] = numeric_variables.size();
+            num_var_to_index[num_var.get_id()] = static_cast<int>(numeric_variables.size());
             numeric_variables.push_back(num_var.get_id());
         }
     }
 
-    constant_0_id = -1;
-    // TODO this does not work in instances that don't have 0 as a constant!!
-    //cout << "Debug constants: " << endl;
-    for (const auto &num_var : parent_proxy.get_numeric_variables()) {
-        if (num_var.get_var_type() == numType::constant) {
-            //cout << num_var.get_id() << ", " << num_var.get_initial_state_value() << endl;
-            if (num_var.get_initial_state_value() == 0) {
-                constant_0_id = num_var_to_index[num_var.get_id()];
-                //cout << "constant 0 id: " << constant_0_id << endl;
-                break;
-            }
-        }
-    }
-    assert(constant_0_id != -1);
-
     for (const auto &op : parent_proxy.get_assignment_axioms()) {
         assert(op.get_assignment_variable().get_var_type() == numType::derived);
         set<int> regular_numeric_vars_in_expression;
-        get_regular_numeric_vars_recursive(parent_proxy, op, aux_numeric_vars, regular_numeric_vars_in_expression);
+        get_regular_numeric_vars_recursive(parent_proxy, op, regular_numeric_vars_in_expression);
         if (std::all_of(regular_numeric_vars_in_expression.begin(),
                         regular_numeric_vars_in_expression.end(),
                         [this] (int var) {
                             return is_numeric_var_relevant(var);})) {
-            num_var_to_index[op.get_assignment_variable().get_id()] = static_cast<int>(numeric_variables.size());
-            //cout << "Add new ass var: " << op.get_assignment_variable().get_id() << ", " << regular_numeric_vars_in_expression << endl;
-            numeric_variables.push_back(op.get_assignment_variable().get_id());
-        } else if (task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id()) != -1) {
-            // TODO why is this an "else" case? we should do this only if the variables are relevant
-            // TODO for aux variables x, we need to remove the assign axiom that sets their value (e.g. x = y + z); this does not include changes (e.g. x += 2)
-            int ass_var = task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id());
-            if (num_var_to_index.size() <= ass_var) {
-                num_var_to_index.resize(ass_var + 1, -1);
-            }
-            if (num_var_to_index[ass_var] != -1) {
-                //cout << "Add new ass var: " << op.get_assignment_variable().get_id() << endl;
-                num_var_to_index[op.get_assignment_variable().get_id()] = static_cast<int>(numeric_variables.size());
-                numeric_variables.push_back(op.get_assignment_variable().get_id());
-            }
-        } 
-        ////cout << "map to aux var: " << task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id()) << endl;
-        
-    }    
-    
-    for (const OperatorProxy  &var : parent_proxy.get_axioms()) {
-        vector<int> var_ids;
-        for (const FactProxy &pre : var.get_preconditions()){
-            if (is_fact_relevant(pre)) { // TODO why this check? don't we need to always include all axioms, as the only thing they do is encode (numeric) goals
-                var_to_index[pre.get_variable().get_id()] = static_cast<int>(variables.size());
-                variables.push_back(pre.get_variable().get_id());
+            int var_id = op.get_assignment_variable().get_id();
+            num_var_to_index[var_id] = static_cast<int>(numeric_variables.size());
+            //cout << "Add new ass var: " << var_id << ", " << regular_numeric_vars_in_expression << endl;
+            numeric_variables.push_back(var_id);
+        }
+    }
+
+    // find relevant variables that are results of comparison axioms
+    for (const auto &op : parent_proxy.get_comparison_axioms()) {
+        assert(op.get_true_fact().get_variable() == op.get_false_fact().get_variable());
+        int lhs = op.get_left_variable().get_id();
+        int rhs = op.get_right_variable().get_id();
+        if (is_numeric_var_relevant(lhs) &&
+            is_numeric_var_relevant(rhs)) {
+            int var_id = op.get_true_fact().get_variable().get_id();
+            var_to_index[var_id] = static_cast<int>(variables.size());
+            variables.push_back(var_id);
+        }
+    }
+
+    // check for relevant goals
+    for (const auto &axiom : parent_proxy.get_axioms()) {
+        assert(axiom.get_preconditions().empty() || axiom.get_effects().size() == 1);
+        // this axiom encodes a set of goal facts (possibly propositional and numeric)
+        // if one of the conditions, i.e., the actual goals, is relevant, make the effect relevant
+        bool is_relevant = false;
+        for (auto pre : axiom.get_preconditions()) {
+            if (is_fact_relevant(pre)) {
+                is_relevant = true;
             }
         }
-        for (const auto &eff : var.get_effects()){
-            if (is_fact_relevant(eff.get_fact())){ // TODO why this check? don't we need to always include all axioms, as the only thing they do is encode (numeric) goals
-                var_to_index[eff.get_fact().get_variable().get_id()] = static_cast<int>(variables.size());
-                variables.push_back(eff.get_fact().get_variable().get_id());
-            }
+        if (is_relevant){
+            assert(axiom.get_effects().size() == 1);
+            int var_id = axiom.get_effects()[0].get_fact().get_variable().get_id();
+            var_to_index[var_id] = static_cast<int>(variables.size());
+            variables.push_back(var_id);
         }
     }
 
@@ -184,60 +121,14 @@ ProjectedTask::ProjectedTask(
         //cout << "goal id: " << original_fact.var << endl;
         if (is_fact_relevant(original_fact)) {
             projected_goals.push_back(project_fact(original_fact));
-        } else if (is_derived_variable(parent_proxy, parent_proxy.get_variables()[original_fact.var])) {
-            // if there are numeric goals in the pattern, then we add the derived
-            // variable that represents the numeric goals here
-            var_to_index[original_fact.var] = static_cast<int>(variables.size());
-            variables.push_back(original_fact.var);
-            projected_goals.push_back(project_fact(original_fact));
         }
     }
-
-//    for (auto axiom : parent_proxy.get_axioms()) {
-//        assert(axiom.get_preconditions().empty() || axiom.get_effects().size() == 1);
-//        if (!axiom.get_preconditions().empty()) {
-//            for (auto pre: axiom.get_preconditions()) {
-//                //cout << "axiom precondition: " << pre.get_variable().get_id() << endl;
-//            }
-//        }
-//    }
 
 //    cout << "projected goals: (size): " << projected_goals.size() << endl;
 //    for (const auto &goal : projected_goals) {
 //        cout << goal.var << ", " << goal.value << " --";
 //    }
 //    cout << endl;
-
-    for (const auto &op : parent_proxy.get_comparison_axioms()) {
-        assert(op.get_true_fact().get_variable() == op.get_false_fact().get_variable());
-        int lhs = op.get_left_variable().get_id();
-        int rhs = op.get_right_variable().get_id();
-        if (is_numeric_var_relevant(lhs) &&
-            is_numeric_var_relevant(rhs)) {
-
-            // TODO order might be messed up here; don't we need this when checking is_relevant_var in the goal loop?
-            var_to_index[op.get_true_fact().get_variable().get_id()] = variables.size();
-            variables.push_back(op.get_true_fact().get_variable().get_id());
-        }
-    }
-
-    // TODO this is not doing anything!?
-//    for (const OperatorProxy  &var : parent_proxy.get_axioms()) {
-//        vector<int> var_ids;
-//        for (const auto &eff : var.get_effects()){
-//            if (is_fact_relevant(eff.get_fact())){
-//                var_ids.push_back(eff.get_fact().get_variable().get_id());
-//            }
-//        }
-//        for (const FactProxy &pre : var.get_preconditions()){
-//            if (is_fact_relevant(pre)) {
-//                var_ids.push_back(pre.get_variable().get_id());
-//            }
-//        }
-//    }
-
-
-
 
     // project initial state
     vector<int> original_initial_state = parent->get_initial_state_values();
@@ -247,18 +138,12 @@ ProjectedTask::ProjectedTask(
     }
 
     // project numeric initial state
-    vector<ap_float> original_numeric_initial_state = parent->get_initial_state_numeric_values();
+    // NOTE this might break if parent_task is not the root task
+    vector<ap_float> original_numeric_initial_state = g_state_registry->get_numeric_vars(g_initial_state());
     assert(projected_numeric_initial_state.empty());
     for (int var_id : numeric_variables) {
-        if (var_id >= static_cast<int>(original_numeric_initial_state.size())) {
-            int derived_var_id = task_proxy->map_to_derived_variable_id(var_id);
-            assert(derived_var_id < static_cast<int>(original_numeric_initial_state.size()));
-            // TODO this does not make sense.. we need to evaluate the axiom on the initial state (recursively!)
-            //  thinking about it again.. might work; check if all axioms are evaluated on the initial state
-            projected_numeric_initial_state.push_back(original_numeric_initial_state[derived_var_id]);
-        } else {
-            projected_numeric_initial_state.push_back(original_numeric_initial_state[var_id]);
-        }
+        // assignment axioms have been evaluated on the numeric state from the state registry
+        projected_numeric_initial_state.push_back(original_numeric_initial_state[var_id]);
     }
 
     //cout << "PROJ. initial numeric state: ";
@@ -269,9 +154,9 @@ ProjectedTask::ProjectedTask(
     //cout << numeric_variables.size() << endl;
 
     // project operators
-    for (const auto &op : parent_proxy.get_operators()) {
+    for (auto op : parent_proxy.get_operators()) {
         bool relevant = false;
-        for (const auto &eff : op.get_effects()){
+        for (auto eff : op.get_effects()){
             if (is_fact_relevant(eff.get_fact())) {
                 projected_op_to_original_op.push_back(op.get_id());
                 relevant = true;
@@ -279,7 +164,7 @@ ProjectedTask::ProjectedTask(
             }
         }
         if (!relevant){
-            for (const auto &eff : op.get_ass_effects()){
+            for (auto eff : op.get_ass_effects()){
                 int eff_var_id = eff.get_assignment().get_affected_variable().get_id();
                 if (is_numeric_var_relevant(eff_var_id)){
                     projected_op_to_original_op.push_back(op.get_id());
@@ -290,7 +175,7 @@ ProjectedTask::ProjectedTask(
     }
 
     // project axioms
-    for (const auto &op : parent_proxy.get_axioms()) {
+    for (auto op : parent_proxy.get_axioms()) {
         for (const auto &eff : op.get_effects()){
             if (is_fact_relevant(eff.get_fact())) {
                 projected_axiom_to_original_axiom.push_back(op.get_id());
@@ -300,7 +185,7 @@ ProjectedTask::ProjectedTask(
     }
 
     // project comparison axioms
-    for (const auto &op : parent_proxy.get_comparison_axioms()) {
+    for (auto op : parent_proxy.get_comparison_axioms()) {
         assert(op.get_true_fact().get_variable() == op.get_false_fact().get_variable());
         if (is_fact_relevant(op.get_true_fact()) &&
             is_numeric_var_relevant(op.get_left_variable().get_id()) &&
@@ -310,10 +195,15 @@ ProjectedTask::ProjectedTask(
     }
 
     // project assignment axioms
-    for (const auto &op : parent_proxy.get_assignment_axioms()) {
+    for (auto op : parent_proxy.get_assignment_axioms()) {
+        if (is_auxiliary_num_var[num_var_to_index[op.get_assignment_variable().get_id()]]){
+            // for auxiliary variables x, we need to remove the assign axiom that sets
+            // their value (e.g. x = y + z); this does not include changes (e.g. x += 2)
+            continue;
+        }
         if (is_numeric_var_relevant(op.get_assignment_variable().get_id())) {
             set<int> regular_numeric_vars_in_expression;
-            get_regular_numeric_vars_recursive(parent_proxy, op, aux_numeric_vars, regular_numeric_vars_in_expression);
+            get_regular_numeric_vars_recursive(parent_proxy, op, regular_numeric_vars_in_expression);
             // print regular_numeric_vars_in_expression
             if (std::all_of(regular_numeric_vars_in_expression.begin(),
                             regular_numeric_vars_in_expression.end(),
@@ -321,60 +211,43 @@ ProjectedTask::ProjectedTask(
                                 return is_numeric_var_relevant(var);})) {
                 //cout << "[NON-SEGFAULT DEBUG]: " << op.get_assignment_variable().get_id() << ", " << op.get_id() << ", " << projected_asgn_axiom_to_original_asgn_axiom.size()  << endl;
                 projected_asgn_axiom_to_original_asgn_axiom.push_back(op.get_id());
-            } else if (task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id()) != -1) {
-                int ass_var = task_proxy->map_to_auxiliary_variable_id(op.get_assignment_variable().get_id());
-                if (num_var_to_index[ass_var] != -1) {
-                    //TODO: next line results in a segfault later on.... why?
-                    //cout << "[SEGFAULT DEBUG]: " << ass_var << ", " << op.get_id() << ", " << projected_asgn_axiom_to_original_asgn_axiom.size() << endl;
-                    projected_asgn_axiom_to_original_asgn_axiom.push_back(op.get_id());
-                }
-                
-            } 
+            }
         }
     }
 
     //cout << "Numeric vars: " << numeric_variables << endl;
-    for (int i = 0; i < num_var_to_index.size(); i++) {
+//    for (int i = 0; i < num_var_to_index.size(); i++) {
         //cout << "(" << i << ", " << num_var_to_index[i] << ")";
-    }
+//    }
     //cout << endl;
 }
 
-ap_float ProjectedTask::calculate_derived_variable_value(const int var_id, const vector<ap_float> &state) const {
-    //Input is id of projected variable
-
-    numType var_type = get_numeric_var_type(var_id);
-    if (var_type == numType::constant) {
-        return get_initial_state_numeric_values()[var_id];
-    } else if (var_type == numType::regular) {
-        return state[var_id];
-    } 
-    assert(var_type == numType::derived);
-
-    // TODO accessing an axiom with an ID of a variable cannot work!
-    int eff_var = get_assignment_axiom_effect(var_id);
-    int left_var = get_assignment_axiom_argument(var_id, true);
-    int right_var = get_assignment_axiom_argument(var_id, false);
-    //TODO: Make check that lhs and rhs are relevant
-    //cout << "calculate_derived_variable_value: " << var_id << ", " << left_var << ", " << right_var << endl;
-    cal_operator op = get_assignment_axiom_operator(var_id);
-
-    switch (op) {
-        case cal_operator::sum:
-            return state[left_var] + state[right_var];
-        case cal_operator::diff:
-            return state[left_var] - state[right_var];
-        case cal_operator::mult:
-            return state[left_var] * state[right_var];
-        case cal_operator::divi:
-            if (state[right_var] == 0) {
-                throw runtime_error("Division by zero in derived variable calculation");
-            }
-            return state[left_var] / state[right_var];
-        default:
-            throw runtime_error("Unknown operator in derived variable calculation");
+void ProjectedTask::get_regular_numeric_vars_recursive(const TaskProxy &proxy,
+                                                       const AssignmentAxiomProxy &op,
+                                                       set<int> &regular_vars) const {
+    set<int> var_ids;
+    if (op.get_left_variable().get_var_type() == numType::regular ||
+        is_auxiliary_num_var[num_var_to_index[op.get_left_variable().get_id()]]) {
+        regular_vars.insert(op.get_left_variable().get_id());
+    } else {
+        var_ids.insert(op.get_left_variable().get_id());
     }
-    throw runtime_error("Should be unreachable");
+    if (op.get_right_variable().get_var_type() == numType::regular ||
+        is_auxiliary_num_var[num_var_to_index[op.get_right_variable().get_id()]]) {
+        regular_vars.insert(op.get_right_variable().get_id());
+    } else {
+        var_ids.insert(op.get_right_variable().get_id());
+    }
+
+    if (!var_ids.empty()) {
+        for (const auto &ax: proxy.get_assignment_axioms()) {
+            for (int var_id: var_ids) {
+                if (ax.get_assignment_variable().get_id() == var_id) {
+                    get_regular_numeric_vars_recursive(proxy, ax, regular_vars);
+                }
+            }
+        }
+    }
 }
 
 Fact ProjectedTask::project_fact(const Fact &fact) const {
@@ -408,28 +281,28 @@ int ProjectedTask::get_num_numeric_variables() const {
 }
 
 const string& ProjectedTask::get_variable_name(int var) const {
-    assert(var >= 0 && var < variables.size());
+    assert(var >= 0 && var < static_cast<int>(variables.size()));
     return parent->get_variable_name(variables[var]);
 }
 
 const string& ProjectedTask::get_numeric_variable_name(int var) const {
-    assert(var >= 0 && var < numeric_variables.size());
+    assert(var >= 0 && var < static_cast<int>(numeric_variables.size()));
     return parent->get_numeric_variable_name(numeric_variables[var]);
 }
 
 int ProjectedTask::get_variable_domain_size(int var) const {
-    assert(var >= 0 && var < variables.size());
+    assert(var >= 0 && var < static_cast<int>(variables.size()));
     return parent->get_variable_domain_size(variables[var]);
 }
 
 const string &ProjectedTask::get_fact_name(const Fact &fact) const {
-    assert(fact.var >= 0 && fact.var < variables.size());
+    assert(fact.var >= 0 && fact.var < static_cast<int>(variables.size()));
     return parent->get_fact_name({variables[fact.var], fact.value});
 }
 
 bool ProjectedTask::are_facts_mutex(const Fact &fact1, const Fact &fact2) const {
-    assert(fact1.var >= 0 && fact1.var < variables.size());
-    assert(fact2.var >= 0 && fact2.var < variables.size());
+    assert(fact1.var >= 0 && fact1.var < static_cast<int>(variables.size()));
+    assert(fact2.var >= 0 && fact2.var < static_cast<int>(variables.size()));
     return parent->are_facts_mutex({variables[fact1.var], fact1.value}, {variables[fact2.var], fact2.value});
 }
 
@@ -550,7 +423,7 @@ int ProjectedTask::get_num_goals() const {
 }
 
 Fact ProjectedTask::get_goal_fact(int index) const {
-    assert(index >= 0 && index < projected_goals.size());
+    assert(index >= 0 && index < static_cast<int>(projected_goals.size()));
     return projected_goals[index];
 }
 
@@ -565,20 +438,22 @@ vector<ap_float> ProjectedTask::get_initial_state_numeric_values() const {
 vector<int> ProjectedTask::get_state_values(const GlobalState &global_state) const {
     vector<int> state_values(variables.size(), -1);
     vector<int> original_state_values(parent->get_state_values(global_state));
-    int i = 0;
+    size_t i = 0;
     for (int var : variables){
         state_values[i++] = original_state_values[var];
     }
+    assert(i == state_values.size());
     return state_values;
 }
 
 vector<ap_float> ProjectedTask::get_numeric_state_values(const GlobalState &global_state) const {
     vector<ap_float> state_values(numeric_variables.size());
     vector<ap_float> original_state_values(parent->get_numeric_state_values(global_state));
-    int i = 0;
+    size_t i = 0;
     for (int var : numeric_variables){
         state_values[i++] = original_state_values[var];
     }
+    assert(i == state_values.size());
     return state_values;
 }
 
@@ -602,7 +477,7 @@ int ProjectedTask::get_num_operator_ass_effects(int op_index,
 }
 
 int ProjectedTask::get_num_operator_effect_conditions(
-        int op_index, int eff_index, bool is_axiom) const {
+        int /*op_index*/, int /*eff_index*/, bool /*is_axiom*/) const {
     // TODO implement this properly
     return 0;
 //    int original_index;
@@ -625,7 +500,7 @@ int ProjectedTask::get_num_operator_effect_conditions(
 }
 
 int ProjectedTask::get_num_operator_ass_effect_conditions(
-        int op_index, int ass_eff_index, bool is_axiom) const {
+        int /*op_index*/, int /*ass_eff_index*/, bool /*is_axiom*/) const {
     // TODO implement this properly
 //    int original_index;
 //    if (is_axiom){
@@ -641,13 +516,13 @@ int ProjectedTask::get_num_operator_ass_effect_conditions(
 }
 
 Fact ProjectedTask::get_operator_effect_condition(
-        int op_index, int eff_index, int cond_index, bool is_axiom) const {
+        int /*op_index*/, int /*eff_index*/, int /*cond_index*/, bool /*is_axiom*/) const {
     cerr << "ERROR: not implemented ProjectedTask::get_operator_effect_condition" << endl;
     utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
 }
 
 Fact ProjectedTask::get_operator_ass_effect_condition(
-        int op_index, int ass_eff_index, int cond_index, bool is_axiom) const {
+        int /*op_index*/, int /*ass_eff_index*/, int /*cond_index*/, bool /*is_axiom*/) const {
     cerr << "ERROR: not implemented ProjectedTask::get_operator_ass_effect_condition" << endl;
     utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
 }
@@ -681,86 +556,66 @@ AssEffect ProjectedTask::get_operator_ass_effect(int op_index,
 }
 
 int ProjectedTask::get_num_ass_axioms() const {
-    return projected_asgn_axiom_to_original_asgn_axiom.size();
+    return static_cast<int>(projected_asgn_axiom_to_original_asgn_axiom.size());
 }
 
 int ProjectedTask::get_num_cmp_axioms() const {
-    return projected_comp_axiom_to_original_comp_axiom.size();
+    return static_cast<int>(projected_comp_axiom_to_original_comp_axiom.size());
 }
 
 Fact ProjectedTask::get_comparison_axiom_effect(int axiom_index,
                                                 bool evaluation_result) const {
-    assert(axiom_index >= 0 && axiom_index < projected_comp_axiom_to_original_comp_axiom.size());
+    assert(axiom_index >= 0 && axiom_index < static_cast<int>(projected_comp_axiom_to_original_comp_axiom.size()));
     int original_index = projected_comp_axiom_to_original_comp_axiom[axiom_index];
     return project_fact(parent->get_comparison_axiom_effect(original_index, evaluation_result));
 }
 
 int ProjectedTask::get_comparison_axiom_argument(int axiom_index,
                                                  bool left) const {
-    assert(axiom_index >= 0 && axiom_index < projected_comp_axiom_to_original_comp_axiom.size());
+    assert(axiom_index >= 0 && axiom_index < static_cast<int>(projected_comp_axiom_to_original_comp_axiom.size()));
     int original_index = projected_comp_axiom_to_original_comp_axiom[axiom_index];
     return num_var_to_index[parent->get_comparison_axiom_argument(original_index, left)];
 }
 
 comp_operator ProjectedTask::get_comparison_axiom_operator(int axiom_index) const {
-    assert(axiom_index >= 0 && axiom_index < projected_comp_axiom_to_original_comp_axiom.size());
+    assert(axiom_index >= 0 && axiom_index < static_cast<int>(projected_comp_axiom_to_original_comp_axiom.size()));
     int original_index = projected_comp_axiom_to_original_comp_axiom[axiom_index];
     return parent->get_comparison_axiom_operator(original_index);
 }
 
 int ProjectedTask::get_assignment_axiom_effect(int axiom_index) const {
-    assert(axiom_index >= 0 && axiom_index < projected_asgn_axiom_to_original_asgn_axiom.size());
+    assert(axiom_index >= 0 && axiom_index < static_cast<int>(projected_asgn_axiom_to_original_asgn_axiom.size()));
     //cout << "get_assignment_axiom_effect: " << axiom_index << endl;
     int original_index = projected_asgn_axiom_to_original_asgn_axiom[axiom_index];
-    int eff = parent->get_assignment_axiom_effect(original_index);
+//    int eff = parent->get_assignment_axiom_effect(original_index);
     //cout << "get_assignment_axiom_effect: " << original_index << ", " << eff << endl;
     return num_var_to_index[parent->get_assignment_axiom_effect(original_index)];
 }
 
 int ProjectedTask::get_assignment_axiom_argument(int axiom_index,
                                                  bool left) const {
-    assert(axiom_index >= 0 && axiom_index < projected_asgn_axiom_to_original_asgn_axiom.size());
+    assert(axiom_index >= 0 && axiom_index < static_cast<int>(projected_asgn_axiom_to_original_asgn_axiom.size()));
     int original_index = projected_asgn_axiom_to_original_asgn_axiom[axiom_index];
-    int effect_var = parent->get_assignment_axiom_effect(original_index);
-    int aux_var_id = task_proxy->map_to_auxiliary_variable_id(effect_var);
-    if (aux_var_id != -1 && num_var_to_index[aux_var_id] != -1) { //check if aux eff is aux var and if it is in pattern
-        //cout << "TRIGGER" << endl;
-        if (left) {
-            //cout << "left: " << aux_var_id << ", " << num_var_to_index[aux_var_id] << endl;
-            return num_var_to_index[aux_var_id];
-        }
-        //cout << "right: " << constant_0_id << endl;
-        return constant_0_id;
-    }
-    //cout << "NO TRIGGER: " << num_var_to_index[parent->get_assignment_axiom_argument(original_index, left)] << endl;
     return num_var_to_index[parent->get_assignment_axiom_argument(original_index, left)];
 }
 
 cal_operator ProjectedTask::get_assignment_axiom_operator(int axiom_index) const {
-    int eff = parent->get_assignment_axiom_effect(projected_asgn_axiom_to_original_asgn_axiom[axiom_index]);
-    if (task_proxy->map_to_auxiliary_variable_id(eff) != -1) {
-        //cout << "MAP TO SUM: " << eff << endl;
-        return cal_operator::sum;
-    }
-    assert(axiom_index >= 0 && axiom_index < projected_asgn_axiom_to_original_asgn_axiom.size());
-    //cout << "get_assignment_axiom_operator: " << axiom_index << endl;
+    assert(axiom_index >= 0 && axiom_index < static_cast<int>(projected_asgn_axiom_to_original_asgn_axiom.size()));
     return parent->get_assignment_axiom_operator(projected_asgn_axiom_to_original_asgn_axiom[axiom_index]);
 }
 
-const GlobalOperator *ProjectedTask::get_global_operator(int index, bool is_axiom) const {
+const GlobalOperator *ProjectedTask::get_global_operator(int /*index*/, bool /*is_axiom*/) const {
     assert(false);
     cerr << "ERROR: not implemented ProjectedTask::get_global_operator" << endl;
     utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
 }
 
 numType ProjectedTask::get_numeric_var_type(int index) const {
-    assert(index >= 0 && index < numeric_variables.size());
-    int original_id = numeric_variables[index];
-    if (original_id >= parent->get_num_numeric_variables()) {
+    assert(index >= 0 && index < static_cast<int>(numeric_variables.size()));
+    if (is_auxiliary_num_var[index]) {
         // this is an auxiliary variable added by numeric_pdb_helper::NumericTaskProxy
-        // TODO this should probably be derived instead
-        // TODO or actually maybe this should never happen
-        return numType::unknown;
+        // we make it a regular variable in the ProjectedTask and set its value manually
+        return numType::regular;
     }
     return parent->get_numeric_var_type(numeric_variables[index]);
 }
@@ -797,34 +652,32 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         set_var[projected_id] = true;
     }
     vector<bool> set_numeric_var(numeric_variables.size(), false);
-    vector<ap_float> projected_num_state(numeric_variables.size(), -11.11);
+    vector<ap_float> projected_num_state(numeric_variables.size());
     // copy&map variable values from num_state
-    for (size_t i = 0; i < pattern.numeric.size(); ++i) { //TODO: Think that doesn't do anything anymore
+    for (size_t i = 0; i < pattern.numeric.size(); ++i) {
         int var = pattern.numeric[i];
-        if (var >= num_var_to_index.size()) {
-            int derived_var_id = task_proxy->map_to_derived_variable_id(var);
-            //cout << "derived_var_id: " << derived_var_id << endl;
-            assert(derived_var_id >= 0 && derived_var_id < parent->get_num_numeric_variables());
-            int projected_derived_var_id = num_var_to_index[derived_var_id];
-            projected_num_state[projected_derived_var_id] = num_state[i];
-            //cout << "projected_derived_var_id: " << projected_derived_var_id << endl;
-            continue;
+        if (var >= parent->get_num_numeric_variables()){
+            // this is an auxiliary variable
+            var = task_proxy->map_to_derived_variable_id(var);
         }
         int projected_id = num_var_to_index[var];
         assert(projected_id != -1);
         projected_num_state[projected_id] = num_state[i];
         assert(!set_numeric_var[projected_id]);
         set_numeric_var[projected_id] = true;
+//        cout << "set var " << projected_id << " from " << var << endl;
     }
 
     //cout << "numeric variables: " << numeric_variables << endl;
-    for (size_t var = 0; var < numeric_variables.size(); ++var){
+    for (int var = 0; var < static_cast<int>(numeric_variables.size()); ++var){
         if (get_numeric_var_type(var) == numType::constant || get_numeric_var_type(var) == numType::instrumentation) {
             projected_num_state[var] = get_initial_state_numeric_values()[var];
             assert(!set_numeric_var[var]);
             set_numeric_var[var] = true;
+//            cout << "set var " << var << " const / inst" << endl;
         } 
     }
+
     // evaluate assignment axioms
     for (int ax_id = 0; ax_id < get_num_ass_axioms(); ++ax_id){
         // all these variables are numeric
@@ -834,42 +687,26 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         cal_operator op = get_assignment_axiom_operator(ax_id);
 
         ap_float left_val = 0;
-        //TODO: entire next blocks can be sinplified by using the "calculate_derived_variable_value" function
-        if (find(aux_numeric_vars.begin(), aux_numeric_vars.end(), numeric_variables[left_var]) != aux_numeric_vars.end()) {
-            left_val = projected_num_state[left_var];
-            assert(op == cal_operator::sum);
-        } else if (get_numeric_var_type(left_var) == numType::regular){
-            assert(std::find(pattern.numeric.begin(), pattern.numeric.end(), numeric_variables[left_var]) != pattern.numeric.end());
-            left_val = projected_num_state[left_var];
+        if (get_numeric_var_type(left_var) == numType::regular ||
+                get_numeric_var_type(left_var) == numType::derived){
             assert(set_numeric_var[left_var]);
-        } else if (get_numeric_var_type(left_var) == numType::derived) {
-            const vector<ap_float> state_argument = projected_num_state;
-            left_val = calculate_derived_variable_value(left_var, state_argument);
-            //cout << "DEBUG: " << left_var << ", " << left_val << endl;
+            left_val = projected_num_state[left_var];
+        } else if (get_numeric_var_type(left_var) == numType::constant){
+            left_val = get_initial_state_numeric_values()[left_var];
         } else {
-            if (get_numeric_var_type(left_var) == numType::constant){
-                left_val = get_initial_state_numeric_values()[left_var];
-            } else {
-                assert(get_numeric_var_type(left_var) == numType::instrumentation);
-                // must be the costs variable
-            }
+            assert(get_numeric_var_type(left_var) == numType::instrumentation);
+            // must be the costs variable
         }
         ap_float right_val = 0;
-        if (get_numeric_var_type(right_var) == numType::regular){
-            assert(std::find(pattern.numeric.begin(), pattern.numeric.end(), numeric_variables[right_var]) != pattern.numeric.end());
-            right_val = projected_num_state[right_var];
+        if (get_numeric_var_type(right_var) == numType::regular ||
+                get_numeric_var_type(right_var) == numType::derived){
             assert(set_numeric_var[right_var]);
-        } else if (get_numeric_var_type(right_var) == numType::derived) {
-            const vector<ap_float> state_argument = projected_num_state;
-            right_val = calculate_derived_variable_value(right_var, state_argument);
-            //cout << "right_val: " << right_val << endl;
+            right_val = projected_num_state[right_var];
+        } else if (get_numeric_var_type(right_var) == numType::constant){
+            right_val = get_initial_state_numeric_values()[right_var];
         } else {
-            if (get_numeric_var_type(right_var) == numType::constant){
-                right_val = get_initial_state_numeric_values()[right_var];
-            } else {
-                assert(get_numeric_var_type(right_var) == numType::instrumentation);
-                // must be the costs variable
-            }
+            assert(get_numeric_var_type(right_var) == numType::instrumentation);
+            // must be the costs variable
         }
 
         ap_float res;
@@ -888,6 +725,7 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
 
+//        cout << "set var " << eff_var << " from ax " << ax_id << endl;
         projected_num_state[eff_var] = res;
         assert(!set_numeric_var[eff_var]);
         set_numeric_var[eff_var] = true;
@@ -944,8 +782,6 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         int num_pre = get_num_operator_preconditions(ax_id, true);
         for (int pre_id = 0; pre_id < num_pre; ++pre_id){
             Fact pre = get_operator_precondition(ax_id, pre_id, true);
-            ////cout << "TEST1: " << pre.var << ", " << pre.value << ", " << projected_prop_state.size() << endl;
-            ////cout << "TEST2: " << projected_prop_state[pre.var] << endl;
             assert(set_var[pre.var]);
             assert(projected_prop_state[pre.var] != -1);
             if (projected_prop_state[pre.var] != pre.value){
@@ -971,11 +807,7 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
         }
     }
     for (size_t i = 0; i < variables.size(); ++i){
-        if (projected_prop_state[i] == -1){
-            // TODO verify that this variable is the result of a comparison axiom that is not relevant for the variables in this ProjectedTask
-            //  therefore, we set its value to 0, which indicates that the condition is true
-            projected_prop_state[i] = 0;
-        }
+        assert(projected_prop_state[i] != -1);
     }
     //cout << "projected_prop_state: " << projected_prop_state << endl;
     //cout << "projected_num_state: " << projected_num_state << endl;

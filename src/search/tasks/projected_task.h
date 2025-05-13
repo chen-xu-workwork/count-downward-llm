@@ -34,12 +34,13 @@ private:
     std::vector<int> projected_comp_axiom_to_original_comp_axiom;
     std::vector<int> projected_asgn_axiom_to_original_asgn_axiom;
 
-    std::vector<int> aux_numeric_vars;
+    std::vector<bool> is_auxiliary_num_var;
 
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
-    int constant_0_id;
 
-    ap_float calculate_derived_variable_value(const int var_id, const std::vector<ap_float> &state) const;
+    void get_regular_numeric_vars_recursive(const TaskProxy &proxy,
+                                            const AssignmentAxiomProxy &op,
+                                            std::set<int> &regular_vars) const;
 
     Fact project_fact(const Fact &fact) const;
     bool is_fact_relevant(const Fact &fact) const;
