@@ -259,13 +259,17 @@ shared_ptr<RegularNumericCondition> NumericTaskProxy::build_condition(FactProxy 
 //    cout << rhs->get_name() << endl;
 
     if (!lhs->is_constant() && !rhs->is_constant()) {
-        // TODO do not reformulate original expression, as this messes up things for the ProjectedTask
-        auto expr = make_shared<ArithmeticExpressionOp>(lhs, cal_operator::diff, rhs);
         assert(is_derived_numeric_variable(pre.get_variable()));
-        auto var = create_auxiliary_variable(var_id, pre.get_name(), expr);
-        auto zero = make_shared<ArithmeticExpressionConst>(0);
+        auto l_var = create_auxiliary_variable(
+                c_op.get_left_variable().get_id(),
+                c_op.get_left_variable().get_name(),
+                lhs);
+        auto r_var = create_auxiliary_variable(
+                c_op.get_right_variable().get_id(),
+                c_op.get_right_variable().get_name(),
+                rhs);
 
-        return make_shared<RegularNumericCondition>(var, c_op.get_comparison_operator_type(), zero);
+        return make_shared<RegularNumericCondition>(l_var, c_op.get_comparison_operator_type(), r_var);
     }
 
 //    cout << make_shared<RegularNumericCondition>(lhs, c_op.get_comparison_operator_type(), rhs)->get_name()
