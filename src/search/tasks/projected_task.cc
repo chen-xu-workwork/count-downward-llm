@@ -32,7 +32,7 @@ ProjectedTask::ProjectedTask(
         : DelegatingTask(parent),
           variables(pattern.regular),
           task_proxy(numeric_task_proxy) {
-    // TODO precompute & store some of the expensive to compute structures
+    // TODO precompute & store some of the expensive-to-compute structures
 
     TaskProxy parent_proxy(*parent);
 
@@ -45,6 +45,7 @@ ProjectedTask::ProjectedTask(
     }
 
     // init numeric variables from pattern here
+    assert(numeric_variables.empty());
     num_var_to_index.resize(parent->get_num_numeric_variables(), -1);
     is_auxiliary_num_var.resize(parent->get_num_numeric_variables(), false);
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
@@ -53,7 +54,10 @@ ProjectedTask::ProjectedTask(
             // this is an auxiliary variable added by numeric_pdb_helper::NumericTaskProxy
             var_id = task_proxy->map_to_derived_variable_id(var_id);
             is_auxiliary_num_var[i] = true;
+        } else {
+            assert(parent->get_numeric_var_type(var_id) == regular);
         }
+        assert(var_id < static_cast<int>(num_var_to_index.size()));
         numeric_variables.push_back(var_id);
         assert(num_var_to_index[var_id] == -1);
         num_var_to_index[var_id] = static_cast<int>(i);
@@ -61,15 +65,19 @@ ProjectedTask::ProjectedTask(
         //cout << parent_proxy.get_numeric_variables()[var_id].get_name() << endl;
     }
 
-    for (const auto &num_var : parent_proxy.get_numeric_variables()) {
+    for (auto num_var : parent_proxy.get_numeric_variables()) {
         if (num_var.get_var_type() == numType::instrumentation || num_var.get_var_type() == numType::constant) {
             num_var_to_index[num_var.get_id()] = static_cast<int>(numeric_variables.size());
             numeric_variables.push_back(num_var.get_id());
         }
     }
 
-    for (const auto &op : parent_proxy.get_assignment_axioms()) {
+    for (auto op : parent_proxy.get_assignment_axioms()) {
         assert(op.get_assignment_variable().get_var_type() == numType::derived);
+        if (is_numeric_var_relevant(op.get_assignment_variable().get_id())){
+            // don't add the same var twice
+            continue;
+        }
         set<int> regular_numeric_vars_in_expression;
         get_regular_numeric_vars_recursive(parent_proxy, op, regular_numeric_vars_in_expression);
         if (std::all_of(regular_numeric_vars_in_expression.begin(),
@@ -84,8 +92,12 @@ ProjectedTask::ProjectedTask(
     }
 
     // find relevant variables that are results of comparison axioms
-    for (const auto &op : parent_proxy.get_comparison_axioms()) {
+    for (auto op : parent_proxy.get_comparison_axioms()) {
         assert(op.get_true_fact().get_variable() == op.get_false_fact().get_variable());
+        if (is_fact_relevant(op.get_true_fact())){
+            // don't add the same var twice
+            continue;
+        }
         int lhs = op.get_left_variable().get_id();
         int rhs = op.get_right_variable().get_id();
         if (is_numeric_var_relevant(lhs) &&
@@ -97,7 +109,7 @@ ProjectedTask::ProjectedTask(
     }
 
     // check for relevant goals
-    for (const auto &axiom : parent_proxy.get_axioms()) {
+    for (auto axiom : parent_proxy.get_axioms()) {
         assert(axiom.get_preconditions().empty() || axiom.get_effects().size() == 1);
         // this axiom encodes a set of goal facts (possibly propositional and numeric)
         // if one of the conditions, i.e., the actual goals, is relevant, make the effect relevant
@@ -107,7 +119,8 @@ ProjectedTask::ProjectedTask(
                 is_relevant = true;
             }
         }
-        if (is_relevant){
+        if (is_relevant && !is_fact_relevant(axiom.get_effects()[0].get_fact())){
+            // make sure to not add the same variable twice
             assert(axiom.get_effects().size() == 1);
             int var_id = axiom.get_effects()[0].get_fact().get_variable().get_id();
             var_to_index[var_id] = static_cast<int>(variables.size());
@@ -657,6 +670,7 @@ State ProjectedTask::get_projected_state(const std::vector<int> &prop_state,
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
         int var = pattern.numeric[i];
         if (var >= parent->get_num_numeric_variables()){
+            assert(is_auxiliary_num_var[i]);
             // this is an auxiliary variable
             var = task_proxy->map_to_derived_variable_id(var);
         }
