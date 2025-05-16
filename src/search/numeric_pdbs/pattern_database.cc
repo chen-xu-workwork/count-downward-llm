@@ -440,8 +440,6 @@ NumericState PatternDatabase::project_numeric_state(const NumericState &state,
 
 pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
                                                       const NumericState &succ_state) const {
-    ap_float h = 0;
-    bool dead_end = false;
     switch (h_type) {
         case InnerHeuristic::LMCUT:
         {
@@ -449,8 +447,8 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
                     unpack_prop_state(succ_state.prop_hash),
                     succ_state.num_state,
                     pattern);
-            h = lmc->compute_heuristic(proj_state);
-            //cout << "LMCUT heuristic: " << h << ", " << (h == numeric_limits<ap_float>::min()) << endl;
+            ap_float h = lmc->compute_heuristic(proj_state);
+            bool dead_end = false;
             if (h == numeric_limits<ap_float>::min()){
                 dead_end = true;
             }
@@ -462,8 +460,8 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
                     unpack_prop_state(succ_state.prop_hash),
                     succ_state.num_state,
                     pattern);
-            h = hrmax->compute_heuristic(proj_state);
-            //cout << "HRMAX heuristic: " << h << ", " << (h == numeric_limits<ap_float>::min()) << endl;
+            ap_float h = hrmax->compute_heuristic(proj_state);
+            bool dead_end = false;
             if (h == numeric_limits<ap_float>::min()){
                 dead_end = true;
             }
@@ -477,7 +475,8 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
             NumericState proj_state = pdb->project_numeric_state(succ_state,
                                                                  pattern,
                                                                  prop_hash_multipliers);
-            h = pdb->compute_heuristic(proj_state).second;
+            ap_float h = pdb->compute_heuristic(proj_state).second;
+            bool dead_end = false;
             if (h == numeric_limits<ap_float>::max()){
                 dead_end = true;
             }
