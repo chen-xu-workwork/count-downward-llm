@@ -35,6 +35,10 @@ private:
     std::vector<int> projected_asgn_axiom_to_original_asgn_axiom;
 
     std::vector<bool> is_auxiliary_num_var;
+	// this is for constants resulting from combined effects on auxiliary variables
+	// that are not present in the original task
+    std::vector<bool> is_auxiliary_constant;
+    int num_auxiliary_constants;
 
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
 
@@ -46,6 +50,9 @@ private:
     bool is_fact_relevant(const Fact &fact) const;
     bool is_fact_relevant(const FactProxy &fact) const;
     bool is_numeric_var_relevant(int numeric_var_id) const;
+
+    void add_auxiliary_constant_if_needed(ap_float value);
+    int get_auxiliary_constant_id(ap_float value) const;
 
 public:
     ProjectedTask(const std::shared_ptr<AbstractTask>& parent,
