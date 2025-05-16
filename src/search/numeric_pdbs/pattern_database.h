@@ -89,10 +89,6 @@ public:
               const numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
 };
 
-enum class InnerHeuristic {
-    BLIND, HRMAX, LMCUT, PDB
-};
-
 // Implements a single pattern database
 class PatternDatabase {
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
@@ -235,9 +231,9 @@ public:
             bool extend_abstract_state_space,
             bool need_goal,
             double f_layer_offset_ratio,
-            InnerHeuristic exploration_h = InnerHeuristic::BLIND,
-            InnerHeuristic frontier_h = InnerHeuristic::BLIND,
-            InnerHeuristic failed_lookup_h = InnerHeuristic::BLIND,
+            InnerHeuristic exploration_h,
+            InnerHeuristic frontier_h,
+            InnerHeuristic failed_lookup_h,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>(),
             bool dump = false);
 
@@ -273,6 +269,8 @@ public:
 
     // Returns true iff op has an effect on a variable in the pattern.
     bool is_operator_relevant(const OperatorProxy &op) const;
+
+    static void add_pdb_options(OptionParser &parser);
 };
 }
 

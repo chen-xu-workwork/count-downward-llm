@@ -98,14 +98,14 @@ PatternDatabase::PatternDatabase(
         bool extend_abstract_state_space,
         bool need_goal,
         double f_layer_offset_ratio,
-        InnerHeuristic search_h,
+        InnerHeuristic exploration_h,
         InnerHeuristic frontier_h,
         InnerHeuristic failed_lookup_h,
         const vector<ap_float> &operator_costs,
         bool dump)
         : task_proxy(task_proxy),
           pattern(pattern),
-          exploration_h(search_h),
+          exploration_h(exploration_h),
           frontier_h(frontier_h),
           failed_lookup_h(failed_lookup_h),
           extend_abstract_state_space(extend_abstract_state_space),
@@ -1148,5 +1148,41 @@ bool PatternDatabase::is_operator_relevant(const OperatorProxy &op) const {
         }
     }
     return false;
+}
+
+void PatternDatabase::add_pdb_options(OptionParser &parser) {
+    parser.add_option<bool>(
+            "extend_abstract_state_space",
+            "extend abstract PDB state spaces on misses.",
+            "false");
+
+    parser.add_enum_option(
+            "exploration_heuristic",
+            {"BLIND", "HRMAX", "LMCUT", "PDB"},
+            "TODO",
+            "BLIND", {});
+
+    parser.add_enum_option(
+            "frontier_heuristic",
+            {"BLIND", "HRMAX", "LMCUT", "PDB"},
+            "TODO",
+            "BLIND", {});
+
+    parser.add_enum_option(
+            "failed_lookup_heuristic",
+            {"BLIND", "HRMAX", "LMCUT", "PDB"},
+            "TODO",
+            "BLIND", {});
+
+    parser.add_option<double>(
+            "f_layer_offset_ratio",
+            "stop A* in abstract state space until all states in the open list have f value >= f(goal) + x * g(goal) .",
+            "0.0",
+            Bounds("-1000", "infinity"));
+
+    parser.add_option<bool>(
+            "need_goal",
+            "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
+            "false");
 }
 }

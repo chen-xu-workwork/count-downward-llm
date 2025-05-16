@@ -26,16 +26,13 @@ class IncrementalCanonicalPDBs {
     // approximate upper bound on the number of abstract states per PDB possibly reachable within the pattern
     const size_t max_number_pdb_states;
 
-    bool drop_pdb;
-    bool use_lmcut;
-    bool blind_if_no_goal;
     bool extend_abstract_state_space;
-    int extension_h0_until_goal; 
-    int extension_h1_until_goal; 
     double f_layer_offset_ratio;
     int need_goal;
-    int hierarchy;
 
+    InnerHeuristic exploration_h;
+    InnerHeuristic frontier_h;
+    InnerHeuristic failed_lookup_h;
 
     // Adds a PDB for pattern but does not recompute max_additive_subsets.
     void add_pdb_for_pattern(const Pattern &pattern);
@@ -46,15 +43,13 @@ public:
                                       std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
                                       const PatternCollection &intitial_patterns,
                                       size_t max_number_pdb_states,
-                                      bool drop_pdb,
-                                      bool use_lmcut,
-                                      bool blind_if_no_goal,
-                                      bool extend_abstract_state_space, 
-                                      int extension_h0_until_goal, 
-                                      int extension_h1_until_goal, 
+                                      bool extend_abstract_state_space,
                                       double f_layer_offset_ratio,
                                       int need_goal,
-                                      int hierarchy);
+                                      InnerHeuristic exploration_h,
+                                      InnerHeuristic frontier_h,
+                                      InnerHeuristic failed_lookup_h);
+
     virtual ~IncrementalCanonicalPDBs() = default;
 
     // Adds a new pattern to the collection and recomputes max_additive_subsets.

@@ -16,29 +16,23 @@ PatternCollectionInformation::PatternCollectionInformation(
         shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
         shared_ptr<PatternCollection> patterns,
         size_t max_number_pdb_states,
-        bool drop_pdb,
-        bool use_lmcut,
-        bool blind_if_no_goal,
         bool extend_abstract_state_space,
-        int extension_h0_until_goal, 
-        int extension_h1_until_goal, 
         double f_layer_offset_ratio,
         int need_goal,
-        int hierarchy)
+        InnerHeuristic exploration_h,
+        InnerHeuristic frontier_h,
+        InnerHeuristic failed_lookup_h)
         : task_proxy(task_proxy),
           patterns(patterns),
           pdbs(nullptr),
           max_additive_subsets(nullptr),
-          max_number_pdb_states(max_number_pdb_states),
-          drop_pdb(drop_pdb),
-          use_lmcut(use_lmcut),
-          blind_if_no_goal(blind_if_no_goal),
           extend_abstract_state_space(extend_abstract_state_space),
-          extension_h0_until_goal(extension_h0_until_goal), 
-          extension_h1_until_goal(extension_h1_until_goal), 
           f_layer_offset_ratio(f_layer_offset_ratio),
-          need_goal(need_goal), 
-          hierarchy(hierarchy) {
+          need_goal(need_goal),
+          exploration_h(exploration_h),
+          frontier_h(frontier_h),
+          failed_lookup_h(failed_lookup_h),
+          max_number_pdb_states(max_number_pdb_states) {
     assert(patterns);
     validate_and_normalize_patterns(*task_proxy, *patterns);
 }
@@ -99,7 +93,10 @@ void PatternCollectionInformation::create_pdbs_if_missing() {
                             max_number_pdb_states,
                             extend_abstract_state_space,
                             need_goal,
-                            f_layer_offset_ratio);
+                            f_layer_offset_ratio,
+                            exploration_h,
+                            frontier_h,
+                            failed_lookup_h);
             pdbs->push_back(pdb);
         }
     }

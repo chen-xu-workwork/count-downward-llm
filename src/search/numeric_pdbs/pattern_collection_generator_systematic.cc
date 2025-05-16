@@ -3,6 +3,7 @@
 #include "causal_graph.h"
 #include "numeric_condition.h"
 #include "numeric_helper.h"
+#include "pattern_database.h"
 #include "validation.h"
 
 #include "../option_parser.h"
@@ -67,18 +68,16 @@ static void compute_union_pattern(
 
 PatternCollectionGeneratorSystematic::PatternCollectionGeneratorSystematic(
     const Options &opts)
-    : PatternCollectionGenerator(opts.get<int>("max_number_pdb_states")),
-      pattern_max_size(opts.get<int>("pattern_max_size")),
-      only_interesting_patterns(opts.get<bool>("only_interesting_patterns")),
-      drop_pdb(opts.get<int>("drop_pdb")),
-      use_lmcut(opts.get<int>("use_lmcut")),
-      blind_if_no_goal(opts.get<int>("blind_if_no_goal")),
-      extend_abstract_state_space(opts.get<int>("extend_abstract_state_space")),
-      extension_h0_until_goal(opts.get<int>("extension_h0_until_goal")), 
-      extension_h1_until_goal(opts.get<int>("extension_h1_until_goal")), 
-      f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
-      need_goal(need_goal), 
-      hierarchy(hierarchy) {
+        : PatternCollectionGenerator(
+        opts.get<int>("max_number_pdb_states")),
+          pattern_max_size(opts.get<int>("pattern_max_size")),
+          extend_abstract_state_space(opts.get<int>("extend_abstract_state_space")),
+          f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
+          need_goal(opts.get<bool>("need_goal")),
+          exploration_h(InnerHeuristic(opts.get_enum("exploration_heuristic"))),
+          frontier_h(InnerHeuristic(opts.get_enum("frontier_heuristic"))),
+          failed_lookup_h(InnerHeuristic(opts.get_enum("failed_lookup_heuristic"))),
+          only_interesting_patterns(opts.get<bool>("only_interesting_patterns")) {
 }
 
 void PatternCollectionGeneratorSystematic::compute_eff_pre_neighbors(
@@ -376,16 +375,15 @@ PatternCollectionInformation PatternCollectionGeneratorSystematic::generate(
     } else {
         build_patterns_naive(*task_proxy);
     }
-    return {task_proxy, patterns, max_number_pdb_states,
-            drop_pdb,
-            use_lmcut,
-            blind_if_no_goal, 
+    return {task_proxy,
+            patterns,
+            max_number_pdb_states,
             extend_abstract_state_space,
-            extension_h0_until_goal, 
-            extension_h1_until_goal, 
             f_layer_offset_ratio,
             need_goal,
-            hierarchy};
+            exploration_h,
+            frontier_h,
+            failed_lookup_h};
 }
 
 static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
@@ -420,59 +418,7 @@ static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
             "more information than the individual patterns.",
             "true");
 
-    parser.add_option<int>(
-            "drop_pdb",
-            "drop inner pdb.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "use_lmcut",
-            "throw away pdb if no abstract goal found.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "blind_if_no_goal",
-            "throw away pdb if no abstract goal found.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "extend_abstract_state_space",
-            "extend abstract PDB state spaces on misses.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "extension_h0_until_goal",
-            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
-            "0",
-            Bounds("-1", "infinity"));
-
-    parser.add_option<int>(
-            "extension_h1_until_goal",
-            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
-            "0",
-            Bounds("-1", "infinity"));
-
-    parser.add_option<double>(
-            "f_layer_offset_ratio",
-            "stop A* in abstract state space until all states in the open list have f value >= f(goal) + x * g(goal) .",
-            "0.0",
-            Bounds("-1000", "infinity"));
-
-    parser.add_option<int>(
-            "need_goal",
-            "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
-            "0",
-            Bounds("0", "2"));
-
-    parser.add_option<int>(
-            "hierarchy",
-            "What stage of hierarchy (0: BFS).",
-            "1",
-            Bounds("0", "1"));
+    PatternDatabase::add_pdb_options(parser);
 
     Options opts = parser.parse();
     if (parser.dry_run())

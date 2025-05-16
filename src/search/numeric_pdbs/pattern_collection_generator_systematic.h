@@ -28,15 +28,13 @@ class PatternCollectionGeneratorSystematic : public PatternCollectionGenerator {
     using PatternSet = std::unordered_set<Pattern>;
 
     const size_t pattern_max_size;
-    bool drop_pdb;
-    bool use_lmcut;
-    bool blind_if_no_goal;
     bool extend_abstract_state_space;
-    int extension_h0_until_goal;
-    int extension_h1_until_goal;
     double f_layer_offset_ratio;
     int need_goal;
-    int hierarchy;
+
+    InnerHeuristic exploration_h;
+    InnerHeuristic frontier_h;
+    InnerHeuristic failed_lookup_h;
 
     const bool only_interesting_patterns;
     std::shared_ptr<PatternCollection> patterns;

@@ -81,41 +81,8 @@ static Heuristic *_parse(OptionParser &parser) {
             "pattern generation method",
             "greedy_numeric()");
 
-    parser.add_option<bool>(
-            "extend_abstract_state_space",
-            "extend abstract PDB state spaces on misses.",
-            "false");
-
-    parser.add_enum_option(
-            "exploration_heuristic",
-            {"BLIND", "HRMAX", "LMCUT", "PDB"},
-            "TODO",
-            "BLIND", {});
-
-    parser.add_enum_option(
-            "frontier_heuristic",
-            {"BLIND", "HRMAX", "LMCUT", "PDB"},
-            "TODO",
-            "BLIND", {});
-
-    parser.add_enum_option(
-            "failed_lookup_heuristic",
-            {"BLIND", "HRMAX", "LMCUT", "PDB"},
-            "TODO",
-            "BLIND", {});
-
-    parser.add_option<double>(
-            "f_layer_offset_ratio",
-            "stop A* in abstract state space until all states in the open list have f value >= f(goal) + x * g(goal) .",
-            "0.0",
-            Bounds("-1000", "infinity"));
-
-    parser.add_option<bool>(
-            "need_goal",
-            "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
-            "false");
-
     Heuristic::add_options_to_parser(parser);
+    PatternDatabase::add_pdb_options(parser);
 
     Options opts = parser.parse();
     if (parser.dry_run())

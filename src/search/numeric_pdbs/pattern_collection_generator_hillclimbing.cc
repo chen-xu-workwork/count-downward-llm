@@ -39,15 +39,12 @@ PatternCollectionGeneratorHillclimbing::PatternCollectionGeneratorHillclimbing(c
       min_improvement(opts.get<int>("min_improvement")),
       max_time(opts.get<double>("max_time")),
       max_pdb_size(opts.get<int>("max_pdb_size")),
-      drop_pdb(opts.get<int>("drop_pdb")),
-      use_lmcut(opts.get<int>("use_lmcut")),
-      blind_if_no_goal(opts.get<int>("blind_if_no_goal")),
-      extend_abstract_state_space(opts.get<int>("extend_abstract_state_space")),
-      extension_h0_until_goal(opts.get<int>("extension_h0_until_goal")), 
-      extension_h1_until_goal(opts.get<int>("extension_h1_until_goal")), 
+      extend_abstract_state_space(opts.get<bool>("extend_abstract_state_space")),
       f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
-      need_goal(opts.get<int>("need_goal")),
-      hierarchy(opts.get<int>("hierarchy")),
+      need_goal(opts.get<bool>("need_goal")),
+      exploration_h(InnerHeuristic(opts.get_enum("exploration_heuristic"))),
+      frontier_h(InnerHeuristic(opts.get_enum("frontier_heuristic"))),
+      failed_lookup_h(InnerHeuristic(opts.get_enum("failed_lookup_heuristic"))),
       num_rejected(0),
       hill_climbing_timer(nullptr) {
 }
@@ -175,7 +172,10 @@ size_t PatternCollectionGeneratorHillclimbing::generate_pdbs_for_candidates(
                                              max_number_pdb_states,
                                              extend_abstract_state_space,
                                              need_goal,
-                                             f_layer_offset_ratio));
+                                             f_layer_offset_ratio,
+                                             exploration_h,
+                                             frontier_h,
+                                             failed_lookup_h));
             max_size_of_pdb = max(max_size_of_pdb,
                                   candidate_pdbs.back()->get_size());
             generated_patterns.insert(new_candidate);
@@ -416,16 +416,16 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
     }
 
     current_pdbs = utils::make_unique_ptr<IncrementalCanonicalPDBs>(
-        task, num_task_proxy, initial_pattern_collection, max_number_pdb_states, 
-            drop_pdb,
-            use_lmcut,
-            blind_if_no_goal,
+            task,
+            num_task_proxy,
+            initial_pattern_collection,
+            max_number_pdb_states,
             extend_abstract_state_space,
-            extension_h0_until_goal, 
-            extension_h1_until_goal, 
             f_layer_offset_ratio,
             need_goal,
-            hierarchy);
+            exploration_h,
+            frontier_h,
+            failed_lookup_h);
 
     State initial_state = num_task_proxy->get_original_initial_state();
     if (!current_pdbs->is_dead_end(initial_state)) {
@@ -493,59 +493,7 @@ void add_hillclimbing_options(OptionParser &parser) {
             "infinity",
             Bounds("0.0", "infinity"));
 
-    parser.add_option<int>(
-            "drop_pdb",
-            "drop inner pdb.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "use_lmcut",
-            "use lmcut vs hierarch.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "blind_if_no_goal",
-            "throw away pdb if no abstract goal found.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "extend_abstract_state_space",
-            "extend abstract PDB state spaces on misses.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "extension_h0_until_goal",
-            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
-            "0",
-            Bounds("-1", "infinity"));
-
-    parser.add_option<int>(
-            "extension_h1_until_goal",
-            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
-            "0",
-            Bounds("-1", "infinity"));
-
-    parser.add_option<double>(
-            "f_layer_offset_ratio",
-            "stop A* in abstract state space until all states in the open list have f value >= f(goal) + x * g(goal) .",
-            "0.0",
-            Bounds("-1000", "infinity"));
-
-    parser.add_option<int>(
-            "need_goal",
-            "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
-            "0",
-            Bounds("0", "2"));
-
-    parser.add_option<int>(
-            "hierarchy",
-            "What stage of hierarchy (0: BFS).",
-            "1",
-            Bounds("0", "1"));
+    PatternDatabase::add_pdb_options(parser);
 }
 
 void check_hillclimbing_options(
@@ -672,6 +620,7 @@ static Heuristic *_parse_ipdb(OptionParser &parser) {
         "true");
 
     Heuristic::add_options_to_parser(parser);
+    PatternDatabase::add_pdb_options(parser);
 
     Options opts = parser.parse();
     if (parser.help_mode())

@@ -21,15 +21,14 @@ class PatternCollectionInformation {
     std::shared_ptr<PatternCollection> patterns;
     std::shared_ptr<PDBCollection> pdbs;
     std::shared_ptr<MaxAdditivePDBSubsets> max_additive_subsets;
-    bool drop_pdb;
-    bool use_lmcut;
-    bool blind_if_no_goal;
     bool extend_abstract_state_space;
-    int extension_h0_until_goal; 
-    int extension_h1_until_goal; 
     double f_layer_offset_ratio;
     int need_goal;
     int hierarchy;
+
+    InnerHeuristic exploration_h;
+    InnerHeuristic frontier_h;
+    InnerHeuristic failed_lookup_h;
 
     // approximate upper bound on the number of abstract states per PDB possibly reachable within the pattern
     size_t max_number_pdb_states;
@@ -43,15 +42,12 @@ public:
             std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
             std::shared_ptr<PatternCollection> patterns,
             size_t max_number_pdb_states,
-            bool drop_pdb,
-            bool use_lmcut,
-            bool blind_if_no_goal,
             bool extend_abstract_state_space,
-            int extension_h0_until_goal, 
-            int extension_h1_until_goal, 
             double f_layer_offset_ratio,
             int need_goal,
-            int hierarchy);
+            InnerHeuristic exploration_h,
+            InnerHeuristic frontier_h,
+            InnerHeuristic failed_lookup_h);
     ~PatternCollectionInformation() = default;
 
     void set_pdbs(std::shared_ptr<PDBCollection> pdbs);
