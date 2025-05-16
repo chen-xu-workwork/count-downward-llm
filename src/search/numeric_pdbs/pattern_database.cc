@@ -1062,26 +1062,10 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
                 return {false, distances[abs_state_id]};
             }
 
-            ap_float h = 0;
-            switch (failed_lookup_h) {
-                case InnerHeuristic::LMCUT:
-                    h = compute_heuristic(abs_state).second;
-                    break;
-                case InnerHeuristic::PDB:
-                {
-                    NumericState proj_state = pdb->project_numeric_state(abs_state,
-                                                                         pattern,
-                                                                         prop_hash_multipliers);
-                    h = pdb->get_value(proj_state).second;
-                    break;
-                }
-                case InnerHeuristic::BLIND:
-                    break;
-                default:
-                    cerr << "ERROR: unknown inner heuristic type " << int(failed_lookup_h) << endl;
-                    utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+            auto [dead_end, h] = compute_inner_h(failed_lookup_h, abs_state);
+            if (dead_end) {
+                return {false, numeric_limits<ap_float>::max()};
             }
-            // we don't know any better
             return {false, max(h, min_action_cost)};
         }
     }
@@ -1111,9 +1095,12 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
                 create_pdb(1000, abs_state_id);
                 return {false, distances[abs_state_id]};
             }
-            // TODO implement failed_lookup_h here
-            // we don't know any better
-            return {false, min_action_cost};
+            
+            auto [dead_end, h] = compute_inner_h(failed_lookup_h, state);
+            if (dead_end) {
+                return {false, numeric_limits<ap_float>::max()};
+            }
+            return {false, max(h, min_action_cost)};
         }
     }
     return {true, distances[abs_state_id]};
