@@ -211,7 +211,6 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
             }
             sort(new_pattern.regular.begin(), new_pattern.regular.end());
             sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
-            cout << "Inner pattern: " << new_pattern.regular << new_pattern.numeric << endl; // TODO remove this
 
             pdb = std::make_unique<PatternDatabase>(
                     task_proxy,
