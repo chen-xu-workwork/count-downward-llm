@@ -37,10 +37,10 @@ namespace lm_cut_numeric_heuristic {
         virtual void initialize() override;
         virtual ap_float compute_heuristic(const GlobalState &global_state) override;
         ap_float compute_heuristic(const State &state);
-    public:
         explicit LandmarkCutNumericHeuristic(const std::shared_ptr<AbstractTask> &task);
+    public:
         explicit LandmarkCutNumericHeuristic(const options::Options &opts);
-        virtual ~LandmarkCutNumericHeuristic() = default;
+        ~LandmarkCutNumericHeuristic() override = default;
     };
 }
 

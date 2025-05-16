@@ -160,9 +160,23 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
         inner_h_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern, task_proxy);
 
         assert(!lmc);
-        lmc = make_unique<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(inner_h_task);
+        lmc = unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(
+                new lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic(inner_h_task));
 
         lmc->initialize();
+    }
+    if (exploration_h == InnerHeuristic::HRMAX ||
+        frontier_h == InnerHeuristic::HRMAX ||
+        failed_lookup_h == InnerHeuristic::HRMAX) {
+
+        if (!inner_h_task) {
+            inner_h_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern, task_proxy);
+        }
+
+        assert(!hrmax);
+        hrmax = unique_ptr<rmax_heuristic::RMaxHeuristic>(new rmax_heuristic::RMaxHeuristic(inner_h_task));
+
+        hrmax->initialize();
     }
     if (exploration_h == InnerHeuristic::PDB ||
         frontier_h == InnerHeuristic::PDB ||
@@ -435,6 +449,19 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
                     pattern);
             h = lmc->compute_heuristic(proj_state);
             //cout << "LMCUT heuristic: " << h << ", " << (h == numeric_limits<ap_float>::min()) << endl;
+            if (h == numeric_limits<ap_float>::min()){
+                dead_end = true;
+            }
+            return {dead_end, h};
+        }
+        case InnerHeuristic::HRMAX:
+        {
+            State proj_state = inner_h_task->get_projected_state(
+                    unpack_prop_state(succ_state.prop_hash),
+                    succ_state.num_state,
+                    pattern);
+            h = hrmax->compute_heuristic(proj_state);
+            //cout << "HRMAX heuristic: " << h << ", " << (h == numeric_limits<ap_float>::min()) << endl;
             if (h == numeric_limits<ap_float>::min()){
                 dead_end = true;
             }
@@ -852,12 +879,19 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
     switch (failed_lookup_h) {
         case InnerHeuristic::LMCUT:
+            hrmax.reset();
             pdb.reset();
             break;
+        case InnerHeuristic::HRMAX:
+            pdb.reset();
+            lmc.reset();
+            break;
         case InnerHeuristic::PDB:
+            hrmax.reset();
             lmc.reset();
             break;
         case InnerHeuristic::BLIND:
+            hrmax.reset();
             pdb.reset();
             lmc.reset();
             break;

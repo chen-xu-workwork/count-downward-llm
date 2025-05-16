@@ -5,6 +5,7 @@
 #include "numeric_state_registry.h"
 #include "types.h"
 
+#include "../numeric/rmax_heuristic.h"
 #include "../numeric_landmarks/lm_cut_numeric_heuristic.h"
 #include "../tasks/projected_task.h"
 
@@ -89,8 +90,7 @@ public:
 };
 
 enum class InnerHeuristic {
-    BLIND, //HMAX,
-    LMCUT, PDB
+    BLIND, HRMAX, LMCUT, PDB
 };
 
 // Implements a single pattern database
@@ -109,6 +109,7 @@ class PatternDatabase {
 
     std::shared_ptr<tasks::ProjectedTask> inner_h_task;
     std::unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic> lmc;
+    std::unique_ptr<rmax_heuristic::RMaxHeuristic> hrmax;
     std::unique_ptr<PatternDatabase> pdb;
 
     std::unique_ptr<NumericStateRegistry> state_registry;

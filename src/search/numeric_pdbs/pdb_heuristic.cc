@@ -88,19 +88,19 @@ static Heuristic *_parse(OptionParser &parser) {
 
     parser.add_enum_option(
             "exploration_heuristic",
-            {"BLIND", "LMCUT", "PDB"},
+            {"BLIND", "HRMAX", "LMCUT", "PDB"},
             "TODO",
             "BLIND", {});
 
     parser.add_enum_option(
             "frontier_heuristic",
-            {"BLIND", "LMCUT", "PDB"},
+            {"BLIND", "HRMAX", "LMCUT", "PDB"},
             "TODO",
             "BLIND", {});
 
     parser.add_enum_option(
             "failed_lookup_heuristic",
-            {"BLIND", "LMCUT", "PDB"},
+            {"BLIND", "HRMAX", "LMCUT", "PDB"},
             "TODO",
             "BLIND", {});
 
