@@ -161,8 +161,7 @@ class PatternDatabase {
     std::vector<ap_float> get_numeric_successor(std::vector<ap_float> state,
                                                 const numeric_pdb_helper::NumericOperatorProxy &op) const;
 
-    void build_goals(const std::vector<int> &variable_to_index,
-                     const std::vector<int> &num_variable_to_index);
+    void build_goals(const std::vector<int> &variable_to_index);
 
     /*
       Computes all abstract operators, builds the match tree (successor

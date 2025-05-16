@@ -216,7 +216,7 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
                     task_proxy,
                     new_pattern,
                     max((size_t) 1000, max_number_states / 10), // TODO don't hard-code the limit
-                    extend_abstract_state_space,
+                    false, // TODO make this an option
                     true, // TODO make this an option
                     f_layer_offset_ratio,
                     InnerHeuristic::BLIND,
@@ -374,8 +374,11 @@ vector<ap_float> PatternDatabase::get_numeric_successor(vector<ap_float> state,
     return state;
 }
 
-void PatternDatabase::build_goals(const vector<int> &variable_to_index,
-                                  const vector<int> &num_variable_to_index) {
+void PatternDatabase::build_goals(const vector<int> &variable_to_index) {
+    if (extend_abstract_state_space && (!propositional_goals.empty() || !numeric_goals.empty())){
+        // already built goals in first exploration
+        return;
+    }
     // compute abstract goal var-val pairs
     for (FactProxy goal: task_proxy->get_propositional_goals()) {
         int var_id = goal.get_variable().get_id();
@@ -509,7 +512,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
     NumericStateRegistry *tmp_state_registry;
     if (initial_state_opt.has_value()) {
-        //cout << "Using initial state: " << initial_state_opt.value() << endl;
+        assert(extend_abstract_state_space);
         tmp_state_registry = state_registry.get();
     } else {
         tmp_state_registry = new NumericStateRegistry();
@@ -529,11 +532,11 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     construct_inner_heuristics(max_number_states, variable_to_index, operator_costs);
 
 
-    AdaptiveQueue<size_t> pq;
     size_t original_distance_size = distances.size();
     assert(extend_abstract_state_space || original_distance_size == 0);
-    // size 1 prevents segfault in Dijkstra loop in case no new states are reached
-    vector<vector<pair<int, size_t>>> parent_pointers(1);
+
+    AdaptiveQueue<size_t> pq;
+    vector<vector<pair<int, size_t>>> parent_pointers;
 
     {
         // compute all abstract operators
@@ -578,7 +581,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             match_tree.insert(op);
         }
 
-        build_goals(variable_to_index, num_variable_to_index);
+        build_goals(variable_to_index);
 
         vector<bool> closed;
         vector<bool> is_open_or_closed(1, true);
@@ -587,14 +590,13 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         size_t num_reached_states = 0;
 
         // first implicit entry: priority, second entry: index for an abstract state
-        AdaptiveQueue<pair<size_t, ap_float>> open;
+        AdaptiveQueue<pair<size_t, ap_float>> open; // TODO implement proper A* exploration order, preferring states with lower h
 
         // initialize queue
         size_t init_state_id;
         if (initial_state_opt.has_value()) {
             init_state_id = initial_state_opt.value();
             assert(init_state_id != numeric_limits<size_t>::max());
-            open.push(0, {init_state_id, 0});
         } else {
             size_t prop_init = 0;
             for (size_t i = 0; i < pattern.regular.size(); ++i) {
@@ -606,8 +608,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
 
             init_state_id = tmp_state_registry->insert_state(NumericState(prop_init, std::move(num_init)));
-            open.push(0, {init_state_id, 0});
         }
+        open.push(0, {init_state_id, 0});
 
         parent_pointers.resize(tmp_state_registry->size());
 
@@ -639,7 +641,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
          */
 
 
-        // we go beyond the state limit iff there are no 0-cost actions, need_goal is set, and no goal state has been reached, yet.
         ap_float goal_g = numeric_limits<ap_float>::max();
         ap_float last_cost = 0;
         while (!open.empty() && (num_reached_states < max_number_states || need_goal)) {
@@ -698,8 +699,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
                 size_t prop_successor = state.prop_hash + abs_op->get_hash_effect();
 
-                vector<ap_float> num_successor = get_numeric_successor(state.num_state,
-                                                                       op);
+                vector<ap_float> num_successor = get_numeric_successor(state.num_state, op);
 
                 NumericState succ_state(prop_successor, std::move(num_successor));
 
@@ -790,7 +790,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         while (!open.empty()) {
             size_t state_id = open.pop().second.first;
             if (state_id < closed.size() && closed[state_id]) {
-                // open lists may contain closed states
+                // open list may contain closed states
                 continue;
             }
             const NumericState &state = tmp_state_registry->lookup_state(state_id);
@@ -888,11 +888,13 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         case InnerHeuristic::PDB:
             hrmax.reset();
             lmc.reset();
+            inner_h_task.reset();
             break;
         case InnerHeuristic::BLIND:
             hrmax.reset();
             pdb.reset();
             lmc.reset();
+            inner_h_task.reset();
             break;
         default:
             cerr << "ERROR: unknown inner heuristic type " << int(failed_lookup_h) << endl;
@@ -901,7 +903,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 }
 
 void PatternDatabase::create_pdb_propositional(size_t size,
-                                               const std::vector<ap_float> &operator_costs) {
+                                               const vector<ap_float> &operator_costs) {
 
     exhausted_abstract_state_space = true;
 
@@ -929,7 +931,7 @@ void PatternDatabase::create_pdb_propositional(size_t size,
         match_tree.insert(op);
     }
 
-    build_goals(variable_to_index, vector<int>());
+    build_goals(variable_to_index);
 
     distances.reserve(size);
     // first implicit entry: priority, second entry: index for an abstract state
@@ -1095,7 +1097,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
                 create_pdb(1000, abs_state_id);
                 return {false, distances[abs_state_id]};
             }
-            
+
             auto [dead_end, h] = compute_inner_h(failed_lookup_h, state);
             if (dead_end) {
                 return {false, numeric_limits<ap_float>::max()};
