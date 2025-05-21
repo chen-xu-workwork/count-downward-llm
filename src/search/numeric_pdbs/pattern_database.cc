@@ -591,8 +591,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
         // first implicit entry: priority, second entry: index for an abstract state
         //AdaptiveQueue<pair<size_t, ap_float>> open; // TODO implement proper A* exploration order, preferring states with lower h
-        bool is_not_blind = exploration_h != InnerHeuristic::BLIND;
-        OpenList<pair<size_t, ap_float>> open = OpenList<pair<size_t, ap_float>>(is_not_blind);
+        bool ignore_h_value = exploration_h == InnerHeuristic::BLIND;
+        OpenList<pair<size_t, ap_float>> open = OpenList<pair<size_t, ap_float>>(ignore_h_value);
 
         // initialize queue
         size_t init_state_id;
