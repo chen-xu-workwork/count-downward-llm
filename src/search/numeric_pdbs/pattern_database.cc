@@ -592,7 +592,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         // first implicit entry: priority, second entry: index for an abstract state
         //AdaptiveQueue<pair<size_t, ap_float>> open; // TODO implement proper A* exploration order, preferring states with lower h
         bool ignore_h_value = exploration_h == InnerHeuristic::BLIND;
-        OpenList<pair<size_t, ap_float>> open = OpenList<pair<size_t, ap_float>>(ignore_h_value);
+        OpenList<size_t> open = OpenList<size_t>(ignore_h_value);
 
         // initialize queue
         size_t init_state_id;
@@ -612,7 +612,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             init_state_id = tmp_state_registry->insert_state(NumericState(prop_init, std::move(num_init)));
         }
         //open.push(0, {init_state_id, 0});
-        open.push(0, 0, {init_state_id, 0});
+        open.push(0, 0, init_state_id);
 
         parent_pointers.resize(tmp_state_registry->size());
 
@@ -660,13 +660,13 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
             //auto [cost, state_pair] = open.pop();
 
-            Entry<pair<size_t, ap_float>> state_pair = open.top();
+            Entry<size_t> state_entry = open.top();
             open.pop();
-            ap_float cost = state_pair.get_f();
+            ap_float cost = state_entry.get_f();
             last_cost = cost;
 
-            size_t state_id = state_pair.data.first;
-            ap_float g_value = state_pair.data.second;
+            size_t state_id = state_entry.data;
+            ap_float g_value = state_entry.get_g();
 
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 
@@ -734,7 +734,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     auto [dead_end, h] = compute_inner_h(exploration_h, succ_state);
                     if (!dead_end) {
                         //open.push(g_value + abs_op->get_cost() + h, {succ_id, g_value + abs_op->get_cost()});
-                        open.push(g_value + abs_op->get_cost(), h, {succ_id, g_value + abs_op->get_cost()});
+                        open.push(g_value + abs_op->get_cost(), h, succ_id);
                     }
                 }
             }
@@ -777,7 +777,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     auto [dead_end, h] = compute_inner_h(exploration_h, succ_state);
                     if (!dead_end) {
                         //open.push(g_value + op_cost + h, {succ_id, g_value + op_cost});
-                        open.push(g_value + op_cost, h, {succ_id, g_value + op_cost});
+                        open.push(g_value + op_cost, h, succ_id);
                     }
                 }
             }
@@ -799,9 +799,9 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         size_t num_open_goal_states = 0;
         while (!open.empty()) {
             //size_t state_id = open.pop().second.first;
-            Entry<pair<size_t, ap_float>> state_pair = open.top();
+            Entry<size_t> state_entry = open.top();
             open.pop();
-            size_t state_id = state_pair.data.first;
+            size_t state_id = state_entry.data;
             if (state_id < closed.size() && closed[state_id]) {
                 // open list may contain closed states
                 continue;
