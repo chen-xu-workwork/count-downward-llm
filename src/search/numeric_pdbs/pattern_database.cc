@@ -591,7 +591,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
         // first implicit entry: priority, second entry: index for an abstract state
         //AdaptiveQueue<pair<size_t, ap_float>> open; // TODO implement proper A* exploration order, preferring states with lower h
-        AStarOpenList<pair<size_t, ap_float>> open;
+        bool is_not_blind = exploration_h != InnerHeuristic::BLIND;
+        OpenList<pair<size_t, ap_float>> open = OpenList<pair<size_t, ap_float>>(is_not_blind);
 
         // initialize queue
         size_t init_state_id;
@@ -611,7 +612,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             init_state_id = tmp_state_registry->insert_state(NumericState(prop_init, std::move(num_init)));
         }
         //open.push(0, {init_state_id, 0});
-        open.push(Entry<pair<size_t, ap_float>>(FValue(0, 0), {init_state_id, 0}));
+        open.push(0, 0, {init_state_id, 0});
 
         parent_pointers.resize(tmp_state_registry->size());
 
@@ -658,9 +659,10 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
 
             //auto [cost, state_pair] = open.pop();
+
             Entry<pair<size_t, ap_float>> state_pair = open.top();
             open.pop();
-            ap_float cost = state_pair.f_value.f;
+            ap_float cost = state_pair.get_f();
             last_cost = cost;
 
             size_t state_id = state_pair.data.first;
@@ -732,7 +734,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     auto [dead_end, h] = compute_inner_h(exploration_h, succ_state);
                     if (!dead_end) {
                         //open.push(g_value + abs_op->get_cost() + h, {succ_id, g_value + abs_op->get_cost()});
-                        open.push(Entry<pair<size_t, ap_float>>(FValue(g_value + abs_op->get_cost(), h), {succ_id, g_value + abs_op->get_cost()}));
+                        open.push(g_value + abs_op->get_cost(), h, {succ_id, g_value + abs_op->get_cost()});
                     }
                 }
             }
@@ -775,7 +777,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     auto [dead_end, h] = compute_inner_h(exploration_h, succ_state);
                     if (!dead_end) {
                         //open.push(g_value + op_cost + h, {succ_id, g_value + op_cost});
-                        open.push(Entry<pair<size_t, ap_float>>(FValue(g_value + op_cost, h), {succ_id, g_value + op_cost}));
+                        open.push(g_value + op_cost, h, {succ_id, g_value + op_cost});
                     }
                 }
             }
