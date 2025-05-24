@@ -121,8 +121,8 @@ PatternDatabase::PatternDatabase(
     assert(utils::is_sorted_unique(pattern.numeric));
 
     if (extend_abstract_state_space){
-        extend_abstract_state_space = false;
-        cout << "WARNING: extension of abstract state space currently not implemented." << endl;
+        cout << "WARNING: extension of abstract state space currently not thoroughly tested and possibly results in inadmissible heuristic values." << endl;
+		// TODO seems to be inadmissible with iPDB on plant-watering:prob_5_3_3
     }
     
     utils::Timer timer;
@@ -157,14 +157,18 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
         frontier_h == InnerHeuristic::LMCUT ||
         failed_lookup_h == InnerHeuristic::LMCUT) {
 
-        assert(!inner_h_task);
-        inner_h_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern, task_proxy);
+        assert(!inner_h_task || extend_abstract_state_space);
+        if (!inner_h_task) {
+            inner_h_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern, task_proxy);
+        }
 
-        assert(!lmc);
-        lmc = unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(
-                new lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic(inner_h_task));
+        assert(!lmc || extend_abstract_state_space);
+        if (!lmc) {
+            lmc = unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(
+                    new lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic(inner_h_task));
 
-        lmc->initialize();
+            lmc->initialize();
+        }
     }
     if (exploration_h == InnerHeuristic::HRMAX ||
         frontier_h == InnerHeuristic::HRMAX ||
@@ -174,67 +178,73 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
             inner_h_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern, task_proxy);
         }
 
-        assert(!hrmax);
-        hrmax = unique_ptr<rmax_heuristic::RMaxHeuristic>(new rmax_heuristic::RMaxHeuristic(inner_h_task));
+        assert(!hrmax || extend_abstract_state_space);
+        if (!hrmax) {
+            hrmax = unique_ptr<rmax_heuristic::RMaxHeuristic>(new rmax_heuristic::RMaxHeuristic(inner_h_task));
 
-        hrmax->initialize();
+            hrmax->initialize();
+        }
     }
     if (exploration_h == InnerHeuristic::PDB ||
         frontier_h == InnerHeuristic::PDB ||
         failed_lookup_h == InnerHeuristic::PDB) {
 
-        assert(!pdb);
+        assert(!pdb || extend_abstract_state_space);
 
-        if (pattern.regular.size() + pattern.numeric.size() > 1) {
-            Pattern new_pattern;
-            for (const auto &num_goal: task_proxy->get_numeric_goals()) {
-                if (num_variable_to_index[num_goal.get_var_id()] != -1) {
-                    new_pattern.numeric.push_back(num_goal.get_var_id());
+        if (!pdb) {
+            if (pattern.regular.size() + pattern.numeric.size() > 1) {
+                Pattern new_pattern;
+                for (const auto &num_goal: task_proxy->get_numeric_goals()) {
+                    if (num_variable_to_index[num_goal.get_var_id()] != -1) {
+                        new_pattern.numeric.push_back(num_goal.get_var_id());
+                    }
                 }
-            }
-            for (const auto &goal : task_proxy->get_propositional_goals()){
-                int var = goal.get_variable().get_id();
-                if (variable_to_index[var] != -1){
-                    new_pattern.regular.push_back(var);
+                for (const auto &goal: task_proxy->get_propositional_goals()) {
+                    int var = goal.get_variable().get_id();
+                    if (variable_to_index[var] != -1) {
+                        new_pattern.regular.push_back(var);
+                    }
                 }
-            }
-            if (new_pattern.numeric.size() == pattern.numeric.size() && new_pattern.regular.size() == pattern.regular.size()) {
-                if (new_pattern.numeric.size() > 1){
-                    new_pattern.numeric.resize(pattern.numeric.size() / 2);
+                if (new_pattern.numeric.size() == pattern.numeric.size() &&
+                    new_pattern.regular.size() == pattern.regular.size()) {
+                    if (new_pattern.numeric.size() > 1) {
+                        new_pattern.numeric.resize(pattern.numeric.size() / 2);
+                    }
+                    if (new_pattern.regular.size() > 1) {
+                        new_pattern.regular.resize(pattern.regular.size() / 2);
+                    }
+                    if (new_pattern.numeric.size() == pattern.numeric.size() &&
+                        new_pattern.regular.size() == pattern.regular.size()) {
+                        // both parts of pattern have exactly one variable, need to clear one of them
+                        new_pattern.regular.clear();
+                    }
                 }
-                if (new_pattern.regular.size() > 1){
-                    new_pattern.regular.resize(pattern.regular.size() / 2);
-                }
-                if (new_pattern.numeric.size() == pattern.numeric.size() && new_pattern.regular.size() == pattern.regular.size()) {
-                    // both parts of pattern have exactly one variable, need to clear one of them
-                    new_pattern.regular.clear();
-                }
-            }
-            sort(new_pattern.regular.begin(), new_pattern.regular.end());
-            sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
+                sort(new_pattern.regular.begin(), new_pattern.regular.end());
+                sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
 
-            pdb = std::make_unique<PatternDatabase>(
-                    task_proxy,
-                    new_pattern,
-                    max((size_t) 1000, max_number_states / 10), // TODO don't hard-code the limit
-                    false, // TODO make this an option
-                    true, // TODO make this an option
-                    f_layer_offset_ratio,
-                    InnerHeuristic::BLIND,
-                    InnerHeuristic::BLIND,
-                    InnerHeuristic::BLIND,
-                    operator_costs,
-                    false);
-        } else {
-            cout << "WARNING: no variables in inner pattern, fall back to blind" << endl;
-            if (exploration_h == InnerHeuristic::PDB){
-                exploration_h = InnerHeuristic::BLIND;
-            }
-            if (frontier_h == InnerHeuristic::PDB){
-                frontier_h = InnerHeuristic::BLIND;
-            }
-            if (failed_lookup_h == InnerHeuristic::PDB){
-                failed_lookup_h = InnerHeuristic::BLIND;
+                pdb = std::make_unique<PatternDatabase>(
+                        task_proxy,
+                        new_pattern,
+                        max((size_t) 1000, max_number_states / 10), // TODO don't hard-code the limit
+                        false, // TODO make this an option
+                        false, // TODO make this an option
+                        f_layer_offset_ratio,
+                        InnerHeuristic::BLIND,
+                        InnerHeuristic::BLIND,
+                        InnerHeuristic::BLIND,
+                        operator_costs,
+                        false);
+            } else {
+                cout << "WARNING: no variables in inner pattern, fall back to blind" << endl;
+                if (exploration_h == InnerHeuristic::PDB){
+                    exploration_h = InnerHeuristic::BLIND;
+                }
+                if (frontier_h == InnerHeuristic::PDB){
+                    frontier_h = InnerHeuristic::BLIND;
+                }
+                if (failed_lookup_h == InnerHeuristic::PDB){
+                    failed_lookup_h = InnerHeuristic::BLIND;
+                }
             }
         }
     }
@@ -819,7 +829,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 }
                 h = max(h, min_action_cost);
 
-                if (!dead_end) {
+                if (!dead_end && h != numeric_limits<ap_float>::max()) {
                     pq.push(h, state_id);
                 }
             }
@@ -889,29 +899,31 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         cout << "Initial state h: " << compute_heuristic(task_proxy->get_original_initial_state()).second << endl;
     }
 
-    switch (failed_lookup_h) {
-        case InnerHeuristic::LMCUT:
-            hrmax.reset();
-            pdb.reset();
-            break;
-        case InnerHeuristic::HRMAX:
-            pdb.reset();
-            lmc.reset();
-            break;
-        case InnerHeuristic::PDB:
-            hrmax.reset();
-            lmc.reset();
-            inner_h_task.reset();
-            break;
-        case InnerHeuristic::BLIND:
-            hrmax.reset();
-            pdb.reset();
-            lmc.reset();
-            inner_h_task.reset();
-            break;
-        default:
-            cerr << "ERROR: unknown inner heuristic type " << int(failed_lookup_h) << endl;
-            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    if (!extend_abstract_state_space) {
+        switch (failed_lookup_h) {
+            case InnerHeuristic::LMCUT:
+                hrmax.reset();
+                pdb.reset();
+                break;
+            case InnerHeuristic::HRMAX:
+                pdb.reset();
+                lmc.reset();
+                break;
+            case InnerHeuristic::PDB:
+                hrmax.reset();
+                lmc.reset();
+                inner_h_task.reset();
+                break;
+            case InnerHeuristic::BLIND:
+                hrmax.reset();
+                pdb.reset();
+                lmc.reset();
+                inner_h_task.reset();
+                break;
+            default:
+                cerr << "ERROR: unknown inner heuristic type " << int(failed_lookup_h) << endl;
+                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
     }
 }
 
