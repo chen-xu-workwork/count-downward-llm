@@ -520,12 +520,9 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     //  is as dense as possible, and only having it just large enough to fit the abstract state with highest ID that has
     //  a finite heuristic value, with all others being deadends or mapped to min_action_cost by convention.
 
-    NumericStateRegistry *tmp_state_registry;
-    if (initial_state_opt.has_value()) {
-        assert(extend_abstract_state_space);
-        tmp_state_registry = state_registry.get();
-    } else {
-        tmp_state_registry = new NumericStateRegistry();
+    assert(!state_registry || extend_abstract_state_space);
+    if (!state_registry) {
+        state_registry = make_unique<NumericStateRegistry>();
     }
 
     VariablesProxy vars = task_proxy->get_variables();
@@ -619,12 +616,12 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 num_init[num_variable_to_index[var]] = num_vars[var].get_initial_state_value();
             }
 
-            init_state_id = tmp_state_registry->insert_state(NumericState(prop_init, std::move(num_init)));
+            init_state_id = state_registry->insert_state(NumericState(prop_init, std::move(num_init)));
         }
         //open.push(0, {init_state_id, 0});
         open.push(0, 0, init_state_id);
 
-        parent_pointers.resize(tmp_state_registry->size());
+        parent_pointers.resize(state_registry->size());
 
         /*
          * A) forward exploration:
@@ -689,7 +686,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
             closed[state_id] = true;
 
-            const NumericState &state = tmp_state_registry->lookup_state(state_id);
+            const NumericState &state = state_registry->lookup_state(state_id);
 
             if (is_goal_state(state)) {
                 goal_states.push_back(state_id);
@@ -721,7 +718,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
                 NumericState succ_state(prop_successor, std::move(num_successor));
 
-                size_t succ_id = tmp_state_registry->insert_state(succ_state);
+                size_t succ_id = state_registry->insert_state(succ_state);
 
                 if (succ_id == state_id) {
                     // no need to keep self-loops
@@ -758,7 +755,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
                 NumericState succ_state(state.prop_hash, std::move(num_successor));
 
-                size_t succ_id = tmp_state_registry->insert_state(succ_state);
+                size_t succ_id = state_registry->insert_state(succ_state);
 
                 if (succ_id == state_id) {
                     // no need to keep self-loops
@@ -800,7 +797,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         if (!initial_state_opt.has_value()) {
             assert(distances.empty());
         }
-        distances.resize(tmp_state_registry->size(), numeric_limits<ap_float>::max());
+        distances.resize(state_registry->size(), numeric_limits<ap_float>::max());
 
         for (const auto &goal_state_id: goal_states) {
             pq.push(0, goal_state_id);
@@ -816,7 +813,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 // open list may contain closed states
                 continue;
             }
-            const NumericState &state = tmp_state_registry->lookup_state(state_id);
+            const NumericState &state = state_registry->lookup_state(state_id);
             if (is_goal_state(state)) {
                 // we have not checked this for states in open
                 pq.push(0, state_id);
@@ -835,7 +832,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
         }
         if (dump) {
-            cout << "Generated abstract states: " << tmp_state_registry->size() << endl;
+            cout << "Generated abstract states: " << state_registry->size() << endl;
             cout << "Reached abstract goal states: " << goal_states.size() + num_open_goal_states << endl;
         }
     }
@@ -870,32 +867,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
     if (dump) {
         cout << "Number backwards reachable abstract states: " << num_bwd_reached_states << endl;
-    }
-
-    if (initial_state_opt.has_value()) {
-        
-    } else if (num_bwd_reached_states < 0.75 * tmp_state_registry->size()) {
-        state_registry = make_unique<NumericStateRegistry>();
-        size_t state_id = 0;
-        for (size_t i = 0; i < distances.size(); ++i) {
-            ap_float dist = distances[i];
-            if (dist != numeric_limits<ap_float>::max()) {
-                const NumericState &state = tmp_state_registry->lookup_state(i);
-                state_registry->insert_state(state);
-                distances[state_id++]  = dist;
-            }
-        }
-        distances.resize(state_id);
-        distances.shrink_to_fit();
-        if (dump) {
-            cout << "Shrink size of state registry from " << tmp_state_registry->size() << " to " << distances.size() << endl;
-        }
-        delete tmp_state_registry;
-    } else {
-        state_registry.reset(tmp_state_registry);
-    }
-
-    if (dump) {
         cout << "Initial state h: " << compute_heuristic(task_proxy->get_original_initial_state()).second << endl;
     }
 
