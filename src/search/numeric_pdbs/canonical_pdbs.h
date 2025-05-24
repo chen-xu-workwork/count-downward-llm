@@ -3,6 +3,9 @@
 
 #include "types.h"
 
+#include "../numeric/rmax_heuristic.h"
+#include "../numeric_landmarks/lm_cut_numeric_heuristic.h"
+
 #include "../globals.h"
 
 #include <memory>
@@ -14,10 +17,21 @@ class CanonicalPDBs {
     std::shared_ptr<MaxAdditivePDBSubsets> max_additive_subsets;
     mutable size_t number_lookup_misses; // for statistics only
 
+    // these two are static because CanonicalPDBs are constructed many times by iPDB
+    // during the hill-climbing process. since, in the current code, they can only
+    // be used on the same task (the root task), there is no point in initializing
+    // the inner heuristics over and over again
+    // TODO if we ever use different tasks for multiple CanonicalPDBs, this breaks
+    static std::unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic> lmc;
+    static std::unique_ptr<rmax_heuristic::RMaxHeuristic> hrmax;
+
 public:
-    CanonicalPDBs(std::shared_ptr<PDBCollection> pattern_databases,
+    CanonicalPDBs(const std::shared_ptr<AbstractTask> &task,
+                  std::shared_ptr<PDBCollection> pattern_databases,
                   std::shared_ptr<MaxAdditivePDBSubsets> max_additive_subsets,
-                  bool dominance_pruning);
+                  bool dominance_pruning,
+                  InnerHeuristic global_failed_lookup_h);
+
     ~CanonicalPDBs() = default;
 
     ap_float get_value(const State &state) const;

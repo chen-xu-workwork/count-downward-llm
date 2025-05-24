@@ -25,8 +25,10 @@ CanonicalPDBs get_canonical_pdbs_from_options(
         pattern_collection_info.get_max_additive_subsets();
     cout << "PDB collection construction time: " << timer << endl;
 
+    InnerHeuristic failed_lookup_h(InnerHeuristic(opts.get_enum("global_failed_lookup_heuristic")));
+
     bool dominance_pruning = opts.get<bool>("dominance_pruning");
-    return {pdbs, max_additive_subsets, dominance_pruning};
+    return {task, pdbs, max_additive_subsets, dominance_pruning, failed_lookup_h};
 }
 
 CanonicalPDBsHeuristic::CanonicalPDBsHeuristic(const Options &opts)
@@ -73,6 +75,7 @@ static Heuristic *_parse(OptionParser &parser) {
         "patterns",
         "pattern generation method",
         "numeric_systematic(1)");
+
     parser.add_option<bool>(
         "dominance_pruning",
         "Exclude patterns and pattern collections that will never contribute to "
@@ -80,61 +83,14 @@ static Heuristic *_parse(OptionParser &parser) {
         "collection.",
         "true");
 
-    parser.add_option<int>(
-            "drop_pdb",
-            "drop inner pdb.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "use_lmcut",
-            "lmcut vs hier.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "blind_if_no_goal",
-            "throw away PDB if no abstract goal has been found.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "extend_abstract_state_space",
-            "extend abstract PDB state spaces on misses.",
-            "0",
-            Bounds("0", "1"));
-
-    parser.add_option<int>(
-            "extension_h0_until_goal",
-            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
-            "0",
-            Bounds("-1", "infinity"));
-
-    parser.add_option<int>(
-            "extension_h1_until_goal",
-            "if 'extend_abstract_state_space' is true extend either until goal has been found (set to -1), otherwise up to the given number of states.",
-            "0",
-            Bounds("-1", "infinity"));
-
-    parser.add_option<double>(
-            "f_layer_offset_ratio",
-            "stop A* in abstract state space until all states in the open list have f value >= f(goal) + x * g(goal) .",
-            "0.0",
-            Bounds("-1000", "infinity"));
-
-    parser.add_option<int>(
-            "need_goal",
-            "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
-            "0",
-            Bounds("0", "2"));
-
-    parser.add_option<int>(
-            "hierarchy",
-            "What stage of hierarchy (0: BFS).",
-            "1",
-            Bounds("0", "1"));
+    parser.add_enum_option(
+            "global_failed_lookup_heuristic",
+            {"BLIND", "HRMAX", "LMCUT", "PDB"},
+            "TODO",
+            "BLIND", {});
 
     Heuristic::add_options_to_parser(parser);
+    PatternDatabase::add_pdb_options(parser);
 
     Options opts = parser.parse();
     if (parser.dry_run())

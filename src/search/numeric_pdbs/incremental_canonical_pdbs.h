@@ -33,6 +33,7 @@ class IncrementalCanonicalPDBs {
     InnerHeuristic exploration_h;
     InnerHeuristic frontier_h;
     InnerHeuristic failed_lookup_h;
+    InnerHeuristic global_failed_lookup_h;
 
     // Adds a PDB for pattern but does not recompute max_additive_subsets.
     void add_pdb_for_pattern(const Pattern &pattern);
@@ -48,7 +49,8 @@ public:
                                       int need_goal,
                                       InnerHeuristic exploration_h,
                                       InnerHeuristic frontier_h,
-                                      InnerHeuristic failed_lookup_h);
+                                      InnerHeuristic failed_lookup_h,
+                                      InnerHeuristic global_failed_lookup_h);
 
     virtual ~IncrementalCanonicalPDBs() = default;
 

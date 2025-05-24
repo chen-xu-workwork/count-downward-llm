@@ -45,6 +45,7 @@ PatternCollectionGeneratorHillclimbing::PatternCollectionGeneratorHillclimbing(c
       exploration_h(InnerHeuristic(opts.get_enum("exploration_heuristic"))),
       frontier_h(InnerHeuristic(opts.get_enum("frontier_heuristic"))),
       failed_lookup_h(InnerHeuristic(opts.get_enum("failed_lookup_heuristic"))),
+      global_failed_lookup_h(InnerHeuristic(opts.get_enum("global_failed_lookup_heuristic"))),
       num_rejected(0),
       hill_climbing_timer(nullptr) {
 }
@@ -425,7 +426,8 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
             need_goal,
             exploration_h,
             frontier_h,
-            failed_lookup_h);
+            failed_lookup_h,
+            global_failed_lookup_h);
 
     State initial_state = num_task_proxy->get_original_initial_state();
     if (!current_pdbs->is_dead_end(initial_state)) {
@@ -619,6 +621,12 @@ static Heuristic *_parse_ipdb(OptionParser &parser) {
         "collection.",
         "true");
 
+    parser.add_enum_option(
+            "global_failed_lookup_heuristic",
+            {"BLIND", "HRMAX", "LMCUT", "PDB"},
+            "TODO",
+            "BLIND", {});
+
     Heuristic::add_options_to_parser(parser);
     PatternDatabase::add_pdb_options(parser);
 
@@ -646,6 +654,8 @@ static Heuristic *_parse_ipdb(OptionParser &parser) {
         "patterns", pgh);
     heuristic_opts.set<bool>(
         "dominance_pruning", opts.get<bool>("dominance_pruning"));
+    heuristic_opts.set<int>(
+            "global_failed_lookup_heuristic", opts.get_enum("global_failed_lookup_heuristic"));
     heuristic_opts.set<bool>( // TODO this is somewhat of a hack
             "redundant_constraints", true);
     heuristic_opts.set<bool>( // TODO this is somewhat of a hack

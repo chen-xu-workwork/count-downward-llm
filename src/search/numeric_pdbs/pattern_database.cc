@@ -1047,7 +1047,6 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
         // we have not seen an abstract state that corresponds to state
         if (exhausted_abstract_state_space) {
             // here we can guarantee that state is indeed a deadend
-            //cout << "Deadend" << endl;
             return {true, numeric_limits<ap_float>::max()};
         } else if (is_abstract_goal_state(state)) {
             // abstract goals are satisfied

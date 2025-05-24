@@ -11,12 +11,14 @@
 
 
 namespace numeric_pdbs {
+class CanonicalPDBs;
 class PatternDatabase;
 }
 
 namespace rmax_heuristic {
 
 class RMaxHeuristic : public Heuristic {
+    friend class numeric_pdbs::CanonicalPDBs;
     friend class numeric_pdbs::PatternDatabase;
 
     explicit RMaxHeuristic(const std::shared_ptr<AbstractTask> &task);

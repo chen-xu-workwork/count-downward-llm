@@ -22,7 +22,8 @@ IncrementalCanonicalPDBs::IncrementalCanonicalPDBs(
     int need_goal,
     InnerHeuristic exploration_h,
     InnerHeuristic frontier_h,
-    InnerHeuristic failed_lookup_h)
+    InnerHeuristic failed_lookup_h,
+    InnerHeuristic global_failed_lookup_h)
     : task(std::move(task)),
       task_proxy(std::move(task_proxy)),
       patterns(make_shared<PatternCollection>(intitial_patterns.begin(),
@@ -36,7 +37,8 @@ IncrementalCanonicalPDBs::IncrementalCanonicalPDBs(
       need_goal(need_goal),
       exploration_h(exploration_h),
       frontier_h(frontier_h),
-      failed_lookup_h(failed_lookup_h) {
+      failed_lookup_h(failed_lookup_h),
+      global_failed_lookup_h(global_failed_lookup_h) {
     utils::Timer timer;
     pattern_databases->reserve(patterns->size());
     for (const Pattern &pattern : *patterns)
@@ -77,7 +79,7 @@ MaxAdditivePDBSubsets IncrementalCanonicalPDBs::get_max_additive_subsets(
 }
 
 ap_float IncrementalCanonicalPDBs::get_value(const State &state) const {
-    CanonicalPDBs canonical_pdbs(pattern_databases, max_additive_subsets, false);
+    CanonicalPDBs canonical_pdbs(task, pattern_databases, max_additive_subsets, false, global_failed_lookup_h);
     return canonical_pdbs.get_value(state);
 }
 

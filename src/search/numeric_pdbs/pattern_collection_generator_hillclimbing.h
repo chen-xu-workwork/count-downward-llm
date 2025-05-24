@@ -47,6 +47,7 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
     InnerHeuristic exploration_h;
     InnerHeuristic frontier_h;
     InnerHeuristic failed_lookup_h;
+    InnerHeuristic global_failed_lookup_h;
 
     std::unique_ptr<IncrementalCanonicalPDBs> current_pdbs;
 

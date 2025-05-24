@@ -14,11 +14,13 @@ namespace options {
 }
 
 namespace numeric_pdbs {
+class CanonicalPDBs;
 class PatternDatabase;
 }
 
 namespace lm_cut_numeric_heuristic {
     class LandmarkCutNumericHeuristic : public Heuristic {
+        friend class numeric_pdbs::CanonicalPDBs;
         friend class numeric_pdbs::PatternDatabase;
 
         std::unique_ptr<numeric_lm_cut_heuristic::LandmarkCutLandmarks> landmark_generator;

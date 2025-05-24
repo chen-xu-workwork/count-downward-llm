@@ -20,7 +20,7 @@ protected:
 
 public:
     explicit CanonicalPDBsHeuristic(const options::Options &opts);
-    virtual ~CanonicalPDBsHeuristic() = default;
+    ~CanonicalPDBsHeuristic() override = default;
 
     void print_statistics() const override;
 };
