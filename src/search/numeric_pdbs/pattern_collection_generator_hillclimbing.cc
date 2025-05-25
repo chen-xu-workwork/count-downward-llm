@@ -41,6 +41,7 @@ PatternCollectionGeneratorHillclimbing::PatternCollectionGeneratorHillclimbing(c
       max_pdb_size(opts.get<int>("max_pdb_size")),
       extend_abstract_state_space(opts.get<bool>("extend_abstract_state_space")),
       f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
+      keep_parent_pointers(opts.get<bool>("keep_parent_pointers")),
       need_goal(opts.get<bool>("need_goal")),
       exploration_h(InnerHeuristic(opts.get_enum("exploration_heuristic"))),
       frontier_h(InnerHeuristic(opts.get_enum("frontier_heuristic"))),
@@ -174,6 +175,7 @@ size_t PatternCollectionGeneratorHillclimbing::generate_pdbs_for_candidates(
                                              extend_abstract_state_space,
                                              need_goal,
                                              f_layer_offset_ratio,
+                                             keep_parent_pointers,
                                              exploration_h,
                                              frontier_h,
                                              failed_lookup_h));
@@ -424,6 +426,7 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
             extend_abstract_state_space,
             f_layer_offset_ratio,
             need_goal,
+            keep_parent_pointers,
             exploration_h,
             frontier_h,
             failed_lookup_h,

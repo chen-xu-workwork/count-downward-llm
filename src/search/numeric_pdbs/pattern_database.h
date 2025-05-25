@@ -121,6 +121,8 @@ class PatternDatabase {
     std::vector<numeric_condition::RegularNumericCondition> numeric_goals;
 
     ap_float min_action_cost;
+    bool keep_parent_pointers;
+    std::vector<std::vector<std::pair<int, size_t>>> parent_pointers;
 
     bool exhausted_abstract_state_space;
 
@@ -230,6 +232,7 @@ public:
             bool extend_abstract_state_space,
             bool need_goal,
             double f_layer_offset_ratio,
+            bool keep_parent_pointers,
             InnerHeuristic exploration_h,
             InnerHeuristic frontier_h,
             InnerHeuristic failed_lookup_h,

@@ -26,6 +26,7 @@ PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
     bool extend_abstract_state_space = opts.get<bool>("extend_abstract_state_space");
     ap_float f_layer_offset_ratio = opts.get<double>("f_layer_offset_ratio");
     bool need_goal = opts.get<bool>("need_goal");
+    bool keep_parent_pointers = opts.get<bool>("keep_parent_pointers");
 
     shared_ptr<NumericTaskProxy> task_proxy = make_shared<NumericTaskProxy>(task);
     Pattern pattern = pattern_generator->generate(task, task_proxy);
@@ -35,6 +36,7 @@ PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
             extend_abstract_state_space,
             need_goal,
             f_layer_offset_ratio,
+            keep_parent_pointers,
             exploration_h,
             frontier_h,
             failed_lookup_h};

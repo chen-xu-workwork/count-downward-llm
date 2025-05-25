@@ -99,6 +99,7 @@ PatternDatabase::PatternDatabase(
         bool extend_abstract_state_space,
         bool need_goal,
         double f_layer_offset_ratio,
+        bool keep_parent_pointers,
         InnerHeuristic exploration_h,
         InnerHeuristic frontier_h,
         InnerHeuristic failed_lookup_h,
@@ -111,6 +112,7 @@ PatternDatabase::PatternDatabase(
           failed_lookup_h(failed_lookup_h),
           extend_abstract_state_space(extend_abstract_state_space),
           need_goal(need_goal),
+          keep_parent_pointers(keep_parent_pointers),
           f_layer_offset_ratio(f_layer_offset_ratio),
           min_action_cost(numeric_limits<ap_float>::max()),
           exhausted_abstract_state_space(false) {
@@ -229,6 +231,7 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
                         false, // TODO make this an option
                         false, // TODO make this an option
                         f_layer_offset_ratio,
+                        keep_parent_pointers,
                         InnerHeuristic::BLIND,
                         InnerHeuristic::BLIND,
                         InnerHeuristic::BLIND,
@@ -507,7 +510,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                                  bool dump) {
 
     
-
     // TODO: implement specialized efficient variants for the nice cases, e.g.
     //  all numeric variables have an equality goal => we can do regression in this case,
     //  as there are finitely many abstract goal states.
@@ -543,7 +545,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     assert(extend_abstract_state_space || original_distance_size == 0);
 
     AdaptiveQueue<size_t> pq;
-    vector<vector<pair<int, size_t>>> parent_pointers;
 
     {
         // compute all abstract operators
@@ -870,6 +871,10 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         cout << "Initial state h: " << compute_heuristic(task_proxy->get_original_initial_state()).second << endl;
     }
 
+    if (!keep_parent_pointers) {
+        parent_pointers.clear();
+    } 
+
     if (!extend_abstract_state_space) {
         switch (failed_lookup_h) {
             case InnerHeuristic::LMCUT:
@@ -1166,6 +1171,11 @@ void PatternDatabase::add_pdb_options(OptionParser &parser) {
     parser.add_option<bool>(
             "need_goal",
             "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
+            "false");
+
+    parser.add_option<bool>(
+            "keep_parent_pointers",
+            "keep parent pointers for the abstract states, so that we can compute the cost of the abstract state.",
             "false");
 }
 }
