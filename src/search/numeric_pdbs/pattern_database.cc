@@ -839,16 +839,29 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     }
 
     size_t num_bwd_reached_states = 0;
+    vector<bool> updated(original_distance_size, false);
 
     // Dijkstra loop
     while (!pq.empty()) {
         auto [distance, state_id] = pq.pop();
         assert(distance >= 0);
-        if (distance >= distances[state_id]) {
+        if (state_id < original_distance_size && updated[state_id]) {
+            // we have already updated this state
+            continue;
+        }
+        if (state_id < original_distance_size) {
+            updated[state_id] = true;
+        }
+        if (state_id >= original_distance_size && distance >= distances[state_id]) {
+            // new state but worse distance
             continue;
         }
         ++num_bwd_reached_states;
-        distances[state_id] = distance;
+        if (state_id >= original_distance_size && distance < distances[state_id]) {
+            // new state with better distance
+            distances[state_id] = distance;
+        }
+        distance = distances[state_id];
 
         // regress state
         for (const auto &[op_id, parent_state_id] : parent_pointers[state_id]) {
@@ -862,6 +875,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             if (parent_state_id >= original_distance_size && alternative_cost < distances[parent_state_id]) {
                 assert(alternative_cost >= 0);
                 pq.push(alternative_cost, parent_state_id);
+            } else if (parent_state_id < original_distance_size && !updated[parent_state_id]) {
+                pq.push(distances[parent_state_id], parent_state_id);
             }
         }
     }
