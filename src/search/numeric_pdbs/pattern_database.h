@@ -13,6 +13,8 @@
 #include <vector>
 #include <optional>
 
+#include "match_tree.h"
+
 
 namespace numeric_pdb_helper {
 class NumericOperatorProxy;
@@ -94,6 +96,13 @@ class PatternDatabase {
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
 
     Pattern pattern;
+
+
+    bool is_init = false;
+    std::vector<int> variable_to_index;
+    std::vector<AbstractOperator> operators;
+    std::vector<int> num_operators;
+    std::unique_ptr<numeric_pdbs::MatchTree> match_tree;
 
     InnerHeuristic exploration_h;
     InnerHeuristic frontier_h;

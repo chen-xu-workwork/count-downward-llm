@@ -1,6 +1,5 @@
 #include "pattern_database.h"
 
-#include "match_tree.h"
 #include "numeric_condition.h"
 #include "numeric_helper.h"
 #include "numeric_task_proxy.h"
@@ -528,28 +527,21 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     }
 
     VariablesProxy vars = task_proxy->get_variables();
-    vector<int> variable_to_index(vars.size(), -1);
-    for (size_t i = 0; i < pattern.regular.size(); ++i) {
-        variable_to_index[pattern.regular[i]] = i;
-    }
     ResNumericVariablesProxy num_vars = task_proxy->get_numeric_variables();
-    num_variable_to_index = vector<int>(num_vars.size(), -1);
-    for (size_t i = 0; i < pattern.numeric.size(); ++i) {
-        num_variable_to_index[pattern.numeric[i]] = i;
-    }
 
-    construct_inner_heuristics(max_number_states, variable_to_index, operator_costs);
+    if (!is_init) {
+        is_init = true;
+        variable_to_index.resize(pattern.regular.size(), -1);
+        for (size_t i = 0; i < pattern.regular.size(); ++i) {
+            variable_to_index[pattern.regular[i]] = i;
+        }
+        num_variable_to_index = vector<int>(num_vars.size(), -1);
+        for (size_t i = 0; i < pattern.numeric.size(); ++i) {
+            num_variable_to_index[pattern.numeric[i]] = i;
+        }
 
+        construct_inner_heuristics(max_number_states, variable_to_index, operator_costs);
 
-    size_t original_distance_size = distances.size();
-    assert(extend_abstract_state_space || original_distance_size == 0);
-
-    AdaptiveQueue<size_t> pq;
-
-    {
-        // compute all abstract operators
-        vector<AbstractOperator> operators;
-        vector<int> num_operators;
         for (NumericOperatorProxy op: task_proxy->get_operators()) {
             ap_float op_cost;
             if (operator_costs.empty()) {
@@ -581,16 +573,24 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 min_action_cost = min(min_action_cost, op_cost);
             }
         }
-        
 
         // build the match tree
-        MatchTree match_tree(task_proxy, pattern, prop_hash_multipliers);
+        match_tree = std::make_unique<MatchTree>(task_proxy, pattern, prop_hash_multipliers);
         for (const AbstractOperator &op: operators) {
-            match_tree.insert(op);
+            match_tree.get()->insert(op);
         }
 
         build_goals(variable_to_index);
+    }
 
+    
+
+
+    size_t original_distance_size = distances.size();
+    assert(extend_abstract_state_space || original_distance_size == 0);
+
+    AdaptiveQueue<size_t> pq;
+    {
         vector<bool> closed;
         vector<bool> is_open_or_closed(1, true);
         vector<size_t> goal_states;
@@ -705,7 +705,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
 
             vector<const AbstractOperator *> applicable_operators;
-            match_tree.get_applicable_operators(state.prop_hash, applicable_operators);
+            match_tree.get()->get_applicable_operators(state.prop_hash, applicable_operators);
 
             for (auto abs_op: applicable_operators) {
                 const auto &op = task_proxy->get_operators()[abs_op->get_op_id()];
