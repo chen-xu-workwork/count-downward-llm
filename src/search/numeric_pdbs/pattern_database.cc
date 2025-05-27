@@ -508,7 +508,6 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                                  const std::vector<ap_float> &operator_costs,
                                  bool dump) {
 
-    
     // TODO: implement specialized efficient variants for the nice cases, e.g.
     //  all numeric variables have an equality goal => we can do regression in this case,
     //  as there are finitely many abstract goal states.
@@ -531,7 +530,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
     if (!is_init) {
         is_init = true;
-        variable_to_index.resize(pattern.regular.size(), -1);
+        variable_to_index.resize(vars.size(), -1);
         for (size_t i = 0; i < pattern.regular.size(); ++i) {
             variable_to_index[pattern.regular[i]] = i;
         }
