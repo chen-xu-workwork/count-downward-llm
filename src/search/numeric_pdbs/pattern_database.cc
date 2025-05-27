@@ -120,11 +120,6 @@ PatternDatabase::PatternDatabase(
            operator_costs.size() == task_proxy->get_operators().size());
     assert(utils::is_sorted_unique(pattern.regular));
     assert(utils::is_sorted_unique(pattern.numeric));
-
-    if (extend_abstract_state_space){
-        cout << "WARNING: extension of abstract state space currently not thoroughly tested and possibly results in inadmissible heuristic values." << endl;
-		// TODO seems to be inadmissible with iPDB on plant-watering:prob_5_3_3
-    }
     
     utils::Timer timer;
     prop_hash_multipliers.reserve(pattern.regular.size());
