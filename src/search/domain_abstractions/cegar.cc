@@ -298,9 +298,9 @@ pair<int, vector<int>> CEGAR::get_random_partition_split(
         if (abstract_domain_size > 1 && utils::is_product_within_limit(
             abstraction_size, abstract_domain_size, max_abstraction_size)) {
             return make_pair(abstract_domain_size, move(init_split));
-        } else if (log.is_at_least_debug()) {
-            log << "Initial split for variable " << var_id
-                << " exceeds size limit." << endl;
+        } else {
+            cout << "Initial split for variable " << var_id
+                 << " exceeds size limit." << endl;
         }
     }
     return make_pair(1, vector<int>{});
@@ -378,8 +378,8 @@ static void apply_op_to_state(vector<int> &state, const OperatorProxy &op) {
     assert(!op.is_axiom());
     for (EffectProxy effect : op.get_effects()) {
         assert(effect.get_conditions().empty());
-        Fact effect_fact = effect.get_fact().get_pair();
-        state[effect_fact.var] = effect_fact.value;
+        FactProxy effect_fact = effect.get_fact();
+        state[effect_fact.get_variable().get_id()] = effect_fact.get_value();
     }
 }
 
@@ -540,7 +540,7 @@ bool CEGAR::fix_flaws_per_variable(
 
 void CEGAR::print_statistics(
     const TaskProxy &task_proxy) {
-    assert(log.is_at_least_normal());
+    //assert(log.is_at_least_normal());
 
     int num_variables = task_proxy.get_variables().size();
     int abstraction_size = 1;
@@ -562,11 +562,11 @@ void CEGAR::print_statistics(
         avg_domain_size += domain_size_ratio / num_variables;
     }
 
-    log << "Final abstraction size: " << abstraction_size << endl;
-    log << "Total variables: " << num_variables << endl;
-    log << "Trivial variables: " << num_trivial_variables << endl;
-    log << "Complete variables: " << num_complete_variables << endl;
-    log << "Average domain size: " << avg_domain_size << endl;
+    cout << "Final abstraction size: " << abstraction_size << endl;
+    cout << "Total variables: " << num_variables << endl;
+    cout << "Trivial variables: " << num_trivial_variables << endl;
+    cout << "Complete variables: " << num_complete_variables << endl;
+    cout << "Average domain size: " << avg_domain_size << endl;
 }
 
 void CEGAR::add_variable_to_abstraction_if_necessary(
@@ -579,17 +579,13 @@ void CEGAR::add_variable_to_abstraction_if_necessary(
 
 DomainAbstraction CEGAR::build_abstraction(
     const TaskProxy &task_proxy) {
-    if (log.is_at_least_normal()) {
-        log << "Building domain abstraction..." << endl;
-    }
+    cout << "Building domain abstraction..." << endl;
     utils::reserve_extra_memory_padding(memory_padding_in_mb);
     utils::CountdownTimer timer(max_time);
 
     DomainMapping domain_mapping =
         compute_initial_domain_mapping(task_proxy);
-    if (log.is_at_least_debug()) {
-        log << "Initial domain mapping: " << domain_mapping << endl;
-    }
+        cout << "Initial domain mapping: " << domain_mapping << endl;
     DomainAbstractionFactory factory(
         task_proxy, domain_mapping, abstract_domain_sizes, true, rng,
         use_wildcard_plans);
@@ -599,19 +595,18 @@ DomainAbstraction CEGAR::build_abstraction(
     State concrete_init = task_proxy.get_initial_state();
     concrete_init.unpack();
     while (!termination_criterion_satisfied(timer)) {
-        if (log.is_at_least_debug()) {
-            abstraction.dump(log);
-            log << "iteration #" << iteration << endl;
-        }
+        
+        abstraction.dump(log);
+        cout << "iteration #" << iteration << endl;
 
         vector<Fact> flaws =
             get_flaws(task_proxy, concrete_init, abstraction);
 
         if (flaws.empty()) {
-            if (log.is_at_least_normal()) {
-                log << "No more flaws found, terminating CEGAR refinement."
-                    << endl;
-            }
+            
+            cout << "No more flaws found, terminating CEGAR refinement."
+                << endl;
+           
             break;
         }
 
@@ -619,11 +614,9 @@ DomainAbstraction CEGAR::build_abstraction(
             fix_flaws(move(flaws), domain_mapping, abstraction.size());
         if (!flaws_fixed) {
             assert(max_abstraction_size != numeric_limits<int>::max());
-            if (log.is_at_least_normal()) {
-                log << "Terminating CEGAR loop because fixing flaws "
-                    << "surpasses abstraction size limit of "
-                    << max_abstraction_size << " states." << endl;
-            }
+            cout << "Terminating CEGAR loop because fixing flaws "
+                 << "surpasses abstraction size limit of "
+                 << max_abstraction_size << " states." << endl;
             break;
         }
 
@@ -637,13 +630,10 @@ DomainAbstraction CEGAR::build_abstraction(
         utils::release_extra_memory_padding();
     }
 
-    if (log.is_at_least_normal()) {
-        print_statistics(task_proxy);
-        log << "Number of CEGAR iterations: " << iteration << endl;
-        if (log.is_at_least_debug()) {
-            abstraction.dump(log);
-        }
-    }
+
+    print_statistics(task_proxy);
+    cout << "Number of CEGAR iterations: " << iteration << endl;
+    abstraction.dump(log);
 
     return abstraction;
 }
@@ -651,15 +641,11 @@ DomainAbstraction CEGAR::build_abstraction(
 bool CEGAR::termination_criterion_satisfied(
     utils::CountdownTimer &timer) {
     if (timer.is_expired()) {
-        if (log.is_at_least_normal()) {
-            log << "Terminating CEGAR; time limit reached." << endl;
-        }
+        cout << "Terminating CEGAR; time limit reached." << endl;
         return true;
     }
     if (!utils::extra_memory_padding_is_reserved()) {
-        if (log.is_at_least_normal()) {
-            log << "Terminating CEGAR; memory limit reached." << endl;
-        }
+        cout << "Terminating CEGAR; memory limit reached." << endl;
         return true;
     }
     return false;
@@ -680,9 +666,7 @@ bool CEGAR::can_refine_variable(
                                        max_abstraction_size)) {
         return true;
     }
-    if (log.is_at_least_debug()) {
-        log << "Cannot refine " << var_id << "; blacklisting" << endl;
-    }
+    cout << "Cannot refine " << var_id << "; blacklisting" << endl;
     blacklisted_variables.insert(var_id);
     return false;
 }

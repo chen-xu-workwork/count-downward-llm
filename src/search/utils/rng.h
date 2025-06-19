@@ -47,6 +47,13 @@ public:
     void shuffle(std::vector<T> &vec) {
         std::shuffle(vec.begin(), vec.end(), rng);
     }
+
+    // Return random integer in [0..bound).
+    int random(int bound) {
+        assert(bound > 0);
+        std::uniform_int_distribution<int> distribution(0, bound - 1);
+        return distribution(rng);
+    }
 };
 }
 
