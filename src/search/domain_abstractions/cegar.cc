@@ -254,10 +254,14 @@ pair<int, vector<int>> CEGAR::get_init_value_split(
     vector<int> init_split(
         task_proxy.get_variables()[var_id].get_domain_size(), 0);
 
-    int init_value =
-        task_proxy.get_initial_state().get_unpacked_values()[var_id];
-    assert(utils::in_bounds(init_value, init_split));
-    init_split[init_value] = 1;
+    State init_state = task_proxy.get_initial_state();
+    int regular_init_state = init_state.hash(); //TODO: Figure out if a) we want to use hash or create our own hash and b) if we should use the vector instead
+
+    //int init_value =
+    //    task_proxy.get_initial_state().get_unpacked_values()[var_id];
+    //assert(utils::in_bounds(init_value, init_split));
+    //TODO: Do the same for numeric variables
+    init_split[regular_init_state] = 1;
     return make_pair(2, move(init_split));
 }
 
@@ -322,7 +326,7 @@ pair<int, vector<int>> CEGAR::get_random_init_goal_partition_split(
     for (FactProxy goal : task_proxy.get_goals()) {
         if (goal.get_variable().get_id() == var_id) {
             int init_val =
-                task_proxy.get_initial_state().get_unpacked_values()[var_id];
+                task_proxy.get_initial_state()[var_id].get_value();
             int goal_val = goal.get_value();
             if (init_val != goal_val) {
                 init_split[init_val] = 0;
@@ -387,7 +391,14 @@ static void apply_op_to_state(vector<int> &state, const OperatorProxy &op) {
 vector<Fact> CEGAR::get_flaws(
     const TaskProxy &task_proxy, const State &concrete_init,
     const DomainAbstraction &abstraction) const {
-    vector<int> current_state = concrete_init.get_unpacked_values();
+
+    // TODO: Inefficient
+    vector<int> current_state;
+    for (int i = 0; i < concrete_init.size(); ++i) {
+        current_state.push_back(concrete_init[i].get_value());
+    }
+    // TODO: Get numeric flaws as well.	
+
     vector<vector<int>> wildcard_plan = abstraction.get_plan();
     vector<Fact> flaws;
 
@@ -593,7 +604,7 @@ DomainAbstraction CEGAR::build_abstraction(
 
     int iteration = 1;
     State concrete_init = task_proxy.get_initial_state();
-    concrete_init.unpack();
+    //concrete_init.unpack();
     while (!termination_criterion_satisfied(timer)) {
         
         abstraction.dump(log);
@@ -774,7 +785,7 @@ void add_domain_abstraction_cegar_options_to_parser(
     init_split_method.emplace_back(
         "random_binary_partition_separating_init_goal");
     init_split_method.emplace_back("identity");
-    parser.add_enum_option<InitSplitMethod>(
+    parser.add_enum_option(
         "init_split_method",
         init_split_method,
         "Choose how to initialize splits to seed diversification.",
@@ -784,7 +795,7 @@ void add_domain_abstraction_cegar_options_to_parser(
     flaw_treatment.emplace_back("one_split_per_atom");
     flaw_treatment.emplace_back("one_split_per_variable");
     flaw_treatment.emplace_back("max_refined_single_atom");
-    parser.add_enum_option<FlawTreatment>(
+    parser.add_enum_option(
         "flaw_treatment",
         flaw_treatment,
         "Flaws are found in collections and can be treated in different ways. "
