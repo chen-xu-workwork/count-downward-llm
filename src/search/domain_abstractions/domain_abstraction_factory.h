@@ -47,6 +47,7 @@ public:
     AbstractOperator(const std::vector<Fact> &prevail,
                      const std::vector<Fact> &preconditions,
                      const std::vector<Fact> &effects,
+                     const std::vector<NumAssProxy> &ass_effects,
                      int cost,
                      const std::vector<int> &hash_multipliers,
                      int concrete_op_id);

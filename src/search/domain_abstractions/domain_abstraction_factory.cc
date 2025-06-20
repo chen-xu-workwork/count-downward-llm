@@ -21,6 +21,7 @@ namespace domain_abstractions {
 AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
                                    const vector<Fact> &pre_pairs,
                                    const vector<Fact> &eff_pairs,
+                                   const std::vector<NumAssProxy> &ass_effects,
                                    int cost,
                                    const vector<int> &hash_multipliers,
                                    int concrete_op_id)
@@ -74,10 +75,20 @@ DomainAbstractionFactory::DomainAbstractionFactory (
         }
     }
 
+    //TODO: We need to support assignment effects in a way that supports regression. 
+    // right now I added an extra parameter to the abstract operator constructor
+    // causing compilation to fail for obvious reasons. 
+    // the numeric PDBs branch should have an example how to create 
+    // abstract operators with assignment effects, e.g., x += 2.
     vector<AbstractOperator> operators =
         compute_abstract_operators(task_proxy, domain_sizes);
     MatchTree match_tree = build_match_tree(domain_sizes, operators);
     vector<Fact> abstract_goals = compute_abstract_goals(task_proxy);
+    //TODO: add abstract numeric goals
+
+    //TODO: next function assumes finite state space. 
+    //That is crucial for our implementation of Dijkstra.
+    // what we cannot do is, e.g., splitting into fixed intervals. 
     compute_distances(operators, match_tree, abstract_goals,
                       domain_sizes, compute_plan);
     if (compute_plan) {
@@ -97,6 +108,7 @@ vector<AbstractOperator> DomainAbstractionFactory::compute_abstract_operators(
     return operators;
 }
 
+//A match tree exists to compute applicaple operators, given a state
 MatchTree DomainAbstractionFactory::build_match_tree(
     const vector<int> &domain_sizes,
     const vector<AbstractOperator> &operators) {
@@ -108,6 +120,7 @@ MatchTree DomainAbstractionFactory::build_match_tree(
     return match_tree;
 }
 
+//TODO: Support numeric goal states as well.
 vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
     const TaskProxy &task_proxy) {
     vector<Fact> abstract_goals;
@@ -121,6 +134,7 @@ vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
     return abstract_goals;
 }
 
+//Regression search to get lookup value for all abstract states, similar to PDBs.
 void DomainAbstractionFactory::compute_distances(
     const vector<AbstractOperator> &operators, const MatchTree &match_tree,
     const vector<Fact> &abstract_goals, const vector<int> &domain_sizes,
@@ -130,6 +144,8 @@ void DomainAbstractionFactory::compute_distances(
     AdaptiveQueue<int> pq;
 
     // initialize queue
+    //TODO: Add numeric vars here. Not trivial how to achieve that. 
+    //Can we implement domain abstractions such that we have finite state spaces?
     for (int state_index = 0; state_index < num_states; ++state_index) {
         if (is_goal_state(state_index, abstract_goals, domain_sizes)) {
             pq.push(0, state_index);
@@ -153,7 +169,11 @@ void DomainAbstractionFactory::compute_distances(
         generating_op_ids.resize(num_states);
     }
 
+    //NOTE: looks like regression. Why not progression from inital state?
     // Dijkstra loop
+    // TODO: Similar to numeric PDB code: we cannot hash the numeric part 
+    // of the initial state (or at least there is no trivial way I can think of atm). 
+    // compute predecessors of numeric vars similar to the numeric PDBS. 
     while (!pq.empty()) {
         pair<int, int> node = pq.pop();
         int distance = node.first;
@@ -201,12 +221,13 @@ void DomainAbstractionFactory::compute_abstract_plan(
       from the given state.
     */
     State initial_state = task_proxy.get_initial_state();
-    //TODO: Add this back in!
-    //initial_state.unpack();
-    //int current_state =
-    //    hash_index(initial_state.get_unpacked_values());
 
-    int current_state = 0;
+    vector<int> prop_state;
+    for (int var_id = 0; var_id < initial_state.size(); ++var_id) {
+        prop_state.push_back(initial_state[var_id].get_value());
+    }
+    //TODO: This state is propositional. Add numeric state as well.
+    int current_state = hash_index(prop_state);
 
     if (distances[current_state] != numeric_limits<int>::max()) {
         while (!is_goal_state(current_state, abstract_goals, domain_sizes)) {
@@ -241,6 +262,13 @@ void DomainAbstractionFactory::compute_abstract_plan(
     utils::release_vector_memory(generating_op_ids);
 }
 
+//NOTE: required for regression. What happens here?
+// Consider concrete operators with effect x = 1 and no(!) precondition. 
+// Assume domain(x) = {0, 1, 2}.
+// Then, we add the following abstract operators: 
+// OP 1: pre = {x = 0}, eff = {x = 1}
+// OP 1: pre = {x = 2}, eff = {x = 1}
+// more efficient that way. 
 void DomainAbstractionFactory::multiply_out(
     int pos, int cost, vector<Fact> &prev_pairs,
     vector<Fact> &pre_pairs,
@@ -281,6 +309,9 @@ void DomainAbstractionFactory::multiply_out(
     }
 }
 
+//NOTE: In case you wonder what the prevail pairs are: 
+// used for regression. Basically saying what variables stay equal. 
+// during regression, strange things can happen if we don't have that. 
 void DomainAbstractionFactory::build_abstract_operators(
     const OperatorProxy &op,
     int num_variables,
@@ -312,6 +343,7 @@ void DomainAbstractionFactory::build_abstract_operators(
         int var_id = eff.get_fact().get_variable().get_id();
         if (!variable_is_trivial(var_id)) {
             int val = domain_mapping[var_id][eff.get_fact().get_value()];
+            //NOTE: Collect effects only they dont have themself as precon
             int pre_val = has_precondition_on_var[var_id];
             if (pre_val < 0) {
                 effects_without_pre.emplace_back(var_id, val);
@@ -336,6 +368,7 @@ void DomainAbstractionFactory::build_abstract_operators(
                  effects_without_pre, op.get_id(), domain_sizes, operators);
 }
 
+//TODO: Does not support numeric (goal) states yet. 
 bool DomainAbstractionFactory::is_goal_state(
     int state_index,
     const vector<Fact> &abstract_goals,
@@ -351,6 +384,7 @@ bool DomainAbstractionFactory::is_goal_state(
     return true;
 }
 
+// state compression for propositional states. 
 int DomainAbstractionFactory::hash_index(const vector<int> &state) const {
     int index = 0;
     for (size_t i = 0; i < state.size(); ++i) {
