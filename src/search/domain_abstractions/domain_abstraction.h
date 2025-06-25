@@ -2,7 +2,9 @@
 #define DOMAIN_ABSTRACTION_DOMAIN_ABSTRACTION_H
 
 #include "types.h"
-
+namespace utils {
+class LogProxy;
+}
 
 #include <vector>
 

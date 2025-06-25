@@ -280,9 +280,9 @@ void DomainAbstractionFactory::multiply_out(
     if (pos == static_cast<int>(effects_without_pre.size())) {
         // All effects without precondition have been checked: insert op.
         if (!eff_pairs.empty()) {
-            operators.emplace_back(
-                prev_pairs, pre_pairs, eff_pairs, cost,
-                hash_multipliers, concrete_op_id);
+            operators.push_back(AbstractOperator(
+                prev_pairs, pre_pairs, eff_pairs, {}, cost,
+                hash_multipliers, concrete_op_id));
         }
     } else {
         // For each possible value for the current variable, build an

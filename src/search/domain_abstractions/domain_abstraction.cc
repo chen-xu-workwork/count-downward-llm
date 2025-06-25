@@ -20,4 +20,10 @@ int DomainAbstraction::get_value(const vector<int> &state) const {
     return distances[hash_index(state)];
 }
 
+void DomainAbstraction::dump(utils::LogProxy &log) const {
+    return;
+    //cout << "DomainAbstraction dump not implemented." << std::endl;
 }
+
+}
+

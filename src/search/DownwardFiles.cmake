@@ -656,6 +656,8 @@ fast_downward_plugin(
 
 fast_downward_add_plugin_sources(PLANNER_SOURCES)
 
+
+
 # The order in PLANNER_SOURCES influences the order in which object
 # files are given to the linker, which can have a significant influence
 # on performance (see issue67). The general recommendation seems to be
@@ -664,3 +666,13 @@ fast_downward_add_plugin_sources(PLANNER_SOURCES)
 # first, followed by the core files, followed by the main file.
 # This is certainly not optimal, but works well enough in practice.
 list(REVERSE PLANNER_SOURCES)
+
+
+# --- domain_abstractions ---
+set(DOMAIN_ABSTRACTIONS_SOURCES
+    domain_abstractions/cegar
+    domain_abstractions/domain_abstraction
+    domain_abstractions/domain_abstraction_factory
+    domain_abstractions/match_tree
+)
+list(APPEND PLANNER_SOURCES ${DOMAIN_ABSTRACTIONS_SOURCES})

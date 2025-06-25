@@ -21,7 +21,11 @@ add_executable(downward ${PLANNER_SOURCES})
 
 ## == Includes ==
 
+## == Includes ==
+
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}) 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/ext)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/domain_abstractions)
 
 ## == Libraries ==
 
