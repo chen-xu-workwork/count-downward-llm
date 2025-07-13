@@ -609,6 +609,7 @@ fast_downward_plugin(
         numeric_pdbs/numeric_task_proxy.cc
         numeric_pdbs/pattern_collection_generator_hillclimbing.cc
         numeric_pdbs/pattern_collection_generator_systematic.cc
+        numeric_pdbs/pattern_collection_generator_genetic.cc
         numeric_pdbs/pattern_collection_information.cc
         numeric_pdbs/pattern_database.cc
         numeric_pdbs/pattern_generator.cc
@@ -618,6 +619,7 @@ fast_downward_plugin(
         numeric_pdbs/types.cc
         numeric_pdbs/validation.cc
         numeric_pdbs/variable_order_finder.cc
+        numeric_pdbs/zero_one_pdbs.cc
     DEPENDS EXTRA_TASKS
 )
 

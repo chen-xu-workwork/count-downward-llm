@@ -279,7 +279,7 @@ public:
     ap_float compute_mean_finite_h() const;
 
     // Returns true iff op has an effect on a variable in the pattern.
-    bool is_operator_relevant(const OperatorProxy &op) const;
+    bool is_operator_relevant(const numeric_pdb_helper::NumericOperatorProxy &op) const;
 
     static void add_pdb_options(OptionParser &parser);
 };
