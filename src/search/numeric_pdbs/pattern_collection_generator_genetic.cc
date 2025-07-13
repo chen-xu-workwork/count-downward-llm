@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "numeric_helper.h"
+#include "pattern_database.h"
 
 using namespace std;
 
@@ -410,6 +411,8 @@ static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
         "consider a pattern collection invalid (giving it very low "
         "fitness) if its patterns are not disjoint",
         "false");
+
+    PatternDatabase::add_pdb_options(parser);
 
     Options opts = parser.parse();
     if (parser.dry_run())
