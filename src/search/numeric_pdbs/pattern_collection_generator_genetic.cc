@@ -247,11 +247,20 @@ void PatternCollectionGeneratorGenetic::evaluate(vector<double> &fitness_values)
 
 void PatternCollectionGeneratorGenetic::bin_packing() {
     TaskProxy task_proxy(*task);
+    auto numeric_task_proxy = make_shared<numeric_pdb_helper::NumericTaskProxy>(task);
+    
     VariablesProxy variables = task_proxy.get_variables();
+    NumericVariablesProxy numeric_variables = task_proxy.get_numeric_variables();
 
     vector<int> variable_ids;
-    variable_ids.reserve(variables.size());
+    variable_ids.reserve(variables.size() + numeric_variables.size());
+
+    //NOTE: Is mixing propositional and numeric variables a good idea?
+    //NOTE: Assume variable IDs are ordered and numeric variables always have larger IDs.
     for (size_t i = 0; i < variables.size(); ++i) {
+        variable_ids.push_back(i);
+    }
+    for (size_t i = 0; i < numeric_variables.size(); ++i) {
         variable_ids.push_back(i);
     }
 
@@ -259,14 +268,28 @@ void PatternCollectionGeneratorGenetic::bin_packing() {
         // Use random variable ordering for all pattern collections.
         g_rng()->shuffle(variable_ids);
         vector<vector<bool>> pattern_collection;
-        vector<bool> pattern(variables.size(), false);
+        vector<bool> pattern(variables.size() + numeric_variables.size(), false);
+
         int current_size = 1;
         for (size_t j = 0; j < variable_ids.size(); ++j) {
             int var_id = variable_ids[j];
-            int next_var_size = variables[var_id].get_domain_size();
-            if (next_var_size > pdb_max_size)
-                // var never fits into a bin.
-                continue;
+            int next_var_size = 0;
+            if (var_id < variables.size()) {
+                //NOTE: var_id is a propositional variable.
+                int next_var_size = variables[var_id].get_domain_size();
+                if (next_var_size > pdb_max_size)
+                    // var never fits into a bin.
+                    continue;
+            } else {
+                //NOTE: var_id is a numeric variable.
+                numeric_pdb_helper::ResNumericVariableProxy numeric_var_proxy = 
+                numeric_pdb_helper::ResNumericVariableProxy(*numeric_task_proxy, var_id);
+                next_var_size = numeric_task_proxy->get_approximate_domain_size(numeric_var_proxy);
+                if (next_var_size > pdb_max_size)
+                    // var never fits into a bin.
+                    continue;
+            }
+            
             if (!utils::is_product_within_limit(current_size, next_var_size,
                                                 pdb_max_size)) {
                 // Open a new bin for var.
