@@ -89,10 +89,19 @@ void PatternCollectionGeneratorGenetic::mutate() {
 
 Pattern PatternCollectionGeneratorGenetic::transform_to_pattern_normal_form(
     const vector<bool> &bitvector) const {
+    //NOTE: Current implementation has both numeric and prop vars in the same vector.
     Pattern pattern;
     for (size_t i = 0; i < bitvector.size(); ++i) {
-        if (bitvector[i])
-            pattern.regular.push_back(i);
+        if (bitvector[i]) {
+            if (i < task->get_num_variables()) {
+                // Propositional variable.
+                pattern.regular.push_back(i);
+            } else {
+                // Numeric variable.
+                assert(i >= task->get_num_variables());
+                pattern.numeric.push_back(i);
+            }
+        }
     }
     return pattern;
 }
@@ -184,7 +193,7 @@ bool PatternCollectionGeneratorGenetic::mark_used_variables(
 void PatternCollectionGeneratorGenetic::evaluate(vector<double> &fitness_values) {
     TaskProxy task_proxy(*task);
 
-    std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy2 = make_shared<numeric_pdb_helper::NumericTaskProxy>(task);
+    std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> numeric_task_proxy = make_shared<numeric_pdb_helper::NumericTaskProxy>(task);
     for (const auto &collection : pattern_collections) {
         //cout << "evaluate pattern collection " << (i + 1) << " of "
         //     << pattern_collections.size() << endl;
@@ -211,7 +220,7 @@ void PatternCollectionGeneratorGenetic::evaluate(vector<double> &fitness_values)
             }
 
             //TODO: Fix the task proxy code. It looks horrible.
-            remove_irrelevant_variables(pattern, *task_proxy2);
+            remove_irrelevant_variables(pattern, *numeric_task_proxy);
             pattern_collection->push_back(pattern);
         }
         if (!pattern_valid) {
@@ -261,6 +270,7 @@ void PatternCollectionGeneratorGenetic::bin_packing() {
         variable_ids.push_back(i);
     }
     for (size_t i = 0; i < numeric_variables.size(); ++i) {
+        assert(i >= variables.size());
         variable_ids.push_back(i);
     }
 
