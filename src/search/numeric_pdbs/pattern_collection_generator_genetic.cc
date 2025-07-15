@@ -194,6 +194,7 @@ bool PatternCollectionGeneratorGenetic::is_pattern_too_large(
 }
 
 bool PatternCollectionGeneratorGenetic::mark_used_variables(
+    //NOTE: Function name is misleading. It does not mark variables, it checks whether pattern contains duplicates.
     const Pattern &pattern, vector<bool> &variables_used) const {
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
         int var_id = pattern.regular[i];
@@ -201,7 +202,12 @@ bool PatternCollectionGeneratorGenetic::mark_used_variables(
             return true;
         variables_used[var_id] = true;
     }
-    //TODO: Do the same for numeric variables. Or maybe add another function?
+    for (size_t i = 0; i < pattern.numeric.size(); ++i) {
+        int var_id = pattern.numeric[i];
+        if (variables_used[var_id])
+            return true;
+        variables_used[var_id] = true;
+    }
     return false;
 }
 
@@ -214,7 +220,7 @@ void PatternCollectionGeneratorGenetic::evaluate(vector<double> &fitness_values)
         //     << pattern_collections.size() << endl;
         double fitness = 0;
         bool pattern_valid = true;
-        vector<bool> variables_used(task_proxy.get_variables().size(), false);
+        vector<bool> variables_used(task_proxy.get_variables().size() + task_proxy.get_numeric_variables().size(), false);
         shared_ptr<PatternCollection> pattern_collection = make_shared<PatternCollection>();
         pattern_collection->reserve(collection.size());
         for (const vector<bool> &bitvector : collection) {
