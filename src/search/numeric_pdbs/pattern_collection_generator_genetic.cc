@@ -113,29 +113,31 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
     unordered_set<int> in_original_pattern(pattern.regular.begin(), pattern.regular.end());
     unordered_set<int> in_pruned_pattern;
 
-    vector<int> regular_vars_to_check;
+    unordered_set<int> in_original_numeric_pattern(pattern.numeric.begin(), pattern.numeric.end());
+    unordered_set<int> in_pruned_numeric_pattern;
+
+    vector<int> vars_to_check;
     for (FactProxy goal : task_proxy.get_propositional_goals()) {
         int var_id = goal.get_variable().get_id();
         if (in_original_pattern.count(var_id)) {
             // Goals are causally relevant.
-            regular_vars_to_check.push_back(var_id);
+            vars_to_check.push_back(var_id);
             in_pruned_pattern.insert(var_id);
         }
     }
-    vector<int> numeric_vars_to_check;
     for (const auto &num_goal : task_proxy.get_numeric_goals()) {
         int var_id = num_goal.get_var_id();
         if (in_original_pattern.count(var_id)) {
             // Numeric goals are causally relevant.
-            numeric_vars_to_check.push_back(var_id);
+            vars_to_check.push_back(var_id);
             in_pruned_pattern.insert(var_id);
         }
     }
 
 
-    while (!regular_vars_to_check.empty()) {
-        int var = regular_vars_to_check.back();
-        regular_vars_to_check.pop_back();
+    while (!vars_to_check.empty()) {
+        int var = vars_to_check.back();
+        vars_to_check.pop_back();
         /*
           A variable is relevant to the pattern if it is a goal variable or if
           there is a pre->eff arc from the variable to a relevant variable.
@@ -150,7 +152,7 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
             if (in_original_pattern.count(var_no) &&
                 !in_pruned_pattern.count(var_no)) {
                 // Parents of relevant variables are causally relevant.
-                regular_vars_to_check.push_back(var_no);
+                vars_to_check.push_back(var_no);
                 in_pruned_pattern.insert(var_no);
             }
         }
