@@ -111,10 +111,9 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
     numeric_pdb_helper::NumericTaskProxy &task_proxy) const {
 
     unordered_set<int> in_original_pattern(pattern.regular.begin(), pattern.regular.end());
+    in_original_pattern.insert(pattern.numeric.begin(), pattern.numeric.end());
     unordered_set<int> in_pruned_pattern;
 
-    unordered_set<int> in_original_numeric_pattern(pattern.numeric.begin(), pattern.numeric.end());
-    unordered_set<int> in_pruned_numeric_pattern;
 
     vector<int> vars_to_check;
     for (FactProxy goal : task_proxy.get_propositional_goals()) {
@@ -143,9 +142,11 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
           there is a pre->eff arc from the variable to a relevant variable.
           Note that there is no point in considering eff->eff arcs here.
         */
+        // TODO: Figure out why causal graph is constructed here? Isn't that slow?
         const CausalGraph &cg = task_proxy.get_numeric_causal_graph();
 
         // TODO: Do all of that for all kinds of "get" functions.
+        // TODO: Figure out if num var IDs always larger than var IDs. 
         const vector<int> &rel = cg.get_prop_eff_to_prop_pre(var);
         for (size_t i = 0; i < rel.size(); ++i) {
             int var_no = rel[i];
@@ -156,8 +157,40 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
                 in_pruned_pattern.insert(var_no);
             }
         }
+
+        const vector<int> &rel2 = cg.get_prop_eff_to_num_pre(var);
+        for (size_t i = 0; i < rel2.size(); ++i) {
+            int var_no = rel2[i];
+            if (in_original_pattern.count(var_no) &&
+                !in_pruned_pattern.count(var_no)) {
+                // Parents of relevant variables are causally relevant.
+                vars_to_check.push_back(var_no);
+                in_pruned_pattern.insert(var_no);
+            }
+        }
+
+        const vector<int> &rel3 = cg.get_num_eff_to_prop_pre(var);
+        for (size_t i = 0; i < rel3.size(); ++i) {
+            int var_no = rel3[i];
+            if (in_original_pattern.count(var_no) &&
+                !in_pruned_pattern.count(var_no)) {
+                // Parents of relevant variables are causally relevant.
+                vars_to_check.push_back(var_no);
+                in_pruned_pattern.insert(var_no);
+            }
+        }
+
+        const vector<int> &rel4 = cg.get_num_eff_to_num_pre(var);
+        for (size_t i = 0; i < rel4.size(); ++i) {
+            int var_no = rel4[i];
+            if (in_original_pattern.count(var_no) &&
+                !in_pruned_pattern.count(var_no)) {
+                // Parents of relevant variables are causally relevant.
+                vars_to_check.push_back(var_no);
+                in_pruned_pattern.insert(var_no);
+            }
+        }
     }
-    //TODO: Do the same for numeric variables.
 
     pattern.regular.assign(in_pruned_pattern.begin(), in_pruned_pattern.end());
     sort(pattern.regular.begin(), pattern.regular.end());
