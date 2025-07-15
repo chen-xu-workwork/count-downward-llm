@@ -33,7 +33,14 @@ PatternCollectionGeneratorGenetic::PatternCollectionGeneratorGenetic(
       num_collections(opts.get<int>("num_collections")),
       num_episodes(opts.get<int>("num_episodes")),
       mutation_probability(opts.get<double>("mutation_probability")),
-      disjoint_patterns(opts.get<bool>("disjoint")) {
+      disjoint_patterns(opts.get<bool>("disjoint")) ,
+      extend_abstract_state_space(opts.get<bool>("extend_abstract_state_space")),
+      f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
+      keep_parent_pointers(opts.get<bool>("keep_parent_pointers")),
+      need_goal(opts.get<bool>("need_goal")),
+      exploration_h(InnerHeuristic(opts.get_enum("exploration_heuristic"))),
+      frontier_h(InnerHeuristic(opts.get_enum("frontier_heuristic"))),
+      failed_lookup_h(InnerHeuristic(opts.get_enum("failed_lookup_heuristic"))) {
 }
 
 void PatternCollectionGeneratorGenetic::select(
