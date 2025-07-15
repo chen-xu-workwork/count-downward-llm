@@ -163,9 +163,13 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
 
 bool PatternCollectionGeneratorGenetic::is_pattern_too_large(
     const Pattern &pattern) const {
+    //NOTE: Wait a sec. Isn't that redundant  because we check this durnig pattern construction already. Or is this function called elsewhere?
     // Test if the pattern respects the memory limit.
     TaskProxy task_proxy(*task);
+    std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> numeric_task_proxy = make_shared<numeric_pdb_helper::NumericTaskProxy>(task);
+
     VariablesProxy variables = task_proxy.get_variables();
+    NumericVariablesProxy numeric_variables = task_proxy.get_numeric_variables();
     int mem = 1;
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
         VariableProxy var = variables[pattern.regular[i]];
@@ -174,6 +178,17 @@ bool PatternCollectionGeneratorGenetic::is_pattern_too_large(
             return true;
         mem *= domain_size;
     }
+    for (size_t i = 0; i < pattern.numeric.size(); ++i) {
+        //What is a ResNumericVariableProxy? How is it different from NumericVariableProxy?
+         numeric_pdb_helper::ResNumericVariableProxy numeric_var = 
+                numeric_pdb_helper::ResNumericVariableProxy(*numeric_task_proxy, pattern.numeric[i]);
+        int domain_size = numeric_task_proxy->get_approximate_domain_size(numeric_var);
+        if (!utils::is_product_within_limit(mem, domain_size, pdb_max_size))
+            return true;
+        mem *= domain_size;
+    }
+
+
     //TODO: Add bound check for numeric variables.
     return false;
 }
@@ -231,7 +246,7 @@ void PatternCollectionGeneratorGenetic::evaluate(vector<double> &fitness_values)
             /* Generate the pattern collection heuristic and get its fitness
                value. */
             ZeroOnePDBs zero_one_pdbs(
-                task_proxy2, 
+                numeric_task_proxy, 
                 *pattern_collection,
                 max_number_pdb_states,
                 extend_abstract_state_space,
