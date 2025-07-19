@@ -348,6 +348,7 @@ void PatternCollectionGeneratorGenetic::bin_packing() {
                     continue;
             } else {
                 //NOTE: var_id is a numeric variable.
+                //TODO: Make sure that aux variables are treated correctly.
                 numeric_pdb_helper::ResNumericVariableProxy numeric_var_proxy = 
                 numeric_pdb_helper::ResNumericVariableProxy(*numeric_task_proxy, var_id);
                 next_var_size = numeric_task_proxy->get_approximate_domain_size(numeric_var_proxy);

@@ -62,9 +62,11 @@ ZeroOnePDBs::ZeroOnePDBs(
            (action cost partitioning). */
         for (size_t i = 0; i < operators.size(); ++i) {
             const numeric_pdb_helper::NumericOperatorProxy &op = operators[i];
+            //TODO: not implemented yet.
             if (pdb->is_operator_relevant(op))
                 operator_costs[i] = 0;
         }
+        //NOTE: Not sure if this was here before I adapted it for numeric PDBs.
         //for (OperatorProxy op : operators) {
         //    if (pdb->is_operator_relevant(op))
         //        operator_costs[op.get_id()] = 0;

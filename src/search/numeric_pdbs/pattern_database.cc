@@ -1137,14 +1137,29 @@ ap_float PatternDatabase::compute_mean_finite_h() const {
 
 //NOTE: (markus) changed argument because it was expecting regular operators, but we want to check numeric operators"
 bool PatternDatabase::is_operator_relevant(const numeric_pdb_helper::NumericOperatorProxy &op) const {
-    cerr << "Not yet implemented: numeric PatternDatabase::is_operator_relevant()" << endl;
-    utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    //cerr << "Not yet implemented: numeric PatternDatabase::is_operator_relevant()" << endl;
+    //utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
     //for (EffectProxy effect : op.get_effects()) {
     //    int var_id = effect.get_fact().get_variable().get_id();
     //    if (binary_search(pattern.regular.begin(), pattern.regular.end(), var_id)) {
     //        return true;
     //    }
     //}
+
+    cout << "WARNING: verify if that methods works as intended!" << endl;
+    for (EffectProxy effect : op.get_propositional_effects()) {
+        int var_id = effect.get_fact().get_variable().get_id();
+        if (binary_search(pattern.regular.begin(), pattern.regular.end(), var_id)) {
+            return true;
+        }
+    }
+    for (const auto &num_effect: op.get_assign_effects()) {
+        int var_id = num_effect.first;
+        if (num_variable_to_index[var_id] != -1) {
+            return true;
+        }
+    }
+
     return false;
 }
 
