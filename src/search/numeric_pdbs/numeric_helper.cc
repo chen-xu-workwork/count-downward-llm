@@ -429,9 +429,6 @@ const vector<FactProxy> &NumericTaskProxy::get_propositional_goals() const {
 
 int NumericTaskProxy::get_approximate_domain_size(const ResNumericVariableProxy &num_var) {
     // TODO: maybe have different variants
-    cout << "get_approximate_domain_size for " << num_var.get_id() << endl;
-    cout << "var type: " << g_numeric_var_types[num_var.get_id()] << endl;
-    cout << "size nu vars: " << g_numeric_var_types.size() << endl;
     assert(num_var.get_id() >= 0);
     assert(static_cast<size_t>(num_var.get_id()) >= g_numeric_var_types.size() ||
            g_numeric_var_types[num_var.get_id()] == numType::regular);
