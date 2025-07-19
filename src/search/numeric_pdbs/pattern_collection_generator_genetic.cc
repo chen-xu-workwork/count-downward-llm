@@ -313,8 +313,8 @@ void PatternCollectionGeneratorGenetic::bin_packing(numeric_pdb_helper::NumericT
 
     vector<int> variable_ids;
     variable_ids.reserve(variables.size() + numeric_variables.size());
+    //TODO: check if reserve changes size(). If so, we could end up into issues
 
-    //NOTE: Is mixing propositional and numeric variables a good idea?
     //NOTE: Assume variable IDs are ordered and numeric variables always have larger IDs.
     for (size_t i = 0; i < variables.size(); ++i) {
         variable_ids.push_back(i);
@@ -336,6 +336,7 @@ void PatternCollectionGeneratorGenetic::bin_packing(numeric_pdb_helper::NumericT
         // Use random variable ordering for all pattern collections.
         g_rng()->shuffle(variable_ids);
         vector<vector<bool>> pattern_collection;
+        //TOOD: Potential waste of memory here
         vector<bool> pattern(variables.size() + numeric_variables.size(), false);
 
         int current_size = 1;
@@ -344,7 +345,7 @@ void PatternCollectionGeneratorGenetic::bin_packing(numeric_pdb_helper::NumericT
             int next_var_size = 0;
             if (var_id < variables.size()) {
                 //NOTE: var_id is a propositional variable.
-                int next_var_size = variables[var_id].get_domain_size();
+                next_var_size = variables[var_id].get_domain_size();
                 if (next_var_size > max_number_pdb_states)
                     // var never fits into a bin.
                     continue;
@@ -359,6 +360,8 @@ void PatternCollectionGeneratorGenetic::bin_packing(numeric_pdb_helper::NumericT
                     // var never fits into a bin.
                     continue;
             }
+
+            cout << "current size: " << current_size << ", " << next_var_size << ", " << max_number_pdb_states << endl;
             
             if (!utils::is_product_within_limit(current_size, next_var_size,
                                                 max_number_pdb_states)) {
@@ -411,6 +414,20 @@ PatternCollectionInformation PatternCollectionGeneratorGenetic::generate(
     cout << "Pattern generation (Edelkamp) time: " << timer << endl;
     assert(best_patterns);
 
+    cout << "pattern size: " << best_patterns->size() << endl;
+    for (Pattern p : *best_patterns) {
+        cout << "regular IDs: ";
+        for (auto var_id : p.regular) {
+            cout << var_id << " ";
+        }
+        cout << endl;
+        cout << "numeric IDs: ";
+        for (auto var_id : p.regular) {
+            cout << var_id << " ";
+        }
+        cout << endl;
+    }
+
     return {task_proxy,
             best_patterns,
             max_number_pdb_states,
@@ -421,11 +438,6 @@ PatternCollectionInformation PatternCollectionGeneratorGenetic::generate(
             exploration_h,
             frontier_h,
             failed_lookup_h};
-
-    //return PatternCollectionInformation(
-    //    task, 
-    //    best_patterns
-    //);
 }
 
 static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {

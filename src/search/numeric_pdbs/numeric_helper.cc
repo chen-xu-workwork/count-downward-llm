@@ -435,7 +435,6 @@ int NumericTaskProxy::get_approximate_domain_size(const ResNumericVariableProxy 
     if (approximate_num_var_domain_sizes.empty()){
         approximate_num_var_domain_sizes.resize(get_num_numeric_variables(), -1);
     }
-    cout << "test" << endl;
     if (approximate_num_var_domain_sizes[num_var.get_id()] == -1){
         // TODO precompute this on construction
         unordered_set<ap_float> increments;
