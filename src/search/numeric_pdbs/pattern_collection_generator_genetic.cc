@@ -73,10 +73,16 @@ void PatternCollectionGeneratorGenetic::select(
     pattern_collections.swap(new_pattern_collections);
 }
 
-void PatternCollectionGeneratorGenetic::mutate() {
+void PatternCollectionGeneratorGenetic::mutate(numeric_pdb_helper::NumericTaskProxy &task_proxy) {
+    auto num_variables = task_proxy.get_num_variables();
     for (auto &collection : pattern_collections) {
         for (vector<bool> &pattern : collection) {
             for (size_t k = 0; k < pattern.size(); ++k) {
+                //NOTE: skip if numeric derived variable has been encountered. 
+                if (k >= task_proxy.get_num_variables() && 
+                    task_proxy.get_numeric_var_type(k - num_variables) != numType::regular) {
+                        continue;
+                    }
                 double random = (*g_rng())(); // [0..1)
                 if (random < mutation_probability) {
                     pattern[k].flip();
@@ -97,9 +103,13 @@ Pattern PatternCollectionGeneratorGenetic::transform_to_pattern_normal_form(
                 pattern.regular.push_back(i);
             } else {
                 // Numeric variable.
+                auto numeric_var_id = i - task_proxy.get_num_variables();
+                assert(numeric_var_id >= 0);
+                cout << "Numeric var tzpe: " << task_proxy.get_numeric_var_type(numeric_var_id) << endl; 
+                assert(task_proxy.get_numeric_var_type(numeric_var_id) == numType::regular);
                 assert(i >= task_proxy.get_num_variables());
-                cout << "numeric var ID - DEBUG - " << i - task_proxy.get_num_variables() << endl;
-                pattern.numeric.push_back(i - task_proxy.get_num_variables());
+                cout << "numeric var ID - DEBUG - " << numeric_var_id << endl;
+                pattern.numeric.push_back(numeric_var_id);
             }
         }
     }
@@ -129,7 +139,6 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
             in_pruned_regular_pattern.insert(var_id);
         }
     }
-    cout << "DEBUG1: " << endl;
     for (const auto &num_goal : task_proxy.get_numeric_goals()) {
         int var_id = num_goal.get_var_id();
         //var_id += task_proxy.get_num_variables(); in case we mix var IDs.
@@ -140,11 +149,9 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
         }
     }
 
-    cout << "DEBUG2: " << endl;
 
     const CausalGraph &cg = task_proxy.get_numeric_causal_graph();
 
-    cout << "DEBUG3: " << endl;
 
     while (!vars_to_check.empty() || !numeric_vars_to_check.empty()) {
         if (!vars_to_check.empty()) {
@@ -179,7 +186,6 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
                 }
             }
         }
-        cout << "DEBUG5:" << endl;
         
         if (!numeric_vars_to_check.empty()) {
             int numeric_var = numeric_vars_to_check.back();
@@ -209,7 +215,6 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
 
     }
 
-    cout << "DEBUG4:" << endl;
 
     pattern.regular.assign(in_pruned_regular_pattern.begin(), in_pruned_regular_pattern.end());
     pattern.numeric.assign(in_pruned_numeric_pattern.begin(), in_pruned_numeric_pattern.end());
@@ -387,7 +392,7 @@ void PatternCollectionGeneratorGenetic::bin_packing(numeric_pdb_helper::NumericT
                 // Open a new bin for var.
                 pattern_collection.push_back(pattern);
                 pattern.clear();
-                pattern.resize(variables.size(), false);
+                pattern.resize(variables.size() + numeric_variables.size(), false); //TODO: Why is resize even necessary?
                 current_size = 1;
             }
             current_size *= next_var_size;
@@ -417,7 +422,7 @@ void PatternCollectionGeneratorGenetic::genetic_algorithm(
     for (int i = 0; i < num_episodes; ++i) {
         cout << endl;
         cout << "--------- episode no " << (i + 1) << " ---------" << endl;
-        mutate();
+        mutate(task_proxy);
         vector<double> fitness_values;
         evaluate(task_proxy, fitness_values);
         // We allow to select invalid pattern collections.

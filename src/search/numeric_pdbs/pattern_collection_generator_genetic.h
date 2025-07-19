@@ -63,7 +63,7 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
       with the given probability from options. This method does not check for
       pdb_max_size or disjoint patterns.
     */
-    void mutate();
+    void mutate(numeric_pdb_helper::NumericTaskProxy &task_proxy);
 
     /*
       Transforms a bit vector (internal pattern representation in this class,
