@@ -1118,8 +1118,8 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
 }
 
 ap_float PatternDatabase::compute_mean_finite_h() const {
-    cerr << "Not yet implemented: numeric PatternDatabase::compute_mean_finite_h()" << endl;
-    utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    //cerr << "Not yet implemented: numeric PatternDatabase::compute_mean_finite_h()" << endl;
+    //utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
     double sum = 0;
     int size = 0;
     for (size_t i = 0; i < distances.size(); ++i) {
@@ -1168,14 +1168,19 @@ bool PatternDatabase::is_operator_relevant(const numeric_pdb_helper::NumericOper
     }
     for (const auto &num_effect: op.get_assign_effects()) {
         int var_id = num_effect.first;
-        if (num_variable_to_index[var_id] != -1) {
+        if (binary_search(pattern.numeric.begin(), pattern.numeric.end(), var_id)) {
             return true;
         }
     }
 
     for (const auto &add_effect: op.get_additive_effects()) {
         int var_id = add_effect.first;
-        if (num_variable_to_index[var_id] != -1) {
+        cout << "Num numeric vars: " << task_proxy->get_num_numeric_variables() << endl;
+        cout << "Var ID: " << var_id << endl;
+        cout << "num_variabel_to_index size: " << num_variable_to_index.size() << endl;
+        cout << "pattern.regular: " << pattern.regular << endl;
+        cout << "pattern.numeric: " << pattern.numeric << endl;
+        if (binary_search(pattern.numeric.begin(), pattern.numeric.end(), var_id)) {
             return true;
         }
     }

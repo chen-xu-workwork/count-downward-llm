@@ -98,7 +98,8 @@ Pattern PatternCollectionGeneratorGenetic::transform_to_pattern_normal_form(
             } else {
                 // Numeric variable.
                 assert(i >= task_proxy.get_num_variables());
-                pattern.numeric.push_back(i);
+                cout << "numeric var ID - DEBUG - " << i - task_proxy.get_num_variables();
+                pattern.numeric.push_back(i - task_proxy.get_num_variables());
             }
         }
     }
