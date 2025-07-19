@@ -1120,6 +1120,19 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
 ap_float PatternDatabase::compute_mean_finite_h() const {
     cerr << "Not yet implemented: numeric PatternDatabase::compute_mean_finite_h()" << endl;
     utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    double sum = 0;
+    int size = 0;
+    for (size_t i = 0; i < distances.size(); ++i) {
+        if (distances[i] != numeric_limits<ap_float>::max()) {
+            sum += distances[i];
+            ++size;
+        }
+    }
+    if (size == 0) { // All states are dead ends.
+        return numeric_limits<ap_float>::infinity();
+    } else {
+        return sum; // NOTE: Daniel prefers sum over mean. Test if that makes a difference.
+    }
 //    double sum = 0;
 //    int size = 0;
 //    for (size_t i = 0; i < distances.size(); ++i) {

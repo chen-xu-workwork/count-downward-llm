@@ -114,7 +114,7 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
       selected to be part of the next episode. Note that we do not do any kind
       of recombination.
     */
-    void genetic_algorithm(std::shared_ptr<AbstractTask> task);
+    void genetic_algorithm(const numeric_pdb_helper::NumericTaskProxy &task_proxy);
 public:
     PatternCollectionGeneratorGenetic(const options::Options &opts);
     virtual ~PatternCollectionGeneratorGenetic() = default;

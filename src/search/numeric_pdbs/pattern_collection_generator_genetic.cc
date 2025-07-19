@@ -311,11 +311,10 @@ void PatternCollectionGeneratorGenetic::evaluate(vector<double> &fitness_values)
 }
 
 void PatternCollectionGeneratorGenetic::bin_packing() {
-    TaskProxy task_proxy(*task);
-    auto numeric_task_proxy = make_shared<numeric_pdb_helper::NumericTaskProxy>(task);
+    auto task_proxy = make_shared<numeric_pdb_helper::NumericTaskProxy>(task);
     
-    VariablesProxy variables = task_proxy.get_variables();
-    NumericVariablesProxy numeric_variables = task_proxy.get_numeric_variables();
+    VariablesProxy variables = task_proxy->get_variables();
+    numeric_pdb_helper::ResNumericVariablesProxy numeric_variables = task_proxy->get_numeric_variables();
 
     vector<int> variable_ids;
     variable_ids.reserve(variables.size() + numeric_variables.size());
@@ -349,9 +348,7 @@ void PatternCollectionGeneratorGenetic::bin_packing() {
             } else {
                 //NOTE: var_id is a numeric variable.
                 //TODO: Make sure that aux variables are treated correctly.
-                numeric_pdb_helper::ResNumericVariableProxy numeric_var_proxy = 
-                numeric_pdb_helper::ResNumericVariableProxy(*numeric_task_proxy, var_id);
-                next_var_size = numeric_task_proxy->get_approximate_domain_size(numeric_var_proxy);
+                next_var_size = task_proxy->get_approximate_domain_size(numeric_variables[var_id]);
                 if (next_var_size > pdb_max_size)
                     // var never fits into a bin.
                     continue;
@@ -383,8 +380,7 @@ void PatternCollectionGeneratorGenetic::bin_packing() {
 }
 
 void PatternCollectionGeneratorGenetic::genetic_algorithm(
-    shared_ptr<AbstractTask> task_) {
-    task = task_;
+    const numeric_pdb_helper::NumericTaskProxy &task_proxy) {
     best_fitness = -1;
     best_patterns = nullptr;
     bin_packing();
@@ -403,12 +399,12 @@ void PatternCollectionGeneratorGenetic::genetic_algorithm(
 
 PatternCollectionInformation PatternCollectionGeneratorGenetic::generate(
     shared_ptr<AbstractTask> task) {
+    auto task_proxy = make_shared<numeric_pdb_helper::NumericTaskProxy>(task);
     utils::Timer timer;
-    genetic_algorithm(task);
+    genetic_algorithm(*task_proxy);
     cout << "Pattern generation (Edelkamp) time: " << timer << endl;
     assert(best_patterns);
 
-    auto task_proxy = make_shared<numeric_pdb_helper::NumericTaskProxy>(task);
     return {task_proxy,
             best_patterns,
             max_number_pdb_states,
