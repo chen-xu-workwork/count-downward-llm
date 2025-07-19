@@ -245,10 +245,8 @@ bool PatternCollectionGeneratorGenetic::mark_used_variables(
     return false;
 }
 
-void PatternCollectionGeneratorGenetic::evaluate(vector<double> &fitness_values) {
-    TaskProxy task_proxy(*task);
+void PatternCollectionGeneratorGenetic::evaluate(numeric_pdb_helper::NumericTaskProxy &task_proxy, vector<double> &fitness_values) {
 
-    std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> numeric_task_proxy = make_shared<numeric_pdb_helper::NumericTaskProxy>(task);
     for (const auto &collection : pattern_collections) {
         //cout << "evaluate pattern collection " << (i + 1) << " of "
         //     << pattern_collections.size() << endl;
@@ -275,7 +273,7 @@ void PatternCollectionGeneratorGenetic::evaluate(vector<double> &fitness_values)
             }
 
             //TODO: Fix the task proxy code. It looks horrible.
-            remove_irrelevant_variables(pattern, *numeric_task_proxy);
+            remove_irrelevant_variables(pattern, task_proxy);
             pattern_collection->push_back(pattern);
         }
         if (!pattern_valid) {
@@ -286,7 +284,7 @@ void PatternCollectionGeneratorGenetic::evaluate(vector<double> &fitness_values)
             /* Generate the pattern collection heuristic and get its fitness
                value. */
             ZeroOnePDBs zero_one_pdbs(
-                numeric_task_proxy, 
+                make_shared<numeric_pdb_helper::NumericTaskProxy>(task_proxy), 
                 *pattern_collection,
                 max_number_pdb_states,
                 extend_abstract_state_space,
@@ -393,13 +391,13 @@ void PatternCollectionGeneratorGenetic::genetic_algorithm(
     best_patterns = nullptr;
     bin_packing(task_proxy);
     vector<double> initial_fitness_values;
-    evaluate(initial_fitness_values);
+    evaluate(task_proxy, initial_fitness_values);
     for (int i = 0; i < num_episodes; ++i) {
         cout << endl;
         cout << "--------- episode no " << (i + 1) << " ---------" << endl;
         mutate();
         vector<double> fitness_values;
-        evaluate(fitness_values);
+        evaluate(task_proxy, fitness_values);
         // We allow to select invalid pattern collections.
         select(fitness_values);
     }

@@ -83,7 +83,7 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
       collection) computed. The overall best heuristic is eventually updated and
       saved for further episodes.
     */
-    void evaluate(std::vector<double> &fitness_values);
+    void evaluate(numeric_pdb_helper::NumericTaskProxy &task_proxy, std::vector<double> &fitness_values);
     bool is_pattern_too_large(const Pattern &pattern) const;
 
     /*
