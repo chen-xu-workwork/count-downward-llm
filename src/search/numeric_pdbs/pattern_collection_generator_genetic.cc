@@ -98,7 +98,7 @@ Pattern PatternCollectionGeneratorGenetic::transform_to_pattern_normal_form(
             } else {
                 // Numeric variable.
                 assert(i >= task_proxy.get_num_variables());
-                cout << "numeric var ID - DEBUG - " << i - task_proxy.get_num_variables();
+                cout << "numeric var ID - DEBUG - " << i - task_proxy.get_num_variables() << endl;
                 pattern.numeric.push_back(i - task_proxy.get_num_variables());
             }
         }
@@ -110,6 +110,7 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
     Pattern &pattern,
     numeric_pdb_helper::NumericTaskProxy &task_proxy) const {
 
+    cout << "test" << endl;
     unordered_set<int> in_original_pattern(pattern.regular.begin(), pattern.regular.end());
 
     unordered_set<int> in_original_numeric_pattern(pattern.numeric.begin(), pattern.numeric.end());
@@ -128,6 +129,7 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
             in_pruned_regular_pattern.insert(var_id);
         }
     }
+    cout << "DEBUG1: " << endl;
     for (const auto &num_goal : task_proxy.get_numeric_goals()) {
         int var_id = num_goal.get_var_id();
         //var_id += task_proxy.get_num_variables(); in case we mix var IDs.
@@ -138,7 +140,11 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
         }
     }
 
+    cout << "DEBUG2: " << endl;
+
     const CausalGraph &cg = task_proxy.get_numeric_causal_graph();
+
+    cout << "DEBUG3: " << endl;
 
     while (!vars_to_check.empty() || !numeric_vars_to_check.empty()) {
         if (!vars_to_check.empty()) {
@@ -173,9 +179,10 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
                 }
             }
         }
+        cout << "DEBUG5:" << endl;
         
         if (!numeric_vars_to_check.empty()) {
-            int numeric_var = vars_to_check.back();
+            int numeric_var = numeric_vars_to_check.back();
             numeric_vars_to_check.pop_back();
             const vector<int> &rel3 = cg.get_num_eff_to_prop_pre(numeric_var);
             for (size_t i = 0; i < rel3.size(); ++i) {
@@ -201,6 +208,8 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
         }
 
     }
+
+    cout << "DEBUG4:" << endl;
 
     pattern.regular.assign(in_pruned_regular_pattern.begin(), in_pruned_regular_pattern.end());
     pattern.numeric.assign(in_pruned_numeric_pattern.begin(), in_pruned_numeric_pattern.end());
@@ -282,6 +291,7 @@ void PatternCollectionGeneratorGenetic::evaluate(numeric_pdb_helper::NumericTask
             }
 
             //TODO: Fix the task proxy code. It looks horrible.
+            cout << "PATTERN: " << pattern << endl;
             remove_irrelevant_variables(pattern, task_proxy);
             pattern_collection->push_back(pattern);
         }
