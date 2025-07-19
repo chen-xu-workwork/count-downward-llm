@@ -309,11 +309,9 @@ void PatternCollectionGeneratorGenetic::evaluate(vector<double> &fitness_values)
     }
 }
 
-void PatternCollectionGeneratorGenetic::bin_packing() {
-    auto task_proxy = make_shared<numeric_pdb_helper::NumericTaskProxy>(task);
-    
-    VariablesProxy variables = task_proxy->get_variables();
-    numeric_pdb_helper::ResNumericVariablesProxy numeric_variables = task_proxy->get_numeric_variables();
+void PatternCollectionGeneratorGenetic::bin_packing(numeric_pdb_helper::NumericTaskProxy &task_proxy) {
+    VariablesProxy variables = task_proxy.get_variables();
+    numeric_pdb_helper::ResNumericVariablesProxy numeric_variables = task_proxy.get_numeric_variables();
 
     vector<int> variable_ids;
     variable_ids.reserve(variables.size() + numeric_variables.size());
@@ -325,9 +323,10 @@ void PatternCollectionGeneratorGenetic::bin_packing() {
         cout << "variable " << i << " is propositional variable with ID " << variables[i].get_id() << endl;
     }
     for (size_t i = 0; i < numeric_variables.size(); ++i) {
-        assert(i >= variables.size());
-        variable_ids.push_back(i);
-        cout << "variable " << (i + variables.size()) << " is numeric variable with ID " << numeric_variables[i].get_id() << endl;
+        size_t numeric_var_id = i + variables.size();
+        assert(numeric_var_id >= variables.size());
+        variable_ids.push_back(numeric_var_id);
+        cout << "variable " << (numeric_var_id) << " is numeric variable with ID " << numeric_variables[i].get_id() << endl;
     }
 
     for (int i = 0; i < num_collections; ++i) {
@@ -349,7 +348,7 @@ void PatternCollectionGeneratorGenetic::bin_packing() {
             } else {
                 //NOTE: var_id is a numeric variable.
                 //TODO: Make sure that aux variables are treated correctly.
-                next_var_size = task_proxy->get_approximate_domain_size(numeric_variables[var_id]);
+                next_var_size = task_proxy.get_approximate_domain_size(numeric_variables[var_id]);
                 if (next_var_size > max_number_pdb_states)
                     // var never fits into a bin.
                     continue;
@@ -381,10 +380,10 @@ void PatternCollectionGeneratorGenetic::bin_packing() {
 }
 
 void PatternCollectionGeneratorGenetic::genetic_algorithm(
-    const numeric_pdb_helper::NumericTaskProxy &task_proxy) {
+    numeric_pdb_helper::NumericTaskProxy &task_proxy) {
     best_fitness = -1;
     best_patterns = nullptr;
-    bin_packing();
+    bin_packing(task_proxy);
     vector<double> initial_fitness_values;
     evaluate(initial_fitness_values);
     for (int i = 0; i < num_episodes; ++i) {

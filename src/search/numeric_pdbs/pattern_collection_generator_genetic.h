@@ -105,7 +105,7 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
       initial patterns of each pattern collection are disjoint (regardless of
       the disjoint_patterns flag).
     */
-    void bin_packing();
+    void bin_packing(numeric_pdb_helper::NumericTaskProxy &task_proxy);
 
     /*
       Main genetic algorithm loop. All pattern collections are initialized with
@@ -114,7 +114,7 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
       selected to be part of the next episode. Note that we do not do any kind
       of recombination.
     */
-    void genetic_algorithm(const numeric_pdb_helper::NumericTaskProxy &task_proxy);
+    void genetic_algorithm(numeric_pdb_helper::NumericTaskProxy &task_proxy);
 public:
     PatternCollectionGeneratorGenetic(const options::Options &opts);
     virtual ~PatternCollectionGeneratorGenetic() = default;
