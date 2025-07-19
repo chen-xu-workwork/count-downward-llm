@@ -71,7 +71,7 @@ PatternCollectionGeneratorSystematic::PatternCollectionGeneratorSystematic(
         : PatternCollectionGenerator(
         opts.get<int>("max_number_pdb_states")),
           pattern_max_size(opts.get<int>("pattern_max_size")),
-          extend_abstract_state_space(opts.get<int>("extend_abstract_state_space")),
+          extend_abstract_state_space(opts.get<bool>("extend_abstract_state_space")),
           f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
           need_goal(opts.get<bool>("need_goal")),
           keep_parent_pointers(opts.get<bool>("keep_parent_pointers")),

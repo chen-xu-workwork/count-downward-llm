@@ -29,7 +29,6 @@ namespace numeric_pdbs {
 PatternCollectionGeneratorGenetic::PatternCollectionGeneratorGenetic(
     const Options &opts)
     : PatternCollectionGenerator(opts.get<int>("max_number_pdb_states")),
-      pdb_max_size(opts.get<int>("pdb_max_size")),
       num_collections(opts.get<int>("num_collections")),
       num_episodes(opts.get<int>("num_episodes")),
       mutation_probability(opts.get<double>("mutation_probability")),
@@ -209,7 +208,7 @@ bool PatternCollectionGeneratorGenetic::is_pattern_too_large(
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
         VariableProxy var = variables[pattern.regular[i]];
         int domain_size = var.get_domain_size();
-        if (!utils::is_product_within_limit(mem, domain_size, pdb_max_size))
+        if (!utils::is_product_within_limit(mem, domain_size, max_number_pdb_states))
             return true;
         mem *= domain_size;
     }
@@ -218,7 +217,7 @@ bool PatternCollectionGeneratorGenetic::is_pattern_too_large(
          numeric_pdb_helper::ResNumericVariableProxy numeric_var = 
                 numeric_pdb_helper::ResNumericVariableProxy(*numeric_task_proxy, pattern.numeric[i]);
         int domain_size = numeric_task_proxy->get_approximate_domain_size(numeric_var);
-        if (!utils::is_product_within_limit(mem, domain_size, pdb_max_size))
+        if (!utils::is_product_within_limit(mem, domain_size, max_number_pdb_states))
             return true;
         mem *= domain_size;
     }
@@ -323,10 +322,12 @@ void PatternCollectionGeneratorGenetic::bin_packing() {
     //NOTE: Assume variable IDs are ordered and numeric variables always have larger IDs.
     for (size_t i = 0; i < variables.size(); ++i) {
         variable_ids.push_back(i);
+        cout << "variable " << i << " is propositional variable with ID " << variables[i].get_id() << endl;
     }
     for (size_t i = 0; i < numeric_variables.size(); ++i) {
         assert(i >= variables.size());
         variable_ids.push_back(i);
+        cout << "variable " << (i + variables.size()) << " is numeric variable with ID " << numeric_variables[i].get_id() << endl;
     }
 
     for (int i = 0; i < num_collections; ++i) {
@@ -342,20 +343,20 @@ void PatternCollectionGeneratorGenetic::bin_packing() {
             if (var_id < variables.size()) {
                 //NOTE: var_id is a propositional variable.
                 int next_var_size = variables[var_id].get_domain_size();
-                if (next_var_size > pdb_max_size)
+                if (next_var_size > max_number_pdb_states)
                     // var never fits into a bin.
                     continue;
             } else {
                 //NOTE: var_id is a numeric variable.
                 //TODO: Make sure that aux variables are treated correctly.
                 next_var_size = task_proxy->get_approximate_domain_size(numeric_variables[var_id]);
-                if (next_var_size > pdb_max_size)
+                if (next_var_size > max_number_pdb_states)
                     // var never fits into a bin.
                     continue;
             }
             
             if (!utils::is_product_within_limit(current_size, next_var_size,
-                                                pdb_max_size)) {
+                                                max_number_pdb_states)) {
                 // Open a new bin for var.
                 pattern_collection.push_back(pattern);
                 pattern.clear();
@@ -479,7 +480,7 @@ static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
         "+\n\n", true);
 
     parser.add_option<int>(
-        "pdb_max_size",
+        "max_number_pdb_states",
         "maximal number of states per pattern database ",
         "50000",
         Bounds("1", "infinity"));
@@ -514,5 +515,5 @@ static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
     return make_shared<PatternCollectionGeneratorGenetic>(opts);
 }
 
-static PluginShared<PatternCollectionGenerator> _plugin("genetic", _parse);
+static PluginShared<PatternCollectionGenerator> _plugin("numeric_genetic", _parse);
 }

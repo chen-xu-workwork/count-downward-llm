@@ -1,5 +1,5 @@
-#ifndef PDBS_PATTERN_COLLECTION_GENERATOR_GENETIC_H
-#define PDBS_PATTERN_COLLECTION_GENERATOR_GENETIC_H
+#ifndef PDBS_PATTERN_COLLECTION_GENERATOR_GENETIC_NUMERIC_H
+#define PDBS_PATTERN_COLLECTION_GENERATOR_GENETIC_NUMERIC_H
 
 #include "pattern_generator.h"
 #include "types.h"
@@ -22,7 +22,7 @@ namespace numeric_pdbs {
 */
 class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
     // Maximum number of states for each pdb
-    const int pdb_max_size;
+ 
     const int num_collections;
     const int num_episodes;
     const double mutation_probability;
