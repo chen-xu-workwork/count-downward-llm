@@ -325,6 +325,11 @@ void PatternCollectionGeneratorGenetic::bin_packing(numeric_pdb_helper::NumericT
     for (size_t i = 0; i < numeric_variables.size(); ++i) {
         size_t numeric_var_id = i + variables.size();
         assert(numeric_var_id >= variables.size());
+        // get var type
+        numType var_type = numeric_variables[i].get_var_type();
+        if (numType::regular != var_type) {
+            continue; // Skip non-regular numeric variables.
+        }
         variable_ids.push_back(numeric_var_id);
         cout << "variable " << (numeric_var_id) << " is numeric variable with ID " << numeric_variables[i].get_id() << endl;
     }
@@ -346,9 +351,12 @@ void PatternCollectionGeneratorGenetic::bin_packing(numeric_pdb_helper::NumericT
                     // var never fits into a bin.
                     continue;
             } else {
+                size_t numeric_var_id = var_id - variables.size();
                 //NOTE: var_id is a numeric variable.
                 //TODO: Make sure that aux variables are treated correctly.
-                next_var_size = task_proxy.get_approximate_domain_size(numeric_variables[var_id]);
+                cout << "Numeric Variables size: " << numeric_variables.size() << "\t";;
+                cout << "Numeric variable ID: " << numeric_var_id << endl;
+                next_var_size = task_proxy.get_approximate_domain_size(numeric_variables[numeric_var_id]);
                 if (next_var_size > max_number_pdb_states)
                     // var never fits into a bin.
                     continue;
