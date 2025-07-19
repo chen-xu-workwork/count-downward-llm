@@ -1159,7 +1159,7 @@ bool PatternDatabase::is_operator_relevant(const numeric_pdb_helper::NumericOper
     //    }
     //}
 
-    cout << "WARNING: verify if that methods works as intended!" << endl;
+    cout << "WARNING: verify if that methods works as intended! Currently checks if any effect ID in pattern" << endl;
     for (EffectProxy effect : op.get_propositional_effects()) {
         int var_id = effect.get_fact().get_variable().get_id();
         if (binary_search(pattern.regular.begin(), pattern.regular.end(), var_id)) {
@@ -1168,6 +1168,13 @@ bool PatternDatabase::is_operator_relevant(const numeric_pdb_helper::NumericOper
     }
     for (const auto &num_effect: op.get_assign_effects()) {
         int var_id = num_effect.first;
+        if (num_variable_to_index[var_id] != -1) {
+            return true;
+        }
+    }
+
+    for (const auto &add_effect: op.get_additive_effects()) {
+        int var_id = add_effect.first;
         if (num_variable_to_index[var_id] != -1) {
             return true;
         }
