@@ -181,7 +181,7 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
                 if (in_original_numeric_pattern.count(numeric_var_no) &&
                     !in_pruned_numeric_pattern.count(numeric_var_no)) {
                     // Parents of relevant variables are causally relevant.
-                    vars_to_check.push_back(numeric_var_no);
+                    numeric_vars_to_check.push_back(numeric_var_no);
                     in_pruned_numeric_pattern.insert(numeric_var_no);
                 }
             }
@@ -207,7 +207,7 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
                 if (in_original_numeric_pattern.count(numeric_var_no) &&
                     !in_pruned_numeric_pattern.count(numeric_var_no)) {
                     // Parents of relevant variables are causally relevant.
-                    vars_to_check.push_back(numeric_var_no);
+                    numeric_vars_to_check.push_back(numeric_var_no);
                     in_pruned_numeric_pattern.insert(numeric_var_no);
                 }
             }
