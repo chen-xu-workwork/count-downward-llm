@@ -71,7 +71,9 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
       we need for ZeroOnePDBsHeuristic.
     */
     Pattern transform_to_pattern_normal_form(
-        const std::vector<bool> &bitvector) const;
+        const std::vector<bool> &bitvector, 
+        numeric_pdb_helper::NumericTaskProxy &task_proxy
+      ) const;
 
     /*
       Calculates the mean h-value (fitness value) for each pattern collection.
@@ -84,7 +86,7 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
       saved for further episodes.
     */
     void evaluate(numeric_pdb_helper::NumericTaskProxy &task_proxy, std::vector<double> &fitness_values);
-    bool is_pattern_too_large(const Pattern &pattern) const;
+    bool is_pattern_too_large(const Pattern &pattern, numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
 
     /*
       Mark used variables in variables_used and return true iff
