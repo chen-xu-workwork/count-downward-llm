@@ -462,7 +462,7 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
                 h = hrmax->compute_heuristic(proj_state);
             }
             bool dead_end = false;
-            if (h == numeric_limits<ap_float>::min()){
+            if (h == numeric_limits<ap_float>::max()){
                 dead_end = true;
             }
             return {dead_end, h};
