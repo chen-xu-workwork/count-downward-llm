@@ -1120,16 +1120,22 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
 ap_float PatternDatabase::compute_mean_finite_h() const {
     //cerr << "Not yet implemented: numeric PatternDatabase::compute_mean_finite_h()" << endl;
     //utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    if (pattern.regular.size() == 0 && pattern.numeric.size() == 0) {
+        cout << distances.size() << " abstract states in PDB, but no pattern defined." << endl;
+    }
     double sum = 0;
     int size = 0;
     for (size_t i = 0; i < distances.size(); ++i) {
         if (distances[i] != numeric_limits<ap_float>::max()) {
+            assert(distances[i] >= 0);
             sum += distances[i];
             ++size;
         }
     }
+    cout << "Pattern: " << pattern << endl;
+    cout << "sum: " << sum << endl;
     if (size == 0) { // All states are dead ends.
-        return numeric_limits<ap_float>::infinity();
+        return numeric_limits<ap_float>::max();
     } else {
         return sum; // NOTE: Daniel prefers sum over mean. Test if that makes a difference.
     }
@@ -1159,7 +1165,6 @@ bool PatternDatabase::is_operator_relevant(const numeric_pdb_helper::NumericOper
     //    }
     //}
 
-    cout << "WARNING: verify if that methods works as intended! Currently checks if any effect ID in pattern" << endl;
     for (EffectProxy effect : op.get_propositional_effects()) {
         int var_id = effect.get_fact().get_variable().get_id();
         if (binary_search(pattern.regular.begin(), pattern.regular.end(), var_id)) {
@@ -1175,11 +1180,6 @@ bool PatternDatabase::is_operator_relevant(const numeric_pdb_helper::NumericOper
 
     for (const auto &add_effect: op.get_additive_effects()) {
         int var_id = add_effect.first;
-        cout << "Num numeric vars: " << task_proxy->get_num_numeric_variables() << endl;
-        cout << "Var ID: " << var_id << endl;
-        cout << "num_variabel_to_index size: " << num_variable_to_index.size() << endl;
-        cout << "pattern.regular: " << pattern.regular << endl;
-        cout << "pattern.numeric: " << pattern.numeric << endl;
         if (binary_search(pattern.numeric.begin(), pattern.numeric.end(), var_id)) {
             return true;
         }

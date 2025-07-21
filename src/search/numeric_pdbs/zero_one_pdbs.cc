@@ -66,11 +66,6 @@ ZeroOnePDBs::ZeroOnePDBs(
             if (pdb->is_operator_relevant(op))
                 operator_costs[i] = 0;
         }
-        //NOTE: Not sure if this was here before I adapted it for numeric PDBs.
-        //for (OperatorProxy op : operators) {
-        //    if (pdb->is_operator_relevant(op))
-        //        operator_costs[op.get_id()] = 0;
-        //}
 
         pattern_databases.push_back(pdb);
     }

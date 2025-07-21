@@ -105,10 +105,8 @@ Pattern PatternCollectionGeneratorGenetic::transform_to_pattern_normal_form(
                 // Numeric variable.
                 auto numeric_var_id = i - task_proxy.get_num_variables();
                 assert(numeric_var_id >= 0);
-                cout << "Numeric var tzpe: " << task_proxy.get_numeric_var_type(numeric_var_id) << endl; 
                 assert(task_proxy.get_numeric_var_type(numeric_var_id) == numType::regular);
                 assert(i >= task_proxy.get_num_variables());
-                cout << "numeric var ID - DEBUG - " << numeric_var_id << endl;
                 pattern.numeric.push_back(numeric_var_id);
             }
         }
@@ -120,7 +118,6 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
     Pattern &pattern,
     numeric_pdb_helper::NumericTaskProxy &task_proxy) const {
 
-    cout << "test" << endl;
     unordered_set<int> in_original_pattern(pattern.regular.begin(), pattern.regular.end());
 
     unordered_set<int> in_original_numeric_pattern(pattern.numeric.begin(), pattern.numeric.end());
@@ -141,14 +138,13 @@ void PatternCollectionGeneratorGenetic::remove_irrelevant_variables(
     }
     for (const auto &num_goal : task_proxy.get_numeric_goals()) {
         int var_id = num_goal.get_var_id();
-        //var_id += task_proxy.get_num_variables(); in case we mix var IDs.
         if (in_original_numeric_pattern.count(var_id)) {
             // Numeric goals are causally relevant.
             numeric_vars_to_check.push_back(var_id);
             in_pruned_numeric_pattern.insert(var_id);
         }
-    }
 
+    }
 
     const CausalGraph &cg = task_proxy.get_numeric_causal_graph();
 
@@ -252,7 +248,7 @@ bool PatternCollectionGeneratorGenetic::is_pattern_too_large(
 
 bool PatternCollectionGeneratorGenetic::mark_used_variables(
     //NOTE: Function name is misleading. It does not mark variables, it checks whether pattern contains duplicates.
-    const Pattern &pattern, vector<bool> &variables_used) const {
+    numeric_pdb_helper::NumericTaskProxy &task_proxy, const Pattern &pattern, vector<bool> &variables_used) const {
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
         int var_id = pattern.regular[i];
         if (variables_used[var_id])
@@ -260,7 +256,7 @@ bool PatternCollectionGeneratorGenetic::mark_used_variables(
         variables_used[var_id] = true;
     }
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
-        int var_id = pattern.numeric[i];
+        int var_id = pattern.numeric[i] + task_proxy.get_variables().size();
         if (variables_used[var_id])
             return true;
         variables_used[var_id] = true;
@@ -288,7 +284,7 @@ void PatternCollectionGeneratorGenetic::evaluate(numeric_pdb_helper::NumericTask
             }
 
             if (disjoint_patterns) {
-                if (mark_used_variables(pattern, variables_used)) {
+                if (mark_used_variables(task_proxy, pattern, variables_used)) {
                     cout << "patterns are not disjoint anymore!" << endl;
                     pattern_valid = false;
                     break;
@@ -296,7 +292,6 @@ void PatternCollectionGeneratorGenetic::evaluate(numeric_pdb_helper::NumericTask
             }
 
             //TODO: Fix the task proxy code. It looks horrible.
-            cout << "PATTERN: " << pattern << endl;
             remove_irrelevant_variables(pattern, task_proxy);
             pattern_collection->push_back(pattern);
         }
@@ -320,6 +315,12 @@ void PatternCollectionGeneratorGenetic::evaluate(numeric_pdb_helper::NumericTask
                 failed_lookup_h
             );
             fitness = zero_one_pdbs.compute_approx_mean_finite_h();
+            cout << "fitness = " << fitness << endl;
+            cout << "best_fitness = " << best_fitness << endl;
+            //print all patterns:
+            for (const auto &pattern : *pattern_collection) {
+                cout << "Pattern: " << pattern << endl;
+            }
             // Update the best heuristic found so far.
             if (fitness > best_fitness) {
                 best_fitness = fitness;
@@ -380,7 +381,6 @@ void PatternCollectionGeneratorGenetic::bin_packing(numeric_pdb_helper::NumericT
                 continue;
             }
 
-            cout << "current size: " << current_size << ", " << next_var_size << ", " << max_number_pdb_states << endl;
             
             if (!utils::is_product_within_limit(current_size, next_var_size,
                                                 max_number_pdb_states)) {
@@ -403,6 +403,16 @@ void PatternCollectionGeneratorGenetic::bin_packing(numeric_pdb_helper::NumericT
         if (current_size > 1) {
             pattern_collection.push_back(pattern);
         }
+        cout << "Pattern collection " << (i + 1) << " of " << num_collections
+             << " has " << pattern_collection.size() << " patterns." << endl;
+        for (auto p : pattern_collection) {
+            for (int var_id = 0; var_id < p.size(); ++var_id) {
+                if (p[var_id]) {
+                    cout << var_id << " ";
+                }
+            }
+            cout << endl;
+        }
         pattern_collections.push_back(pattern_collection);
     }
 }
@@ -419,7 +429,6 @@ void PatternCollectionGeneratorGenetic::genetic_algorithm(
         cout << fitness << " ";
     }
     cout << endl;
-    exit(0);
     for (int i = 0; i < num_episodes; ++i) {
         cout << endl;
         cout << "--------- episode no " << (i + 1) << " ---------" << endl;
@@ -438,6 +447,13 @@ PatternCollectionInformation PatternCollectionGeneratorGenetic::generate(
     genetic_algorithm(*task_proxy);
     cout << "Pattern generation (Edelkamp) time: " << timer << endl;
     assert(best_patterns);
+
+    //remove empty patterns:
+    best_patterns->erase(remove_if(best_patterns->begin(), best_patterns->end(),
+        [](const Pattern &p) {
+            return p.regular.empty() && p.numeric.empty();
+        }), best_patterns->end());
+
 
     cout << "pattern size: " << best_patterns->size() << endl;
     for (Pattern p : *best_patterns) {
