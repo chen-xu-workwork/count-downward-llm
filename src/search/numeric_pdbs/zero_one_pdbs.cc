@@ -87,7 +87,7 @@ double ZeroOnePDBs::get_value(const State &state) const {
         pair<bool, double> pair = pdb->get_value(state);
         double pdb_value = pair.second;
         if (pdb_value == numeric_limits<double>::max())
-            return numeric_limits<int>::max();
+            return numeric_limits<double>::max();
         h_val += pdb_value;
     }
     return h_val;
