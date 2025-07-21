@@ -450,25 +450,17 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
                                                       const NumericState &succ_state) const {
     switch (h_type) {
         case InnerHeuristic::LMCUT:
-        {
+        case InnerHeuristic::HRMAX: {
             State proj_state = inner_h_task->get_projected_state(
                     unpack_prop_state(succ_state.prop_hash),
                     succ_state.num_state,
                     pattern);
-            ap_float h = lmc->compute_heuristic(proj_state);
-            bool dead_end = false;
-            if (h == numeric_limits<ap_float>::min()){
-                dead_end = true;
+            ap_float h;
+            if (h_type == InnerHeuristic::LMCUT) {
+                h = lmc->compute_heuristic(proj_state);
+            } else {
+                h = hrmax->compute_heuristic(proj_state);
             }
-            return {dead_end, h};
-        }
-        case InnerHeuristic::HRMAX:
-        {
-            State proj_state = inner_h_task->get_projected_state(
-                    unpack_prop_state(succ_state.prop_hash),
-                    succ_state.num_state,
-                    pattern);
-            ap_float h = hrmax->compute_heuristic(proj_state);
             bool dead_end = false;
             if (h == numeric_limits<ap_float>::min()){
                 dead_end = true;
@@ -1145,19 +1137,6 @@ ap_float PatternDatabase::compute_mean_finite_h() const {
     } else {
         return sum; // NOTE: Daniel prefers sum over mean. Test if that makes a difference.
     }
-//    double sum = 0;
-//    int size = 0;
-//    for (size_t i = 0; i < distances.size(); ++i) {
-//        if (distances[i] != numeric_limits<int>::max()) {
-//            sum += distances[i];
-//            ++size;
-//        }
-//    }
-//    if (size == 0) { // All states are dead ends.
-//        return numeric_limits<double>::infinity();
-//    } else {
-//        return sum / size;
-//    }
 }
 
 //NOTE: (markus) changed argument because it was expecting regular operators, but we want to check numeric operators"

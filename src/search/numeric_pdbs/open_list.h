@@ -5,7 +5,7 @@
 #include <queue>         // For std::priority_queue
 #include <vector>        // Default underlying container for std::priority_queue
 #include <string>        // For std::string in NodeId
-#include <memory>        // For std::shared_ptr
+#include <variant>       // For std::variant
 
 // Define ap_float if it's not globally defined. Using double for generality.
 typedef double ap_float;
@@ -13,26 +13,9 @@ typedef double ap_float;
 // Forward declaration of NodeValue type for the example
 // using NodeId = std::string; // Example usage if NodeValue is string
 
-// --- Abstract Cost Base Class ---
-// Defines the common interface for cost types (FValue and GValue).
-class AbstractCost {
-public:
-    // Virtual destructor is crucial for proper cleanup of derived objects through base pointer
-    virtual ~AbstractCost() = default;
-
-    // Pure virtual functions for common access to g and f values
-    virtual ap_float get_g() const = 0;
-    virtual ap_float get_f() const = 0;
-
-    // Pure virtual function for comparing two cost objects.
-    // This allows polymorphic comparison.
-    // It should return true if 'this' cost is "less" (i.e., higher priority) than 'other'.
-    virtual bool compare_less(const AbstractCost& other) const = 0;
-};
-
 // --- FValue Class (for A* search) ---
-// Inherits from AbstractCost and implements A* specific cost logic.
-class FValue : public AbstractCost {
+// Implements A* specific cost logic.
+class FValue {
 private:
     ap_float g_cost; // Cost from start to current node
     ap_float h_cost; // Heuristic cost from current node to goal
@@ -41,17 +24,12 @@ public:
     // Constructor to initialize costs
     FValue(ap_float g, ap_float h) : g_cost(g), h_cost(h) {}
 
-    // Override AbstractCost methods
-    ap_float get_g() const override { return g_cost; }
-    ap_float get_f() const override { return g_cost + h_cost; }
+    ap_float get_g() const { return g_cost; }
+    ap_float get_f() const { return g_cost + h_cost; }
+    ap_float get_h() const { return h_cost; }
 
     // A* specific comparison logic (lower f, then lower h for tie-breaking)
-    bool compare_less(const AbstractCost& other_raw) const override {
-        // IMPORTANT: We use static_cast here. This assumes that `other_raw` will *always*
-        // be of type FValue when stored in an OpenList configured for A* search.
-        // This assumption is enforced by the OpenList's `push` method based on `ignore_h_value`.
-        const FValue& other = static_cast<const FValue&>(other_raw);
-
+    bool compare_less(const FValue& other) const {
         ap_float f1 = get_f();
         ap_float f2 = other.get_f();
 
@@ -67,8 +45,8 @@ public:
 };
 
 // --- GValue Class (for Blind search, e.g., Dijkstra/BFS) ---
-// Inherits from AbstractCost and only considers the g-cost.
-class GValue : public AbstractCost {
+// Only considers the g-cost.
+class GValue {
 private:
     ap_float g_cost; // Cost from start to current node
 
@@ -76,17 +54,13 @@ public:
     // Constructor takes same arguments as FValue but ignores 'h' for compatibility.
     GValue(ap_float g, ap_float /*h_ignored_for_compatibility*/) : g_cost(g) {}
 
-    // Override AbstractCost methods
-    ap_float get_g() const override { return g_cost; }
+    ap_float get_g() const { return g_cost; }
     // For blind search, f-value is conceptually the same as g-value (h is 0)
-    ap_float get_f() const override { return g_cost; }
+    ap_float get_f() const { return g_cost; }
+    ap_float get_h() const { return 0; } // GValue has no heuristic component
 
     // Blind search specific comparison logic (lower g is better)
-    bool compare_less(const AbstractCost& other_raw) const override {
-        // IMPORTANT: We use static_cast here. This assumes that `other_raw` will *always*
-        // be of type GValue when stored in an OpenList configured for blind search.
-        // This assumption is enforced by the OpenList's `push` method based on `ignore_h_value`.
-        const GValue& other = static_cast<const GValue&>(other_raw);
+    bool compare_less(const GValue& other) const {
         return g_cost < other.g_cost; // Smaller 'g' means higher priority
     }
 };
@@ -98,27 +72,27 @@ public:
 template <typename NodeValue>
 class Entry {
 public:
-    // Using std::shared_ptr to manage the dynamically allocated AbstractCost.
-    // This allows Entry objects to be copied by std::priority_queue.
-    std::shared_ptr<AbstractCost> cost;
+    // Using std::variant to store either FValue or GValue directly.
+    std::variant<FValue, GValue> cost;
     NodeValue data; // The actual data associated with this entry
 
     // Constructor for an Entry
-    Entry(std::shared_ptr<AbstractCost> c, NodeValue d)
-        : cost(std::move(c)), data(d) {} // Use std::move for shared_ptr for efficiency
+    template<typename CostType>
+    Entry(CostType c, NodeValue d)
+        : cost(c), data(d) {}
 
-    // Get the g-cost. Delegates to the AbstractCost's virtual method.
+    // Get the g-cost. Uses std::visit to call the appropriate get_g() method.
     ap_float get_g() const {
-        return cost->get_g();
+        return std::visit([](const auto& c){ return c.get_g(); }, cost);
     }
 
-    // Get the f-cost. Delegates to the AbstractCost's virtual method.
+    // Get the f-cost. Uses std::visit to call the appropriate get_f() method.
     ap_float get_f() const {
-        return cost->get_f();
+        return std::visit([](const auto& c){ return c.get_f(); }, cost);
     }
 
     ap_float get_h() const {
-        return cost->get_f() - cost->get_g();
+        return std::visit([](const auto& c){ return c.get_h(); }, cost);
     }
 
     // Overload the less than operator (<) for Entry.
@@ -127,10 +101,13 @@ public:
     // To achieve this with a max-heap, this operator should return true if 'this' Entry
     // has *lower* priority than 'other' Entry.
     bool operator<(const Entry<NodeValue>& other) const {
-        // If 'other.cost' is "less" than 'this.cost' (meaning 'other' has higher priority),
-        // then 'this' has lower priority and should be considered "less" for the max-heap.
-        // The `compare_less` method on `AbstractCost` dictates if one cost is "less" (higher priority) than another.
-        return other.cost->compare_less(*cost);
+        // The OpenList's push method guarantees that both variants hold the same type.
+        // We can safely use std::get to access the concrete type.
+        if (std::holds_alternative<FValue>(cost)) {
+            return std::get<FValue>(other.cost).compare_less(std::get<FValue>(cost));
+        } else {
+            return std::get<GValue>(other.cost).compare_less(std::get<GValue>(cost));
+        }
     }
 };
 
@@ -151,10 +128,10 @@ public:
     void push(ap_float g, ap_float h, const NodeValue& data) {
         if (ignore_h_value) {
             // For blind search, create a GValue object. 'h' is passed but ignored by GValue's constructor.
-            pq.push(Entry<NodeValue>(std::make_shared<GValue>(g, h), data));
+            pq.push(Entry<NodeValue>(GValue(g, h), data));
         } else {
             // For A* search, create an FValue object.
-            pq.push(Entry<NodeValue>(std::make_shared<FValue>(g, h), data));
+            pq.push(Entry<NodeValue>(FValue(g, h), data));
         }
     }
 
