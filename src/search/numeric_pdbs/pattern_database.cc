@@ -882,9 +882,15 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
     if (!keep_parent_pointers) {
         parent_pointers.clear();
-    } 
+        parent_pointers.shrink_to_fit();
+    }
 
     if (!extend_abstract_state_space) {
+        operators.clear();
+        operators.shrink_to_fit();
+        num_operators.clear();
+        num_operators.shrink_to_fit();
+        match_tree.reset();
         switch (failed_lookup_h) {
             case InnerHeuristic::LMCUT:
                 hrmax.reset();
