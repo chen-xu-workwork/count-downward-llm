@@ -664,7 +664,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             size_t state_id = state_entry.data;
             ap_float g_value = state_entry.get_g();
 
-            cout << "Exploring state with state ID: " << state_id << ", f: " << state_entry.get_f() << ", g: " << state_entry.get_g() << ", h: " << state_entry.get_h() << endl;
+            //cout << "Exploring state with state ID: " << state_id << ", f: " << state_entry.get_f() << ", g: " << state_entry.get_g() << ", h: " << state_entry.get_h() << endl;
 
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 

@@ -9,20 +9,23 @@
 
 class AbstractTask;
 
-namespace options {
-class Options;
+namespace options
+{
+  class Options;
 }
 
-namespace numeric_pdbs {
-/*
-  Implementation of the pattern generation algorithm by Edelkamp. See:
-  Stefan Edelkamp, Automated Creation of Pattern Database Search
-  Heuristics. Proceedings of the 4th Workshop on Model Checking and
-  Artificial Intelligence (MoChArt 2006), pp. 35-50, 2007.
-*/
-class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
+namespace numeric_pdbs
+{
+  /*
+    Implementation of the pattern generation algorithm by Edelkamp. See:
+    Stefan Edelkamp, Automated Creation of Pattern Database Search
+    Heuristics. Proceedings of the 4th Workshop on Model Checking and
+    Artificial Intelligence (MoChArt 2006), pp. 35-50, 2007.
+  */
+  class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator
+  {
     // Maximum number of states for each pdb
- 
+
     const int num_collections;
     const int num_episodes;
     const double mutation_probability;
@@ -64,6 +67,7 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
       pdb_max_size or disjoint patterns.
     */
     void mutate(numeric_pdb_helper::NumericTaskProxy &task_proxy);
+    void mutate2(numeric_pdb_helper::NumericTaskProxy &task_proxy);
 
     /*
       Transforms a bit vector (internal pattern representation in this class,
@@ -71,9 +75,11 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
       we need for ZeroOnePDBsHeuristic.
     */
     Pattern transform_to_pattern_normal_form(
-        const std::vector<bool> &bitvector, 
-        numeric_pdb_helper::NumericTaskProxy &task_proxy
-      ) const;
+        const std::vector<bool> &bitvector,
+        numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
+
+    void transform_to_pattern_bitvector_form(std::vector<bool> &bitvector,
+                                             const Pattern &pattern, numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
 
     /*
       Calculates the mean h-value (fitness value) for each pattern collection.
@@ -117,13 +123,14 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
       of recombination.
     */
     void genetic_algorithm(numeric_pdb_helper::NumericTaskProxy &task_proxy);
-public:
+
+  public:
     PatternCollectionGeneratorGenetic(const options::Options &opts);
     virtual ~PatternCollectionGeneratorGenetic() = default;
 
     virtual PatternCollectionInformation generate(
         std::shared_ptr<AbstractTask> task) override;
-};
+  };
 }
 
 #endif
