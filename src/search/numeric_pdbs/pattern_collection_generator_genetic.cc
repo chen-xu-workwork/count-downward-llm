@@ -30,6 +30,7 @@ namespace numeric_pdbs
     PatternCollectionGeneratorGenetic::PatternCollectionGeneratorGenetic(
         const Options &opts)
         : PatternCollectionGenerator(opts.get<int>("max_number_pdb_states")),
+          pdb_max_size(opts.get<int>("max_number_pdb_states")),
           num_collections(opts.get<int>("num_collections")),
           num_episodes(opts.get<int>("num_episodes")),
           mutation_probability(opts.get<double>("mutation_probability")),
@@ -144,7 +145,7 @@ namespace numeric_pdbs
                         {
                             if (pattern[pattern_vars[k]])
                             { // so var is on, lets turn it off
-                               
+
                                 pattern[pattern_vars[k]] = false;
                                 trans_pattern = transform_to_pattern_normal_form(pattern, task_proxy);
                                 remove_irrelevant_variables(trans_pattern, task_proxy);
@@ -463,6 +464,189 @@ namespace numeric_pdbs
                 }
             }
             fitness_values.push_back(fitness);
+        }
+    }
+
+    void PatternCollectionGeneratorGenetic::bin_packing2(numeric_pdb_helper::NumericTaskProxy &task_proxy)
+    {
+        bin_packing_reg_count++;
+
+        // TODO: Make this a parameter
+        bool use_norm_dist = true;
+
+        int temp = 0;
+        if (use_norm_dist)
+        {
+            std::normal_distribution<double> distribution((max_target_size + min_target_size) / 2, (max_target_size - min_target_size) / 2);
+            temp = distribution(generator);
+        }
+        else
+        {
+            temp = rand() % (max_target_size - min_target_size + 1);
+            temp += min_target_size;
+        }
+        // pdb_max_size=pow(10,7);
+
+        // Limited to between min_size and max_size
+        pdb_max_size = 9 * pow(10, temp);
+        pdb_max_size = min(pdb_max_size, pow(10, initial_max_target_size));
+        pdb_max_size = max(pdb_max_size, pow(10, min_target_size));
+        // cout<<"Rel_bin_packing,g_timer:"<<utils::g_timer<<",temp:,"<<temp<<",max_target_size:"<<max_target_size<<flush<<endl;
+        // cout<<",min_target_size:"<<min_target_size<<",pdb_max_size:"<<pdb_max_size<<flush<<endl;
+        // }
+
+        VariablesProxy variables = task_proxy.get_variables();
+        const CausalGraph &causal_graph = task_proxy.get_numeric_causal_graph();
+
+        for (int i = 0; i < num_collections; ++i)
+        {
+            pattern_collections.clear();
+            set<int> remaining_vars;
+            for (size_t i = 0; i < variables.size(); ++i)
+            {
+                double next_var_size = variables[i].get_domain_size();
+                if (next_var_size <= pdb_max_size)
+                {
+                    remaining_vars.insert(i);
+                }
+            }
+            // cout<<"\tremaining_vars:";for (auto var : remaining_vars) cout<<var<<",";cout<<endl;
+
+            vector<int> vars_to_check;
+
+            set<int> remaining_goal_vars;
+            for (FactProxy goal : task_proxy.get_propositional_goals())
+            {
+                // int , l_id=goal.get_variable().get_id();
+                double next_var_size = goal.get_variable().get_domain_size();
+                if (next_var_size <= pdb_max_size)
+                {
+                    remaining_goal_vars.insert(goal.get_variable().get_id());
+                }
+            }
+            // cout<<"\tremaining_goal_vars:";for (auto var : remaining_goal_vars) cout<<var<<",";cout<<endl;
+
+            vector<vector<bool>> pattern_collection;
+            vector<bool> pattern(variables.size(), false);
+            double current_size = 1;
+
+            vector<int> pattern_int;
+            vector<int> candidate_pattern;
+            int var_id;
+            while (!remaining_vars.empty())
+            {
+                if (pattern_int.size() > 0)
+                {
+                    candidate_pattern = pattern_int;
+                    sort(candidate_pattern.begin(), candidate_pattern.end());
+                    set<int> rel_vars_set;
+                    vector<int> relevant_vars;
+                    vector<int> relevant_vars_in_remaining;
+                    for (auto var : pattern_int)
+                    {
+                        //TODO: Add additional edges
+                        const vector<int> &rel_vars = causal_graph.get_prop_eff_to_prop_pre(var);
+                        for (auto var2 : rel_vars)
+                        {
+                            rel_vars_set.insert(var2);
+                        }
+                    }
+                    set_difference(rel_vars_set.begin(), rel_vars_set.end(),
+                                   candidate_pattern.begin(), candidate_pattern.end(),
+                                   back_inserter(relevant_vars));
+                    // cout<<"relevant vars to current_pattern:";for (auto item : relevant_vars) cout<<item<<",";cout<<endl;
+                    set_intersection(relevant_vars.begin(), relevant_vars.end(),
+                                     remaining_vars.begin(), remaining_vars.end(),
+                                     back_inserter(relevant_vars_in_remaining));
+                    // cout<<"relevant vars in remaining:";for (auto item : relevant_vars_in_remaining) cout<<item<<",";cout<<flush<<endl;
+                    g_rng()->shuffle(relevant_vars);
+                    while (relevant_vars_in_remaining.size() > 0)
+                    {
+                        var_id = relevant_vars_in_remaining.back();
+                        relevant_vars_in_remaining.pop_back();
+                        double next_var_size = variables[var_id].get_domain_size();
+                        if (utils::is_product_within_limit(current_size, next_var_size, pdb_max_size))
+                        {
+                            candidate_pattern.push_back(var_id);
+                            current_size *= next_var_size;
+                            pattern[var_id] = true;
+                            remaining_vars.erase(var_id);
+                            remaining_goal_vars.erase(var_id);
+                            // cout<<"\t\tadded to pattern var_id:"<<var_id<<",current_size:"<<current_size<<",pdb_max_size:"<<pdb_max_size<<",new_pattern:"<<candidate_pattern<<",remaining vars:"<<remaining_vars.size()<<endl;
+                            break;
+                        }
+                    }
+                    if (candidate_pattern != pattern_int)
+                    {
+                        pattern_int = candidate_pattern;
+                    }
+                    else
+                    { // no var is small enough to be added, or none left
+                        // cout<<"no more relevant vars can be added"<<flush<<endl;
+                        if (pattern_int.size() > 0)
+                        {
+                            pattern_collection.push_back(pattern);
+                            Pattern trans_pattern = transform_to_pattern_normal_form(pattern_collection.back(), task_proxy);
+                            // cout<<"added pattern["<<pattern_collection.size()-1<<"]:"<<trans_pattern<<",size:"<<get_pattern_size(trans_pattern)<<flush<<endl;
+                            pattern_int.clear();
+                            pattern.clear();
+                            pattern.resize(variables.size(), false);
+                            current_size = 1;
+                            // TRYING ONLY ONE PATTERN
+                            if (single_pattern_only)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+                else
+                { // choose a remaining var at random, nothing selected yet for this pattern
+                    if (!use_first_goal_vars)
+                    {
+                        auto temp_it = remaining_vars.begin();
+                        advance(temp_it, rand() % remaining_vars.size());
+                        var_id = *temp_it;
+                    }
+                    else
+                    { // using goal valrs first
+                        auto temp_it = remaining_goal_vars.begin();
+                        if (remaining_goal_vars.empty())
+                        {
+                            // no more goal vars, so no more patterns, as we can not start it with a goal variable
+                            break;
+                        }
+                        temp_it = remaining_goal_vars.begin();
+                        advance(temp_it, rand() % remaining_goal_vars.size());
+                        var_id = *temp_it;
+                        remaining_goal_vars.erase(temp_it);
+                    }
+                    remaining_vars.erase(var_id);
+
+                    // cout<<"\t\tfirst var for pattern:"<<var_id<<",remaining_goal_vars:"<<flush;
+                    // for(auto id : remaining_goal_vars) cout<<","<<id;
+                    // cout<<",remaining_vars:";
+                    // for(auto id : remaining_vars) cout<<","<<id;
+                    // cout<<endl;
+
+                    pattern[var_id] = true;
+                    pattern_int.push_back(var_id);
+                    double next_var_size = variables[var_id].get_domain_size();
+                    current_size *= next_var_size;
+                }
+            }
+            // Add the last pattern!
+            if (pattern_int.size() > 0)
+            {
+                pattern_collection.push_back(pattern);
+                Pattern trans_pattern = transform_to_pattern_normal_form(pattern_collection.back(), task_proxy);
+                // cout<<"added last added pattern["<<pattern_collection.size()-1<<"]:"<<trans_pattern<<",size:"<<get_pattern_size(trans_pattern)<<endl;
+            }
+            // Sort patterns by size, so zero_one cost partition benefits larger patterns over shorter ones
+            sort(pattern_collection.begin(), pattern_collection.end(), compare_pattern_length);
+
+          
+            pattern_collections.push_back(pattern_collection);
         }
     }
 

@@ -5,6 +5,7 @@
 #include "types.h"
 
 #include <memory>
+#include <random>
 #include <vector>
 
 class AbstractTask;
@@ -34,6 +35,17 @@ namespace numeric_pdbs
     double f_layer_offset_ratio = 0.0;
     bool keep_parent_pointers = false;
     int need_goal = false;
+
+    // params for bin_packing2
+    int bin_packing_reg_count=0;
+    int bin_packing_rel_count=0;
+    std::default_random_engine generator;
+    int max_target_size=6;
+    int initial_max_target_size=6;
+    int min_target_size=4;
+    double pdb_max_size;
+    bool single_pattern_only=false;
+    bool use_first_goal_vars=false;
 
     InnerHeuristic exploration_h;
     InnerHeuristic frontier_h;
@@ -114,6 +126,7 @@ namespace numeric_pdbs
       the disjoint_patterns flag).
     */
     void bin_packing(numeric_pdb_helper::NumericTaskProxy &task_proxy);
+    void bin_packing2(numeric_pdb_helper::NumericTaskProxy &task_proxy);
 
     /*
       Main genetic algorithm loop. All pattern collections are initialized with
@@ -123,6 +136,11 @@ namespace numeric_pdbs
       of recombination.
     */
     void genetic_algorithm(numeric_pdb_helper::NumericTaskProxy &task_proxy);
+
+    static bool compare_pattern_length(const std::vector<bool> &one, const std::vector<bool> &two) 
+    {
+        return (std::count(two.begin(), two.end(), true) < std::count(one.begin(), one.end(), true));
+    }
 
   public:
     PatternCollectionGeneratorGenetic(const options::Options &opts);
