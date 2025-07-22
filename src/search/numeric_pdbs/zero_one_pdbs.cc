@@ -13,8 +13,6 @@
 
 using namespace std;
 
-//TODO: No numerical variables handled yet.
-
 namespace numeric_pdbs {
 ZeroOnePDBs::ZeroOnePDBs(
     const shared_ptr<numeric_pdb_helper::NumericTaskProxy> &task_proxy, 
@@ -35,7 +33,8 @@ ZeroOnePDBs::ZeroOnePDBs(
     exploration_h(exploration_h),
     frontier_h(frontier_h),
     failed_lookup_h(failed_lookup_h) {
-    vector<double> operator_costs;
+
+    vector<ap_float> operator_costs;
     numeric_pdb_helper::NumericOperatorsProxy operators = task_proxy->get_operators();
     operator_costs.reserve(operators.size());
     for (size_t i = 0; i < operators.size(); ++i)
@@ -62,7 +61,6 @@ ZeroOnePDBs::ZeroOnePDBs(
            (action cost partitioning). */
         for (size_t i = 0; i < operators.size(); ++i) {
             const numeric_pdb_helper::NumericOperatorProxy &op = operators[i];
-            //TODO: not implemented yet.
             if (pdb->is_operator_relevant(op))
                 operator_costs[i] = 0;
         }
@@ -71,29 +69,28 @@ ZeroOnePDBs::ZeroOnePDBs(
     }
 }
 
-
-double ZeroOnePDBs::get_value(const State &state) const {
+ap_float ZeroOnePDBs::get_value(const State &state) const {
     /*
       Because we use cost partitioning, we can simply add up all
       heuristic values of all patterns in the pattern collection.
     */
-    int h_val = 0;
+    ap_float h_val = 0;
     for (const shared_ptr<PatternDatabase> &pdb : pattern_databases) {
-        pair<bool, double> pair = pdb->get_value(state);
-        double pdb_value = pair.second;
-        if (pdb_value == numeric_limits<double>::max())
-            return numeric_limits<double>::max();
+        pair<bool, ap_float> pair = pdb->get_value(state);
+        ap_float pdb_value = pair.second;
+        if (pdb_value == numeric_limits<ap_float>::max())
+            return numeric_limits<ap_float>::max();
         h_val += pdb_value;
     }
     return h_val;
 }
 
-double ZeroOnePDBs::compute_approx_mean_finite_h() const {
-    double approx_mean_finite_h = 0;
+ap_float ZeroOnePDBs::compute_approx_mean_finite_h() const {
+    ap_float approx_mean_finite_h = 0;
     for (const shared_ptr<PatternDatabase> &pdb : pattern_databases) {
         approx_mean_finite_h += pdb->compute_mean_finite_h();
     }
-    return approx_mean_finite_h;
+    return approx_mean_finite_h / pattern_databases.size();
 }
 
 void ZeroOnePDBs::dump() const {
