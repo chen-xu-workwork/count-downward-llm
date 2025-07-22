@@ -1122,12 +1122,10 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
 }
 
 ap_float PatternDatabase::compute_mean_finite_h() const {
-    //cerr << "Not yet implemented: numeric PatternDatabase::compute_mean_finite_h()" << endl;
-    //utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-    if (pattern.regular.size() == 0 && pattern.numeric.size() == 0) {
+    if (pattern.regular.empty() && pattern.numeric.empty()) {
         cout << distances.size() << " abstract states in PDB, but no pattern defined." << endl;
     }
-    double sum = 0;
+    ap_float sum = 0;
     int size = 0;
     for (size_t i = 0; i < distances.size(); ++i) {
         if (distances[i] != numeric_limits<ap_float>::max()) {
@@ -1136,8 +1134,8 @@ ap_float PatternDatabase::compute_mean_finite_h() const {
             ++size;
         }
     }
-    cout << "Pattern: " << pattern << endl;
-    cout << "sum: " << sum << endl;
+//    cout << "Pattern: " << pattern << endl;
+//    cout << "sum: " << sum << endl;
     if (size == 0) { // All states are dead ends.
         return numeric_limits<ap_float>::max();
     } else {
@@ -1145,17 +1143,7 @@ ap_float PatternDatabase::compute_mean_finite_h() const {
     }
 }
 
-//NOTE: (markus) changed argument because it was expecting regular operators, but we want to check numeric operators"
-bool PatternDatabase::is_operator_relevant(const numeric_pdb_helper::NumericOperatorProxy &op) const {
-    //cerr << "Not yet implemented: numeric PatternDatabase::is_operator_relevant()" << endl;
-    //utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-    //for (EffectProxy effect : op.get_effects()) {
-    //    int var_id = effect.get_fact().get_variable().get_id();
-    //    if (binary_search(pattern.regular.begin(), pattern.regular.end(), var_id)) {
-    //        return true;
-    //    }
-    //}
-
+bool PatternDatabase::is_operator_relevant(const NumericOperatorProxy &op) const {
     for (EffectProxy effect : op.get_propositional_effects()) {
         int var_id = effect.get_fact().get_variable().get_id();
         if (binary_search(pattern.regular.begin(), pattern.regular.end(), var_id)) {
@@ -1168,14 +1156,12 @@ bool PatternDatabase::is_operator_relevant(const numeric_pdb_helper::NumericOper
             return true;
         }
     }
-
     for (const auto &add_effect: op.get_additive_effects()) {
         int var_id = add_effect.first;
         if (binary_search(pattern.numeric.begin(), pattern.numeric.end(), var_id)) {
             return true;
         }
     }
-
     return false;
 }
 
