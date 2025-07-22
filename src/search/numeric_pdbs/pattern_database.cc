@@ -462,7 +462,7 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
                 h = hrmax->compute_heuristic(proj_state);
             }
             bool dead_end = false;
-            if (h == numeric_limits<ap_float>::max()){
+            if (h == numeric_limits<ap_float>::min()){
                 dead_end = true;
             }
             return {dead_end, h};
@@ -657,10 +657,14 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             Entry<size_t> state_entry = open.top();
             open.pop();
             ap_float cost = state_entry.get_f();
+
+            //print f, g, h
             last_cost = cost;
 
             size_t state_id = state_entry.data;
             ap_float g_value = state_entry.get_g();
+
+            cout << "Exploring state with state ID: " << state_id << ", f: " << state_entry.get_f() << ", g: " << state_entry.get_g() << ", h: " << state_entry.get_h() << endl;
 
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 
@@ -728,6 +732,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     auto [dead_end, h] = compute_inner_h(exploration_h, succ_state);
                     if (!dead_end) {
                         //open.push(g_value + abs_op->get_cost() + h, {succ_id, g_value + abs_op->get_cost()});
+                        //cout << "g: " << g_value << ", " << abs_op->get_cost() << endl;;
                         open.push(g_value + abs_op->get_cost(), h, succ_id);
                     }
                 }
@@ -771,6 +776,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     auto [dead_end, h] = compute_inner_h(exploration_h, succ_state);
                     if (!dead_end) {
                         //open.push(g_value + op_cost + h, {succ_id, g_value + op_cost});
+                        //cout << "g: " << g_value << ", " << op_cost << endl;
                         open.push(g_value + op_cost, h, succ_id);
                     }
                 }
