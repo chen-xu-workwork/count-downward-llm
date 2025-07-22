@@ -109,7 +109,7 @@ namespace numeric_pdbs
                     double random = (*g_rng())(); // [0..1)
                     if (random < mutation_probability)
                     {
-                        if (k > num_vars &&
+                        if (k >= num_vars &&
                             task_proxy.get_numeric_var_type(k - num_vars) != numType::regular)
                         {
                             continue; // skip numeric derived variables
