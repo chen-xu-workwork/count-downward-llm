@@ -485,22 +485,17 @@ namespace numeric_pdbs
             temp = rand() % (max_target_size - min_target_size + 1);
             temp += min_target_size;
         }
-        // pdb_max_size=pow(10,7);
-
         // Limited to between min_size and max_size
         pdb_max_size = 9 * pow(10, temp);
         pdb_max_size = min(pdb_max_size, pow(10, initial_max_target_size));
         pdb_max_size = max(pdb_max_size, pow(10, min_target_size));
-        // cout<<"Rel_bin_packing,g_timer:"<<utils::g_timer<<",temp:,"<<temp<<",max_target_size:"<<max_target_size<<flush<<endl;
-        // cout<<",min_target_size:"<<min_target_size<<",pdb_max_size:"<<pdb_max_size<<flush<<endl;
-        // }
 
         VariablesProxy variables = task_proxy.get_variables();
+        numeric_pdb_helper::ResNumericVariablesProxy numeric_variables = task_proxy.get_numeric_variables();
         const CausalGraph &causal_graph = task_proxy.get_numeric_causal_graph();
-
+        pattern_collections.clear();
         for (int i = 0; i < num_collections; ++i)
         {
-            pattern_collections.clear();
             set<int> remaining_vars;
             for (size_t i = 0; i < variables.size(); ++i)
             {
@@ -510,24 +505,50 @@ namespace numeric_pdbs
                     remaining_vars.insert(i);
                 }
             }
+
+            for (size_t i = 0; i < numeric_variables.size(); ++i)
+            {
+                if (numeric_variables[i].get_var_type() != numType::regular)
+                {
+                    continue; // skip derived numeric variables
+                }
+                double next_var_size = task_proxy.get_approximate_domain_size(numeric_variables[i]);
+                if (next_var_size <= pdb_max_size)
+                {
+                    remaining_vars.insert(i + variables.size());
+                }
+            }
+
             // cout<<"\tremaining_vars:";for (auto var : remaining_vars) cout<<var<<",";cout<<endl;
 
+            //TODO: Not even used in the original. Some CPP hack I am too stupid to understand?
             vector<int> vars_to_check;
 
             set<int> remaining_goal_vars;
             for (FactProxy goal : task_proxy.get_propositional_goals())
             {
-                // int , l_id=goal.get_variable().get_id();
                 double next_var_size = goal.get_variable().get_domain_size();
                 if (next_var_size <= pdb_max_size)
                 {
                     remaining_goal_vars.insert(goal.get_variable().get_id());
                 }
             }
-            // cout<<"\tremaining_goal_vars:";for (auto var : remaining_goal_vars) cout<<var<<",";cout<<endl;
+            for (const auto &num_goal : task_proxy.get_numeric_goals())
+            {
+                int var_id = num_goal.get_var_id();
+                if (task_proxy.get_numeric_var_type(var_id) != numType::regular)
+                {
+                    continue; // skip derived numeric variables
+                }
+                double next_var_size = task_proxy.get_approximate_domain_size(numeric_variables[var_id]);
+                if (next_var_size <= pdb_max_size)
+                {
+                    remaining_goal_vars.insert(var_id + variables.size());
+                }
+            }
 
             vector<vector<bool>> pattern_collection;
-            vector<bool> pattern(variables.size(), false);
+            vector<bool> pattern(variables.size() + numeric_variables.size(), false);
             double current_size = 1;
 
             vector<int> pattern_int;
@@ -544,11 +565,29 @@ namespace numeric_pdbs
                     vector<int> relevant_vars_in_remaining;
                     for (auto var : pattern_int)
                     {
-                        //TODO: Add additional edges
-                        const vector<int> &rel_vars = causal_graph.get_prop_eff_to_prop_pre(var);
-                        for (auto var2 : rel_vars)
+                        if (var < variables.size())
                         {
-                            rel_vars_set.insert(var2);
+                            const vector<int> &rel_vars = causal_graph.get_prop_eff_to_prop_pre(var);
+                            for (auto var2 : rel_vars)
+                            {
+                                rel_vars_set.insert(var2);
+                            }
+                            for (auto var2 : causal_graph.get_prop_eff_to_num_pre(var))
+                            {
+                                rel_vars_set.insert(var2 + variables.size());
+                            }
+                        }
+                        else
+                        {
+                            const vector<int> &rel_vars = causal_graph.get_num_eff_to_prop_pre(var - variables.size());
+                            for (auto var2 : rel_vars)
+                            {
+                                rel_vars_set.insert(var2);
+                            }
+                            for (auto var2 : causal_graph.get_num_eff_to_num_pre(var - variables.size()))
+                            {
+                                rel_vars_set.insert(var2 + variables.size());
+                            }
                         }
                     }
                     set_difference(rel_vars_set.begin(), rel_vars_set.end(),
@@ -564,16 +603,37 @@ namespace numeric_pdbs
                     {
                         var_id = relevant_vars_in_remaining.back();
                         relevant_vars_in_remaining.pop_back();
-                        double next_var_size = variables[var_id].get_domain_size();
-                        if (utils::is_product_within_limit(current_size, next_var_size, pdb_max_size))
+                        if (var_id < variables.size())
                         {
-                            candidate_pattern.push_back(var_id);
-                            current_size *= next_var_size;
-                            pattern[var_id] = true;
-                            remaining_vars.erase(var_id);
-                            remaining_goal_vars.erase(var_id);
-                            // cout<<"\t\tadded to pattern var_id:"<<var_id<<",current_size:"<<current_size<<",pdb_max_size:"<<pdb_max_size<<",new_pattern:"<<candidate_pattern<<",remaining vars:"<<remaining_vars.size()<<endl;
-                            break;
+                            double next_var_size = variables[var_id].get_domain_size();
+                            if (utils::is_product_within_limit(current_size, next_var_size, pdb_max_size))
+                            {
+                                candidate_pattern.push_back(var_id);
+                                current_size *= next_var_size;
+                                pattern[var_id] = true;
+                                remaining_vars.erase(var_id);
+                                remaining_goal_vars.erase(var_id);
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            if (task_proxy.get_numeric_var_type(var_id - variables.size()) != numType::regular)
+                            {
+                                remaining_vars.erase(var_id);
+                                remaining_goal_vars.erase(var_id);
+                                continue; // skip derived numeric variables
+                            }
+                            double next_var_size = task_proxy.get_approximate_domain_size(numeric_variables[var_id - variables.size()]);
+                            if (utils::is_product_within_limit(current_size, next_var_size, pdb_max_size))
+                            {
+                                candidate_pattern.push_back(var_id);
+                                current_size *= next_var_size;
+                                pattern[var_id] = true;
+                                remaining_vars.erase(var_id);
+                                remaining_goal_vars.erase(var_id);
+                                break;
+                            }
                         }
                     }
                     if (candidate_pattern != pattern_int)
@@ -590,7 +650,7 @@ namespace numeric_pdbs
                             // cout<<"added pattern["<<pattern_collection.size()-1<<"]:"<<trans_pattern<<",size:"<<get_pattern_size(trans_pattern)<<flush<<endl;
                             pattern_int.clear();
                             pattern.clear();
-                            pattern.resize(variables.size(), false);
+                            pattern.resize(variables.size() + numeric_variables.size(), false);
                             current_size = 1;
                             // TRYING ONLY ONE PATTERN
                             if (single_pattern_only)
@@ -631,7 +691,15 @@ namespace numeric_pdbs
 
                     pattern[var_id] = true;
                     pattern_int.push_back(var_id);
-                    double next_var_size = variables[var_id].get_domain_size();
+                    double next_var_size;
+                    if (var_id < variables.size())
+                    {
+                        next_var_size = variables[var_id].get_domain_size();
+                    }
+                    else
+                    {
+                        next_var_size = task_proxy.get_approximate_domain_size(numeric_variables[var_id - variables.size()]);
+                    }
                     current_size *= next_var_size;
                 }
             }
@@ -645,7 +713,6 @@ namespace numeric_pdbs
             // Sort patterns by size, so zero_one cost partition benefits larger patterns over shorter ones
             sort(pattern_collection.begin(), pattern_collection.end(), compare_pattern_length);
 
-          
             pattern_collections.push_back(pattern_collection);
         }
     }
@@ -753,7 +820,7 @@ namespace numeric_pdbs
     {
         best_fitness = -1;
         best_patterns = nullptr;
-        bin_packing(task_proxy);
+        bin_packing2(task_proxy);
         vector<double> initial_fitness_values;
         evaluate(task_proxy, initial_fitness_values);
         cout << "Initial fitness values: ";
