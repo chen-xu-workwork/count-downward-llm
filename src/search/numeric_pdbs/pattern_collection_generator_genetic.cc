@@ -427,7 +427,10 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
     const CausalGraph &causal_graph = task_proxy.get_numeric_causal_graph();
 
     for (int i = 0; i < num_collections; ++i) {
-        pattern_collections.clear();
+        //NOTE: state computing (goal) vars with sufficiently small domain size
+
+        //pattern_collections.clear();
+        //NOTE: remaining_vars contains all variables with domain size <= pdb_max_size
         set<int> remaining_vars;
         for (size_t j = 0; j < variables.size(); ++j) {
             double next_var_size = variables[j].get_domain_size();
@@ -445,6 +448,7 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
             }
         }
 
+        //NOTE: remaining_goal_vars contains all goal vars with domain <= pdb_max_size
         set<int> remaining_goal_vars;
         for (FactProxy goal: task_proxy.get_propositional_goals()) {
             double next_var_size = goal.get_variable().get_domain_size();
@@ -463,11 +467,22 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
             }
         }
 
+        cout << "Remaining vars: ";
+        for (auto v : remaining_vars) {
+            cout << v << ", ";
+        }
+        cout << endl << "Remaining goal vars: ";
+        for (auto v : remaining_goal_vars) {
+            cout << v << ", ";
+        }
+        cout << endl;
+
+
         vector<vector<bool>> pattern_collection;
         vector<bool> pattern(variables.size() + numeric_variables.size(), false);
         double current_size = 1;
 
-        vector<int> pattern_int;
+        vector<int> pattern_int; //NOTE: int = interesting?
         vector<int> candidate_pattern;
         int var_id;
         while (!remaining_vars.empty()) {
@@ -478,13 +493,16 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
                 vector<int> relevant_vars;
                 vector<int> relevant_vars_in_remaining;
                 for (auto var: pattern_int) {
+                    cout << "Var in int pattern: " << var << endl;
                     if (var < variables.size()) {
                         const vector<int> &rel_vars = causal_graph.get_prop_eff_to_prop_pre(var);
                         for (auto var2: rel_vars) {
                             rel_vars_set.insert(var2);
                         }
                         for (auto var2: causal_graph.get_prop_eff_to_num_pre(var)) {
-                            rel_vars_set.insert(var2 + variables.size());
+                            if (task_proxy.get_numeric_var_type(var2) == numType::regular) {
+                                rel_vars_set.insert(var2 + variables.size());
+                            }
                         }
                     } else {
                         const vector<int> &rel_vars = causal_graph.get_num_eff_to_prop_pre(var - variables.size());
@@ -492,19 +510,30 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
                             rel_vars_set.insert(var2);
                         }
                         for (auto var2: causal_graph.get_num_eff_to_num_pre(var - variables.size())) {
-                            rel_vars_set.insert(var2 + variables.size());
+                            if (task_proxy.get_numeric_var_type(var2) == numType::regular) {
+                                rel_vars_set.insert(var2 + variables.size());
+                            }
                         }
                     }
                 }
+                cout << "before back insert: ";
+                for (auto v : rel_vars_set) {
+                    cout << v << ", ";
+                }
+                cout << endl;
                 set_difference(rel_vars_set.begin(), rel_vars_set.end(),
                                candidate_pattern.begin(), candidate_pattern.end(),
                                back_inserter(relevant_vars));
-                // cout<<"relevant vars to current_pattern:";for (auto item : relevant_vars) cout<<item<<",";cout<<endl;
+                            
+                cout<<"relevant vars to current_pattern:";for (auto item : relevant_vars) cout<<item<<",";cout<<endl;
                 set_intersection(relevant_vars.begin(), relevant_vars.end(),
                                  remaining_vars.begin(), remaining_vars.end(),
                                  back_inserter(relevant_vars_in_remaining));
-                // cout<<"relevant vars in remaining:";for (auto item : relevant_vars_in_remaining) cout<<item<<",";cout<<flush<<endl;
-                g_rng()->shuffle(relevant_vars);
+                cout<<"relevant vars in remaining:";for (auto item : relevant_vars_in_remaining) cout<<item<<",";cout<<flush<<endl;
+                //NOTE: relevant_vars_in_remaining contains all relevant vars not in the pattern
+                
+                //NOTE: Add a single random variable to pattern. 
+                g_rng()->shuffle(relevant_vars_in_remaining); //TODO: In original code, relevant_vars was shuffled. Does not make sense. 
                 while (!relevant_vars_in_remaining.empty()) {
                     var_id = relevant_vars_in_remaining.back();
                     relevant_vars_in_remaining.pop_back();
@@ -555,6 +584,7 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
                     }
                 }
             } else { // choose a remaining var at random, nothing selected yet for this pattern
+                //right now, empty pattern. Start adding a single (goal) var to pattern_int and pattern
                 if (!use_first_goal_vars) {
                     auto temp_it = remaining_vars.begin();
                     advance(temp_it, rand() % remaining_vars.size());
@@ -584,6 +614,7 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
                 if (var_id < variables.size()) {
                     next_var_size = variables[var_id].get_domain_size();
                 } else {
+                    assert(task_proxy.get_numeric_var_type(var_id - variables.size()) == numType::regular);
                     next_var_size = task_proxy.get_approximate_domain_size(
                             numeric_variables[var_id - variables.size()]);
                 }

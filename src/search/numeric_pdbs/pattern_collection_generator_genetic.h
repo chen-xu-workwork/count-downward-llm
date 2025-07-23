@@ -42,7 +42,7 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
     int min_target_size = 4;
     double pdb_max_size;
     bool single_pattern_only = false;
-    bool use_first_goal_vars = false;
+    bool use_first_goal_vars = true;
 
     InnerHeuristic exploration_h;
     InnerHeuristic frontier_h;
