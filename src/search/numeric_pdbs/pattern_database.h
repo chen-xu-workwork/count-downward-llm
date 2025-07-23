@@ -111,6 +111,7 @@ class PatternDatabase {
     bool extend_abstract_state_space;
     bool need_goal;
     ap_float f_layer_offset_ratio; // this should go eventually in favor of only using a limit on the number of states
+    ap_float max_h_factor;
 
     std::shared_ptr<tasks::ProjectedTask> inner_h_task;
     std::unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic> lmc;
@@ -242,6 +243,7 @@ public:
             bool need_goal,
             double f_layer_offset_ratio,
             bool keep_parent_pointers,
+            double max_h_factor,
             InnerHeuristic exploration_h,
             InnerHeuristic frontier_h,
             InnerHeuristic failed_lookup_h,

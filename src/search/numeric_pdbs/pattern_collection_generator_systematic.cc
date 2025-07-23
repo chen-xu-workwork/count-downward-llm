@@ -75,6 +75,7 @@ PatternCollectionGeneratorSystematic::PatternCollectionGeneratorSystematic(
           f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
           need_goal(opts.get<bool>("need_goal")),
           keep_parent_pointers(opts.get<bool>("keep_parent_pointers")),
+          max_h_factor(opts.get<double>("max_h_factor")),
           exploration_h(InnerHeuristic(opts.get_enum("exploration_heuristic"))),
           frontier_h(InnerHeuristic(opts.get_enum("frontier_heuristic"))),
           failed_lookup_h(InnerHeuristic(opts.get_enum("failed_lookup_heuristic"))),
@@ -383,6 +384,7 @@ PatternCollectionInformation PatternCollectionGeneratorSystematic::generate(
             f_layer_offset_ratio,
             need_goal,
             keep_parent_pointers,
+            max_h_factor,
             exploration_h,
             frontier_h,
             failed_lookup_h};

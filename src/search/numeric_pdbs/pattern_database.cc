@@ -99,6 +99,7 @@ PatternDatabase::PatternDatabase(
         bool need_goal,
         double f_layer_offset_ratio,
         bool keep_parent_pointers,
+        double max_h_factor,
         InnerHeuristic exploration_h,
         InnerHeuristic frontier_h,
         InnerHeuristic failed_lookup_h,
@@ -112,6 +113,7 @@ PatternDatabase::PatternDatabase(
           extend_abstract_state_space(extend_abstract_state_space),
           need_goal(need_goal),
           keep_parent_pointers(keep_parent_pointers),
+          max_h_factor(max_h_factor),
           f_layer_offset_ratio(f_layer_offset_ratio),
           min_action_cost(numeric_limits<ap_float>::max()),
           exhausted_abstract_state_space(false) {
@@ -226,6 +228,7 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
                         false, // TODO make this an option
                         f_layer_offset_ratio,
                         keep_parent_pointers,
+                        max_h_factor,
                         InnerHeuristic::BLIND,
                         InnerHeuristic::BLIND,
                         InnerHeuristic::BLIND,
@@ -873,6 +876,29 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         }
     }
 
+    int initial_state_id = 0;
+    assert(initial_state_id < distances.size()); //NOTE: probably impossible to have 0 states. 
+    ap_float initial_state_h = distances[initial_state_id];
+
+
+    ap_float cutoff_h = initial_state_h * max_h_factor;
+    assert(cutoff_h >= 0);
+    if (cutoff_h != 0) {
+        unique_ptr<NumericStateRegistry> tmp_state_registry = make_unique<NumericStateRegistry>();
+        size_t state_id = 0;
+        for (size_t i = 0; i < distances.size(); ++i) {
+            ap_float dist = distances[i];
+            if (dist != numeric_limits<ap_float>::max() && dist <=  cutoff_h) {
+                const NumericState &state = state_registry->lookup_state(i);
+                tmp_state_registry->insert_state(state);
+                distances[state_id++]  = dist;
+            } 
+        }
+        state_registry = std::move(tmp_state_registry);
+        distances.resize(state_id);
+        distances.shrink_to_fit();
+    }
+
     if (dump) {
         cout << "Number backwards reachable abstract states: " << num_bwd_reached_states << endl;
         cout << "Initial state h: " << compute_heuristic(task_proxy->get_original_initial_state()).second << endl;
@@ -1204,5 +1230,10 @@ void PatternDatabase::add_pdb_options(OptionParser &parser) {
             "keep_parent_pointers",
             "keep parent pointers for the abstract states, so that we can compute the cost of the abstract state.",
             "false");
+
+    parser.add_option<double>(
+            "max_h_factor",
+            "initial h * this factor: all abstract states with higher value get pruned. 0.0 to disable",
+            "0.0");
 }
 }

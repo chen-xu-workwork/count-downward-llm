@@ -15,6 +15,7 @@ class ZeroOnePDBs {
     double f_layer_offset_ratio;
     bool keep_parent_pointers;
     int need_goal;
+    double max_h_factor;
 
     InnerHeuristic exploration_h;
     InnerHeuristic frontier_h;
@@ -28,6 +29,7 @@ public:
       bool need_goal,
       double f_layer_offset_ratio,
       bool keep_parent_pointers,
+      double max_h_factor,
       InnerHeuristic exploration_h,
       InnerHeuristic frontier_h,
       InnerHeuristic failed_lookup_h

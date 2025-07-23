@@ -32,6 +32,7 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
     double f_layer_offset_ratio = 0.0;
     bool keep_parent_pointers = false;
     int need_goal = false;
+    double max_h_factor;
 
     // params for bin_packing2
     int bin_packing_reg_count = 0;

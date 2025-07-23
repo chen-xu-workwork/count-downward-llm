@@ -26,6 +26,7 @@ class PatternCollectionInformation {
     bool keep_parent_pointers;
     int need_goal;
     int hierarchy;
+    double max_h_factor;
 
     InnerHeuristic exploration_h;
     InnerHeuristic frontier_h;
@@ -47,6 +48,7 @@ public:
             double f_layer_offset_ratio,
             int need_goal,
             bool keep_parent_pointers,
+            double max_h_factor,
             InnerHeuristic exploration_h,
             InnerHeuristic frontier_h,
             InnerHeuristic failed_lookup_h);

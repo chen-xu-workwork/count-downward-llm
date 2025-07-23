@@ -36,6 +36,7 @@ PatternCollectionGeneratorGenetic::PatternCollectionGeneratorGenetic(
           extend_abstract_state_space(opts.get<bool>("extend_abstract_state_space")),
           f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
           keep_parent_pointers(opts.get<bool>("keep_parent_pointers")),
+          max_h_factor(opts.get<double>("max_h_factor")),
           need_goal(opts.get<bool>("need_goal")),
           pdb_max_size(opts.get<int>("max_number_pdb_states")),
           exploration_h(InnerHeuristic(opts.get_enum("exploration_heuristic"))),
@@ -363,9 +364,7 @@ void PatternCollectionGeneratorGenetic::evaluate(
             }
 
             // TODO: Fix the task proxy code. It looks horrible.
-            cout << "pattern before removing: " << pattern << endl;
             remove_irrelevant_variables(pattern, task_proxy);
-            cout << "pattern after removing: " << pattern << endl;
             pattern_collection->push_back(pattern);
         }
         if (!pattern_valid) {
@@ -383,6 +382,7 @@ void PatternCollectionGeneratorGenetic::evaluate(
                     need_goal,
                     f_layer_offset_ratio,
                     keep_parent_pointers,
+                    max_h_factor,
                     exploration_h,
                     frontier_h,
                     failed_lookup_h);
@@ -784,6 +784,7 @@ PatternCollectionInformation PatternCollectionGeneratorGenetic::generate(shared_
             f_layer_offset_ratio,
             need_goal,
             keep_parent_pointers,
+            max_h_factor,
             exploration_h,
             frontier_h,
             failed_lookup_h};
