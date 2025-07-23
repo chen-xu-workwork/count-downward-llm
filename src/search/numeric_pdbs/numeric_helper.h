@@ -113,7 +113,7 @@ public:
 
     const std::vector<FactProxy> &get_propositional_goals() const;
 
-    int get_approximate_domain_size(const ResNumericVariableProxy &num_var);
+    int get_approximate_domain_size(const ResNumericVariableProxy &num_var) const;
 
     bool is_derived_variable(const VariableProxy &var) const;
 
@@ -231,7 +231,7 @@ private:
 
     std::vector<FactProxy> propositional_goals;
 
-    std::vector<int> approximate_num_var_domain_sizes;
+    mutable std::vector<int> approximate_num_var_domain_sizes; // TODO precompute and make non-mutable
 
     // numeric variables
     size_t n_numeric_variables;  // number of regular numeric variables

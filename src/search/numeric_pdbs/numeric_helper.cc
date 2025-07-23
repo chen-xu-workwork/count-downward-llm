@@ -427,7 +427,7 @@ const vector<FactProxy> &NumericTaskProxy::get_propositional_goals() const {
     return propositional_goals;
 }
 
-int NumericTaskProxy::get_approximate_domain_size(const ResNumericVariableProxy &num_var) {
+int NumericTaskProxy::get_approximate_domain_size(const ResNumericVariableProxy &num_var) const {
     // TODO: maybe have different variants
     assert(num_var.get_id() >= 0);
     assert(static_cast<size_t>(num_var.get_id()) >= g_numeric_var_types.size() ||
