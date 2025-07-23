@@ -721,7 +721,7 @@ PatternCollectionInformation PatternCollectionGeneratorGenetic::generate(shared_
                                    }),
                          best_patterns->end());
 
-    cout << "pattern size: " << best_patterns->size() << endl;
+    cout << "Number patterns in collection: " << best_patterns->size() << endl;
     for (const Pattern &p: *best_patterns) {
         cout << "Pattern: " << p << endl;
     }
