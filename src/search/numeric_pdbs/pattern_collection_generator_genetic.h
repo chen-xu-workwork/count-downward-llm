@@ -1,5 +1,5 @@
-#ifndef PDBS_PATTERN_COLLECTION_GENERATOR_GENETIC_NUMERIC_H
-#define PDBS_PATTERN_COLLECTION_GENERATOR_GENETIC_NUMERIC_H
+#ifndef NUMERIC_PDBS_PATTERN_COLLECTION_GENERATOR_GENETIC_H
+#define NUMERIC_PDBS_PATTERN_COLLECTION_GENERATOR_GENETIC_H
 
 #include "pattern_generator.h"
 #include "types.h"
@@ -10,21 +10,18 @@
 
 class AbstractTask;
 
-namespace options
-{
-  class Options;
+namespace options {
+class Options;
 }
 
-namespace numeric_pdbs
-{
-  /*
-    Implementation of the pattern generation algorithm by Edelkamp. See:
-    Stefan Edelkamp, Automated Creation of Pattern Database Search
-    Heuristics. Proceedings of the 4th Workshop on Model Checking and
-    Artificial Intelligence (MoChArt 2006), pp. 35-50, 2007.
-  */
-  class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator
-  {
+namespace numeric_pdbs {
+/*
+  Implementation of the pattern generation algorithm by Edelkamp. See:
+  Stefan Edelkamp, Automated Creation of Pattern Database Search
+  Heuristics. Proceedings of the 4th Workshop on Model Checking and
+  Artificial Intelligence (MoChArt 2006), pp. 35-50, 2007.
+*/
+class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
     // Maximum number of states for each pdb
 
     const int num_collections;
@@ -37,15 +34,15 @@ namespace numeric_pdbs
     int need_goal = false;
 
     // params for bin_packing2
-    int bin_packing_reg_count=0;
-    int bin_packing_rel_count=0;
+    int bin_packing_reg_count = 0;
+    int bin_packing_rel_count = 0;
     std::default_random_engine generator;
-    int max_target_size=6;
-    int initial_max_target_size=6;
-    int min_target_size=4;
+    int max_target_size = 6;
+    int initial_max_target_size = 6;
+    int min_target_size = 4;
     double pdb_max_size;
-    bool single_pattern_only=false;
-    bool use_first_goal_vars=false;
+    bool single_pattern_only = false;
+    bool use_first_goal_vars = false;
 
     InnerHeuristic exploration_h;
     InnerHeuristic frontier_h;
@@ -78,8 +75,9 @@ namespace numeric_pdbs
       with the given probability from options. This method does not check for
       pdb_max_size or disjoint patterns.
     */
-    void mutate(numeric_pdb_helper::NumericTaskProxy &task_proxy);
-    void mutate2(numeric_pdb_helper::NumericTaskProxy &task_proxy);
+    void mutate(const numeric_pdb_helper::NumericTaskProxy &task_proxy);
+
+    void mutate2(const numeric_pdb_helper::NumericTaskProxy &task_proxy);
 
     /*
       Transforms a bit vector (internal pattern representation in this class,
@@ -87,11 +85,13 @@ namespace numeric_pdbs
       we need for ZeroOnePDBsHeuristic.
     */
     Pattern transform_to_pattern_normal_form(
-        const std::vector<bool> &bitvector,
-        numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
+            const std::vector<bool> &bitvector,
+            const numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
 
-    void transform_to_pattern_bitvector_form(std::vector<bool> &bitvector,
-                                             const Pattern &pattern, numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
+    void transform_to_pattern_bitvector_form(
+            std::vector<bool> &bitvector,
+            const Pattern &pattern,
+            const numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
 
     /*
       Calculates the mean h-value (fitness value) for each pattern collection.
@@ -103,17 +103,22 @@ namespace numeric_pdbs
       collection) computed. The overall best heuristic is eventually updated and
       saved for further episodes.
     */
-    void evaluate(numeric_pdb_helper::NumericTaskProxy &task_proxy, std::vector<double> &fitness_values);
-    bool is_pattern_too_large(const Pattern &pattern, numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
+    void evaluate(const numeric_pdb_helper::NumericTaskProxy &task_proxy,
+                  std::vector<double> &fitness_values);
+
+    bool is_pattern_too_large(const Pattern &pattern,
+                              const numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
 
     /*
       Mark used variables in variables_used and return true iff
       anything was already used (in which case we do not mark the
       remaining variables).
     */
-    bool mark_used_variables(numeric_pdb_helper::NumericTaskProxy &task_proxy, const Pattern &pattern,
+    bool mark_used_variables(const numeric_pdb_helper::NumericTaskProxy &task_proxy,
+                             const Pattern &pattern,
                              std::vector<bool> &variables_used) const;
-    void remove_irrelevant_variables(Pattern &pattern, numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
+
+    void remove_irrelevant_variables(Pattern &pattern, const numeric_pdb_helper::NumericTaskProxy &task_proxy) const;
 
     /*
       Calculates the initial pattern collections with a next-fit bin packing
@@ -125,8 +130,9 @@ namespace numeric_pdbs
       initial patterns of each pattern collection are disjoint (regardless of
       the disjoint_patterns flag).
     */
-    void bin_packing(numeric_pdb_helper::NumericTaskProxy &task_proxy);
-    void bin_packing2(numeric_pdb_helper::NumericTaskProxy &task_proxy);
+    void bin_packing(const numeric_pdb_helper::NumericTaskProxy &task_proxy);
+
+    void bin_packing2(const numeric_pdb_helper::NumericTaskProxy &task_proxy);
 
     /*
       Main genetic algorithm loop. All pattern collections are initialized with
@@ -135,20 +141,19 @@ namespace numeric_pdbs
       selected to be part of the next episode. Note that we do not do any kind
       of recombination.
     */
-    void genetic_algorithm(numeric_pdb_helper::NumericTaskProxy &task_proxy);
+    void genetic_algorithm(const numeric_pdb_helper::NumericTaskProxy &task_proxy);
 
-    static bool compare_pattern_length(const std::vector<bool> &one, const std::vector<bool> &two) 
-    {
+    static bool compare_pattern_length(const std::vector<bool> &one, const std::vector<bool> &two) {
         return (std::count(two.begin(), two.end(), true) < std::count(one.begin(), one.end(), true));
     }
 
-  public:
-    PatternCollectionGeneratorGenetic(const options::Options &opts);
+public:
+    explicit PatternCollectionGeneratorGenetic(const options::Options &opts);
+
     virtual ~PatternCollectionGeneratorGenetic() = default;
 
-    virtual PatternCollectionInformation generate(
-        std::shared_ptr<AbstractTask> task) override;
-  };
+    PatternCollectionInformation generate(std::shared_ptr<AbstractTask> task) override;
+};
 }
 
 #endif
