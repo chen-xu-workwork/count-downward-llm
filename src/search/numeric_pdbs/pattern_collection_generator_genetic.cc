@@ -363,7 +363,9 @@ void PatternCollectionGeneratorGenetic::evaluate(
             }
 
             // TODO: Fix the task proxy code. It looks horrible.
+            cout << "pattern before removing: " << pattern << endl;
             remove_irrelevant_variables(pattern, task_proxy);
+            cout << "pattern after removing: " << pattern << endl;
             pattern_collection->push_back(pattern);
         }
         if (!pattern_valid) {
@@ -405,6 +407,7 @@ void PatternCollectionGeneratorGenetic::evaluate(
 void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &task_proxy) {
     bin_packing_reg_count++;
 
+    //TODO: The next block is currently ignored because there are 2x pdb_max size parameters. 
     // TODO: Make this a parameter
     bool use_norm_dist = true;
 
@@ -421,6 +424,8 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
     pdb_max_size = 9 * pow(10, temp);
     pdb_max_size = min(pdb_max_size, pow(10, initial_max_target_size));
     pdb_max_size = max(pdb_max_size, pow(10, min_target_size));
+    //TODO: Hack, because there are now too ways to set the pdb. The code block on top of that is currently ignored.
+    pdb_max_size = max_number_pdb_states;
 
     VariablesProxy variables = task_proxy.get_variables();
     ResNumericVariablesProxy numeric_variables = task_proxy.get_numeric_variables();
@@ -632,6 +637,20 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
 
         pattern_collections.push_back(pattern_collection);
     }
+    //NOTE: Uncomment if you want to debug
+    for (auto col : pattern_collections) {
+        cout << "Collection" << endl;
+        for (auto p : col) {
+            cout << "pattern: ";
+            for (int i = 0; i < p.size(); i++) {
+                if (p[i]) {
+                    cout << i << ", ";
+                }
+            } 
+            cout << endl;
+        }
+    }
+    //exit(0);
 }
 
 void PatternCollectionGeneratorGenetic::bin_packing(const NumericTaskProxy &task_proxy) {
@@ -722,6 +741,7 @@ void PatternCollectionGeneratorGenetic::genetic_algorithm(const NumericTaskProxy
     bin_packing2(task_proxy);
     vector<double> initial_fitness_values;
     evaluate(task_proxy, initial_fitness_values);
+    //exit(0);
     cout << "Initial fitness values: ";
     for (double fitness: initial_fitness_values) {
         cout << fitness << " ";
