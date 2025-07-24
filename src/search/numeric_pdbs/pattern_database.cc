@@ -4,6 +4,7 @@
 #include "numeric_helper.h"
 #include "numeric_task_proxy.h"
 #include "open_list.h"
+#include "causal_graph.h"
 
 #include "../priority_queue.h"
 
@@ -11,6 +12,7 @@
 
 #include "../utils/logging.h"
 #include "../utils/math.h"
+#include "types.h"
 
 #include <algorithm>
 #include <cassert>
@@ -24,6 +26,32 @@
 using namespace std;
 using namespace numeric_condition;
 using namespace numeric_pdb_helper;
+
+
+inline bool contains_subset(vector<int> &dep_vars, vector<int> &all_variables) {
+    vector<int> overlap;
+    set_intersection(dep_vars.begin(), dep_vars.end(),
+                        all_variables.begin(), all_variables.end(),
+                        back_inserter(overlap));
+    if (overlap.size() == 0) {
+        return true;
+    }
+    return false;
+}
+
+inline void remove_var_from_pattern(numeric_pdbs::Pattern &new_pattern, int pruned_var, size_t num_variables) {
+    if (pruned_var < num_variables) {
+        new_pattern.regular.erase(
+            std::remove(new_pattern.regular.begin(), new_pattern.regular.end(), pruned_var), 
+                        new_pattern.regular.end());
+    } else {
+        pruned_var -= num_variables;
+        new_pattern.numeric.erase(
+            std::remove(new_pattern.numeric.begin(), new_pattern.numeric.end(), pruned_var), 
+                        new_pattern.numeric.end());
+    }
+}
+                    
 
 namespace numeric_pdbs {
 AbstractOperator::AbstractOperator(const vector<pair<int, int>> &prev_pairs,
@@ -192,33 +220,108 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
         if (!pdb) {
             if (pattern.regular.size() + pattern.numeric.size() > 1) {
                 Pattern new_pattern;
+                new_pattern.regular.insert(new_pattern.regular.end(),
+                                        pattern.regular.begin(),
+                                        pattern.regular.end());
+                new_pattern.numeric.insert(new_pattern.numeric.end(),
+                                        pattern.numeric.begin(),
+                                        pattern.numeric.end());
+
+                int num_variables = task_proxy->get_num_variables();
+                const CausalGraph &cg = task_proxy->get_numeric_causal_graph();
+                int num_goals = 0;
+                vector<int> regular_goal_vars;
+                vector<int> numeric_goal_vars;
                 for (const auto &num_goal: task_proxy->get_numeric_goals()) {
                     if (num_variable_to_index[num_goal.get_var_id()] != -1) {
-                        new_pattern.numeric.push_back(num_goal.get_var_id());
+                        regular_goal_vars.push_back(num_goal.get_var_id());
+                        num_goals++;
                     }
                 }
                 for (const auto &goal: task_proxy->get_propositional_goals()) {
                     int var = goal.get_variable().get_id();
                     if (variable_to_index[var] != -1) {
-                        new_pattern.regular.push_back(var);
+                        numeric_goal_vars.push_back(var);
+                        num_goals++;
                     }
                 }
-                if (new_pattern.numeric.size() == pattern.numeric.size() &&
-                    new_pattern.regular.size() == pattern.regular.size()) {
-                    if (new_pattern.numeric.size() > 1) {
-                        new_pattern.numeric.resize(pattern.numeric.size() / 2);
-                    }
-                    if (new_pattern.regular.size() > 1) {
-                        new_pattern.regular.resize(pattern.regular.size() / 2);
-                    }
-                    if (new_pattern.numeric.size() == pattern.numeric.size() &&
-                        new_pattern.regular.size() == pattern.regular.size()) {
-                        // both parts of pattern have exactly one variable, need to clear one of them
-                        new_pattern.regular.clear();
-                    }
+                vector<int> all_variables;
+                vector<int> regular_variables;
+                vector<int> numeric_variables;
+                for (const int var_id : pattern.regular) {
+                    all_variables.push_back(var_id);
+                    regular_variables.push_back(var_id);
                 }
-                sort(new_pattern.regular.begin(), new_pattern.regular.end());
-                sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
+                for (const int numeric_var_id : pattern.numeric) {
+                    all_variables.push_back(numeric_var_id + num_variables);
+                    numeric_variables.push_back(numeric_var_id);
+                }
+                g_rng()->shuffle(all_variables);
+
+                if (num_goals == new_pattern.regular.size() + new_pattern.numeric.size()) {
+                    //NOTE: we must remove a goal var
+                    assert(all_variables.size() > 0);
+                    int pruned_var = all_variables[0];
+                    remove_var_from_pattern(new_pattern, pruned_var, num_variables);
+                } else {
+                    
+
+                    //randomize all_variables
+                    int pruned_var = -1;
+
+                    for (int var_id : all_variables) {
+                        if (find(regular_goal_vars.begin(), regular_goal_vars.end(), var_id) != regular_goal_vars.end()) {
+                            continue;
+                        }
+                        if (std::find(numeric_goal_vars.begin(), numeric_goal_vars.end(), var_id) != numeric_goal_vars.end()) {
+                            continue;
+                        }
+                        bool can_be_pruned = false; 
+
+                        if (var_id < num_variables) {
+                            vector<int> dep_vars = cg.get_prop_eff_to_prop_pre(var_id);
+                            can_be_pruned = contains_subset(dep_vars, regular_variables);
+                            if (can_be_pruned) {
+                                pruned_var = var_id;
+                                break;
+                            }
+
+                            dep_vars = cg.get_prop_eff_to_num_pre(var_id);
+                            can_be_pruned = contains_subset(dep_vars, numeric_variables);
+                            if (can_be_pruned) {
+                                pruned_var = var_id;
+                                break;
+                            }
+
+                        } else {
+                            int numeric_var_id = var_id - num_variables;
+                            vector<int> dep_vars = cg.get_num_eff_to_prop_pre(numeric_var_id);
+                            can_be_pruned = contains_subset(dep_vars, regular_variables);
+                            if (can_be_pruned) {
+                                pruned_var = var_id;
+                                break;
+                            }
+
+                            dep_vars = cg.get_num_eff_to_num_pre(numeric_var_id);
+                            can_be_pruned = contains_subset(dep_vars, numeric_variables);
+                            if (can_be_pruned) {
+                                pruned_var = var_id;
+                                break;
+                            }
+
+                        }
+                        
+                    }
+                    cout << "BEFORE PRUNING: " << new_pattern << endl;
+                    if (pruned_var != -1) {
+                        cout << "Pruning variable: " << pruned_var << endl;
+                        remove_var_from_pattern(new_pattern, pruned_var, num_variables);
+                    } 
+                    cout << "AFTER PRUNING: " << new_pattern << endl;
+
+                    sort(new_pattern.regular.begin(), new_pattern.regular.end());
+                    sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
+                }
 
                 pdb = std::make_unique<PatternDatabase>(
                         task_proxy,
