@@ -71,14 +71,7 @@ PatternCollectionGeneratorSystematic::PatternCollectionGeneratorSystematic(
         : PatternCollectionGenerator(
         opts.get<int>("max_number_pdb_states")),
           pattern_max_size(opts.get<int>("pattern_max_size")),
-          extend_abstract_state_space(opts.get<bool>("extend_abstract_state_space")),
-          f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
-          need_goal(opts.get<bool>("need_goal")),
-          keep_parent_pointers(opts.get<bool>("keep_parent_pointers")),
-          max_h_factor(opts.get<double>("max_h_factor")),
-          exploration_h(InnerHeuristic(opts.get_enum("exploration_heuristic"))),
-          frontier_h(InnerHeuristic(opts.get_enum("frontier_heuristic"))),
-          failed_lookup_h(InnerHeuristic(opts.get_enum("failed_lookup_heuristic"))),
+          params(PatternDatabase::parse_static_pdb_parameters(opts)),
           only_interesting_patterns(opts.get<bool>("only_interesting_patterns")) {
 }
 
@@ -379,15 +372,7 @@ PatternCollectionInformation PatternCollectionGeneratorSystematic::generate(
     }
     return {task_proxy,
             patterns,
-            max_number_pdb_states,
-            extend_abstract_state_space,
-            f_layer_offset_ratio,
-            need_goal,
-            keep_parent_pointers,
-            max_h_factor,
-            exploration_h,
-            frontier_h,
-            failed_lookup_h};
+            params};
 }
 
 static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {

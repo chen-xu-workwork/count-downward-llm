@@ -38,17 +38,8 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
     const int min_improvement;
     const double max_time;
 
-    const int max_pdb_size;
+    std::shared_ptr<PatternDatabaseParameters> params;
 
-    bool extend_abstract_state_space;
-    double f_layer_offset_ratio;
-    bool keep_parent_pointers;
-    int need_goal;
-    double max_h_factor;
-
-    InnerHeuristic exploration_h;
-    InnerHeuristic frontier_h;
-    InnerHeuristic failed_lookup_h;
     InnerHeuristic global_failed_lookup_h;
 
     std::unique_ptr<IncrementalCanonicalPDBs> current_pdbs;

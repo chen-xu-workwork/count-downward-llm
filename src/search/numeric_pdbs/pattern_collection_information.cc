@@ -15,28 +15,12 @@ namespace numeric_pdbs {
 PatternCollectionInformation::PatternCollectionInformation(
         shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
         shared_ptr<PatternCollection> patterns,
-        size_t max_number_pdb_states,
-        bool extend_abstract_state_space,
-        double f_layer_offset_ratio,
-        int need_goal,
-        bool keep_parent_pointers,
-        double max_h_factor,
-        InnerHeuristic exploration_h,
-        InnerHeuristic frontier_h,
-        InnerHeuristic failed_lookup_h)
+        shared_ptr<PatternDatabaseParameters> params)
         : task_proxy(task_proxy),
           patterns(patterns),
           pdbs(nullptr),
           max_additive_subsets(nullptr),
-          extend_abstract_state_space(extend_abstract_state_space),
-          f_layer_offset_ratio(f_layer_offset_ratio),
-          keep_parent_pointers(keep_parent_pointers),  
-          max_h_factor(max_h_factor),
-          need_goal(need_goal),
-          exploration_h(exploration_h),
-          frontier_h(frontier_h),
-          failed_lookup_h(failed_lookup_h),
-          max_number_pdb_states(max_number_pdb_states) {
+          params(params) {
     assert(patterns);
     validate_and_normalize_patterns(*task_proxy, *patterns);
 }
@@ -94,15 +78,7 @@ void PatternCollectionInformation::create_pdbs_if_missing() {
                     make_shared<PatternDatabase>(
                             task_proxy,
                             pattern,
-                            max_number_pdb_states,
-                            extend_abstract_state_space,
-                            need_goal,
-                            f_layer_offset_ratio,
-                            keep_parent_pointers,
-                            max_h_factor,
-                            exploration_h,
-                            frontier_h,
-                            failed_lookup_h);
+                            params);
             pdbs->push_back(pdb);
         }
     }

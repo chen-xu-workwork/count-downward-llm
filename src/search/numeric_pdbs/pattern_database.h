@@ -26,6 +26,7 @@ namespace numeric_pdbs {
 
 struct PatternDatabaseParameters {
     size_t max_number_pdb_states;
+    size_t max_pdb_size; 
     bool extend_abstract_state_space;
     double f_layer_offset_ratio;
     bool need_goal;
@@ -108,6 +109,7 @@ public:
 // Implements a single pattern database
 class PatternDatabase {
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
+    std::shared_ptr<PatternDatabaseParameters> params;
 
     Pattern pattern;
 
@@ -117,15 +119,6 @@ class PatternDatabase {
     std::vector<AbstractOperator> operators;
     std::vector<int> num_operators;
     std::unique_ptr<numeric_pdbs::MatchTree> match_tree;
-
-    InnerHeuristic exploration_h;
-    InnerHeuristic frontier_h;
-    InnerHeuristic failed_lookup_h;
-
-    bool extend_abstract_state_space;
-    bool need_goal;
-    ap_float f_layer_offset_ratio; // this should go eventually in favor of only using a limit on the number of states
-    ap_float max_h_factor;
 
     std::shared_ptr<tasks::ProjectedTask> inner_h_task;
     std::unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic> lmc;
@@ -252,15 +245,7 @@ public:
     PatternDatabase(
             const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &task_proxy,
             const Pattern &pattern,
-            std::size_t max_number_states,
-            bool extend_abstract_state_space,
-            bool need_goal,
-            double f_layer_offset_ratio,
-            bool keep_parent_pointers,
-            double max_h_factor,
-            InnerHeuristic exploration_h,
-            InnerHeuristic frontier_h,
-            InnerHeuristic failed_lookup_h,
+            std::shared_ptr<PatternDatabaseParameters> params,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>(),
             bool dump = false);
 

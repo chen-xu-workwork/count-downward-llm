@@ -25,10 +25,8 @@ CanonicalPDBs get_canonical_pdbs_from_options(
         pattern_collection_info.get_max_additive_subsets();
     cout << "PDB collection construction time: " << timer << endl;
 
-    InnerHeuristic failed_lookup_h(InnerHeuristic(opts.get_enum("global_failed_lookup_heuristic")));
-
     bool dominance_pruning = opts.get<bool>("dominance_pruning");
-    return {task, pdbs, max_additive_subsets, dominance_pruning, failed_lookup_h};
+    return {task, pdbs, max_additive_subsets, dominance_pruning};
 }
 
 CanonicalPDBsHeuristic::CanonicalPDBsHeuristic(const Options &opts)

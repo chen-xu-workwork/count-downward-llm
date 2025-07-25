@@ -29,8 +29,7 @@ public:
     CanonicalPDBs(const std::shared_ptr<AbstractTask> &task,
                   std::shared_ptr<PDBCollection> pattern_databases,
                   std::shared_ptr<MaxAdditivePDBSubsets> max_additive_subsets,
-                  bool dominance_pruning,
-                  InnerHeuristic global_failed_lookup_h);
+                  bool dominance_pruning);
 
     ~CanonicalPDBs() = default;
 

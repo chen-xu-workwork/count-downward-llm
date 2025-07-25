@@ -2,6 +2,7 @@
 
 #include "numeric_helper.h"
 #include "pattern_generator.h"
+#include "pattern_database.h"
 
 #include "../option_parser.h"
 #include "../plugin.h"
@@ -18,30 +19,14 @@ PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
     auto pattern_generator =
         opts.get<shared_ptr<PatternGenerator>>("pattern");
 
-    InnerHeuristic exploration_h = InnerHeuristic(opts.get_enum("exploration_heuristic"));
-    InnerHeuristic frontier_h = InnerHeuristic(opts.get_enum("frontier_heuristic"));
-    InnerHeuristic failed_lookup_h = InnerHeuristic(opts.get_enum("failed_lookup_heuristic"));
-
-
-    bool extend_abstract_state_space = opts.get<bool>("extend_abstract_state_space");
-    ap_float f_layer_offset_ratio = opts.get<double>("f_layer_offset_ratio");
-    bool need_goal = opts.get<bool>("need_goal");
-    bool keep_parent_pointers = opts.get<bool>("keep_parent_pointers");
-    double max_h_factor = opts.get<double>("max_h_factor");
+    shared_ptr<PatternDatabaseParameters> params =
+        PatternDatabase::parse_static_pdb_parameters(opts);
 
     shared_ptr<NumericTaskProxy> task_proxy = make_shared<NumericTaskProxy>(task);
     Pattern pattern = pattern_generator->generate(task, task_proxy);
     return {task_proxy,
             pattern,
-            pattern_generator->get_max_number_pdb_states(),
-            extend_abstract_state_space,
-            need_goal,
-            f_layer_offset_ratio,
-            keep_parent_pointers,
-            max_h_factor,
-            exploration_h,
-            frontier_h,
-            failed_lookup_h};
+            params};
 }
 
 NumericPDBHeuristic::NumericPDBHeuristic(const Options &opts)

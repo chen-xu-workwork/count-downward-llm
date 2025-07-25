@@ -16,16 +16,7 @@ IncrementalCanonicalPDBs::IncrementalCanonicalPDBs(
     shared_ptr<AbstractTask> task,
     shared_ptr<NumericTaskProxy> task_proxy,
     const PatternCollection &intitial_patterns,
-    size_t max_number_pdb_states,
-    bool extend_abstract_state_space,
-    double f_layer_offset_ratio,
-    int need_goal,
-    bool keep_parent_pointers,
-    double max_h_factor,
-    InnerHeuristic exploration_h,
-    InnerHeuristic frontier_h,
-    InnerHeuristic failed_lookup_h,
-    InnerHeuristic global_failed_lookup_h)
+    shared_ptr<PatternDatabaseParameters> params)
     : task(std::move(task)),
       task_proxy(std::move(task_proxy)),
       patterns(make_shared<PatternCollection>(intitial_patterns.begin(),
@@ -33,16 +24,7 @@ IncrementalCanonicalPDBs::IncrementalCanonicalPDBs(
       pattern_databases(make_shared<PDBCollection>()),
       max_additive_subsets(nullptr),
       size(0),
-      max_number_pdb_states(max_number_pdb_states),
-      extend_abstract_state_space(extend_abstract_state_space),
-      f_layer_offset_ratio(f_layer_offset_ratio),
-      need_goal(need_goal),
-      keep_parent_pointers(keep_parent_pointers),
-      max_h_factor(max_h_factor),
-      exploration_h(exploration_h),
-      frontier_h(frontier_h),
-      failed_lookup_h(failed_lookup_h),
-      global_failed_lookup_h(global_failed_lookup_h) {
+      params(params) {
     utils::Timer timer;
     pattern_databases->reserve(patterns->size());
     for (const Pattern &pattern : *patterns)
@@ -55,15 +37,7 @@ IncrementalCanonicalPDBs::IncrementalCanonicalPDBs(
 void IncrementalCanonicalPDBs::add_pdb_for_pattern(const Pattern &pattern) {
     pattern_databases->emplace_back(new PatternDatabase(task_proxy,
                                                         pattern,
-                                                        max_number_pdb_states,
-                                                        extend_abstract_state_space,
-                                                        need_goal,
-                                                        f_layer_offset_ratio,
-                                                        keep_parent_pointers,
-                                                        max_h_factor,
-                                                        exploration_h,
-                                                        frontier_h,
-                                                        failed_lookup_h));
+                                                        params));
     size += pattern_databases->back()->get_size();
 }
 
@@ -85,7 +59,7 @@ MaxAdditivePDBSubsets IncrementalCanonicalPDBs::get_max_additive_subsets(
 }
 
 ap_float IncrementalCanonicalPDBs::get_value(const State &state) const {
-    CanonicalPDBs canonical_pdbs(task, pattern_databases, max_additive_subsets, false, global_failed_lookup_h);
+    CanonicalPDBs canonical_pdbs(task, pattern_databases, max_additive_subsets, false);
     return canonical_pdbs.get_value(state);
 }
 
@@ -98,7 +72,7 @@ bool IncrementalCanonicalPDBs::is_dead_end(const State &state) const {
 
 PatternCollectionInformation
 IncrementalCanonicalPDBs::get_pattern_collection_information() const {
-    PatternCollectionInformation result(task_proxy, patterns, max_number_pdb_states, extend_abstract_state_space, f_layer_offset_ratio, keep_parent_pointers, max_h_factor, need_goal, exploration_h, frontier_h, failed_lookup_h);
+    PatternCollectionInformation result(task_proxy, patterns, params);
     result.set_pdbs(pattern_databases);
     result.set_max_additive_subsets(max_additive_subsets);
     return result;

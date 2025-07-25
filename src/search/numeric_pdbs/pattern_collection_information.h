@@ -3,6 +3,7 @@
 
 #include "numeric_helper.h"
 #include "types.h"
+#include "pattern_database.h"
 
 #include <memory>
 
@@ -17,20 +18,13 @@ namespace numeric_pdbs {
   (consumers of pattern collections like heuristics).
 */
 class PatternCollectionInformation {
+
+    std::shared_ptr<PatternDatabaseParameters> params;
+
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
     std::shared_ptr<PatternCollection> patterns;
     std::shared_ptr<PDBCollection> pdbs;
     std::shared_ptr<MaxAdditivePDBSubsets> max_additive_subsets;
-    bool extend_abstract_state_space;
-    double f_layer_offset_ratio;
-    bool keep_parent_pointers;
-    int need_goal;
-    int hierarchy;
-    double max_h_factor;
-
-    InnerHeuristic exploration_h;
-    InnerHeuristic frontier_h;
-    InnerHeuristic failed_lookup_h;
 
     // approximate upper bound on the number of abstract states per PDB possibly reachable within the pattern
     size_t max_number_pdb_states;
@@ -43,15 +37,7 @@ public:
     PatternCollectionInformation(
             std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
             std::shared_ptr<PatternCollection> patterns,
-            size_t max_number_pdb_states,
-            bool extend_abstract_state_space,
-            double f_layer_offset_ratio,
-            int need_goal,
-            bool keep_parent_pointers,
-            double max_h_factor,
-            InnerHeuristic exploration_h,
-            InnerHeuristic frontier_h,
-            InnerHeuristic failed_lookup_h);
+            std::shared_ptr<PatternDatabaseParameters> params);
     ~PatternCollectionInformation() = default;
 
     void set_pdbs(std::shared_ptr<PDBCollection> pdbs);

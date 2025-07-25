@@ -122,27 +122,12 @@ void AbstractOperator::dump(const Pattern &pattern,
 PatternDatabase::PatternDatabase(
         const shared_ptr<NumericTaskProxy> &task_proxy,
         const Pattern &pattern,
-        size_t max_number_states,
-        bool extend_abstract_state_space,
-        bool need_goal,
-        double f_layer_offset_ratio,
-        bool keep_parent_pointers,
-        double max_h_factor,
-        InnerHeuristic exploration_h,
-        InnerHeuristic frontier_h,
-        InnerHeuristic failed_lookup_h,
+        shared_ptr<PatternDatabaseParameters> params,
         const vector<ap_float> &operator_costs,
         bool dump)
         : task_proxy(task_proxy),
           pattern(pattern),
-          exploration_h(exploration_h),
-          frontier_h(frontier_h),
-          failed_lookup_h(failed_lookup_h),
-          extend_abstract_state_space(extend_abstract_state_space),
-          need_goal(need_goal),
-          keep_parent_pointers(keep_parent_pointers),
-          max_h_factor(max_h_factor),
-          f_layer_offset_ratio(f_layer_offset_ratio),
+          params(params),
           min_action_cost(numeric_limits<ap_float>::max()),
           exhausted_abstract_state_space(false) {
 
@@ -166,7 +151,8 @@ PatternDatabase::PatternDatabase(
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
-    
+    size_t max_number_states = params->max_number_pdb_states;
+
     if (pattern.numeric.empty()){
         create_pdb_propositional(domain_size_product, operator_costs);
     } else {
@@ -179,7 +165,12 @@ PatternDatabase::PatternDatabase(
 void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
                                                  const vector<int> &variable_to_index,
                                                  const vector<ap_float> &operator_costs) {
-    if (exploration_h == InnerHeuristic::LMCUT ||
+        InnerHeuristic exploration_h = params->exploration_h;
+        InnerHeuristic frontier_h = params->frontier_h;
+        InnerHeuristic failed_lookup_h = params->failed_lookup_h;
+        bool extend_abstract_state_space = params->extend_abstract_state_space;
+    
+        if (exploration_h == InnerHeuristic::LMCUT ||
         frontier_h == InnerHeuristic::LMCUT ||
         failed_lookup_h == InnerHeuristic::LMCUT) {
 
@@ -323,18 +314,27 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
                     sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
                 }
 
+                double f_layer_offset_ratio = params->f_layer_offset_ratio;
+                double max_h_factor = params->max_h_factor;
+
+
+                shared_ptr<PatternDatabaseParameters> new_params =
+                    make_shared<PatternDatabaseParameters>();
+
+                new_params->max_number_pdb_states = max((size_t) 1000, max_number_states / 10);
+                new_params->need_goal = false;
+                new_params->extend_abstract_state_space = false;
+                new_params->f_layer_offset_ratio = f_layer_offset_ratio;
+                new_params->keep_parent_pointers = params->keep_parent_pointers;
+                new_params->max_h_factor = max_h_factor;
+                new_params->exploration_h = exploration_h;
+                new_params->frontier_h = frontier_h;
+                new_params->failed_lookup_h = failed_lookup_h;
+
                 pdb = std::make_unique<PatternDatabase>(
                         task_proxy,
                         new_pattern,
-                        max((size_t) 1000, max_number_states / 10), // TODO don't hard-code the limit
-                        false, // TODO make this an option
-                        false, // TODO make this an option
-                        f_layer_offset_ratio,
-                        keep_parent_pointers,
-                        max_h_factor,
-                        InnerHeuristic::BLIND,
-                        InnerHeuristic::BLIND,
-                        InnerHeuristic::BLIND,
+                        move(new_params),
                         operator_costs,
                         false);
             } else {
@@ -489,6 +489,7 @@ vector<ap_float> PatternDatabase::get_numeric_successor(vector<ap_float> state,
 }
 
 void PatternDatabase::build_goals(const vector<int> &variable_to_index) {
+    bool extend_abstract_state_space = params->extend_abstract_state_space;
     if (extend_abstract_state_space && (!propositional_goals.empty() || !numeric_goals.empty())){
         // already built goals in first exploration
         return;
@@ -591,6 +592,7 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
         case InnerHeuristic::BLIND:
             return {false, 0};
         default:
+            InnerHeuristic failed_lookup_h = params->failed_lookup_h;
             cerr << "ERROR: unknown inner heuristic type " << int(failed_lookup_h) << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
     }
@@ -612,7 +614,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     // TODO: we could try perfect hashing in all cases, where we sort reached numeric values such that the PDB vector
     //  is as dense as possible, and only having it just large enough to fit the abstract state with highest ID that has
     //  a finite heuristic value, with all others being deadends or mapped to min_action_cost by convention.
-
+    bool extend_abstract_state_space = params->extend_abstract_state_space;
+    InnerHeuristic exploration_h = params->exploration_h;
     assert(!state_registry || extend_abstract_state_space);
     if (!state_registry) {
         state_registry = make_unique<NumericStateRegistry>();
@@ -746,6 +749,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
         ap_float goal_g = numeric_limits<ap_float>::max();
         ap_float last_cost = 0;
+        bool need_goal = params->need_goal;
+        double f_layer_offset_ratio = params->f_layer_offset_ratio;
 
         while (!open.empty() && (num_reached_states < max_number_states || need_goal)) {
 
@@ -902,6 +907,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             pq.push(0, goal_state_id);
         }
 
+        InnerHeuristic frontier_h = params->frontier_h;
+
         size_t num_open_goal_states = 0;
         while (!open.empty()) {
             //size_t state_id = open.pop().second.first;
@@ -983,7 +990,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     assert(initial_state_id < distances.size()); //NOTE: probably impossible to have 0 states. 
     ap_float initial_state_h = distances[initial_state_id];
 
-
+    double max_h_factor = params->max_h_factor;
     ap_float cutoff_h = initial_state_h * max_h_factor;
     assert(cutoff_h >= 0);
     if (cutoff_h != 0) {
@@ -1018,6 +1025,8 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         num_operators.clear();
         num_operators.shrink_to_fit();
         match_tree.reset();
+
+        InnerHeuristic failed_lookup_h = params->failed_lookup_h;
         switch (failed_lookup_h) {
             case InnerHeuristic::LMCUT:
                 hrmax.reset();
@@ -1187,6 +1196,9 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
         return {true, distances[prop_hash_index(state)]};
     }
 
+    bool extend_abstract_state_space = params->extend_abstract_state_space;
+    InnerHeuristic failed_lookup_h = params->failed_lookup_h;
+
     NumericState abs_state = NumericState(prop_hash_index(state),
                                           get_abstract_numeric_state(state));
     size_t abs_state_id = state_registry->get_id(abs_state);
@@ -1222,6 +1234,8 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
         return {true, distances[state.prop_hash]};
     }
     size_t abs_state_id = state_registry->get_id(state);
+    bool extend_abstract_state_space = params->extend_abstract_state_space;
+    InnerHeuristic failed_lookup_h = params->failed_lookup_h;
 
     if (abs_state_id == numeric_limits<size_t>::max()) {
         // we have not seen an abstract state that corresponds to state
@@ -1343,6 +1357,8 @@ void PatternDatabase::add_pdb_options(OptionParser &parser) {
 shared_ptr<PatternDatabaseParameters> PatternDatabase::parse_static_pdb_parameters(const Options &opts) {
     auto params = std::make_shared<PatternDatabaseParameters>();
     params->max_number_pdb_states = opts.get<int>("max_number_pdb_states");
+    params->max_pdb_size = opts.get<int>("max_pdb_size");
+    params->need_goal = opts.get<bool>("need_goal");
     params->extend_abstract_state_space = opts.get<bool>("extend_abstract_state_space");
     params->f_layer_offset_ratio = opts.get<double>("f_layer_offset_ratio");
     params->keep_parent_pointers = opts.get<bool>("keep_parent_pointers");

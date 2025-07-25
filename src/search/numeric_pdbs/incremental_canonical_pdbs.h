@@ -5,6 +5,7 @@
 #include "numeric_helper.h"
 #include "pattern_collection_information.h"
 #include "types.h"
+#include "pattern_database.h"
 
 #include <memory>
 
@@ -24,18 +25,8 @@ class IncrementalCanonicalPDBs {
     int size;
 
     // approximate upper bound on the number of abstract states per PDB possibly reachable within the pattern
-    const size_t max_number_pdb_states;
-
-    bool extend_abstract_state_space;
-    double f_layer_offset_ratio;
-    bool keep_parent_pointers;
-    int need_goal;
-    double max_h_factor;
-
-    InnerHeuristic exploration_h;
-    InnerHeuristic frontier_h;
-    InnerHeuristic failed_lookup_h;
-    InnerHeuristic global_failed_lookup_h;
+    
+    std::shared_ptr<PatternDatabaseParameters> params;
 
     // Adds a PDB for pattern but does not recompute max_additive_subsets.
     void add_pdb_for_pattern(const Pattern &pattern);
@@ -45,16 +36,7 @@ public:
     explicit IncrementalCanonicalPDBs(std::shared_ptr<AbstractTask> task,
                                       std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
                                       const PatternCollection &intitial_patterns,
-                                      size_t max_number_pdb_states,
-                                      bool extend_abstract_state_space,
-                                      double f_layer_offset_ratio,
-                                      int need_goal,
-                                      bool keep_parent_pointers,
-                                      double max_h_factor,
-                                      InnerHeuristic exploration_h,
-                                      InnerHeuristic frontier_h,
-                                      InnerHeuristic failed_lookup_h,
-                                      InnerHeuristic global_failed_lookup_h);
+                                      std::shared_ptr<PatternDatabaseParameters> params);
 
     virtual ~IncrementalCanonicalPDBs() = default;
 

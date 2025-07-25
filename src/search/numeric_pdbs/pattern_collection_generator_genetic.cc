@@ -33,15 +33,7 @@ PatternCollectionGeneratorGenetic::PatternCollectionGeneratorGenetic(
           num_collections(opts.get<int>("num_collections")),
           num_episodes(opts.get<int>("num_episodes")),
           mutation_probability(opts.get<double>("mutation_probability")),
-          extend_abstract_state_space(opts.get<bool>("extend_abstract_state_space")),
-          f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
-          keep_parent_pointers(opts.get<bool>("keep_parent_pointers")),
-          max_h_factor(opts.get<double>("max_h_factor")),
-          need_goal(opts.get<bool>("need_goal")),
-          pdb_max_size(opts.get<int>("max_number_pdb_states")),
-          exploration_h(InnerHeuristic(opts.get_enum("exploration_heuristic"))),
-          frontier_h(InnerHeuristic(opts.get_enum("frontier_heuristic"))),
-          failed_lookup_h(InnerHeuristic(opts.get_enum("failed_lookup_heuristic"))),
+          pdb_params(PatternDatabase::parse_static_pdb_parameters(opts)),
           disjoint_patterns(opts.get<bool>("disjoint")) {
 }
 
@@ -377,15 +369,7 @@ void PatternCollectionGeneratorGenetic::evaluate(
             ZeroOnePDBs zero_one_pdbs(
                     make_shared<NumericTaskProxy>(task_proxy),
                     *pattern_collection,
-                    max_number_pdb_states,
-                    extend_abstract_state_space,
-                    need_goal,
-                    f_layer_offset_ratio,
-                    keep_parent_pointers,
-                    max_h_factor,
-                    exploration_h,
-                    frontier_h,
-                    failed_lookup_h);
+                    pdb_params);
             fitness = zero_one_pdbs.compute_approx_mean_finite_h();
             cout << "fitness = " << fitness << endl;
             cout << "best_fitness = " << best_fitness << endl;
@@ -779,15 +763,7 @@ PatternCollectionInformation PatternCollectionGeneratorGenetic::generate(shared_
 
     return {task_proxy,
             best_patterns,
-            max_number_pdb_states,
-            extend_abstract_state_space,
-            f_layer_offset_ratio,
-            need_goal,
-            keep_parent_pointers,
-            max_h_factor,
-            exploration_h,
-            frontier_h,
-            failed_lookup_h};
+            pdb_params};
 }
 
 static shared_ptr <PatternCollectionGenerator> _parse(OptionParser &parser) {
@@ -850,6 +826,11 @@ static shared_ptr <PatternCollectionGenerator> _parse(OptionParser &parser) {
 
     parser.add_option<int>(
             "max_number_pdb_states",
+            "maximal number of states per pattern database ",
+            "50000",
+            Bounds("1", "infinity"));
+    parser.add_option<int>(
+            "max_pdb_size",
             "maximal number of states per pattern database ",
             "50000",
             Bounds("1", "infinity"));

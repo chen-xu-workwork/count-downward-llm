@@ -17,24 +17,9 @@ namespace numeric_pdbs {
 ZeroOnePDBs::ZeroOnePDBs(
     const shared_ptr<numeric_pdb_helper::NumericTaskProxy> &task_proxy, 
     const PatternCollection &patterns,
-    std::size_t max_number_states,
-    bool extend_abstract_state_space,
-    bool need_goal,
-    double f_layer_offset_ratio,
-    bool keep_parent_pointers,
-    double max_h_factor,
-    InnerHeuristic exploration_h,
-    InnerHeuristic frontier_h,
-    InnerHeuristic failed_lookup_h
+    shared_ptr<PatternDatabaseParameters> params
 ) : 
-    extend_abstract_state_space(extend_abstract_state_space),
-    f_layer_offset_ratio(f_layer_offset_ratio),
-    keep_parent_pointers(keep_parent_pointers),
-    max_h_factor(max_h_factor),
-    need_goal(need_goal),
-    exploration_h(exploration_h),
-    frontier_h(frontier_h),
-    failed_lookup_h(failed_lookup_h) {
+    params(params) {
 
     vector<ap_float> operator_costs;
     numeric_pdb_helper::NumericOperatorsProxy operators = task_proxy->get_operators();
@@ -47,15 +32,7 @@ ZeroOnePDBs::ZeroOnePDBs(
         shared_ptr<PatternDatabase> pdb = make_shared<PatternDatabase>(
             task_proxy, 
             pattern, 
-            max_number_states,
-            extend_abstract_state_space,
-            need_goal,
-            f_layer_offset_ratio,
-            keep_parent_pointers,
-            max_h_factor,
-            exploration_h,
-            frontier_h,
-            failed_lookup_h,
+            params,
             operator_costs,
             false
         );

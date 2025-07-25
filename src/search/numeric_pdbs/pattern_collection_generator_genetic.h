@@ -31,12 +31,6 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
 
     std::shared_ptr<PatternDatabaseParameters> pdb_params;
 
-    bool extend_abstract_state_space = false;
-    double f_layer_offset_ratio = 0.0;
-    bool keep_parent_pointers = false;
-    int need_goal = false;
-    double max_h_factor;
-
     // params for bin_packing2
     int bin_packing_reg_count = 0;
     int bin_packing_rel_count = 0;
@@ -47,10 +41,6 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
     double pdb_max_size;
     bool single_pattern_only = false;
     bool use_first_goal_vars = true;
-
-    InnerHeuristic exploration_h;
-    InnerHeuristic frontier_h;
-    InnerHeuristic failed_lookup_h;
 
     std::shared_ptr<AbstractTask> task;
     /* Specifies whether patterns in each pattern collection need to be disjoint

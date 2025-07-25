@@ -3,6 +3,7 @@
 
 #include "types.h"
 #include "numeric_helper.h"
+#include "pattern_database.h"
 
 class State;
 class TaskProxy;
@@ -11,28 +12,13 @@ namespace numeric_pdbs {
 class ZeroOnePDBs {
     PDBCollection pattern_databases;
 
-    bool extend_abstract_state_space;
-    double f_layer_offset_ratio;
-    bool keep_parent_pointers;
-    int need_goal;
-    double max_h_factor;
-
-    InnerHeuristic exploration_h;
-    InnerHeuristic frontier_h;
-    InnerHeuristic failed_lookup_h;
+    std::shared_ptr<PatternDatabaseParameters> params;
+    
 public:
     ZeroOnePDBs(
       const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &task_proxy, 
       const PatternCollection &patterns,
-      std::size_t max_number_states,
-      bool extend_abstract_state_space,
-      bool need_goal,
-      double f_layer_offset_ratio,
-      bool keep_parent_pointers,
-      double max_h_factor,
-      InnerHeuristic exploration_h,
-      InnerHeuristic frontier_h,
-      InnerHeuristic failed_lookup_h
+      std::shared_ptr<PatternDatabaseParameters> params
     );
 
     ~ZeroOnePDBs() = default;

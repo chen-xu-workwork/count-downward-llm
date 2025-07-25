@@ -3,6 +3,7 @@
 
 #include "pattern_generator.h"
 #include "types.h"
+#include "pattern_database.h"
 
 #include "../utils/hash.h"
 
@@ -27,16 +28,9 @@ class CausalGraph;
 class PatternCollectionGeneratorSystematic : public PatternCollectionGenerator {
     using PatternSet = std::unordered_set<Pattern>;
 
-    const size_t pattern_max_size;
-    bool extend_abstract_state_space;
-    double f_layer_offset_ratio;
-    bool keep_parent_pointers;
-    int need_goal;
-    double max_h_factor;
+    std::shared_ptr<PatternDatabaseParameters> params;
 
-    InnerHeuristic exploration_h;
-    InnerHeuristic frontier_h;
-    InnerHeuristic failed_lookup_h;
+    const size_t pattern_max_size;
 
     const bool only_interesting_patterns;
     std::shared_ptr<PatternCollection> patterns;

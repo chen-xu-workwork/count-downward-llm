@@ -17,8 +17,7 @@ CanonicalPDBs::CanonicalPDBs(
         const shared_ptr<AbstractTask> &task,
         shared_ptr<PDBCollection> pattern_databases,
         shared_ptr<MaxAdditivePDBSubsets> max_additive_subsets_,
-        bool dominance_pruning,
-        InnerHeuristic global_failed_lookup_h)
+        bool dominance_pruning)
         : max_additive_subsets(max_additive_subsets_),
           number_lookup_misses(0) {
 
@@ -26,27 +25,6 @@ CanonicalPDBs::CanonicalPDBs(
     if (dominance_pruning) {
         max_additive_subsets = prune_dominated_subsets(
             *pattern_databases, *max_additive_subsets);
-    }
-
-    switch (global_failed_lookup_h) {
-        case InnerHeuristic::LMCUT:
-            if (!lmc) {
-                lmc = unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(
-                        new lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic(task));
-                lmc->initialize();
-            }
-            break;
-        case InnerHeuristic::HRMAX:
-            if (!hrmax) {
-                hrmax = unique_ptr<rmax_heuristic::RMaxHeuristic>(new rmax_heuristic::RMaxHeuristic(task));
-                hrmax->initialize();
-            }
-            break;
-        case InnerHeuristic::BLIND:
-            break;
-        default:
-            cerr << "ERROR: only hrmax and lmcut are supported as global_failed_lookup_heuristic." << endl;
-            utils::exit_with(utils::ExitCode::INPUT_ERROR);
     }
 }
 

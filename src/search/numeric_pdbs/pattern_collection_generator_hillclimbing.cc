@@ -19,6 +19,7 @@
 #include "../utils/math.h"
 #include "../utils/memory.h"
 #include "../utils/timer.h"
+#include "pattern_database.h"
 
 #include <algorithm>
 #include <cassert>
@@ -38,15 +39,7 @@ PatternCollectionGeneratorHillclimbing::PatternCollectionGeneratorHillclimbing(c
       num_samples(opts.get<int>("num_samples")),
       min_improvement(opts.get<int>("min_improvement")),
       max_time(opts.get<double>("max_time")),
-      max_pdb_size(opts.get<int>("max_pdb_size")),
-      extend_abstract_state_space(opts.get<bool>("extend_abstract_state_space")),
-      f_layer_offset_ratio(opts.get<double>("f_layer_offset_ratio")),
-      keep_parent_pointers(opts.get<bool>("keep_parent_pointers")),
-      max_h_factor(opts.get<double>("max_h_factor")),
-      need_goal(opts.get<bool>("need_goal")),
-      exploration_h(InnerHeuristic(opts.get_enum("exploration_heuristic"))),
-      frontier_h(InnerHeuristic(opts.get_enum("frontier_heuristic"))),
-      failed_lookup_h(InnerHeuristic(opts.get_enum("failed_lookup_heuristic"))),
+      params(PatternDatabase::parse_static_pdb_parameters(opts)),
       global_failed_lookup_h(InnerHeuristic(opts.get_enum("global_failed_lookup_heuristic"))),
       num_rejected(0),
       hill_climbing_timer(nullptr) {
@@ -76,7 +69,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
                 VariableProxy rel_var = task_proxy.get_variables()[rel_var_id];
                 int rel_var_size = rel_var.get_domain_size();
                 if (utils::is_product_within_limit(pdb_size, rel_var_size,
-                                                   max_pdb_size)) {
+                                                   params->max_pdb_size)) {
                     Pattern new_pattern(pattern);
                     new_pattern.regular.push_back(rel_var_id);
                     sort(new_pattern.regular.begin(), new_pattern.regular.end());
@@ -97,7 +90,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
                 ResNumericVariableProxy rel_var = task_proxy.get_numeric_variables()[rel_var_id];
                 int rel_var_size = task_proxy.get_approximate_domain_size(rel_var);
                 if (utils::is_product_within_limit(pdb_size, rel_var_size,
-                                                   max_pdb_size)) {
+                                                   params->max_pdb_size)) {
                     Pattern new_pattern(pattern);
                     new_pattern.numeric.push_back(rel_var_id);
                     sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
@@ -124,7 +117,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
                 VariableProxy rel_var = task_proxy.get_variables()[rel_var_id];
                 int rel_var_size = rel_var.get_domain_size();
                 if (utils::is_product_within_limit(pdb_size, rel_var_size,
-                                                   max_pdb_size)) {
+                                                   params->max_pdb_size)) {
                     Pattern new_pattern(pattern);
                     new_pattern.regular.push_back(rel_var_id);
                     sort(new_pattern.regular.begin(), new_pattern.regular.end());
@@ -145,7 +138,7 @@ void PatternCollectionGeneratorHillclimbing::generate_candidate_patterns(
                 ResNumericVariableProxy rel_var = task_proxy.get_numeric_variables()[rel_var_id];
                 int rel_var_size = task_proxy.get_approximate_domain_size(rel_var);
                 if (utils::is_product_within_limit(pdb_size, rel_var_size,
-                                                   max_pdb_size)) {
+                                                   params->max_pdb_size)) {
                     Pattern new_pattern(pattern);
                     new_pattern.numeric.push_back(rel_var_id);
                     sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
@@ -172,15 +165,7 @@ size_t PatternCollectionGeneratorHillclimbing::generate_pdbs_for_candidates(
             candidate_pdbs.push_back(
                 make_shared<PatternDatabase>(task_proxy,
                                              new_candidate,
-                                             max_number_pdb_states,
-                                             extend_abstract_state_space,
-                                             need_goal,
-                                             f_layer_offset_ratio,
-                                             keep_parent_pointers,
-                                             max_h_factor,
-                                             exploration_h,
-                                             frontier_h,
-                                             failed_lookup_h));
+                                             params));
             max_size_of_pdb = max(max_size_of_pdb,
                                   candidate_pdbs.back()->get_size());
             generated_patterns.insert(new_candidate);
@@ -424,16 +409,7 @@ PatternCollectionInformation PatternCollectionGeneratorHillclimbing::generate(sh
             task,
             num_task_proxy,
             initial_pattern_collection,
-            max_number_pdb_states,
-            extend_abstract_state_space,
-            f_layer_offset_ratio,
-            need_goal,
-            keep_parent_pointers,
-            max_h_factor,
-            exploration_h,
-            frontier_h,
-            failed_lookup_h,
-            global_failed_lookup_h);
+            params);
 
     State initial_state = num_task_proxy->get_original_initial_state();
     if (!current_pdbs->is_dead_end(initial_state)) {
