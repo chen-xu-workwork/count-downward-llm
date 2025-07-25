@@ -23,6 +23,20 @@ class NumericTaskProxy;
 
 namespace numeric_pdbs {
 
+
+struct PatternDatabaseParameters {
+    size_t max_number_pdb_states;
+    bool extend_abstract_state_space;
+    double f_layer_offset_ratio;
+    bool need_goal;
+    bool keep_parent_pointers;
+    double max_h_factor;
+    InnerHeuristic exploration_h;
+    InnerHeuristic frontier_h;
+    InnerHeuristic failed_lookup_h;
+};
+
+
 class AbstractOperator {
     /*
       This class represents an abstract operator how it is needed for
@@ -284,6 +298,9 @@ public:
     bool is_operator_relevant(const numeric_pdb_helper::NumericOperatorProxy &op) const;
 
     static void add_pdb_options(OptionParser &parser);
+
+    static std::shared_ptr<PatternDatabaseParameters> parse_static_pdb_parameters(
+        const Options &opts);
 };
 }
 

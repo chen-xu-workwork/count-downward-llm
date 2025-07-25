@@ -1339,4 +1339,17 @@ void PatternDatabase::add_pdb_options(OptionParser &parser) {
             "initial h * this factor: all abstract states with higher value get pruned. 0.0 to disable",
             "0.0");
 }
+
+shared_ptr<PatternDatabaseParameters> PatternDatabase::parse_static_pdb_parameters(const Options &opts) {
+    auto params = std::make_shared<PatternDatabaseParameters>();
+    params->max_number_pdb_states = opts.get<int>("max_number_pdb_states");
+    params->extend_abstract_state_space = opts.get<bool>("extend_abstract_state_space");
+    params->f_layer_offset_ratio = opts.get<double>("f_layer_offset_ratio");
+    params->keep_parent_pointers = opts.get<bool>("keep_parent_pointers");
+    params->max_h_factor = opts.get<double>("max_h_factor");
+    params->exploration_h = InnerHeuristic(opts.get_enum("exploration_heuristic"));
+    params->frontier_h = InnerHeuristic(opts.get_enum("frontier_heuristic"));
+    params->failed_lookup_h = InnerHeuristic(opts.get_enum("failed_lookup_heuristic"));
+    return params;
+}
 }

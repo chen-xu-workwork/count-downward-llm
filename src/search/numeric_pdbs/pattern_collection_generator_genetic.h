@@ -3,6 +3,7 @@
 
 #include "pattern_generator.h"
 #include "types.h"
+#include "pattern_database.h"
 
 #include <memory>
 #include <random>
@@ -27,6 +28,8 @@ class PatternCollectionGeneratorGenetic : public PatternCollectionGenerator {
     const int num_collections;
     const int num_episodes;
     const double mutation_probability;
+
+    std::shared_ptr<PatternDatabaseParameters> pdb_params;
 
     bool extend_abstract_state_space = false;
     double f_layer_offset_ratio = 0.0;
