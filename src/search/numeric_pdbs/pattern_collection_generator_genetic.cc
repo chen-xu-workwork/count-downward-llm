@@ -293,14 +293,14 @@ bool PatternCollectionGeneratorGenetic::is_pattern_too_large(
     for (size_t i = 0; i < pattern.regular.size(); ++i) {
         VariableProxy var = variables[pattern.regular[i]];
         int domain_size = var.get_domain_size();
-        if (!utils::is_product_within_limit(mem, domain_size, max_number_pdb_states))
+        if (!utils::is_product_within_limit(mem, domain_size, pdb_params->max_pdb_size))
             return true;
         mem *= domain_size;
     }
     for (size_t i = 0; i < pattern.numeric.size(); ++i) {
         // What is a ResNumericVariableProxy? How is it different from NumericVariableProxy?
         int domain_size = task_proxy.get_approximate_domain_size(numeric_variables[pattern.numeric[i]]);
-        if (!utils::is_product_within_limit(mem, domain_size, max_number_pdb_states))
+        if (!utils::is_product_within_limit(mem, domain_size, pdb_params->max_pdb_size))
             return true;
         mem *= domain_size;
     }
@@ -409,7 +409,7 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
     pdb_max_size = min(pdb_max_size, pow(10, initial_max_target_size));
     pdb_max_size = max(pdb_max_size, pow(10, min_target_size));
     //TODO: Hack, because there are now too ways to set the pdb. The code block on top of that is currently ignored.
-    pdb_max_size = max_number_pdb_states;
+    pdb_max_size = pdb_params->max_pdb_size;
 
     VariablesProxy variables = task_proxy.get_variables();
     ResNumericVariablesProxy numeric_variables = task_proxy.get_numeric_variables();
@@ -679,13 +679,13 @@ void PatternCollectionGeneratorGenetic::bin_packing(const NumericTaskProxy &task
                 next_var_size = task_proxy.get_approximate_domain_size(numeric_variables[numeric_var_id]);
             }
             assert(next_var_size > 0);
-            if (next_var_size > max_number_pdb_states) {
+            if (next_var_size > pdb_params->max_pdb_size) {
                 // var never fits into a bin.
                 continue;
             }
 
             if (!utils::is_product_within_limit(current_size, next_var_size,
-                                                max_number_pdb_states)) {
+                                                pdb_params->max_pdb_size)) {
                 // Open a new bin for var.
                 pattern_collection.push_back(pattern);
                 pattern.clear();
@@ -832,7 +832,7 @@ static shared_ptr <PatternCollectionGenerator> _parse(OptionParser &parser) {
     parser.add_option<int>(
             "max_pdb_size",
             "maximal number of states per pattern database ",
-            "50000",
+            "1000000",
             Bounds("1", "infinity"));
     parser.add_option<int>(
             "num_collections",
@@ -848,7 +848,7 @@ static shared_ptr <PatternCollectionGenerator> _parse(OptionParser &parser) {
     parser.add_option<double>(
             "mutation_probability",
             "probability for flipping a bit in the genetic algorithm",
-            "0.01",
+            "0.05",
             Bounds("0.0", "1.0"));
     parser.add_option<bool>(
             "disjoint",
