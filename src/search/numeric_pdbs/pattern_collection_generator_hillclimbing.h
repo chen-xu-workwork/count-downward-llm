@@ -40,7 +40,6 @@ class PatternCollectionGeneratorHillclimbing : public PatternCollectionGenerator
 
     std::shared_ptr<PatternDatabaseParameters> params;
 
-    InnerHeuristic global_failed_lookup_h;
 
     std::unique_ptr<IncrementalCanonicalPDBs> current_pdbs;
 

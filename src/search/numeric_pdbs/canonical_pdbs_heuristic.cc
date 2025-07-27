@@ -81,12 +81,6 @@ static Heuristic *_parse(OptionParser &parser) {
         "collection.",
         "true");
 
-    parser.add_enum_option(
-            "global_failed_lookup_heuristic",
-            {"BLIND", "HRMAX", "LMCUT", "PDB"},
-            "TODO",
-            "BLIND", {});
-
     Heuristic::add_options_to_parser(parser);
     PatternDatabase::add_pdb_options(parser);
 

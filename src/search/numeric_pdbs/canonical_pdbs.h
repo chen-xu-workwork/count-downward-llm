@@ -22,8 +22,6 @@ class CanonicalPDBs {
     // be used on the same task (the root task), there is no point in initializing
     // the inner heuristics over and over again
     // TODO if we ever use different tasks for multiple CanonicalPDBs, this breaks
-    static std::unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic> lmc;
-    static std::unique_ptr<rmax_heuristic::RMaxHeuristic> hrmax;
 
 public:
     CanonicalPDBs(const std::shared_ptr<AbstractTask> &task,

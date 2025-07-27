@@ -10,8 +10,6 @@
 using namespace std;
 
 namespace numeric_pdbs {
-std::unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic> CanonicalPDBs::lmc;
-std::unique_ptr<rmax_heuristic::RMaxHeuristic> CanonicalPDBs::hrmax;
 
 CanonicalPDBs::CanonicalPDBs(
         const shared_ptr<AbstractTask> &task,
@@ -50,15 +48,7 @@ ap_float CanonicalPDBs::get_value(const State &state) const {
         }
         max_h = max(max_h, subset_h);
     }
-    if (found_state < 0.5 * float(num_pdbs)){
-        number_lookup_misses++;
-        if (lmc){
-            return lmc->compute_heuristic(state);
-        }
-        if (hrmax){
-            return hrmax->compute_heuristic(state);
-        }
-    }
+
     return max_h;
 }
 }

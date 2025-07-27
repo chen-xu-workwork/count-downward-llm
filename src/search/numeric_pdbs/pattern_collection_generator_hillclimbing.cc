@@ -40,7 +40,6 @@ PatternCollectionGeneratorHillclimbing::PatternCollectionGeneratorHillclimbing(c
       min_improvement(opts.get<int>("min_improvement")),
       max_time(opts.get<double>("max_time")),
       params(PatternDatabase::parse_static_pdb_parameters(opts)),
-      global_failed_lookup_h(InnerHeuristic(opts.get_enum("global_failed_lookup_heuristic"))),
       num_rejected(0),
       hill_climbing_timer(nullptr) {
 }
@@ -603,12 +602,6 @@ static Heuristic *_parse_ipdb(OptionParser &parser) {
         "collection.",
         "true");
 
-    parser.add_enum_option(
-            "global_failed_lookup_heuristic",
-            {"BLIND", "HRMAX", "LMCUT", "PDB"},
-            "TODO",
-            "BLIND", {});
-
     Heuristic::add_options_to_parser(parser);
     PatternDatabase::add_pdb_options(parser);
 
@@ -636,8 +629,6 @@ static Heuristic *_parse_ipdb(OptionParser &parser) {
         "patterns", pgh);
     heuristic_opts.set<bool>(
         "dominance_pruning", opts.get<bool>("dominance_pruning"));
-    heuristic_opts.set<int>(
-            "global_failed_lookup_heuristic", opts.get_enum("global_failed_lookup_heuristic"));
     heuristic_opts.set<bool>( // TODO this is somewhat of a hack
             "redundant_constraints", true);
     heuristic_opts.set<bool>( // TODO this is somewhat of a hack
