@@ -44,6 +44,7 @@ static Heuristic *_parse(OptionParser &parser) {
 
 void RMaxHeuristic::initialize() {
     if(DEBUG) cout << "Initializing (old-fashioned) Interval relaxed 'max' heuristic..." << endl;
+    initialized = true;
 }
 
 ap_float RMaxHeuristic::compute_heuristic(

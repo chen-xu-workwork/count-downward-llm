@@ -46,6 +46,7 @@ LandmarkCutNumericHeuristic::LandmarkCutNumericHeuristic(const Options &opts)
     // initialization
     void LandmarkCutNumericHeuristic::initialize() {
         cout << "Initializing landmark cut heuristic..." << endl;
+        initialized = true;
         // TODO we don't need a pointer if we initialize in the constructor.
         landmark_generator = utils::make_unique_ptr<numeric_lm_cut_heuristic::LandmarkCutLandmarks>(
             task_proxy, ceiling_less_than_one, ignore_numeric, use_random_pcf, use_irmax, disable_ma,

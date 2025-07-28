@@ -27,7 +27,6 @@ class Heuristic : public ScalarEvaluator {
     };
 
     std::string description;
-    bool initialized;
 
     /*
       TODO: We might want to get rid of the preferred_operators
@@ -43,6 +42,8 @@ class Heuristic : public ScalarEvaluator {
     std::vector<const GlobalOperator *> preferred_operators;
     int multiplicator;
 protected:
+    bool initialized;
+
     /*
       Cache for saving h values
       Before accessing this cache always make sure that the cache_h_values
