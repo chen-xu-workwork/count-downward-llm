@@ -22,7 +22,7 @@ Heuristic::Heuristic(const shared_ptr<AbstractTask> &task)
           initialized(false),
           multiplicator(0),
           heuristic_cache(HEntry(NO_VALUE_INT, true)), //TODO: is true really a good idea here?
-          cache_h_values(true),
+          cache_h_values(false),
           task(task),
           task_proxy(*task),
           cost_type(OperatorCost::NORMAL) {
