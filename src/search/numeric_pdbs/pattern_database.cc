@@ -1027,14 +1027,18 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         match_tree.reset();
 
         InnerHeuristic failed_lookup_h = params->failed_lookup_h;
+        inner_h_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern, task_proxy);
         switch (failed_lookup_h) {
             case InnerHeuristic::LMCUT:
                 hrmax.reset();
                 pdb.reset();
+                lmc = unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(
+                    new lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic(inner_h_task));
                 break;
             case InnerHeuristic::HRMAX:
                 pdb.reset();
                 lmc.reset();
+                hrmax = unique_ptr<rmax_heuristic::RMaxHeuristic>(new rmax_heuristic::RMaxHeuristic(inner_h_task));
                 break;
             case InnerHeuristic::PDB:
                 hrmax.reset();
