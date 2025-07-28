@@ -303,12 +303,9 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
                         }
                         
                     }
-                    cout << "BEFORE PRUNING: " << new_pattern << endl;
                     if (pruned_var != -1) {
-                        cout << "Pruning variable: " << pruned_var << endl;
                         remove_var_from_pattern(new_pattern, pruned_var, num_variables);
                     } 
-                    cout << "AFTER PRUNING: " << new_pattern << endl;
 
                     sort(new_pattern.regular.begin(), new_pattern.regular.end());
                     sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
@@ -327,9 +324,9 @@ void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
                 new_params->f_layer_offset_ratio = f_layer_offset_ratio;
                 new_params->keep_parent_pointers = params->keep_parent_pointers;
                 new_params->max_h_factor = max_h_factor;
-                new_params->exploration_h = exploration_h;
-                new_params->frontier_h = frontier_h;
-                new_params->failed_lookup_h = failed_lookup_h;
+                new_params->exploration_h = InnerHeuristic::BLIND;
+                new_params->frontier_h = InnerHeuristic::BLIND;
+                new_params->failed_lookup_h = InnerHeuristic::BLIND;
 
                 pdb = std::make_unique<PatternDatabase>(
                         task_proxy,
