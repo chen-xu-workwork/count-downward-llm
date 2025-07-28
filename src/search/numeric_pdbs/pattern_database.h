@@ -138,7 +138,6 @@ class PatternDatabase {
     std::vector<numeric_condition::RegularNumericCondition> numeric_goals;
 
     ap_float min_action_cost;
-    bool keep_parent_pointers;
     std::vector<std::vector<std::pair<int, size_t>>> parent_pointers;
 
     bool exhausted_abstract_state_space;

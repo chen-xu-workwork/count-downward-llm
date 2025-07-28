@@ -1014,7 +1014,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         cout << "Initial state h: " << compute_heuristic(task_proxy->get_original_initial_state()).second << endl;
     }
 
-    if (!keep_parent_pointers) {
+    if (!params->keep_parent_pointers) {
         parent_pointers.clear();
         parent_pointers.shrink_to_fit();
     }
