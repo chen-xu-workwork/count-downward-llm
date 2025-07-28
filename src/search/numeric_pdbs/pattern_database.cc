@@ -1031,11 +1031,13 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 pdb.reset();
                 lmc = unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(
                     new lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic(inner_h_task));
+                lmc->initialize();
                 break;
             case InnerHeuristic::HRMAX:
                 pdb.reset();
                 lmc.reset();
                 hrmax = unique_ptr<rmax_heuristic::RMaxHeuristic>(new rmax_heuristic::RMaxHeuristic(inner_h_task));
+                hrmax->initialize();
                 break;
             case InnerHeuristic::PDB:
                 hrmax.reset();
