@@ -113,6 +113,8 @@ class PatternDatabase {
 
     Pattern pattern;
 
+    std::vector<ap_float> tmp_h_cache; //NOTE: the heuristic cache in the Heuristic class is broken since it stores integers rather than doubles
+    bool is_constructed = false;
 
     bool is_init = false;
     std::vector<int> variable_to_index;
@@ -228,7 +230,7 @@ class PatternDatabase {
                                     const std::vector<int> &variable_to_index,
                                     const std::vector<ap_float> &operator_costs);
 
-    std::pair<bool, ap_float> compute_inner_h(InnerHeuristic h_type, const NumericState &succ_state) const;
+    std::pair<bool, ap_float> compute_inner_h(InnerHeuristic h_type, const NumericState &succ_state, int index);
 
 public:
     /*

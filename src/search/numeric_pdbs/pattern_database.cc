@@ -551,7 +551,20 @@ NumericState PatternDatabase::project_numeric_state(const NumericState &state,
 }
 
 pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
-                                                      const NumericState &succ_state) const {
+                                                      const NumericState &succ_state, int index) {
+    if (!is_constructed && (h_type == InnerHeuristic::LMCUT || h_type == InnerHeuristic::HRMAX)) {
+
+        assert(index >= 0);
+        if (index >= tmp_h_cache.size()) {
+            tmp_h_cache.resize(index + 1, -1.0);
+        }
+        if (tmp_h_cache[index] != -1) {
+            bool is_deadend = numeric_limits<ap_float>::max() == tmp_h_cache[index];
+            //cout << "State ID: " << index << ", " << tmp_h_cache[index] << endl;
+            return {is_deadend, tmp_h_cache[index]};
+        }
+    }
+
     switch (h_type) {
         case InnerHeuristic::LMCUT:
         case InnerHeuristic::HRMAX: {
@@ -575,6 +588,9 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
             if (h == numeric_limits<ap_float>::min()){
                 dead_end = true;
             }
+            if (!is_constructed) {
+                tmp_h_cache[index] = h;
+            }
             return {dead_end, h};
         }
         case InnerHeuristic::PDB:
@@ -589,6 +605,9 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
             bool dead_end = false;
             if (h == numeric_limits<ap_float>::max()){
                 dead_end = true;
+            }
+            if (!is_constructed) {
+                tmp_h_cache[index] = dead_end ? numeric_limits<ap_float>::max() : h;
             }
             return {dead_end, h};
         }
@@ -843,7 +862,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                         ++num_reached_states;
                     }
 
-                    auto [dead_end, h] = compute_inner_h(exploration_h, succ_state);
+                    auto [dead_end, h] = compute_inner_h(exploration_h, succ_state, succ_id);
                     if (!dead_end) {
                         //open.push(g_value + abs_op->get_cost() + h, {succ_id, g_value + abs_op->get_cost()});
                         //cout << "g: " << g_value << ", " << abs_op->get_cost() << endl;;
@@ -887,7 +906,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                         op_cost = operator_costs[op_id];
                     }
 
-                    auto [dead_end, h] = compute_inner_h(exploration_h, succ_state);
+                    auto [dead_end, h] = compute_inner_h(exploration_h, succ_state, succ_id);
                     if (!dead_end) {
                         //open.push(g_value + op_cost + h, {succ_id, g_value + op_cost});
                         //cout << "g: " << g_value << ", " << op_cost << endl;
@@ -928,7 +947,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 pq.push(0, state_id);
                 num_open_goal_states++;
             } else {
-                auto [dead_end, h] = compute_inner_h(frontier_h, state);
+                auto [dead_end, h] = compute_inner_h(frontier_h, state, state_id);
                 if (state_id < original_distance_size) {
                     assert(extend_abstract_state_space);
                     h = max(distances[state_id], h);
@@ -1061,6 +1080,10 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
+
+    tmp_h_cache.clear();
+    tmp_h_cache.shrink_to_fit();
+    is_constructed = true;
 }
 
 void PatternDatabase::create_pdb_propositional(size_t size,
@@ -1227,7 +1250,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
                 return {false, distances[abs_state_id]};
             }
 
-            auto [dead_end, h] = compute_inner_h(failed_lookup_h, abs_state);
+            auto [dead_end, h] = compute_inner_h(failed_lookup_h, abs_state, abs_state_id);
             if (dead_end) {
                 return {false, numeric_limits<ap_float>::max()};
             }
@@ -1263,7 +1286,7 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
                 return {false, distances[abs_state_id]};
             }
 
-            auto [dead_end, h] = compute_inner_h(failed_lookup_h, state);
+            auto [dead_end, h] = compute_inner_h(failed_lookup_h, state, abs_state_id);
             if (dead_end) {
                 return {false, numeric_limits<ap_float>::max()};
             }
