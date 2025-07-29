@@ -70,7 +70,7 @@ ap_float ZeroOnePDBs::compute_approx_mean_finite_h() const {
     for (const shared_ptr<PatternDatabase> &pdb : pattern_databases) {
         approx_mean_finite_h += pdb->compute_mean_finite_h();
     }
-    return approx_mean_finite_h / pattern_databases.size();
+    return approx_mean_finite_h;
 }
 
 void ZeroOnePDBs::dump() const {

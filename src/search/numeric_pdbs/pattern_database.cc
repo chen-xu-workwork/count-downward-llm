@@ -555,6 +555,7 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
     if (!is_constructed && (h_type == InnerHeuristic::LMCUT || h_type == InnerHeuristic::HRMAX)) {
 
         assert(index >= 0);
+        //NOTE: it can(?) make sense to use caching for PDBs but only if they use failed lookup
         if (index >= tmp_h_cache.size()) {
             tmp_h_cache.resize(index + 1, -1.0);
         }
@@ -605,9 +606,6 @@ pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
             bool dead_end = false;
             if (h == numeric_limits<ap_float>::max()){
                 dead_end = true;
-            }
-            if (!is_constructed) {
-                tmp_h_cache[index] = dead_end ? numeric_limits<ap_float>::max() : h;
             }
             return {dead_end, h};
         }
@@ -959,6 +957,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 }
             }
         }
+        assert(open.size() == 0);
         if (dump) {
             cout << "Generated abstract states: " << state_registry->size() << endl;
             cout << "Reached abstract goal states: " << goal_states.size() + num_open_goal_states << endl;
@@ -1297,9 +1296,6 @@ pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
 }
 
 ap_float PatternDatabase::compute_mean_finite_h() const {
-    if (pattern.regular.empty() && pattern.numeric.empty()) {
-        cout << distances.size() << " abstract states in PDB, but no pattern defined." << endl;
-    }
     ap_float sum = 0;
     int size = 0;
     for (size_t i = 0; i < distances.size(); ++i) {

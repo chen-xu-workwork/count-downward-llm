@@ -342,14 +342,12 @@ void PatternCollectionGeneratorGenetic::evaluate(
             Pattern pattern = transform_to_pattern_normal_form(bitvector, task_proxy);
 
             if (is_pattern_too_large(pattern, task_proxy)) {
-                cout << "pattern exceeds the memory limit!" << endl;
                 pattern_valid = false;
                 break;
             }
 
             if (disjoint_patterns) {
                 if (mark_used_variables(task_proxy, pattern, variables_used)) {
-                    cout << "patterns are not disjoint anymore!" << endl;
                     pattern_valid = false;
                     break;
                 }
@@ -371,19 +369,12 @@ void PatternCollectionGeneratorGenetic::evaluate(
                     *pattern_collection,
                     pdb_params);
             fitness = zero_one_pdbs.compute_approx_mean_finite_h();
-            cout << "fitness = " << fitness << endl;
-            cout << "best_fitness = " << best_fitness << endl;
-            // print all patterns:
-            for (const auto &pattern: *pattern_collection) {
-                cout << "Pattern: " << pattern << endl;
-            }
-            // Update the best heuristic found so far.
-            if (fitness > best_fitness) {
-                best_fitness = fitness;
-                cout << "best_fitness = " << best_fitness << endl;
-                best_patterns = pattern_collection;
-            }
         }
+        if (fitness > best_fitness) {                                                                     
+            best_fitness = fitness;                                                                       
+            cout << "best_fitness = " << best_fitness << endl;                                            
+            best_patterns = pattern_collection;                                                                 
+        } 
         fitness_values.push_back(fitness);
     }
 }
@@ -456,17 +447,6 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
             }
         }
 
-        cout << "Remaining vars: ";
-        for (auto v : remaining_vars) {
-            cout << v << ", ";
-        }
-        cout << endl << "Remaining goal vars: ";
-        for (auto v : remaining_goal_vars) {
-            cout << v << ", ";
-        }
-        cout << endl;
-
-
         vector<vector<bool>> pattern_collection;
         vector<bool> pattern(variables.size() + numeric_variables.size(), false);
         double current_size = 1;
@@ -482,7 +462,6 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
                 vector<int> relevant_vars;
                 vector<int> relevant_vars_in_remaining;
                 for (auto var: pattern_int) {
-                    cout << "Var in int pattern: " << var << endl;
                     if (var < variables.size()) {
                         const vector<int> &rel_vars = causal_graph.get_prop_eff_to_prop_pre(var);
                         for (auto var2: rel_vars) {
@@ -505,20 +484,15 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
                         }
                     }
                 }
-                cout << "before back insert: ";
-                for (auto v : rel_vars_set) {
-                    cout << v << ", ";
-                }
-                cout << endl;
                 set_difference(rel_vars_set.begin(), rel_vars_set.end(),
                                candidate_pattern.begin(), candidate_pattern.end(),
                                back_inserter(relevant_vars));
                             
-                cout<<"relevant vars to current_pattern:";for (auto item : relevant_vars) cout<<item<<",";cout<<endl;
+                //cout<<"relevant vars to current_pattern:";for (auto item : relevant_vars) cout<<item<<",";cout<<endl;
                 set_intersection(relevant_vars.begin(), relevant_vars.end(),
                                  remaining_vars.begin(), remaining_vars.end(),
                                  back_inserter(relevant_vars_in_remaining));
-                cout<<"relevant vars in remaining:";for (auto item : relevant_vars_in_remaining) cout<<item<<",";cout<<flush<<endl;
+                //cout<<"relevant vars in remaining:";for (auto item : relevant_vars_in_remaining) cout<<item<<",";cout<<flush<<endl;
                 //NOTE: relevant_vars_in_remaining contains all relevant vars not in the pattern
                 
                 //NOTE: Add a single random variable to pattern. 
@@ -621,20 +595,6 @@ void PatternCollectionGeneratorGenetic::bin_packing2(const NumericTaskProxy &tas
 
         pattern_collections.push_back(pattern_collection);
     }
-    //NOTE: Uncomment if you want to debug
-    for (auto col : pattern_collections) {
-        cout << "Collection" << endl;
-        for (auto p : col) {
-            cout << "pattern: ";
-            for (int i = 0; i < p.size(); i++) {
-                if (p[i]) {
-                    cout << i << ", ";
-                }
-            } 
-            cout << endl;
-        }
-    }
-    //exit(0);
 }
 
 void PatternCollectionGeneratorGenetic::bin_packing(const NumericTaskProxy &task_proxy) {
