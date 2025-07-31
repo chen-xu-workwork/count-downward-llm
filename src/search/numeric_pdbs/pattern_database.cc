@@ -1013,21 +1013,26 @@ void PatternDatabase::create_pdb(size_t max_number_states,
 
     double max_h_factor = params->max_h_factor;
     ap_float cutoff_h = initial_state_h * max_h_factor;
+    vector<ap_float> distances2;
+    distances2.resize(distances.size(), numeric_limits<ap_float>::max());
     assert(cutoff_h >= 0);
-    if (cutoff_h != 0) {
+    if (max_h_factor != 0) {
         unique_ptr<NumericStateRegistry> tmp_state_registry = make_unique<NumericStateRegistry>();
         size_t state_id = 0;
-        for (size_t i = 0; i < distances.size(); ++i) {
-            ap_float dist = distances[i];
-            if (dist != numeric_limits<ap_float>::max() && dist <=  cutoff_h) {
-                const NumericState &state = state_registry->lookup_state(i);
-                tmp_state_registry->insert_state(state);
-                distances[state_id++]  = dist;
+        for (size_t old_state_id = 0; old_state_id < distances.size(); ++old_state_id) {
+            ap_float dist = distances[old_state_id];
+            if (dist == numeric_limits<ap_float>::max() || dist <=  cutoff_h) {
+                const NumericState &state = state_registry->lookup_state(old_state_id);
+                size_t new_state_id = tmp_state_registry->insert_state(state);
+                assert(new_state_id == state_id);
+                distances2[new_state_id]  = dist;
+                cout << "State ID: " << state_id << ", h: " << dist << endl;
+                state_id++;
             } 
         }
+        distances = std::move(distances2);
         state_registry = std::move(tmp_state_registry);
         distances.resize(state_id);
-        distances.shrink_to_fit();
     }
 
     if (dump) {
