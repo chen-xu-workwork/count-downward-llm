@@ -1386,7 +1386,12 @@ void PatternDatabase::add_pdb_options(OptionParser &parser) {
 shared_ptr<PatternDatabaseParameters> PatternDatabase::parse_static_pdb_parameters(const Options &opts) {
     auto params = std::make_shared<PatternDatabaseParameters>();
     params->max_number_pdb_states = opts.get<int>("max_number_pdb_states");
-    params->max_pdb_size = opts.get<int>("max_pdb_size");
+    if (opts.contains("max_pdb_size")) {
+        // max_pdb_size is deprecated, but we still support it for backwards compatibility
+        params->max_pdb_size = opts.get<int>("max_pdb_size");
+    } else {
+        params->max_pdb_size = 0; // some default value that is hopefully never accessed.
+    }
     params->need_goal = opts.get<bool>("need_goal");
     params->extend_abstract_state_space = opts.get<bool>("extend_abstract_state_space");
     params->f_layer_offset_ratio = opts.get<double>("f_layer_offset_ratio");
