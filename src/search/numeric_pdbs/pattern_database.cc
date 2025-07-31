@@ -1012,11 +1012,10 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     ap_float initial_state_h = distances[initial_state_id];
 
     double max_h_factor = params->max_h_factor;
-    ap_float cutoff_h = initial_state_h * max_h_factor;
-    vector<ap_float> distances2;
-    distances2.resize(distances.size(), numeric_limits<ap_float>::max());
-    assert(cutoff_h >= 0);
+    assert(max_h_factor >= 0);
     if (max_h_factor != 0 && !exhausted_abstract_state_space && !initial_state_opt.has_value()) {
+        ap_float cutoff_h = initial_state_h * max_h_factor;
+        vector<ap_float> distances2;
         unique_ptr<NumericStateRegistry> tmp_state_registry = make_unique<NumericStateRegistry>();
         size_t state_id = 0;
         for (size_t old_state_id = 0; old_state_id < distances.size(); ++old_state_id) {
@@ -1025,13 +1024,12 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 const NumericState &state = state_registry->lookup_state(old_state_id);
                 size_t new_state_id = tmp_state_registry->insert_state(state);
                 assert(new_state_id == state_id);
-                distances2[new_state_id]  = dist;
+                distances2.push_back(dist);
                 state_id++;
             } 
         }
         distances = std::move(distances2);
         state_registry.reset(tmp_state_registry.release());
-        distances.resize(state_id);
     }
 
     if (dump) {
@@ -1084,8 +1082,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         }
     }
 
-    tmp_h_cache.clear();
-    tmp_h_cache.shrink_to_fit();
+    vector<ap_float>().swap(tmp_h_cache);
     is_constructed = true;
 }
 
