@@ -92,7 +92,7 @@ def main():
                     run.add_resource("problem", pddl_file)
 
                     run.set_property("time_limit", 1800)  # 30 minutes
-                    run.set_property("memory_limit", 3072)
+                    run.set_property("memory_limit", 8192)
 
                     run.set_property("sas_output", sas_file)
 
@@ -101,6 +101,8 @@ def main():
                         fd_path,
                         "--build",
                         "release64",
+                        "--overall-memory-limit",
+                        "8192",
                         "--translate",
                         "{domain}",
                         "{problem}",
@@ -110,23 +112,25 @@ def main():
                         "translate",
                         translate_command,
                         time_limit=1800,
-                        memory_limit=3072,
+                        memory_limit=8192,
                     )
+                    print(translate_command)
 
                     preprocess_command = [
                         sys.executable,
                         fd_path,
                         "--build",
                         "release64",
+                        "--overall-memory-limit",
+                        "8192",
                         "--preprocess",
                         "output.sas",
                     ]
-                    print(preprocess_command)
                     run.add_command(
                         "preprocess",
                         preprocess_command,
                         time_limit=1800,
-                        memory_limit=3072,
+                        memory_limit=8192,
                     )
 
                     mv_command = [
@@ -138,7 +142,7 @@ def main():
                         "mv",
                         mv_command,
                         time_limit=1800,
-                        memory_limit=3072,
+                        memory_limit=8192,
                     )
 
                     run.set_property("id", [sas_file])
