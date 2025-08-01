@@ -914,7 +914,7 @@ void PatternDatabase::create_pdb(size_t max_number_states,
             }
         }
 
-        if (open.empty()) {
+        if (open.empty() && !initial_state_opt.has_value()) {
             exhausted_abstract_state_space = true;
         }
 
