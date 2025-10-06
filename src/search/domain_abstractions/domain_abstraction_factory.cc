@@ -400,7 +400,8 @@ bool DomainAbstractionFactory::variable_is_trivial(int var_id) const {
 }
 
 DomainAbstraction DomainAbstractionFactory::generate() {
-    return DomainAbstraction(move(domain_mapping), move(hash_multipliers),
-                             move(distances), move(wildcard_plan));
+    vector<NumericDomainMapping> numeric_domain_mapping; // empty for now
+    return DomainAbstraction(move(domain_mapping), move(numeric_domain_mapping),
+                             move(hash_multipliers), move(distances), move(wildcard_plan));
 }
 }

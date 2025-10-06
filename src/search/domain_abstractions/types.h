@@ -11,6 +11,12 @@ class DomainAbstraction;
 // For propositional variables: maps each value to a partition index
 using DomainMapping = std::vector<std::vector<int>>;
 
+// Forward declaration for typedef
+class NumericDomainMapping;
+
+// For numeric variables: one NumericDomainMapping per numeric variable in the abstraction
+using NumericDomainMappingType = std::vector<NumericDomainMapping>;
+
 // For numeric variables: represents a range [lower, upper)
 struct NumericRange {
     ap_float lower;  // inclusive
@@ -85,6 +91,28 @@ public:
     
     // Debug method: print the ranges
     void dump() const;
+};
+
+// Domain Abstraction State
+// Since numeric variables are discretized into partitions (finite discrete values),
+// we can treat the entire state (propositional + discretized numeric) uniformly.
+// We just need a single hash that combines both propositional and numeric components.
+struct DomainAbstractionState {
+    size_t state_hash;  // Combined hash for propositional and numeric variables
+    
+    explicit DomainAbstractionState(size_t state_hash)
+        : state_hash(state_hash) {}
+    
+    bool operator==(const DomainAbstractionState &other) const {
+        return state_hash == other.state_hash;
+    }
+};
+
+// Hash function for DomainAbstractionState
+struct DomainAbstractionStateHash {
+    std::size_t operator()(const DomainAbstractionState &s) const {
+        return s.state_hash;
+    }
 };
 
 using DomainAbstractionCollection = std::vector<DomainAbstraction>;

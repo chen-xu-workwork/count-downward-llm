@@ -673,6 +673,7 @@ set(DOMAIN_ABSTRACTIONS_SOURCES
     domain_abstractions/types
     domain_abstractions/cegar
     domain_abstractions/domain_abstraction
+    domain_abstractions/domain_abstraction_state_registry
     domain_abstractions/domain_abstraction_factory
     domain_abstractions/match_tree
     domain_abstractions/domain_abstraction_heuristic
