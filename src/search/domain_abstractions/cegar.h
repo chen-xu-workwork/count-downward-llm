@@ -4,6 +4,8 @@
 #include <memory>
 #include <unordered_set>
 #include <vector>
+#include "../options/options.h"
+#include "../option_parser.h"
 
 class Fact;
 class TaskProxy;
@@ -48,7 +50,6 @@ extern DomainAbstraction generate_domain_abstraction_with_cegar(
             bool use_wildcard_plans,
             FlawTreatment flaw_treatment,
             InitSplitMethod init_split_method,
-            utils::LogProxy &log,
             const std::shared_ptr <utils::RandomNumberGenerator> &rng,
             const TaskProxy &task_proxy,
             std::unordered_set<int> &&init_split_var_ids = std::unordered_set<int>(),

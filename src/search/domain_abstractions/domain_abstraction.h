@@ -2,6 +2,7 @@
 #define DOMAIN_ABSTRACTION_DOMAIN_ABSTRACTION_H
 
 #include "types.h"
+#include "../utils/logging.h"
 namespace utils {
 class LogProxy;
 }

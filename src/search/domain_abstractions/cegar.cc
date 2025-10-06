@@ -30,7 +30,6 @@ private:
     const bool use_wildcard_plans;
     const FlawTreatment flaw_treatment;
     const InitSplitMethod init_split_method;
-    utils::LogProxy &log;
     const shared_ptr<utils::RandomNumberGenerator> &rng;
     const std::unordered_set<int> init_split_var_ids;
     std::unordered_set<int> blacklisted_variables;
@@ -87,7 +86,6 @@ public:
           bool use_wildcard_plans,
           FlawTreatment flaw_treatment,
           InitSplitMethod init_split_method,
-          utils::LogProxy &log,
           const shared_ptr<utils::RandomNumberGenerator> &rng,
           unordered_set<int> &&init_split_var_ids,
           unordered_set<int> &&blacklisted_variables);
@@ -101,7 +99,6 @@ CEGAR::CEGAR(
         bool use_wildcard_plans,
         FlawTreatment flaw_treatment,
         InitSplitMethod init_split_method,
-        utils::LogProxy &log,
         const shared_ptr<utils::RandomNumberGenerator> &rng,
         unordered_set<int> &&init_split_var_ids,
         unordered_set<int> &&blacklisted_variables)
@@ -110,7 +107,6 @@ CEGAR::CEGAR(
       use_wildcard_plans(use_wildcard_plans),
       flaw_treatment(flaw_treatment),
       init_split_method(init_split_method),
-      log(log),
       rng(rng),
       init_split_var_ids(move(init_split_var_ids)),
       blacklisted_variables(move(blacklisted_variables)) {
@@ -607,7 +603,7 @@ DomainAbstraction CEGAR::build_abstraction(
     //concrete_init.unpack();
     while (!termination_criterion_satisfied(timer)) {
         
-        abstraction.dump(log);
+        //abstraction.dump(log);
         cout << "iteration #" << iteration << endl;
 
         vector<Fact> flaws =
@@ -644,7 +640,7 @@ DomainAbstraction CEGAR::build_abstraction(
 
     print_statistics(task_proxy);
     cout << "Number of CEGAR iterations: " << iteration << endl;
-    abstraction.dump(log);
+    //abstraction.dump(log);
 
     return abstraction;
 }
@@ -688,7 +684,6 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         bool use_wildcard_plans,
         FlawTreatment flaw_treatment,
         InitSplitMethod init_split_method,
-        utils::LogProxy &log,
         const shared_ptr<utils::RandomNumberGenerator> &rng,
         const TaskProxy &task_proxy,
         unordered_set<int> &&init_split_var_ids,
@@ -699,7 +694,6 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         use_wildcard_plans,
         flaw_treatment,
         init_split_method,
-        log,
         rng,
         move(init_split_var_ids),
         move(blacklisted_variables));
@@ -800,5 +794,17 @@ void add_domain_abstraction_cegar_options_to_parser(
         flaw_treatment,
         "Flaws are found in collections and can be treated in different ways. "
         "This option allows to switch between them.");
+}
+}
+
+namespace options {
+template <>
+std::string TypeNamer<domain_abstractions::FlawTreatment>::name() {
+    return "FlawTreatment";
+}
+
+template <>
+std::string TypeNamer<domain_abstractions::InitSplitMethod>::name() {
+    return "InitSplitMethod";
 }
 }
