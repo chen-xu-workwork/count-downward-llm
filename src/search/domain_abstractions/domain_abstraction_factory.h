@@ -31,12 +31,16 @@ class AbstractOperator {
       effects and prevail of concrete operators.
     */
     std::vector<Fact> regression_preconditions;
+    std::vector<NumAssProxy> regression_numeric_preconditions;
 
     /*
       Effect of the operator during regression search on a given
       abstract state number.
     */
     int hash_effect;
+
+
+
 public:
     /*
       Abstract operators are built from concrete operators. The
