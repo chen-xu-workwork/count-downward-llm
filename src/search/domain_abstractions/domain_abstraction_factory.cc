@@ -24,6 +24,8 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
                                    const std::vector<NumAssProxy> &ass_effects,
                                    int cost,
                                    const vector<int> &hash_multipliers,
+                                   const NumericDomainMappingType &numeric_domain_mapping,
+                                   const vector<int> &numeric_domain_sizes,
                                    int concrete_op_id)
     : concrete_op_id(concrete_op_id),
       cost(cost),
@@ -36,7 +38,9 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
         assert(regression_preconditions[i].var !=
                regression_preconditions[i - 1].var);
     }
-    hash_effect = 0;
+    
+    // Compute base hash effect for propositional variables
+    int base_hash_effect = 0;
     assert(pre_pairs.size() == eff_pairs.size());
     for (size_t i = 0; i < pre_pairs.size(); ++i) {
         int var = pre_pairs[i].var;
@@ -45,8 +49,82 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
         int new_val = pre_pairs[i].value;
         assert(new_val != -1);
         int effect = (new_val - old_val) * hash_multipliers[var];
-        hash_effect += effect;
+        base_hash_effect += effect;
     }
+    
+    // Check if this operator has numeric effects
+    bool has_numeric_effects = !ass_effects.empty();
+    
+    if (!has_numeric_effects || numeric_domain_mapping.empty()) {
+        // Propositional-only operator: single hash effect
+        hash_effects.push_back(base_hash_effect);
+    } else {
+        // Operator with numeric effects: compute all possible hash effects
+        // corresponding to all possible partition transitions
+        
+        // Identify which numeric variables are affected
+        vector<bool> affected_numeric_vars(numeric_domain_mapping.size(), false);
+        for (const auto &ass_eff : ass_effects) {
+            int num_var_id = ass_eff.get_affected_variable().get_id();
+            if (num_var_id < static_cast<int>(numeric_domain_mapping.size())) {
+                affected_numeric_vars[num_var_id] = true;
+            }
+        }
+        
+        // Enumerate all possible combinations of partition transitions
+        // For each affected variable, we consider all possible target partitions
+        function<void(size_t, int)> enumerate_effects = [&](size_t var_idx, int current_effect) {
+            if (var_idx == numeric_domain_mapping.size()) {
+                hash_effects.push_back(current_effect);
+                return;
+            }
+            
+            if (affected_numeric_vars[var_idx]) {
+                // Try all possible target partitions for this affected variable
+                int num_partitions = numeric_domain_sizes[var_idx];
+                int hash_multiplier = hash_multipliers[pre_pairs.size() + var_idx];
+                
+                for (int target_partition = 0; target_partition < num_partitions; ++target_partition) {
+                    // We don't know the source partition here, so we compute effects
+                    // relative to partition 0. During regression, we'll adjust based on
+                    // the actual state.
+                    int effect_contribution = target_partition * hash_multiplier;
+                    enumerate_effects(var_idx + 1, current_effect + effect_contribution);
+                }
+            } else {
+                // Not affected: no contribution to hash effect from this variable
+                enumerate_effects(var_idx + 1, current_effect);
+            }
+        };
+        
+        enumerate_effects(0, base_hash_effect);
+    }
+}
+
+// Constructor with pre-computed hash effects (used by numeric helper)
+AbstractOperator::AbstractOperator(
+    const vector<Fact> &prev_pairs,
+    const vector<Fact> &pre_pairs,
+    const vector<Fact> &eff_pairs,
+    const vector<NumAssProxy> &ass_effects,
+    int cost,
+    const vector<int> &pre_computed_hash_effects,
+    int concrete_op_id)
+    : concrete_op_id(concrete_op_id),
+      cost(cost),
+      hash_effects(pre_computed_hash_effects),
+      regression_numeric_preconditions(ass_effects) {
+    
+    // Build regression preconditions from progression effects and prevail
+    for (const Fact &prev : prev_pairs) {
+        regression_preconditions.push_back(prev);
+    }
+    for (const Fact &eff : eff_pairs) {
+        regression_preconditions.push_back(eff);
+    }
+    
+    // Note: pre_pairs are preconditions in progression, not needed in regression
+    // (they're handled by the effects already)
 }
 
 DomainAbstractionFactory::DomainAbstractionFactory (
@@ -92,11 +170,17 @@ DomainAbstractionFactory::DomainAbstractionFactory (
         }
     }
 
-    //TODO: We need to support assignment effects in a way that supports regression. 
-    // right now I added an extra parameter to the abstract operator constructor
-    // causing compilation to fail for obvious reasons. 
-    // the numeric PDBs branch should have an example how to create 
-    // abstract operators with assignment effects, e.g., x += 2.
+    // Collect operators with numeric effects
+    // These are handled separately during regression because they can
+    // cause transitions between multiple abstract states
+    if (!numeric_domain_mapping.empty()) {
+        for (OperatorProxy op : task_proxy.get_operators()) {
+            if (operator_has_numeric_effects(op)) {
+                numeric_operators.push_back(op.get_id());
+            }
+        }
+    }
+    
     vector<AbstractOperator> operators =
         compute_abstract_operators(task_proxy, domain_sizes);
     MatchTree match_tree = build_match_tree(domain_sizes, operators);
@@ -106,7 +190,7 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     //TODO: next function assumes finite state space. 
     //That is crucial for our implementation of Dijkstra.
     // what we cannot do is, e.g., splitting into fixed intervals. 
-    compute_distances(operators, match_tree, abstract_goals,
+    compute_distances(task_proxy, operators, match_tree, abstract_goals,
                       domain_sizes, compute_plan);
     if (compute_plan) {
         compute_abstract_plan(
@@ -153,6 +237,7 @@ vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
 
 //Regression search to get lookup value for all abstract states, similar to PDBs.
 void DomainAbstractionFactory::compute_distances(
+    const TaskProxy &task_proxy,
     const vector<AbstractOperator> &operators, const MatchTree &match_tree,
     const vector<Fact> &abstract_goals, const vector<int> &domain_sizes,
     bool compute_plan) {
@@ -188,9 +273,6 @@ void DomainAbstractionFactory::compute_distances(
 
     //NOTE: looks like regression. Why not progression from inital state?
     // Dijkstra loop
-    // TODO: Similar to numeric PDB code: we cannot hash the numeric part 
-    // of the initial state (or at least there is no trivial way I can think of atm). 
-    // compute predecessors of numeric vars similar to the numeric PDBS. 
     while (!pq.empty()) {
         pair<int, int> node = pq.pop();
         int distance = node.first;
@@ -199,18 +281,24 @@ void DomainAbstractionFactory::compute_distances(
             continue;
         }
 
-        // regress abstract_state
+        // Regress using abstract operators (from match tree)
+        // These handle both propositional-only and numeric operators
         vector<int> applicable_operator_ids;
         match_tree.get_applicable_operator_ids(state_index, applicable_operator_ids);
         for (int op_id : applicable_operator_ids) {
             const AbstractOperator &op = operators[op_id];
-            int predecessor = state_index + op.get_hash_effect();
             int alternative_cost = distances[state_index] + op.get_cost();
-            if (alternative_cost < distances[predecessor]) {
-                distances[predecessor] = alternative_cost;
-                pq.push(alternative_cost, predecessor);
-                if (compute_plan) {
-                    generating_op_ids[predecessor] = op_id;
+            
+            // Iterate over all possible hash effects (predecessors)
+            // Propositional operators have 1 effect, numeric operators have multiple
+            for (int hash_effect : op.get_hash_effects()) {
+                int predecessor = state_index + hash_effect;
+                if (alternative_cost < distances[predecessor]) {
+                    distances[predecessor] = alternative_cost;
+                    pq.push(alternative_cost, predecessor);
+                    if (compute_plan) {
+                        generating_op_ids[predecessor] = op_id;
+                    }
                 }
             }
         }
@@ -251,7 +339,12 @@ void DomainAbstractionFactory::compute_abstract_plan(
             int op_id = generating_op_ids[current_state];
             assert(op_id != -1);
             const AbstractOperator &op = operators[op_id];
-            int successor_state = current_state - op.get_hash_effect();
+            
+            // TODO: With numeric operators having multiple hash effects, we need to
+            // determine which specific effect was used. For now, use the first one.
+            // This needs to be improved for proper plan extraction with numeric operators.
+            int hash_effect = op.get_hash_effects()[0];
+            int successor_state = current_state - hash_effect;
 
             // Compute equivalent ops
             vector<int> cheapest_operators;
@@ -259,9 +352,13 @@ void DomainAbstractionFactory::compute_abstract_plan(
             match_tree.get_applicable_operator_ids(successor_state, applicable_operator_ids);
             for (int applicable_op_id : applicable_operator_ids) {
                 const AbstractOperator &applicable_op = operators[applicable_op_id];
-                int predecessor = successor_state + applicable_op.get_hash_effect();
-                if (predecessor == current_state && op.get_cost() == applicable_op.get_cost()) {
-                    cheapest_operators.emplace_back(applicable_op.get_concrete_op_id());
+                // Check all hash effects of the applicable operator
+                for (int applicable_hash_effect : applicable_op.get_hash_effects()) {
+                    int predecessor = successor_state + applicable_hash_effect;
+                    if (predecessor == current_state && op.get_cost() == applicable_op.get_cost()) {
+                        cheapest_operators.emplace_back(applicable_op.get_concrete_op_id());
+                        break; // Only add once per operator
+                    }
                 }
             }
             if (compute_wildcard_plan) {
@@ -291,15 +388,22 @@ void DomainAbstractionFactory::multiply_out(
     vector<Fact> &pre_pairs,
     vector<Fact> &eff_pairs,
     const vector<Fact> &effects_without_pre,
+    const vector<NumAssProxy> &ass_effects,
     int concrete_op_id,
     const vector<int> &domain_sizes,
     vector<AbstractOperator> &operators) {
     if (pos == static_cast<int>(effects_without_pre.size())) {
         // All effects without precondition have been checked: insert op.
         if (!eff_pairs.empty()) {
+            // Compute numeric_domain_sizes from numeric_domain_mapping
+            vector<int> numeric_domain_sizes;
+            for (const auto &ndm : numeric_domain_mapping) {
+                numeric_domain_sizes.push_back(ndm.get_num_partitions());
+            }
+            
             operators.push_back(AbstractOperator(
-                prev_pairs, pre_pairs, eff_pairs, {}, cost,
-                hash_multipliers, concrete_op_id));
+                prev_pairs, pre_pairs, eff_pairs, ass_effects, cost,
+                hash_multipliers, numeric_domain_mapping, numeric_domain_sizes, concrete_op_id));
         }
     } else {
         // For each possible value for the current variable, build an
@@ -314,7 +418,7 @@ void DomainAbstractionFactory::multiply_out(
                 prev_pairs.emplace_back(var_id, i);
             }
             multiply_out(pos + 1, cost, prev_pairs, pre_pairs, eff_pairs,
-                         effects_without_pre, concrete_op_id, domain_sizes,
+                         effects_without_pre, ass_effects, concrete_op_id, domain_sizes,
                          operators);
             if (i != eff) {
                 pre_pairs.pop_back();
@@ -381,8 +485,15 @@ void DomainAbstractionFactory::build_abstract_operators(
             }
         }
     }
+    
+    // Collect numeric effects (assignment effects)
+    vector<NumAssProxy> ass_effects;
+    for (auto ass_eff : op.get_ass_effects()) {
+        ass_effects.push_back(ass_eff.get_assignment());
+    }
+    
     multiply_out(0, op.get_cost(), prev_pairs, pre_pairs, eff_pairs,
-                 effects_without_pre, op.get_id(), domain_sizes, operators);
+                 effects_without_pre, ass_effects, op.get_id(), domain_sizes, operators);
 }
 
 //TODO: Does not support numeric (goal) states yet. 
@@ -414,6 +525,98 @@ int DomainAbstractionFactory::hash_index(const vector<int> &state) const {
 
 bool DomainAbstractionFactory::variable_is_trivial(int var_id) const {
     return domain_mapping[var_id].empty();
+}
+
+bool DomainAbstractionFactory::operator_has_numeric_effects(const OperatorProxy &op) const {
+    // Check if operator has any numeric effects (assignment or additive)
+    if (!numeric_domain_mapping.empty()) {
+        for (auto eff : op.get_ass_effects()) {
+            // If any numeric variable in the abstraction is affected, return true
+            int num_var_id = eff.get_assignment().get_affected_variable().get_id();
+            if (num_var_id < static_cast<int>(numeric_domain_mapping.size())) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+std::vector<int> DomainAbstractionFactory::compute_abstract_numeric_predecessors(
+    int state_index,
+    const OperatorProxy &op,
+    const vector<int> &domain_sizes) const {
+    /*
+      Given an abstract state (state_index) and an operator with numeric effects,
+      compute all possible abstract predecessor states.
+      
+      For regression: predecessor = state where we'd need to apply op to reach state_index
+      
+      The challenge: numeric effects like x += 2 can cause transitions between partitions.
+      Example: If state has x in partition [0, inf), and op does x += 2,
+               predecessors could have x in [-inf, 0) or [0, inf) depending on the exact value.
+      
+      For now, we use a conservative approach: we consider ALL partitions as possible predecessors
+      for numeric variables affected by the operator.
+    */
+    vector<int> predecessors;
+    
+    // Extract abstract state for both propositional and numeric variables
+    vector<int> prop_vals(domain_mapping.size());
+    for (size_t i = 0; i < domain_mapping.size(); ++i) {
+        if (!variable_is_trivial(i)) {
+            int temp = state_index / hash_multipliers[i];
+            prop_vals[i] = temp % domain_sizes[i];
+        }
+    }
+    
+    vector<int> num_partitions(numeric_domain_mapping.size());
+    for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
+        int temp = state_index / hash_multipliers[domain_mapping.size() + i];
+        int domain_size_at_i = domain_sizes[domain_mapping.size() + i];
+        num_partitions[i] = temp % domain_size_at_i;
+    }
+    
+    // Identify which numeric variables are affected by this operator
+    vector<bool> affected_numeric_vars(numeric_domain_mapping.size(), false);
+    for (auto eff : op.get_ass_effects()) {
+        int num_var_id = eff.get_assignment().get_affected_variable().get_id();
+        if (num_var_id < static_cast<int>(numeric_domain_mapping.size())) {
+            affected_numeric_vars[num_var_id] = true;
+        }
+    }
+    
+    // For each affected numeric variable, we need to consider all possible predecessor partitions
+    // This is a conservative overapproximation
+    function<void(size_t, int)> enumerate_predecessors = [&](size_t var_idx, int current_pred) {
+        if (var_idx == numeric_domain_mapping.size()) {
+            predecessors.push_back(current_pred);
+            return;
+        }
+        
+        if (affected_numeric_vars[var_idx]) {
+            // Try all possible partitions for this affected variable
+            int num_partitions_for_var = domain_sizes[domain_mapping.size() + var_idx];
+            for (int partition = 0; partition < num_partitions_for_var; ++partition) {
+                int pred_with_partition = current_pred + hash_multipliers[domain_mapping.size() + var_idx] * partition;
+                enumerate_predecessors(var_idx + 1, pred_with_partition);
+            }
+        } else {
+            // Not affected: keep the same partition
+            int pred_with_partition = current_pred + hash_multipliers[domain_mapping.size() + var_idx] * num_partitions[var_idx];
+            enumerate_predecessors(var_idx + 1, pred_with_partition);
+        }
+    };
+    
+    // Start with propositional part
+    int prop_predecessor = 0;
+    for (size_t i = 0; i < domain_mapping.size(); ++i) {
+        if (!variable_is_trivial(i)) {
+            prop_predecessor += hash_multipliers[i] * prop_vals[i];
+        }
+    }
+    
+    enumerate_predecessors(0, prop_predecessor);
+    return predecessors;
 }
 
 DomainAbstraction DomainAbstractionFactory::generate() {

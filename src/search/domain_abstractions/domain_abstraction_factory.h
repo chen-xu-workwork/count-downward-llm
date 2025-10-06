@@ -34,10 +34,13 @@ class AbstractOperator {
     std::vector<NumAssProxy> regression_numeric_preconditions;
 
     /*
-      Effect of the operator during regression search on a given
+      Effects of the operator during regression search on a given
       abstract state number.
+      
+      For propositional-only operators: single hash effect
+      For operators with numeric effects: multiple hash effects (one per possible successor)
     */
-    int hash_effect;
+    std::vector<int> hash_effects;
 
 
 
@@ -54,6 +57,21 @@ public:
                      const std::vector<NumAssProxy> &ass_effects,
                      int cost,
                      const std::vector<int> &hash_multipliers,
+                     const NumericDomainMappingType &numeric_domain_mapping,
+                     const std::vector<int> &numeric_domain_sizes,
+                     int concrete_op_id);
+    
+    /*
+      Constructor that accepts pre-computed hash effects (with cascades).
+      This is used by the numeric helper which computes all hash effects
+      including cascading effects from axioms.
+    */
+    AbstractOperator(const std::vector<Fact> &prevail,
+                     const std::vector<Fact> &preconditions,
+                     const std::vector<Fact> &effects,
+                     const std::vector<NumAssProxy> &ass_effects,
+                     int cost,
+                     const std::vector<int> &pre_computed_hash_effects,
                      int concrete_op_id);
     ~AbstractOperator() = default;
 
@@ -66,10 +84,13 @@ public:
     }
 
     /*
-      Returns the effect of the abstract operator in form of a value
-      change (+ or -) to an abstract state index
+      Returns the effects of the abstract operator in form of value
+      changes (+ or -) to abstract state indices.
+      
+      For propositional-only: returns vector with single hash effect
+      For numeric operators: returns vector with multiple hash effects
     */
-    int get_hash_effect() const {return hash_effect;}
+    const std::vector<int> &get_hash_effects() const {return hash_effects;}
 
     int get_concrete_op_id() const {
         return concrete_op_id;
@@ -102,6 +123,9 @@ class DomainAbstractionFactory {
     std::vector<int> hash_multipliers;
 
     int num_states;
+    
+    // Operators that have numeric effects
+    std::vector<int> numeric_operators;
 
     std::vector<AbstractOperator> compute_abstract_operators(
         const TaskProxy &task_proxy, const std::vector<int> &domain_sizes);
@@ -109,6 +133,7 @@ class DomainAbstractionFactory {
                                const std::vector<AbstractOperator> &operators);
     std::vector<Fact> compute_abstract_goals(const TaskProxy &task_proxy);
     void compute_distances(
+        const TaskProxy &task_proxy,
         const std::vector<AbstractOperator> &operators,
         const MatchTree &match_tree,
         const std::vector<Fact> &abstract_goals,
@@ -127,6 +152,7 @@ class DomainAbstractionFactory {
                       std::vector<Fact> &pre_pairs,
                       std::vector<Fact> &eff_pairs,
                       const std::vector<Fact> &effects_without_pre,
+                      const std::vector<NumAssProxy> &ass_effects,
                       int concrete_op_id,
                       const std::vector<int> &domain_sizes,
                       std::vector<AbstractOperator> &operators);
@@ -139,6 +165,13 @@ class DomainAbstractionFactory {
                        const std::vector<int> &domain_sizes) const;
     int hash_index(const std::vector<int> &state) const;
     bool variable_is_trivial(int var_id) const;
+    
+    // Helper methods for numeric variables
+    bool operator_has_numeric_effects(const OperatorProxy &op) const;
+    std::vector<int> compute_abstract_numeric_predecessors(
+        int state_index,
+        const OperatorProxy &op,
+        const std::vector<int> &domain_sizes) const;
 
 public:
     DomainAbstractionFactory(
