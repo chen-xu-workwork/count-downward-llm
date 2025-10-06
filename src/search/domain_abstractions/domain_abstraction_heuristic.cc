@@ -32,13 +32,15 @@ DomainAbstractionHeuristic::DomainAbstractionHeuristic(
 
 ap_float DomainAbstractionHeuristic::compute_heuristic(const GlobalState &global_state) {
     State state = convert_global_state(global_state);
-    //TODO: Fix that
-    //int h = abstraction.get_value(state);
-    ap_float h = 0;
+    return compute_heuristic(state);
+}
+
+ap_float DomainAbstractionHeuristic::compute_heuristic(const State &state) {
+    int h = abstraction.get_value(state);
     if (h == numeric_limits<int>::max()) {
         return DEAD_END;
     }
-    return h;
+    return static_cast<ap_float>(h);
 }
 
 static Heuristic *_parse(OptionParser &parser) {

@@ -12,6 +12,7 @@ private:
 
 protected:
     virtual ap_float compute_heuristic(const GlobalState &global_state) override;
+    ap_float compute_heuristic(const State &state);
 
 public:
     explicit DomainAbstractionHeuristic(const options::Options &opts);

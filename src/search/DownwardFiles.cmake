@@ -670,6 +670,7 @@ list(REVERSE PLANNER_SOURCES)
 
 # --- domain_abstractions ---
 set(DOMAIN_ABSTRACTIONS_SOURCES
+    domain_abstractions/types
     domain_abstractions/cegar
     domain_abstractions/domain_abstraction
     domain_abstractions/domain_abstraction_factory
