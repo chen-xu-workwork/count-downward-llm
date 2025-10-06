@@ -593,9 +593,15 @@ DomainAbstraction CEGAR::build_abstraction(
     DomainMapping domain_mapping =
         compute_initial_domain_mapping(task_proxy);
         cout << "Initial domain mapping: " << domain_mapping << endl;
+    
+    // For now, no numeric variables in domain abstractions
+    NumericDomainMappingType numeric_domain_mapping;
+    vector<int> numeric_domain_sizes;
+    
     DomainAbstractionFactory factory(
-        task_proxy, domain_mapping, abstract_domain_sizes, true, rng,
-        use_wildcard_plans);
+        task_proxy, domain_mapping, abstract_domain_sizes,
+        numeric_domain_mapping, numeric_domain_sizes,
+        true, rng, use_wildcard_plans);
     DomainAbstraction abstraction = factory.generate();
 
     int iteration = 1;
@@ -628,7 +634,9 @@ DomainAbstraction CEGAR::build_abstraction(
         }
 
         DomainAbstractionFactory new_factory(
-            task_proxy, domain_mapping, abstract_domain_sizes, true, rng, true);
+            task_proxy, domain_mapping, abstract_domain_sizes,
+            numeric_domain_mapping, numeric_domain_sizes,
+            true, rng, true);
         abstraction = new_factory.generate();
         ++iteration;
     }

@@ -86,6 +86,8 @@ public:
 
 class DomainAbstractionFactory {
     DomainMapping domain_mapping;
+    NumericDomainMappingType numeric_domain_mapping;
+    
     /*
       final h-values for abstract-states.
       dead-ends are represented by numeric_limits<int>::max()
@@ -96,6 +98,7 @@ class DomainAbstractionFactory {
     std::vector<std::vector<int>> wildcard_plan;
 
     // multipliers for each variable for perfect hash function
+    // Includes multipliers for both propositional and numeric variables
     std::vector<int> hash_multipliers;
 
     int num_states;
@@ -142,6 +145,8 @@ public:
         const TaskProxy &task_proxy,
         const DomainMapping &domain_mapping,
         const std::vector<int> &domain_sizes,
+        const NumericDomainMappingType &numeric_domain_mapping,
+        const std::vector<int> &numeric_domain_sizes,
         bool compute_plan,
         const std::shared_ptr<utils::RandomNumberGenerator> &rng,
         bool compute_wildcard_plan);

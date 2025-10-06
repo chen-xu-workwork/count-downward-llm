@@ -35,7 +35,12 @@ DomainAbstraction DomainAbstractionGeneratorIdentity::build_abstraction(
         domain_sizes.push_back(var.get_domain_size());
     }
 
+    // For now, no numeric variables in domain abstractions
+    NumericDomainMappingType numeric_domain_mapping;
+    vector<int> numeric_domain_sizes;
+
     DomainAbstractionFactory factory(task_proxy, domain_mapping, domain_sizes,
+                                     numeric_domain_mapping, numeric_domain_sizes,
                                      true, rng, true);
     return factory.generate();
 }

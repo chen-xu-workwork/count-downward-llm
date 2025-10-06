@@ -53,15 +53,19 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     const TaskProxy &task_proxy,
     const DomainMapping &domain_mapping,
     const vector<int> &domain_sizes,
+    const NumericDomainMappingType &numeric_domain_mapping,
+    const vector<int> &numeric_domain_sizes,
     bool compute_plan,
     const shared_ptr<utils::RandomNumberGenerator> &rng,
     bool compute_wildcard_plan)
-    : domain_mapping(domain_mapping) {
+    : domain_mapping(domain_mapping),
+      numeric_domain_mapping(numeric_domain_mapping) {
         verify_no_axioms(task_proxy);
         verify_no_conditional_effects(task_proxy);
 
+    // Compute hash multipliers for propositional variables
     int num_variables = task_proxy.get_variables().size();
-    hash_multipliers.reserve(num_variables);
+    hash_multipliers.reserve(num_variables + numeric_domain_mapping.size());
     num_states = 1;
     for (int var_id = 0; var_id < num_variables; ++var_id) {
         hash_multipliers.push_back(num_states);
@@ -71,6 +75,19 @@ DomainAbstractionFactory::DomainAbstractionFactory (
         } else {
             cerr << "Given domain mapping is too large! (Overflow occurred). "
                  << "Domain sizes: " << domain_sizes << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
+    }
+    
+    // Add hash multipliers for numeric variables
+    for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
+        hash_multipliers.push_back(num_states);
+        int num_partitions = numeric_domain_sizes[i];
+        if (utils::is_product_within_limit(num_states, num_partitions,
+                                           numeric_limits<int>::max())) {
+            num_states *= num_partitions;
+        } else {
+            cerr << "Domain abstraction with numeric variables is too large! (Overflow occurred)." << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
@@ -400,7 +417,6 @@ bool DomainAbstractionFactory::variable_is_trivial(int var_id) const {
 }
 
 DomainAbstraction DomainAbstractionFactory::generate() {
-    vector<NumericDomainMapping> numeric_domain_mapping; // empty for now
     return DomainAbstraction(move(domain_mapping), move(numeric_domain_mapping),
                              move(hash_multipliers), move(distances), move(wildcard_plan));
 }
