@@ -284,6 +284,23 @@ private:
         const std::vector<int> &new_partitions) const;
     
     /**
+     * Compute which derived numeric variables (from assignment axioms)
+     * are affected when source numeric variables change partitions,
+     * and which comparison axioms those derived variables then affect.
+     * 
+     * This handles indirect cascades: regular → assignment axiom → comparison
+     * 
+     * Example: a changes → b := a + 3 changes → c := (b > 10) might change
+     * 
+     * Returns additional Facts (comparison axiom truth values) that should
+     * be added to the hash effect.
+     */
+    std::vector<Fact> compute_assignment_axiom_cascades(
+        const std::vector<int> &changed_numeric_vars,
+        const std::vector<int> &old_partitions,
+        const std::vector<int> &new_partitions) const;
+    
+    /**
      * Compute which target partitions are reachable from a source partition
      * when applying a numeric assignment effect.
      * 
@@ -298,6 +315,17 @@ private:
         int numeric_var_id,
         int source_partition,
         const NumAssProxy &ass_effect) const;
+    
+    /**
+     * Helper: Apply cal_operator to two ranges and return the result range.
+     * Used for evaluating assignment axioms like: derived := left op right
+     * 
+     * Example: [2, 5) + [10, 20) = [12, 25)
+     */
+    std::pair<ap_float, ap_float> apply_range_operation(
+        ap_float left_lower, ap_float left_upper,
+        ap_float right_lower, ap_float right_upper,
+        cal_operator op) const;
     
     /**
      * Evaluate a comparison axiom exactly based on partition ranges.

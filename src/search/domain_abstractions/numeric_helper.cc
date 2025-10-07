@@ -423,7 +423,7 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
             
             // Now compute cascading effects
             if (!changed_vars.empty()) {
-                // Compute affected comparison axioms (propositional cascades)
+                // 1. Direct cascades: Compute affected comparison axioms (propositional cascades)
                 vector<Fact> affected_facts = 
                     compute_affected_comparison_axioms(changed_vars, old_parts, new_parts);
                 
@@ -433,9 +433,16 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
                     total_effect += fact.value * hash_multipliers[fact.var];
                 }
                 
-                // TODO: Compute affected assignment axioms (numeric cascades)
-                // This would require evaluating assignment axiom expressions
-                // For now, we're conservative and only handle comparison cascades
+                // 2. Indirect cascades: Compute affected assignment axioms (numeric cascades)
+                // These are derived numeric variables that change due to source variable changes,
+                // which then may affect comparison axioms
+                vector<Fact> assignment_cascade_facts = 
+                    compute_assignment_axiom_cascades(changed_vars, old_parts, new_parts);
+                
+                for (const Fact &fact : assignment_cascade_facts) {
+                    // Add propositional variable contribution from indirect cascades
+                    total_effect += fact.value * hash_multipliers[fact.var];
+                }
             }
             
             hash_effects.push_back(total_effect);
@@ -500,6 +507,210 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
     enumerate_effects(0, 0, changed_vars, old_parts, new_parts, nullptr);
     
     return hash_effects;
+}
+
+vector<Fact> DomainAbstractionNumericHelper::compute_assignment_axiom_cascades(
+    const vector<int> &changed_numeric_vars,
+    const vector<int> &old_partitions,
+    const vector<int> &new_partitions) const {
+    
+    // Compute which derived numeric variables (from assignment axioms) change,
+    // and then check if those changes affect comparison axioms
+    
+    vector<Fact> affected_facts;
+    
+    // Track which derived numeric variables change and their new partitions
+    vector<int> derived_changed_vars;
+    vector<int> derived_old_partitions;
+    vector<int> derived_new_partitions;
+    
+    // For each assignment axiom, check if it depends on a changed variable
+    AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+    for (AssignmentAxiomProxy axiom : assignment_axioms) {
+        int derived_var_id = axiom.get_assignment_variable().get_id();
+        int left_var_id = axiom.get_left_variable().get_id();
+        int right_var_id = axiom.get_right_variable().get_id();
+        cal_operator op = axiom.get_arithmetic_operator_type();
+        
+        // Check if this axiom depends on any changed variable
+        bool depends_on_changed = false;
+        for (int changed_id : changed_numeric_vars) {
+            if (left_var_id == changed_id || right_var_id == changed_id) {
+                depends_on_changed = true;
+                break;
+            }
+        }
+        
+        if (!depends_on_changed) {
+            continue;
+        }
+        
+        // This assignment axiom is affected!
+        // Compute the old and new ranges for the derived variable
+        
+        // Get partition ranges for left and right variables (old state)
+        ap_float left_lower_old, left_upper_old;
+        ap_float right_lower_old, right_upper_old;
+        
+        // Find old partitions for left and right
+        int left_partition_old = -1;
+        int right_partition_old = -1;
+        
+        for (size_t i = 0; i < changed_numeric_vars.size(); ++i) {
+            if (changed_numeric_vars[i] == left_var_id) {
+                left_partition_old = old_partitions[i];
+            }
+            if (changed_numeric_vars[i] == right_var_id) {
+                right_partition_old = old_partitions[i];
+            }
+        }
+        
+        // If a variable wasn't changed, we don't know its partition in this context
+        // This is a limitation - we're computing cascades based only on the
+        // variables that changed. For a complete solution, we'd need the full state.
+        // For now, skip this axiom if we don't have both partitions
+        if (left_partition_old == -1 || right_partition_old == -1) {
+            continue;
+        }
+        
+        // Get the ranges
+        if (left_var_id >= static_cast<int>(numeric_domain_mapping.size()) ||
+            right_var_id >= static_cast<int>(numeric_domain_mapping.size())) {
+            continue; // Variable not in mapping
+        }
+        
+        const NumericDomainMapping &left_mapping = numeric_domain_mapping[left_var_id];
+        const NumericDomainMapping &right_mapping = numeric_domain_mapping[right_var_id];
+        
+        const vector<NumericRange> &left_ranges = left_mapping.get_ranges();
+        const vector<NumericRange> &right_ranges = right_mapping.get_ranges();
+        
+        // Find old ranges
+        bool found_left_old = false, found_right_old = false;
+        for (const NumericRange &range : left_ranges) {
+            if (range.partition_index == left_partition_old) {
+                left_lower_old = range.lower;
+                left_upper_old = range.upper;
+                found_left_old = true;
+                break;
+            }
+        }
+        for (const NumericRange &range : right_ranges) {
+            if (range.partition_index == right_partition_old) {
+                right_lower_old = range.lower;
+                right_upper_old = range.upper;
+                found_right_old = true;
+                break;
+            }
+        }
+        
+        if (!found_left_old || !found_right_old) {
+            continue; // Couldn't find ranges
+        }
+        
+        // Compute old derived range
+        pair<ap_float, ap_float> old_derived_range = 
+            apply_range_operation(left_lower_old, left_upper_old,
+                                right_lower_old, right_upper_old, op);
+        
+        // Now compute new derived range (with new partitions)
+        ap_float left_lower_new, left_upper_new;
+        ap_float right_lower_new, right_upper_new;
+        
+        int left_partition_new = -1;
+        int right_partition_new = -1;
+        
+        for (size_t i = 0; i < changed_numeric_vars.size(); ++i) {
+            if (changed_numeric_vars[i] == left_var_id) {
+                left_partition_new = new_partitions[i];
+            }
+            if (changed_numeric_vars[i] == right_var_id) {
+                right_partition_new = new_partitions[i];
+            }
+        }
+        
+        if (left_partition_new == -1 || right_partition_new == -1) {
+            continue;
+        }
+        
+        // Find new ranges
+        bool found_left_new = false, found_right_new = false;
+        for (const NumericRange &range : left_ranges) {
+            if (range.partition_index == left_partition_new) {
+                left_lower_new = range.lower;
+                left_upper_new = range.upper;
+                found_left_new = true;
+                break;
+            }
+        }
+        for (const NumericRange &range : right_ranges) {
+            if (range.partition_index == right_partition_new) {
+                right_lower_new = range.lower;
+                right_upper_new = range.upper;
+                found_right_new = true;
+                break;
+            }
+        }
+        
+        if (!found_left_new || !found_right_new) {
+            continue;
+        }
+        
+        // Compute new derived range
+        pair<ap_float, ap_float> new_derived_range = 
+            apply_range_operation(left_lower_new, left_upper_new,
+                                right_lower_new, right_upper_new, op);
+        
+        // Now determine which partitions the old and new ranges correspond to
+        if (derived_var_id >= static_cast<int>(numeric_domain_mapping.size())) {
+            continue; // Derived variable not in mapping
+        }
+        
+        const NumericDomainMapping &derived_mapping = numeric_domain_mapping[derived_var_id];
+        const vector<NumericRange> &derived_ranges = derived_mapping.get_ranges();
+        
+        // Find which partition(s) the old and new ranges overlap with
+        // For simplicity, take the first overlapping partition
+        int old_derived_partition = -1;
+        int new_derived_partition = -1;
+        
+        for (const NumericRange &range : derived_ranges) {
+            if (old_derived_partition == -1 &&
+                old_derived_range.first < range.upper && 
+                range.lower < old_derived_range.second) {
+                old_derived_partition = range.partition_index;
+            }
+            if (new_derived_partition == -1 &&
+                new_derived_range.first < range.upper && 
+                range.lower < new_derived_range.second) {
+                new_derived_partition = range.partition_index;
+            }
+            if (old_derived_partition != -1 && new_derived_partition != -1) {
+                break;
+            }
+        }
+        
+        // If the derived variable changed partition, track it
+        if (old_derived_partition != -1 && new_derived_partition != -1 &&
+            old_derived_partition != new_derived_partition) {
+            derived_changed_vars.push_back(derived_var_id);
+            derived_old_partitions.push_back(old_derived_partition);
+            derived_new_partitions.push_back(new_derived_partition);
+        }
+    }
+    
+    // Now check which comparison axioms are affected by the derived variable changes
+    if (!derived_changed_vars.empty()) {
+        vector<Fact> comparison_facts = 
+            compute_affected_comparison_axioms(derived_changed_vars,
+                                             derived_old_partitions,
+                                             derived_new_partitions);
+        affected_facts.insert(affected_facts.end(),
+                            comparison_facts.begin(),
+                            comparison_facts.end());
+    }
+    
+    return affected_facts;
 }
 
 vector<Fact> DomainAbstractionNumericHelper::compute_affected_comparison_axioms(
@@ -616,19 +827,171 @@ vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
     }
     
     // Apply the effect to compute the result range
-    // For now, we conservatively return ALL partitions as reachable
-    // TODO: Implement proper range arithmetic based on the effect expression
-    // This would require:
-    // 1. Getting the actual numeric value/expression from the assigned variable
-    // 2. Evaluating it for the bounds of the source partition
-    // 3. Determining which target partitions the result overlaps with
-    //
-    // For now, conservative approach: all partitions are potentially reachable
+    // Get the effect operator and assigned variable
+    f_operator op_type = ass_effect.get_assigment_operator_type();
+    NumericVariableProxy assigned_var = ass_effect.get_assigned_variable();
+    
+    // Get the value to use in the operation
+    // For constants, this is the initial state value (constants don't change)
+    // For variables, we would need to know their partition (handled elsewhere)
+    ap_float operand_value = assigned_var.get_initial_state_value();
+    
+    // Compute the result range based on the operator
+    ap_float result_lower, result_upper;
+    ap_float source_lower = source_range.lower;
+    ap_float source_upper = source_range.upper;
+    
+    switch (op_type) {
+        case assign:
+            // x := c  -->  result is just [c, c] (single point)
+            // But if assigned_var is not a constant, we need its range
+            // For now, assume constants (most common case)
+            result_lower = operand_value;
+            result_upper = operand_value;
+            break;
+            
+        case increase:
+            // x += c  -->  [lower + c, upper + c)
+            result_lower = source_lower + operand_value;
+            result_upper = source_upper + operand_value;
+            break;
+            
+        case decrease:
+            // x -= c  -->  [lower - c, upper - c)
+            result_lower = source_lower - operand_value;
+            result_upper = source_upper - operand_value;
+            break;
+            
+        case scale_up:
+            // x *= c  -->  depends on sign of c and bounds
+            if (operand_value > 0) {
+                result_lower = source_lower * operand_value;
+                result_upper = source_upper * operand_value;
+            } else if (operand_value < 0) {
+                // Negative multiplier flips the order
+                result_lower = source_upper * operand_value;
+                result_upper = source_lower * operand_value;
+            } else {
+                // Multiply by zero
+                result_lower = 0;
+                result_upper = 0;
+            }
+            break;
+            
+        case scale_down:
+            // x /= c  -->  similar to scale_up but with division
+            if (operand_value > 0) {
+                result_lower = source_lower / operand_value;
+                result_upper = source_upper / operand_value;
+            } else if (operand_value < 0) {
+                // Negative divisor flips the order
+                result_lower = source_upper / operand_value;
+                result_upper = source_lower / operand_value;
+            } else {
+                // Division by zero - undefined, be conservative
+                // Return all partitions
+                for (const NumericRange &range : ranges) {
+                    reachable_partitions.push_back(range.partition_index);
+                }
+                return reachable_partitions;
+            }
+            break;
+            
+        default:
+            // Unknown operator, be conservative
+            for (const NumericRange &range : ranges) {
+                reachable_partitions.push_back(range.partition_index);
+            }
+            return reachable_partitions;
+    }
+    
+    // Now find which target partitions overlap with [result_lower, result_upper)
     for (const NumericRange &range : ranges) {
-        reachable_partitions.push_back(range.partition_index);
+        // Check if [result_lower, result_upper) overlaps with [range.lower, range.upper)
+        // Two ranges [a, b) and [c, d) overlap if: a < d AND c < b
+        if (result_lower < range.upper && range.lower < result_upper) {
+            reachable_partitions.push_back(range.partition_index);
+        }
+    }
+    
+    // If no partitions found (shouldn't happen with proper partitioning),
+    // be conservative and return all
+    if (reachable_partitions.empty()) {
+        for (const NumericRange &range : ranges) {
+            reachable_partitions.push_back(range.partition_index);
+        }
     }
     
     return reachable_partitions;
+}
+
+pair<ap_float, ap_float> DomainAbstractionNumericHelper::apply_range_operation(
+    ap_float left_lower, ap_float left_upper,
+    ap_float right_lower, ap_float right_upper,
+    cal_operator op) const {
+    
+    ap_float result_lower, result_upper;
+    
+    switch (op) {
+        case sum: // left + right
+            result_lower = left_lower + right_lower;
+            result_upper = left_upper + right_upper;
+            break;
+            
+        case diff: // left - right
+            // [a,b) - [c,d) = [a-d, b-c)
+            result_lower = left_lower - right_upper;
+            result_upper = left_upper - right_lower;
+            break;
+            
+        case mult: // left * right
+            // Need to consider all four combinations and take min/max
+            {
+                ap_float products[4] = {
+                    left_lower * right_lower,
+                    left_lower * right_upper,
+                    left_upper * right_lower,
+                    left_upper * right_upper
+                };
+                result_lower = *min_element(products, products + 4);
+                result_upper = *max_element(products, products + 4);
+            }
+            break;
+            
+        case divi: // left / right
+            // Similar to mult, but need to check for division by zero
+            {
+                // If right range contains zero, result is undefined
+                if (right_lower < 0 && right_upper > 0) {
+                    // Range spans zero - return infinite range
+                    result_lower = -numeric_limits<ap_float>::infinity();
+                    result_upper = numeric_limits<ap_float>::infinity();
+                } else if (right_lower == 0 && right_upper == 0) {
+                    // Division by zero - undefined
+                    result_lower = -numeric_limits<ap_float>::infinity();
+                    result_upper = numeric_limits<ap_float>::infinity();
+                } else {
+                    // Safe to divide - check all four combinations
+                    ap_float quotients[4] = {
+                        left_lower / right_lower,
+                        left_lower / right_upper,
+                        left_upper / right_lower,
+                        left_upper / right_upper
+                    };
+                    result_lower = *min_element(quotients, quotients + 4);
+                    result_upper = *max_element(quotients, quotients + 4);
+                }
+            }
+            break;
+            
+        default:
+            // Unknown operator, return infinite range
+            result_lower = -numeric_limits<ap_float>::infinity();
+            result_upper = numeric_limits<ap_float>::infinity();
+            break;
+    }
+    
+    return make_pair(result_lower, result_upper);
 }
 
 int DomainAbstractionNumericHelper::evaluate_comparison_exactly(
