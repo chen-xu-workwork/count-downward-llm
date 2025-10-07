@@ -59,6 +59,9 @@ void DomainAbstractionNumericHelper::build_numeric_variables() {
     initial_numeric_values = task->get_initial_state_numeric_values();
     
     // Build mappings between regular and global IDs
+    // TODO: Why do I need that mapping? That is not a PDB, 
+    // meaning all variables are considered.
+    // Can remove later, I suppose.
     int regular_id = 0;
     for (int i = 0; i < n_numeric_variables; ++i) {
         if (!is_derived_num_var[i]) {
@@ -172,6 +175,8 @@ void DomainAbstractionNumericHelper::build_goals() {
     
     // TODO: Collect numeric goals
     // This requires parsing numeric goal conditions
+    // Markus: Don't think such thing exists. Comparison axioms produce propositional goals.
+    // Question is if they are stored as "numeric goals" or "propositional goals".
 }
 
 vector<int> DomainAbstractionNumericHelper::get_affected_variables(int var_id) const {
