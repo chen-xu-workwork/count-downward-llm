@@ -80,6 +80,9 @@ private:
         int var, DomainMapping &abstraction);
 
     void print_statistics(const TaskProxy &task_proxy);
+    
+    NumericDomainMappingType compute_initial_numeric_domain_mapping(
+        const TaskProxy &task_proxy);
 public:
     CEGAR(int max_abstraction_size,
           double max_time,
@@ -584,6 +587,18 @@ void CEGAR::add_variable_to_abstraction_if_necessary(
     }
 }
 
+NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
+    const TaskProxy &task_proxy) {
+    // Get number of numeric variables
+    int num_numeric_variables = task_proxy.get_numeric_variables().size();
+    
+    // Initialize numeric domain mapping with full range (-inf, inf) for all numeric variables
+    // NumericDomainMapping default constructor already creates a single range covering (-inf, inf)
+    NumericDomainMappingType numeric_domain_mapping(num_numeric_variables);
+    
+    return numeric_domain_mapping;
+}
+
 DomainAbstraction CEGAR::build_abstraction(
     const TaskProxy &task_proxy) {
     cout << "Building domain abstraction..." << endl;
@@ -594,9 +609,10 @@ DomainAbstraction CEGAR::build_abstraction(
         compute_initial_domain_mapping(task_proxy);
         cout << "Initial domain mapping: " << domain_mapping << endl;
     
-    // For now, no numeric variables in domain abstractions
-    NumericDomainMappingType numeric_domain_mapping;
-    vector<int> numeric_domain_sizes;
+    // Initialize numeric domain mapping with full range (-inf, inf) for all numeric variables
+    NumericDomainMappingType numeric_domain_mapping =
+        compute_initial_numeric_domain_mapping(task_proxy);
+    vector<int> numeric_domain_sizes(numeric_domain_mapping.size(), 1);
     
     DomainAbstractionFactory factory(
         task_proxy, domain_mapping, abstract_domain_sizes,
