@@ -118,6 +118,8 @@ AbstractOperator::AbstractOperator(
       regression_numeric_preconditions(ass_effects) {
     
     // Build regression preconditions from progression effects and prevail
+    // In regression: we need the post-state (effects) as preconditions
+    regression_preconditions.reserve(prev_pairs.size() + eff_pairs.size());
     for (const Fact &prev : prev_pairs) {
         regression_preconditions.push_back(prev);
     }
@@ -336,12 +338,32 @@ void DomainAbstractionFactory::compute_abstract_plan(
     */
     State initial_state = task_proxy.get_initial_state();
 
+    // Build propositional part of abstract state
     vector<int> prop_state;
     for (int var_id = 0; var_id < initial_state.size(); ++var_id) {
         prop_state.push_back(initial_state[var_id].get_value());
     }
-    //TODO: This state is propositional. Add numeric state as well.
+    
+    // Compute hash for propositional variables
     int current_state = hash_index(prop_state);
+    
+    // Add numeric variables to hash
+    if (!numeric_domain_mapping.empty()) {
+        vector<ap_float> numeric_values = g_root_task()->get_initial_state_numeric_values();
+        
+        // For each numeric variable in the abstraction, find its partition
+        for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+            ap_float value = numeric_values[num_var_id];
+            
+            // Find which partition this value falls into
+            int partition = numeric_domain_mapping[num_var_id].get_partition_index(value);
+            
+            // Add partition contribution to hash
+            // hash_multipliers for numeric vars start after propositional vars
+            int hash_multiplier_idx = initial_state.size() + num_var_id;
+            current_state += partition * hash_multipliers[hash_multiplier_idx];
+        }
+    }
 
     if (distances[current_state] != numeric_limits<int>::max()) {
         while (!is_goal_state(current_state, abstract_goals, domain_sizes)) {
@@ -349,11 +371,29 @@ void DomainAbstractionFactory::compute_abstract_plan(
             assert(op_id != -1);
             const AbstractOperator &op = operators[op_id];
             
-            // TODO: With numeric operators having multiple hash effects, we need to
-            // determine which specific effect was used. For now, use the first one.
-            // This needs to be improved for proper plan extraction with numeric operators.
-            int hash_effect = op.get_hash_effects()[0];
-            int successor_state = current_state - hash_effect;
+            // For operators with multiple hash effects (numeric operators), find the
+            // correct hash effect that leads to a valid successor
+            int hash_effect = -1;
+            int successor_state = -1;
+            
+            for (int candidate_hash_effect : op.get_hash_effects()) {
+                int candidate_successor = current_state - candidate_hash_effect;
+                // Check if this successor is valid (was reached during Dijkstra)
+                if (candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()) &&
+                    distances[candidate_successor] != numeric_limits<int>::max() &&
+                    distances[candidate_successor] < distances[current_state]) {
+                    // Valid successor with lower distance
+                    hash_effect = candidate_hash_effect;
+                    successor_state = candidate_successor;
+                    break;
+                }
+            }
+            
+            // If no valid successor found, use the first hash effect as fallback
+            if (hash_effect == -1) {
+                hash_effect = op.get_hash_effects()[0];
+                successor_state = current_state - hash_effect;
+            }
 
             // Compute equivalent ops
             vector<int> cheapest_operators;
