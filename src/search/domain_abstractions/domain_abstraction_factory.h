@@ -108,6 +108,7 @@ public:
 class DomainAbstractionFactory {
     DomainMapping domain_mapping;
     NumericDomainMappingType numeric_domain_mapping;
+    std::vector<int> numeric_domain_sizes;
     
     /*
       final h-values for abstract-states.
@@ -147,19 +148,8 @@ class DomainAbstractionFactory {
         const std::shared_ptr<utils::RandomNumberGenerator> &rng,
         bool compute_wildcard_plan);
 
-    void multiply_out(int pos, int cost,
-                      std::vector<Fact> &prev_pairs,
-                      std::vector<Fact> &pre_pairs,
-                      std::vector<Fact> &eff_pairs,
-                      const std::vector<Fact> &effects_without_pre,
-                      const std::vector<NumAssProxy> &ass_effects,
-                      int concrete_op_id,
-                      const std::vector<int> &domain_sizes,
-                      std::vector<AbstractOperator> &operators);
-    void build_abstract_operators(const OperatorProxy &op,
-                                  int num_variables,
-                                  const std::vector<int> &domain_sizes,
-                                  std::vector<AbstractOperator> &operators);
+    // NOTE: multiply_out() and build_abstract_operators() moved to DomainAbstractionNumericHelper
+    
     bool is_goal_state(int state_index,
                        const std::vector<Fact> &abstract_goals,
                        const std::vector<int> &domain_sizes) const;

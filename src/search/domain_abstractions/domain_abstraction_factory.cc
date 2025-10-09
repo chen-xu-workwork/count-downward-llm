@@ -2,9 +2,11 @@
 
 #include "domain_abstraction.h"
 #include "match_tree.h"
+#include "numeric_helper.h"
 
 
 #include "../tasks/root_task.h"
+#include "../globals.h"
 
 #include "../utils/math.h"
 #include "../utils/logging.h"
@@ -137,7 +139,8 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     const shared_ptr<utils::RandomNumberGenerator> &rng,
     bool compute_wildcard_plan)
     : domain_mapping(domain_mapping),
-      numeric_domain_mapping(numeric_domain_mapping) {
+      numeric_domain_mapping(numeric_domain_mapping),
+      numeric_domain_sizes(numeric_domain_sizes) {
         verify_no_axioms(task_proxy);
         verify_no_conditional_effects(task_proxy);
 
@@ -201,12 +204,18 @@ DomainAbstractionFactory::DomainAbstractionFactory (
 
 vector<AbstractOperator> DomainAbstractionFactory::compute_abstract_operators(
     const TaskProxy &task_proxy, const vector<int> &domain_sizes) {
-    vector<AbstractOperator> operators;
-    for (OperatorProxy op : task_proxy.get_operators()) {
-        build_abstract_operators(op, task_proxy.get_variables().size(),
-                                 domain_sizes, operators);
-    }
-    return operators;
+    // Create numeric helper to handle all operator construction
+    // The helper handles both propositional and numeric effects, including cascades
+    DomainAbstractionNumericHelper helper(
+        g_root_task(),
+        domain_mapping,
+        numeric_domain_mapping,
+        domain_sizes,
+        numeric_domain_sizes,
+        hash_multipliers);
+    
+    // Let the helper build all abstract operators
+    return helper.build_abstract_operators(task_proxy);
 }
 
 //A match tree exists to compute applicaple operators, given a state
@@ -383,118 +392,9 @@ void DomainAbstractionFactory::compute_abstract_plan(
 // OP 1: pre = {x = 0}, eff = {x = 1}
 // OP 1: pre = {x = 2}, eff = {x = 1}
 // more efficient that way. 
-void DomainAbstractionFactory::multiply_out(
-    int pos, int cost, vector<Fact> &prev_pairs,
-    vector<Fact> &pre_pairs,
-    vector<Fact> &eff_pairs,
-    const vector<Fact> &effects_without_pre,
-    const vector<NumAssProxy> &ass_effects,
-    int concrete_op_id,
-    const vector<int> &domain_sizes,
-    vector<AbstractOperator> &operators) {
-    if (pos == static_cast<int>(effects_without_pre.size())) {
-        // All effects without precondition have been checked: insert op.
-        if (!eff_pairs.empty()) {
-            // Compute numeric_domain_sizes from numeric_domain_mapping
-            vector<int> numeric_domain_sizes;
-            for (const auto &ndm : numeric_domain_mapping) {
-                numeric_domain_sizes.push_back(ndm.get_num_partitions());
-            }
-            
-            operators.push_back(AbstractOperator(
-                prev_pairs, pre_pairs, eff_pairs, ass_effects, cost,
-                hash_multipliers, numeric_domain_mapping, numeric_domain_sizes, concrete_op_id));
-        }
-    } else {
-        // For each possible value for the current variable, build an
-        // abstract operator.
-        int var_id = effects_without_pre[pos].var;
-        int eff = effects_without_pre[pos].value;
-        for (int i = 0; i < domain_sizes[var_id]; ++i) {
-            if (i != eff) {
-                pre_pairs.emplace_back(var_id, i);
-                eff_pairs.emplace_back(var_id, eff);
-            } else {
-                prev_pairs.emplace_back(var_id, i);
-            }
-            multiply_out(pos + 1, cost, prev_pairs, pre_pairs, eff_pairs,
-                         effects_without_pre, ass_effects, concrete_op_id, domain_sizes,
-                         operators);
-            if (i != eff) {
-                pre_pairs.pop_back();
-                eff_pairs.pop_back();
-            } else {
-                prev_pairs.pop_back();
-            }
-        }
-    }
-}
-
-//NOTE: In case you wonder what the prevail pairs are: 
-// used for regression. Basically saying what variables stay equal. 
-// during regression, strange things can happen if we don't have that. 
-void DomainAbstractionFactory::build_abstract_operators(
-    const OperatorProxy &op,
-    int num_variables,
-    const vector<int> &domain_sizes,
-    vector<AbstractOperator> &operators) {
-    // All variable value pairs that are a prevail condition
-    vector<Fact> prev_pairs;
-    // All variable value pairs that are a precondition (value != -1)
-    vector<Fact> pre_pairs;
-    // All variable value pairs that are an effect
-    vector<Fact> eff_pairs;
-    // All variable value pairs that are a precondition (value = -1)
-    vector<Fact> effects_without_pre;
-
-    vector<int> has_precondition_on_var(num_variables, -1);
-    vector<int> has_effect_on_var(num_variables, -1);
-
-    for (FactProxy pre : op.get_preconditions()) {
-        int var_id = pre.get_variable().get_id();
-        if (variable_is_trivial(var_id)) {
-            has_precondition_on_var[var_id] = 0;
-        } else {
-            has_precondition_on_var[var_id] =
-                domain_mapping[var_id][pre.get_value()];
-        }
-    }
-
-    for (EffectProxy eff : op.get_effects()) {
-        int var_id = eff.get_fact().get_variable().get_id();
-        if (!variable_is_trivial(var_id)) {
-            int val = domain_mapping[var_id][eff.get_fact().get_value()];
-            //NOTE: Collect effects only they dont have themself as precon
-            int pre_val = has_precondition_on_var[var_id];
-            if (pre_val < 0) {
-                effects_without_pre.emplace_back(var_id, val);
-            } else if (pre_val != val) {
-                has_effect_on_var[var_id] = val;
-                eff_pairs.emplace_back(var_id, val);
-            }
-        }
-    }
-    for (FactProxy pre : op.get_preconditions()) {
-        int var_id = pre.get_variable().get_id();
-        if (!variable_is_trivial(var_id)) {
-            int val = domain_mapping[var_id][pre.get_value()];
-            if (has_effect_on_var[var_id] >= 0) {
-                pre_pairs.emplace_back(var_id, val);
-            } else {
-                prev_pairs.emplace_back(var_id, val);
-            }
-        }
-    }
-    
-    // Collect numeric effects (assignment effects)
-    vector<NumAssProxy> ass_effects;
-    for (auto ass_eff : op.get_ass_effects()) {
-        ass_effects.push_back(ass_eff.get_assignment());
-    }
-    
-    multiply_out(0, op.get_cost(), prev_pairs, pre_pairs, eff_pairs,
-                 effects_without_pre, ass_effects, op.get_id(), domain_sizes, operators);
-}
+// NOTE: multiply_out() and build_abstract_operators() methods have been moved
+// to DomainAbstractionNumericHelper, which now handles all operator construction.
+// The factory delegates to the helper via compute_abstract_operators().
 
 //TODO: Does not support numeric (goal) states yet. 
 bool DomainAbstractionFactory::is_goal_state(
