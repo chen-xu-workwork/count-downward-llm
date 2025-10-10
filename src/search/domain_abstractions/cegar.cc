@@ -36,6 +36,12 @@ private:
 
     std::vector<int> abstract_domain_sizes;
     std::vector<int> real_domain_sizes;
+    
+    // Mapping from propositional variables (derived from comparison axioms)
+    // to the numeric variables they depend on.
+    // This allows us to trace back from propositional flaws to numeric refinements.
+    // Maps: propositional_var_id -> set of numeric variable IDs
+    std::unordered_map<int, std::unordered_set<int>> comparison_axiom_dependencies;
 
     DomainMapping compute_initial_domain_mapping(const TaskProxy &task_proxy);
     vector<int> compute_initial_split(
@@ -83,6 +89,8 @@ private:
     
     NumericDomainMappingType compute_initial_numeric_domain_mapping(
         const TaskProxy &task_proxy);
+    
+    void build_comparison_axiom_mapping(const TaskProxy &task_proxy);
 public:
     CEGAR(int max_abstraction_size,
           double max_time,
@@ -599,6 +607,99 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
     return numeric_domain_mapping;
 }
 
+void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
+    // Build mapping from propositional variables (derived from comparison axioms)
+    // to the REGULAR (non-derived) numeric variables they ultimately depend on.
+    // 
+    // This is critical because:
+    // 1. Comparison axioms can use derived numeric variables (from assignment axioms)
+    // 2. We can only refine REGULAR numeric variables (derived ones have implicit partitions)
+    // 3. We need to trace through the assignment axiom hierarchy to find base variables
+    //
+    // Example:
+    //   sum := x + y          (assignment axiom, sum is derived)
+    //   comp := (sum > 10)    (comparison axiom, comp is propositional)
+    //   => comp depends on regular variables x and y, not on sum
+    
+    comparison_axiom_dependencies.clear();
+    
+    // First, build a helper to track which variables are derived
+    int num_numeric_vars = task_proxy.get_numeric_variables().size();
+    vector<bool> is_derived(num_numeric_vars, false);
+    
+    // Build dependency graph: derived_var -> [source_vars]
+    vector<vector<int>> axiom_dependencies(num_numeric_vars);
+    
+    AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+    for (AssignmentAxiomProxy axiom : assignment_axioms) {
+        int derived_id = axiom.get_assignment_variable().get_id();
+        int left_id = axiom.get_left_variable().get_id();
+        int right_id = axiom.get_right_variable().get_id();
+        
+        if (derived_id >= 0 && derived_id < num_numeric_vars) {
+            is_derived[derived_id] = true;
+            
+            if (left_id >= 0) {
+                axiom_dependencies[derived_id].push_back(left_id);
+            }
+            if (right_id >= 0 && right_id != left_id) {
+                axiom_dependencies[derived_id].push_back(right_id);
+            }
+        }
+    }
+    
+    // Helper function to recursively find all regular (non-derived) variables
+    // that a given variable depends on
+    auto find_regular_dependencies = [&](int var_id, auto& find_regular_dependencies_ref) -> unordered_set<int> {
+        unordered_set<int> regular_vars;
+        
+        if (var_id < 0 || var_id >= num_numeric_vars) {
+            return regular_vars;
+        }
+        
+        if (!is_derived[var_id]) {
+            // This is a regular variable - add it
+            regular_vars.insert(var_id);
+        } else {
+            // This is a derived variable - recurse on its dependencies
+            for (int dep_id : axiom_dependencies[var_id]) {
+                unordered_set<int> deps = find_regular_dependencies_ref(dep_id, find_regular_dependencies_ref);
+                regular_vars.insert(deps.begin(), deps.end());
+            }
+        }
+        
+        return regular_vars;
+    };
+    
+    // Now build the comparison axiom mapping
+    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+    for (ComparisonAxiomProxy axiom : comparison_axioms) {
+        // Get the propositional variable created by this comparison axiom
+        FactProxy true_fact = axiom.get_true_fact();
+        int prop_var_id = true_fact.get_variable().get_id();
+        
+        // Get the numeric variables used in the comparison (may be derived!)
+        int left_var_id = axiom.get_left_variable().get_id();
+        int right_var_id = axiom.get_right_variable().get_id();
+        
+        // Trace through to find regular variables
+        unordered_set<int> regular_vars;
+        
+        if (left_var_id >= 0) {
+            unordered_set<int> left_deps = find_regular_dependencies(left_var_id, find_regular_dependencies);
+            regular_vars.insert(left_deps.begin(), left_deps.end());
+        }
+        
+        if (right_var_id >= 0) {
+            unordered_set<int> right_deps = find_regular_dependencies(right_var_id, find_regular_dependencies);
+            regular_vars.insert(right_deps.begin(), right_deps.end());
+        }
+        
+        // Store the mapping
+        comparison_axiom_dependencies[prop_var_id] = regular_vars;
+    }
+}
+
 DomainAbstraction CEGAR::build_abstraction(
     const TaskProxy &task_proxy) {
     cout << "Building domain abstraction..." << endl;
@@ -613,6 +714,9 @@ DomainAbstraction CEGAR::build_abstraction(
     NumericDomainMappingType numeric_domain_mapping =
         compute_initial_numeric_domain_mapping(task_proxy);
     vector<int> numeric_domain_sizes(numeric_domain_mapping.size(), 1);
+    
+    // Build mapping from comparison axiom propositional variables to numeric variables
+    build_comparison_axiom_mapping(task_proxy);
     
     DomainAbstractionFactory factory(
         task_proxy, domain_mapping, abstract_domain_sizes,
