@@ -25,6 +25,16 @@ static const int memory_padding_in_mb = 75;
 
 class CEGAR {
 private:
+    // Structure to represent a numeric flaw
+    struct NumericFlaw {
+        int numeric_var_id;      // Regular numeric variable that needs refinement
+        ap_float concrete_value; // Concrete value that caused the flaw
+        int prop_var_id;         // Propositional variable (comparison axiom) that failed
+        
+        NumericFlaw(int var_id, ap_float value, int prop_id)
+            : numeric_var_id(var_id), concrete_value(value), prop_var_id(prop_id) {}
+    };
+    
     const int max_abstraction_size;
     const double max_time;
     const bool use_wildcard_plans;
@@ -37,21 +47,20 @@ private:
     std::vector<int> abstract_domain_sizes;
     std::vector<int> real_domain_sizes;
     
+    // Numeric domain mapping and sizes (for refinement across iterations)
+    NumericDomainMappingType numeric_domain_mapping;
+    std::vector<int> numeric_domain_sizes;
+    std::unordered_set<int> blacklisted_numeric_variables;
+    
+    // Temporary storage for numeric flaws detected in get_flaws()
+    // (mutable because get_flaws is const but needs to store flaws)
+    mutable std::vector<NumericFlaw> detected_numeric_flaws;
+    
     // Mapping from propositional variables (derived from comparison axioms)
     // to the numeric variables they depend on.
     // This allows us to trace back from propositional flaws to numeric refinements.
     // Maps: propositional_var_id -> set of numeric variable IDs
     std::unordered_map<int, std::unordered_set<int>> comparison_axiom_dependencies;
-    
-    // Structure to represent a numeric flaw
-    struct NumericFlaw {
-        int numeric_var_id;      // Regular numeric variable that needs refinement
-        ap_float concrete_value; // Concrete value that caused the flaw
-        int prop_var_id;         // Propositional variable (comparison axiom) that failed
-        
-        NumericFlaw(int var_id, ap_float value, int prop_id)
-            : numeric_var_id(var_id), concrete_value(value), prop_var_id(prop_id) {}
-    };
 
     DomainMapping compute_initial_domain_mapping(const TaskProxy &task_proxy);
     vector<int> compute_initial_split(
@@ -91,6 +100,7 @@ private:
                                 int abstraction_size);
 
     bool can_refine_variable(int old_abstraction_size, int var_id);
+    bool can_refine_numeric_variable(int old_abstraction_size, int numeric_var_id);
 
     void add_variable_to_abstraction_if_necessary(
         int var, DomainMapping &abstraction);
@@ -101,6 +111,10 @@ private:
         const TaskProxy &task_proxy);
     
     void build_comparison_axiom_mapping(const TaskProxy &task_proxy);
+    
+    // Numeric variable refinement
+    bool fix_numeric_flaws(const std::vector<NumericFlaw> &numeric_flaws,
+                          int abstraction_size);
 public:
     CEGAR(int max_abstraction_size,
           double max_time,
@@ -449,6 +463,9 @@ vector<Fact> CEGAR::get_flaws(
     const TaskProxy &task_proxy, const State &concrete_init,
     const DomainAbstraction &abstraction) const {
 
+    // Clear any previously detected numeric flaws
+    detected_numeric_flaws.clear();
+
     // Initialize propositional state
     vector<int> current_state;
     for (int i = 0; i < concrete_init.size(); ++i) {
@@ -457,16 +474,12 @@ vector<Fact> CEGAR::get_flaws(
     
     // Initialize numeric state
     vector<ap_float> numeric_state = g_root_task()->get_initial_state_numeric_values();
-    
-    // Track numeric flaws separately (we'll convert them to propositional flaws later)
-    vector<NumericFlaw> numeric_flaws;
 
     vector<vector<int>> wildcard_plan = abstraction.get_plan();
     vector<Fact> flaws;
 
     for (vector<int> &equivalent_ops : wildcard_plan) {
         assert(flaws.empty());
-        assert(numeric_flaws.empty());
         
         for (int op_id : equivalent_ops) {
             OperatorProxy op = task_proxy.get_operators()[op_id];
@@ -499,7 +512,7 @@ vector<Fact> CEGAR::get_flaws(
                             const unordered_set<int> &dep_vars = it->second;
                             for (int numeric_var_id : dep_vars) {
                                 ap_float concrete_value = numeric_state[numeric_var_id];
-                                numeric_flaws.emplace_back(
+                                detected_numeric_flaws.emplace_back(
                                     numeric_var_id, concrete_value, prop_var_id);
                             }
                             has_numeric_flaw = true;
@@ -510,7 +523,7 @@ vector<Fact> CEGAR::get_flaws(
                 if (!has_numeric_flaw) {
                     // No flaws at all - apply operator
                     flaws.clear();
-                    numeric_flaws.clear();
+                    detected_numeric_flaws.clear();
                     apply_op_to_state(current_state, op);
                     apply_numeric_effects(numeric_state, op);
                     break;
@@ -523,11 +536,11 @@ vector<Fact> CEGAR::get_flaws(
             }
         }
         
-        if (!flaws.empty() || !numeric_flaws.empty()) {
+        if (!flaws.empty() || !detected_numeric_flaws.empty()) {
             // Convert numeric flaws to propositional flaws for now
             // (We'll handle numeric refinement in fix_flaws)
             // For now, add the propositional variable from the comparison axiom
-            for (const NumericFlaw &nf : numeric_flaws) {
+            for (const NumericFlaw &nf : detected_numeric_flaws) {
                 // Add the propositional variable that failed
                 // (The fix_flaws will need to be updated to handle numeric refinement)
                 flaws.emplace_back(nf.prop_var_id, 0);  // Value doesn't matter for now
@@ -556,10 +569,12 @@ vector<Fact> CEGAR::get_flaws(
                 const unordered_set<int> &dep_vars = it->second;
                 for (int numeric_var_id : dep_vars) {
                     ap_float concrete_value = numeric_state[numeric_var_id];
-                    // Add propositional variable to flaws
-                    flaws.emplace_back(prop_var_id, 0);
-                    break;  // Only add once per goal
+                    // Add to numeric flaws
+                    detected_numeric_flaws.emplace_back(
+                        numeric_var_id, concrete_value, prop_var_id);
                 }
+                // Add propositional variable to flaws for compatibility
+                flaws.emplace_back(prop_var_id, 0);
             }
         }
     }
@@ -840,9 +855,8 @@ DomainAbstraction CEGAR::build_abstraction(
         cout << "Initial domain mapping: " << domain_mapping << endl;
     
     // Initialize numeric domain mapping with full range (-inf, inf) for all numeric variables
-    NumericDomainMappingType numeric_domain_mapping =
-        compute_initial_numeric_domain_mapping(task_proxy);
-    vector<int> numeric_domain_sizes(numeric_domain_mapping.size(), 1);
+    numeric_domain_mapping = compute_initial_numeric_domain_mapping(task_proxy);
+    numeric_domain_sizes.resize(numeric_domain_mapping.size(), 1);
     
     // Build mapping from comparison axiom propositional variables to numeric variables
     build_comparison_axiom_mapping(task_proxy);
@@ -872,9 +886,19 @@ DomainAbstraction CEGAR::build_abstraction(
             break;
         }
 
-        bool flaws_fixed =
-            fix_flaws(move(flaws), domain_mapping, abstraction.size());
-        if (!flaws_fixed) {
+        // First try to fix propositional flaws (if any)
+        bool flaws_fixed = true;
+        if (!flaws.empty()) {
+            flaws_fixed = fix_flaws(move(flaws), domain_mapping, abstraction.size());
+        }
+        
+        // Then try to fix numeric flaws (if any)
+        bool numeric_flaws_fixed = true;
+        if (!detected_numeric_flaws.empty()) {
+            numeric_flaws_fixed = fix_numeric_flaws(detected_numeric_flaws, abstraction.size());
+        }
+        
+        if (!flaws_fixed || !numeric_flaws_fixed) {
             assert(max_abstraction_size != numeric_limits<int>::max());
             cout << "Terminating CEGAR loop because fixing flaws "
                  << "surpasses abstraction size limit of "
@@ -933,6 +957,70 @@ bool CEGAR::can_refine_variable(
     cout << "Cannot refine " << var_id << "; blacklisting" << endl;
     blacklisted_variables.insert(var_id);
     return false;
+}
+
+bool CEGAR::can_refine_numeric_variable(
+    int old_abstraction_size, int numeric_var_id) {
+    if (blacklisted_numeric_variables.count(numeric_var_id)) {
+        return false;
+    }
+    
+    // Check if this numeric variable is in the abstraction
+    if (numeric_var_id < 0 || numeric_var_id >= static_cast<int>(numeric_domain_mapping.size())) {
+        return false;
+    }
+    
+    int current_partitions = numeric_domain_mapping[numeric_var_id].get_num_partitions();
+    int abs_size_without_var = old_abstraction_size / current_partitions;
+    
+    // Splitting will create one more partition
+    if (utils::is_product_within_limit(abs_size_without_var, current_partitions + 1,
+                                       max_abstraction_size)) {
+        return true;
+    }
+    
+    cout << "Cannot refine numeric variable " << numeric_var_id << "; blacklisting" << endl;
+    blacklisted_numeric_variables.insert(numeric_var_id);
+    return false;
+}
+
+bool CEGAR::fix_numeric_flaws(
+    const vector<NumericFlaw> &numeric_flaws, int abstraction_size) {
+    
+    if (numeric_flaws.empty()) {
+        return true;
+    }
+    
+    // Strategy: Progressive refinement (split at concrete value only)
+    // Alternative: Aggressive refinement (split at both concrete value and threshold)
+    // For now, we use progressive refinement as recommended in CEGAR_NUMERIC_FLAWS.md
+    
+    bool refined_any = false;
+    
+    for (const NumericFlaw &flaw : numeric_flaws) {
+        int numeric_var_id = flaw.numeric_var_id;
+        ap_float concrete_value = flaw.concrete_value;
+        
+        // Check if we can refine this variable
+        if (can_refine_numeric_variable(abstraction_size, numeric_var_id)) {
+            // Split at the concrete value
+            int old_num_partitions = numeric_domain_mapping[numeric_var_id].get_num_partitions();
+            int new_num_partitions = numeric_domain_mapping[numeric_var_id].split_at(concrete_value);
+            
+            if (new_num_partitions > old_num_partitions) {
+                // Successfully split
+                numeric_domain_sizes[numeric_var_id] = new_num_partitions;
+                refined_any = true;
+                
+                cout << "Refined numeric variable " << numeric_var_id 
+                     << " at value " << concrete_value
+                     << " (partitions: " << old_num_partitions << " -> " << new_num_partitions << ")"
+                     << endl;
+            }
+        }
+    }
+    
+    return refined_any;
 }
 
 DomainAbstraction generate_domain_abstraction_with_cegar(
