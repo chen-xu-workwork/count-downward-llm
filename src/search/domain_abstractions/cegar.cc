@@ -42,6 +42,16 @@ private:
     // This allows us to trace back from propositional flaws to numeric refinements.
     // Maps: propositional_var_id -> set of numeric variable IDs
     std::unordered_map<int, std::unordered_set<int>> comparison_axiom_dependencies;
+    
+    // Structure to represent a numeric flaw
+    struct NumericFlaw {
+        int numeric_var_id;      // Regular numeric variable that needs refinement
+        ap_float concrete_value; // Concrete value that caused the flaw
+        int prop_var_id;         // Propositional variable (comparison axiom) that failed
+        
+        NumericFlaw(int var_id, ap_float value, int prop_id)
+            : numeric_var_id(var_id), concrete_value(value), prop_var_id(prop_id) {}
+    };
 
     DomainMapping compute_initial_domain_mapping(const TaskProxy &task_proxy);
     vector<int> compute_initial_split(
@@ -394,47 +404,166 @@ static void apply_op_to_state(vector<int> &state, const OperatorProxy &op) {
     }
 }
 
+/*
+  Apply numeric effects of the operator to the numeric state.
+*/
+static void apply_numeric_effects(vector<ap_float> &numeric_state, const OperatorProxy &op) {
+    assert(!op.is_axiom());
+    
+    // Apply numeric assignment effects
+    for (auto ass_eff_proxy : op.get_ass_effects()) {
+        NumAssProxy effect = ass_eff_proxy.get_assignment();
+        
+        int affected_var_id = effect.get_affected_variable().get_id();
+        
+        // Get the assigned variable (operand)
+        NumericVariableProxy assigned_var = effect.get_assigned_variable();
+        ap_float operand = numeric_state[assigned_var.get_id()];
+        
+        // Apply the effect based on assignment type
+        f_operator op_type = effect.get_assigment_operator_type();
+        switch (op_type) {
+            case assign:
+                numeric_state[affected_var_id] = operand;
+                break;
+            case increase:
+                numeric_state[affected_var_id] += operand;
+                break;
+            case decrease:
+                numeric_state[affected_var_id] -= operand;
+                break;
+            case scale_up:
+                numeric_state[affected_var_id] *= operand;
+                break;
+            case scale_down:
+                if (operand != 0) {
+                    numeric_state[affected_var_id] /= operand;
+                }
+                break;
+        }
+    }
+}
+
 
 vector<Fact> CEGAR::get_flaws(
     const TaskProxy &task_proxy, const State &concrete_init,
     const DomainAbstraction &abstraction) const {
 
-    // TODO: Inefficient
+    // Initialize propositional state
     vector<int> current_state;
     for (int i = 0; i < concrete_init.size(); ++i) {
         current_state.push_back(concrete_init[i].get_value());
     }
-    // TODO: Get numeric flaws as well.	
+    
+    // Initialize numeric state
+    vector<ap_float> numeric_state = g_root_task()->get_initial_state_numeric_values();
+    
+    // Track numeric flaws separately (we'll convert them to propositional flaws later)
+    vector<NumericFlaw> numeric_flaws;
 
     vector<vector<int>> wildcard_plan = abstraction.get_plan();
     vector<Fact> flaws;
 
     for (vector<int> &equivalent_ops : wildcard_plan) {
         assert(flaws.empty());
+        assert(numeric_flaws.empty());
+        
         for (int op_id : equivalent_ops) {
             OperatorProxy op = task_proxy.get_operators()[op_id];
+            
+            // Check propositional preconditions
             vector<Fact> operator_flaws =
                 get_precondition_flaws(
                     op, current_state, blacklisted_variables);
 
             if (operator_flaws.empty()) {
-                flaws.clear();
-                apply_op_to_state(current_state, op);
-                break;
+                // Propositional preconditions satisfied
+                // Now check if any of them are comparison axiom variables
+                // that depend on numeric variables
+                
+                bool has_numeric_flaw = false;
+                for (FactProxy pre : op.get_preconditions()) {
+                    int prop_var_id = pre.get_variable().get_id();
+                    
+                    // Check if this is a comparison axiom-derived variable
+                    auto it = comparison_axiom_dependencies.find(prop_var_id);
+                    if (it != comparison_axiom_dependencies.end()) {
+                        // This propositional variable depends on numeric variables
+                        // Check if the propositional precondition is satisfied
+                        int required_value = pre.get_value();
+                        int actual_value = current_state[prop_var_id];
+                        
+                        if (required_value != actual_value) {
+                            // Numeric flaw detected!
+                            // Collect all regular numeric variables this depends on
+                            const unordered_set<int> &dep_vars = it->second;
+                            for (int numeric_var_id : dep_vars) {
+                                ap_float concrete_value = numeric_state[numeric_var_id];
+                                numeric_flaws.emplace_back(
+                                    numeric_var_id, concrete_value, prop_var_id);
+                            }
+                            has_numeric_flaw = true;
+                        }
+                    }
+                }
+                
+                if (!has_numeric_flaw) {
+                    // No flaws at all - apply operator
+                    flaws.clear();
+                    numeric_flaws.clear();
+                    apply_op_to_state(current_state, op);
+                    apply_numeric_effects(numeric_state, op);
+                    break;
+                }
             } else {
+                // Propositional flaw detected (not on comparison axiom)
                 for (Fact &flaw : operator_flaws) {
                     flaws.emplace_back(flaw.var, flaw.value);
                 }
             }
         }
-        if (!flaws.empty()) {
+        
+        if (!flaws.empty() || !numeric_flaws.empty()) {
+            // Convert numeric flaws to propositional flaws for now
+            // (We'll handle numeric refinement in fix_flaws)
+            // For now, add the propositional variable from the comparison axiom
+            for (const NumericFlaw &nf : numeric_flaws) {
+                // Add the propositional variable that failed
+                // (The fix_flaws will need to be updated to handle numeric refinement)
+                flaws.emplace_back(nf.prop_var_id, 0);  // Value doesn't matter for now
+            }
             return flaws;
         }
     }
 
+    // Check goal flaws
     assert(flaws.empty());
     flaws = get_goal_flaws(task_proxy.get_goals(), current_state,
                            blacklisted_variables);
+    
+    // Also check for numeric flaws in goals
+    for (const FactProxy &goal : task_proxy.get_goals()) {
+        int prop_var_id = goal.get_variable().get_id();
+        
+        // Check if this goal is a comparison axiom-derived variable
+        auto it = comparison_axiom_dependencies.find(prop_var_id);
+        if (it != comparison_axiom_dependencies.end()) {
+            int required_value = goal.get_value();
+            int actual_value = current_state[prop_var_id];
+            
+            if (required_value != actual_value) {
+                // Numeric goal flaw detected!
+                const unordered_set<int> &dep_vars = it->second;
+                for (int numeric_var_id : dep_vars) {
+                    ap_float concrete_value = numeric_state[numeric_var_id];
+                    // Add propositional variable to flaws
+                    flaws.emplace_back(prop_var_id, 0);
+                    break;  // Only add once per goal
+                }
+            }
+        }
+    }
+    
     return flaws;
 }
 
