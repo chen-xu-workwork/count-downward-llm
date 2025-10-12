@@ -31,7 +31,7 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
       hash_multipliers(hash_multipliers) {
     
     // Verify this is a valid numeric task
-    verify_no_axioms(task_proxy);
+    verify_no_non_numeric_axioms(task_proxy);
     verify_no_conditional_effects(task_proxy);
     
     n_numeric_variables = task_proxy.get_numeric_variables().size();

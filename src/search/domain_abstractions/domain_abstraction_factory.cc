@@ -143,7 +143,7 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     : domain_mapping(domain_mapping),
       numeric_domain_mapping(numeric_domain_mapping),
       numeric_domain_sizes(numeric_domain_sizes) {
-        verify_no_axioms(task_proxy);
+        verify_no_non_numeric_axioms(task_proxy);
         verify_no_conditional_effects(task_proxy);
 
     // Compute hash multipliers for propositional variables

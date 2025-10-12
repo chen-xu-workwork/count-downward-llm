@@ -5,6 +5,7 @@
 #include "../option_parser.h"
 #include "../plugin.h"
 #include "../task_proxy.h"
+#include "../task_tools.h"
 
 #include <limits>
 #include <memory>
@@ -14,8 +15,8 @@ using namespace std;
 namespace domain_abstractions {
 static DomainAbstraction get_domain_abstraction_from_options(
     const options::Options &opts, const TaskProxy &task_proxy) {
-    verify_no_axioms();
-    verify_no_conditional_effects();
+    verify_no_non_numeric_axioms(task_proxy);
+    verify_no_conditional_effects(task_proxy);
 
     shared_ptr<DomainAbstractionGenerator> generator =
         opts.get<shared_ptr<DomainAbstractionGenerator>>(

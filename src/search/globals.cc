@@ -493,6 +493,14 @@ void verify_no_axioms() {
     }
 }
 
+void verify_no_logic_axioms() {
+    if (has_logic_axioms()) {
+        cerr << "Heuristic does not support logic axioms!" << endl << "Terminating."
+             << endl;
+        utils::exit_with(ExitCode::UNSUPPORTED);
+    }
+}
+
 static int get_first_conditional_effects_op_id() {
     for (size_t i = 0; i < g_operators.size(); ++i) {
         const vector<GlobalEffect> &effects = g_operators[i].get_effects();
