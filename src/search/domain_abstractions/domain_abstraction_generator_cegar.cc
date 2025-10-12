@@ -107,7 +107,7 @@ static shared_ptr<DomainAbstractionGenerator> _parse(OptionParser &parser) {
         "init_split_option",
         init_split_options,
         "Specify an initialization for the abstraction generation.",
-        "none");
+        "all_goals");
     add_domain_abstraction_cegar_options_to_parser(parser);
     add_domain_abstraction_generator_options_to_parser(parser);
 

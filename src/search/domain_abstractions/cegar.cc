@@ -3,6 +3,8 @@
 #include "domain_abstraction.h"
 #include "domain_abstraction_factory.h"
 
+#include "../axioms.h"
+#include "../globals.h"
 #include "../option_parser.h"
 #include "../task_proxy.h"
 
@@ -191,6 +193,32 @@ static bool variable_specified_in_goal(int var_id,
 
 vector<int> CEGAR::compute_initial_split(
     int var_id, const TaskProxy &task_proxy, int &abstraction_size) {
+    cout << "Initial split for variable " << var_id << ": " << "with initialization method "; 
+    switch (init_split_method) {
+    case InitSplitMethod::GOAL_VALUE:
+        cout << "GOAL_VALUE" << endl;
+        assert(variable_specified_in_goal(var_id, task_proxy));
+        break;
+    case InitSplitMethod::GOAL_VALUE_OR_RANDOM_IF_NON_GOAL:
+        cout << "GOAL_VALUE_OR_RANDOM_IF_NON_GOAL" << endl;
+        break;
+    case InitSplitMethod::INIT_VALUE:
+        cout << "INIT_VALUE" << endl;
+        break;
+    case InitSplitMethod::RANDOM_VALUE: 
+        cout << "RANDOM_VALUE" << endl;
+        break;
+    case InitSplitMethod::RANDOM_PARTITION:
+        cout << "RANDOM_PARTITION" << endl;
+        break;
+    case InitSplitMethod::RANDOM_BINARY_PARTITION_SEPARATING_INIT_GOAL:
+        cout << "RANDOM_BINARY_PARTITION_SEPARATING_INIT_GOAL" << endl;
+        break;
+    case InitSplitMethod::IDENTITY:
+        cout << "IDENTITY" << endl;
+        break;
+    }
+    cout << endl;
     if (init_split_method == InitSplitMethod::RANDOM_PARTITION
         || initialization_fits_size_limit(abstraction_size, var_id)) {
         pair<int, vector<int>> init_split;
@@ -286,13 +314,12 @@ pair<int, vector<int>> CEGAR::get_init_value_split(
         task_proxy.get_variables()[var_id].get_domain_size(), 0);
 
     State init_state = task_proxy.get_initial_state();
-    int regular_init_state = init_state.hash(); //TODO: Figure out if a) we want to use hash or create our own hash and b) if we should use the vector instead
 
-    //int init_value =
-    //    task_proxy.get_initial_state().get_unpacked_values()[var_id];
-    //assert(utils::in_bounds(init_value, init_split));
+    int init_value = task_proxy.get_initial_state()[var_id].get_value();
+    cout << "init value " << init_value << endl;
+    assert(utils::in_bounds(init_value, init_split));
     //TODO: Do the same for numeric variables
-    init_split[regular_init_state] = 1;
+    init_split[init_value] = 1;
     return make_pair(2, move(init_split));
 }
 
@@ -852,7 +879,36 @@ DomainAbstraction CEGAR::build_abstraction(
 
     DomainMapping domain_mapping =
         compute_initial_domain_mapping(task_proxy);
-        cout << "Initial domain mapping: " << domain_mapping << endl;
+    cout << "Initial domain mapping: " << domain_mapping << endl;
+    
+    // Debug: Check which variables are derived/axiom variables
+    cout << "Variable analysis:" << endl;
+    for (int var_id = 0; var_id < task_proxy.get_variables().size(); ++var_id) {
+        VariableProxy var = task_proxy.get_variables()[var_id];
+        bool is_derived = (var_id >= task_proxy.get_variables().size() - task_proxy.get_axioms().size());
+        bool has_mapping = !domain_mapping[var_id].empty();
+        cout << "  Variable " << var_id << " (" << var.get_id() << "): "
+             << "derived=" << (is_derived ? "yes" : "no") << ", "
+             << "has_mapping=" << (has_mapping ? "yes" : "no") << ", "
+             << "domain_size=" << var.get_domain_size() << endl;
+    }
+    
+    // Debug: Show logic axioms
+    cout << "Logic axioms in task: " << task_proxy.get_axioms().size() << endl;
+    for (size_t i = 0; i < task_proxy.get_axioms().size(); ++i) {
+        OperatorProxy axiom = task_proxy.get_axioms()[i];
+        cout << "  Logic axiom " << i << ": " << axiom.get_name() << endl;
+        for (EffectProxy eff : axiom.get_effects()) {
+            cout << "    affects variable " << eff.get_fact().get_variable().get_id() << endl;
+        }
+    }
+    
+    // Debug: Show comparison axioms
+    cout << "Comparison axioms in task: " << g_comp_axioms.size() << endl;
+    for (size_t i = 0; i < g_comp_axioms.size(); ++i) {
+        const ComparisonAxiom &ax = g_comp_axioms[i];
+        cout << "  Comparison axiom " << i << ": affects variable " << ax.affected_variable << endl;
+    }
     
     // Initialize numeric domain mapping with full range (-inf, inf) for all numeric variables
     numeric_domain_mapping = compute_initial_numeric_domain_mapping(task_proxy);
