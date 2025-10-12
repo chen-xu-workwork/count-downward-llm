@@ -1,5 +1,5 @@
 #include "domain_abstraction_generator_cegar.h"
-#include "domain_abstraction_generator.cc"
+#include "domain_abstraction_generator.h"
 
 #include "cegar.h"
 #include "utils.h"

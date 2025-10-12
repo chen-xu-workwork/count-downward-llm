@@ -10,6 +10,7 @@ class TaskProxy;
 
 namespace options {
 class Options;
+class OptionParser;
 }
 
 namespace utils {
@@ -30,8 +31,8 @@ public:
         const TaskProxy &task_proxy) = 0;
 };
 
-//extern void add_domain_abstraction_generator_options_to_parser(
-//    OptionParser &parser);
+extern void add_domain_abstraction_generator_options_to_parser(
+    options::OptionParser &parser);
 
 class DomainAbstractionGeneratorIdentity : public DomainAbstractionGenerator {
 public:
