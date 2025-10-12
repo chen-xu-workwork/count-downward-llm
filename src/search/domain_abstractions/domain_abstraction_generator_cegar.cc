@@ -20,9 +20,9 @@ DomainAbstractionGeneratorCEGAR::DomainAbstractionGeneratorCEGAR(
       max_abstraction_size(opts.get<int>("max_abstraction_size")),
       max_time(opts.get<double>("max_time")),
       use_wildcard_plans(opts.get<bool>("use_wildcard_plans")),
-      flaw_treatment(opts.get<FlawTreatment>("flaw_treatment")),
-      init_split_method(opts.get<InitSplitMethod>("init_split_method")),
-      init_split_option(opts.get<InitSplitOptions>("init_split_option")) {
+      flaw_treatment(FlawTreatment(opts.get_enum("flaw_treatment"))),
+      init_split_method(InitSplitMethod(opts.get_enum("init_split_method"))),
+      init_split_option(InitSplitOptions(opts.get_enum("init_split_option"))) {
     if (init_split_method == InitSplitMethod::GOAL_VALUE
         && !(init_split_option == InitSplitOptions::RANDOM_GOAL
              || init_split_option == InitSplitOptions::ALL_GOALS)) {
