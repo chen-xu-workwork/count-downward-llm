@@ -33,6 +33,10 @@ vector<Fact> get_goals_in_random_order(
     return goals;
 }
 
+string get_rovner_et_al_reference() {
+    return " (Rovner, Helmert, and Domshlak 2019, https://doi.org/10.1007/978-3-030-30244-3_22).";
+}
+
 vector<int> get_non_goal_variables(const TaskProxy &task_proxy) {
     size_t num_vars = task_proxy.get_variables().size();
     GoalsProxy goals = task_proxy.get_goals();

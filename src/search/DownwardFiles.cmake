@@ -681,6 +681,7 @@ set(DOMAIN_ABSTRACTIONS_SOURCES
     domain_abstractions/domain_abstraction_generator_cegar
     domain_abstractions/domain_abstraction_collection_generator
     domain_abstractions/domain_abstraction_collection_generator_multiple
+    domain_abstractions/domain_abstraction_collection_generator_multiple_cegar
     domain_abstractions/utils
 )
 list(APPEND PLANNER_SOURCES ${DOMAIN_ABSTRACTIONS_SOURCES})
