@@ -86,7 +86,7 @@ unordered_set<int> DomainAbstractionGeneratorCEGAR::get_init_split_var_ids(
     return var_ids;
 }
 
-static DomainAbstractionGenerator *_parse(OptionParser &parser) {
+static shared_ptr<DomainAbstractionGenerator> _parse(OptionParser &parser) {
     parser.add_option<int>(
         "max_abstraction_size",
         "Max number of states of the final abstraction.",
@@ -116,10 +116,10 @@ static DomainAbstractionGenerator *_parse(OptionParser &parser) {
         return nullptr;
     }
 
-    return new DomainAbstractionGeneratorCEGAR(opts);
+    return make_shared<DomainAbstractionGeneratorCEGAR>(opts);
 }
 
-static Plugin<DomainAbstractionGenerator> _plugin("domain_abstraction_cegar", _parse);
+static PluginShared<DomainAbstractionGenerator> _plugin("domain_abstraction_cegar", _parse);
 }
 
 namespace options {
