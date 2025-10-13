@@ -258,16 +258,28 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     // Process propositional preconditions
     for (FactProxy pre : op.get_preconditions()) {
         int var_id = pre.get_variable().get_id();
-        // Map concrete value to abstract value (0 for trivial variables)
-        int abstract_val = variable_is_trivial(var_id) ? 0 : domain_mapping[var_id][pre.get_value()];
+        
+        // Skip trivial variables - they're completely abstracted away
+        if (variable_is_trivial(var_id)) {
+            continue;
+        }
+        
+        // Map concrete value to abstract value
+        int abstract_val = domain_mapping[var_id][pre.get_value()];
         has_precondition_on_var[var_id] = abstract_val;
     }
 
     // Process propositional effects
     for (EffectProxy eff : op.get_effects()) {
         int var_id = eff.get_fact().get_variable().get_id();
-        // Map concrete value to abstract value (0 for trivial variables)
-        int val = variable_is_trivial(var_id) ? 0 : domain_mapping[var_id][eff.get_fact().get_value()];
+        
+        // Skip trivial variables - they're completely abstracted away
+        if (variable_is_trivial(var_id)) {
+            continue;
+        }
+        
+        // Map concrete value to abstract value
+        int val = domain_mapping[var_id][eff.get_fact().get_value()];
         
         // Collect effects that don't have themselves as precondition
         int pre_val = has_precondition_on_var[var_id];
@@ -282,8 +294,14 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     // Classify preconditions as either pre_pairs or prev_pairs
     for (FactProxy pre : op.get_preconditions()) {
         int var_id = pre.get_variable().get_id();
-        // Map concrete value to abstract value (0 for trivial variables)
-        int val = variable_is_trivial(var_id) ? 0 : domain_mapping[var_id][pre.get_value()];
+        
+        // Skip trivial variables - they're completely abstracted away
+        if (variable_is_trivial(var_id)) {
+            continue;
+        }
+        
+        // Map concrete value to abstract value
+        int val = domain_mapping[var_id][pre.get_value()];
         if (has_effect_on_var[var_id] >= 0) {
             pre_pairs.emplace_back(var_id, val);
         } else {
@@ -359,32 +377,22 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
         int var_id = effects_without_pre[pos].var;
         int eff = effects_without_pre[pos].value;
         
-        // Check if variable is trivial (empty domain mapping)
-        if (variable_is_trivial(var_id)) {
-            // Trivial variable - no enumeration needed, single abstract value 0
-            // Effect on trivial variable has no observable impact in abstraction
-            // Just continue to next effect
+        // Enumerate all abstract values (trivial variables already filtered out)
+        for (int i = 0; i < this->domain_sizes[var_id]; ++i) {
+            if (i != eff) {
+                pre_pairs.emplace_back(var_id, i);
+                eff_pairs.emplace_back(var_id, eff);
+            } else {
+                prev_pairs.emplace_back(var_id, i);
+            }
             multiply_out_propositional(
                 pos + 1, cost, prev_pairs, pre_pairs, eff_pairs,
                 effects_without_pre, ass_effects, concrete_op_id, operators);
-        } else {
-            // Non-trivial variable - enumerate all abstract values
-            for (int i = 0; i < this->domain_sizes[var_id]; ++i) {
-                if (i != eff) {
-                    pre_pairs.emplace_back(var_id, i);
-                    eff_pairs.emplace_back(var_id, eff);
-                } else {
-                    prev_pairs.emplace_back(var_id, i);
-                }
-                multiply_out_propositional(
-                    pos + 1, cost, prev_pairs, pre_pairs, eff_pairs,
-                    effects_without_pre, ass_effects, concrete_op_id, operators);
-                if (i != eff) {
-                    pre_pairs.pop_back();
-                    eff_pairs.pop_back();
-                } else {
-                    prev_pairs.pop_back();
-                }
+            if (i != eff) {
+                pre_pairs.pop_back();
+                eff_pairs.pop_back();
+            } else {
+                prev_pairs.pop_back();
             }
         }
     }
