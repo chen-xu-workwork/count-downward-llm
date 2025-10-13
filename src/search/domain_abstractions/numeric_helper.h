@@ -171,6 +171,14 @@ public:
     const TaskProxy &get_task_proxy() const {
         return task_proxy;
     }
+    
+    /**
+     * Check if a propositional variable has a trivial (empty) domain mapping.
+     * Trivial variables are completely abstracted to a single abstract value.
+     */
+    bool variable_is_trivial(int var_id) const {
+        return domain_mapping[var_id].empty();
+    }
 
 private:
     const std::shared_ptr<AbstractTask> task;
