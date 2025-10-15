@@ -35,6 +35,7 @@ int DomainAbstraction::get_value(const State &state) const {
         return distances[index];
     } else {
         // Mixed propositional and numeric case - use state registry
+        assert(state_registry);
         
         // Compute combined hash for both propositional and numeric variables
         size_t state_hash = 0;

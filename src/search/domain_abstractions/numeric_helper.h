@@ -276,6 +276,7 @@ private:
      * 4. Cascading effects on derived propositional variables (comparison axioms)
      */
     std::vector<int> compute_hash_effects_with_cascades(
+        const std::vector<Fact> &pre_pairs,
         const std::vector<Fact> &eff_pairs,
         const std::vector<NumAssProxy> &ass_effects);
     

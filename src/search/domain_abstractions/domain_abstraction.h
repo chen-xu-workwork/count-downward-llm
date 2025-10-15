@@ -47,7 +47,14 @@ public:
           distances(std::move(distances)),
           wildcard_plan(std::move(wildcard_plan)),
           state_registry(std::move(state_registry)),
-          has_numeric_variables(!this->numeric_domain_mapping.empty()) {
+          has_numeric_variables(false) {
+        // Check if any numeric variable has non-trivial partitioning
+        for (const auto &num_mapping : this->numeric_domain_mapping) {
+            if (num_mapping.get_ranges().size() > 1) {
+                has_numeric_variables = true;
+                break;
+            }
+        }
     }
 
     const DomainMapping &get_domain_mapping() const {

@@ -553,11 +553,8 @@ vector<Fact> CEGAR::get_flaws(
                     detected_numeric_flaws.clear();
                     apply_op_to_state(current_state, op);
                     apply_numeric_effects(numeric_state, op);
-                    
-                    // TODO: Evaluate axioms after operator application
-                    // This is disabled for now as it may be causing heap corruption
-                    // g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_state);
-                    // g_axiom_evaluator->evaluate(current_state, numeric_state);
+                    g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_state);
+                    g_axiom_evaluator->evaluate(current_state, numeric_state);
                     
                     break;
                 }

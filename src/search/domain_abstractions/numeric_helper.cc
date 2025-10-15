@@ -359,7 +359,7 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
         if (!eff_pairs.empty() || !ass_effects.empty()) {
             // Compute all hash effects including cascades
             vector<int> complete_hash_effects = 
-                compute_hash_effects_with_cascades(eff_pairs, ass_effects);
+                compute_hash_effects_with_cascades(pre_pairs, eff_pairs, ass_effects);
             
             // Create abstract operator with pre-computed hash effects
             operators.emplace_back(
@@ -399,22 +399,25 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
 }
 
 vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
+    const vector<Fact> &pre_pairs,
     const vector<Fact> &eff_pairs,
     const vector<NumAssProxy> &ass_effects) {
     
     vector<int> hash_effects;
     
     // Compute base hash effect from propositional effects
+    // Following the same pattern as domain_abstraction_factory.cc:
+    // In regression, eff_pairs contains the old values (where we came from)
+    // and pre_pairs contains the new values (where we're going to)
     int base_hash_effect = 0;
-    for (const Fact &effect : eff_pairs) {
-        int var_id = effect.var;
-        int old_val = -1;  // We don't know the old value in abstraction
-        int new_val = effect.value;
-        
-        // Contribution to hash: new_val * multiplier - old_val * multiplier
-        // But we can't compute old_val here, so we just store the new value contribution
-        // The actual hash computation during regression will handle this
-        base_hash_effect += new_val * hash_multipliers[var_id];
+    assert(pre_pairs.size() == eff_pairs.size());
+    for (size_t i = 0; i < pre_pairs.size(); ++i) {
+        int var_id = pre_pairs[i].var;
+        assert(var_id == eff_pairs[i].var);
+        int old_val = eff_pairs[i].value;
+        int new_val = pre_pairs[i].value;
+        int effect = (new_val - old_val) * hash_multipliers[var_id];
+        base_hash_effect += effect;
     }
     
     // If no numeric effects, just return the base effect
@@ -475,7 +478,8 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
         if (affected_numeric_vars[var_idx]) {
             // This variable is affected - enumerate reachable partition transitions
             int num_partitions = numeric_domain_sizes[var_idx];
-            int hash_multiplier = hash_multipliers[eff_pairs.size() + var_idx];
+            // Hash multipliers for numeric vars come after ALL propositional vars
+            int hash_multiplier = hash_multipliers[domain_sizes.size() + var_idx];
             
             // Find the assignment effect for this variable
             const NumAssProxy *ass_eff_for_var = nullptr;

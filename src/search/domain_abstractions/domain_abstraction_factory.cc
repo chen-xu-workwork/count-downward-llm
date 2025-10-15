@@ -150,6 +150,7 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     int num_variables = task_proxy.get_variables().size();
     hash_multipliers.reserve(num_variables + numeric_domain_mapping.size());
     num_states = 1;
+    
     for (int var_id = 0; var_id < num_variables; ++var_id) {
         hash_multipliers.push_back(num_states);
         if (utils::is_product_within_limit(num_states, domain_sizes[var_id],
@@ -257,8 +258,6 @@ void DomainAbstractionFactory::compute_distances(
     AdaptiveQueue<int> pq;
 
     // initialize queue
-    //TODO: Add numeric vars here. Not trivial how to achieve that. 
-    //Can we implement domain abstractions such that we have finite state spaces?
     for (int state_index = 0; state_index < num_states; ++state_index) {
         if (is_goal_state(state_index, abstract_goals, domain_sizes)) {
             pq.push(0, state_index);
@@ -304,6 +303,7 @@ void DomainAbstractionFactory::compute_distances(
             // Propositional operators have 1 effect, numeric operators have multiple
             for (int hash_effect : op.get_hash_effects()) {
                 int predecessor = state_index + hash_effect;
+                
                 if (alternative_cost < distances[predecessor]) {
                     distances[predecessor] = alternative_cost;
                     pq.push(alternative_cost, predecessor);
@@ -379,6 +379,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
             for (int candidate_hash_effect : op.get_hash_effects()) {
                 int candidate_successor = current_state - candidate_hash_effect;
                 // Check if this successor is valid (was reached during Dijkstra)
+                assert(candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()));
                 if (candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()) &&
                     distances[candidate_successor] != numeric_limits<int>::max() &&
                     distances[candidate_successor] < distances[current_state]) {
