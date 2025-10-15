@@ -505,11 +505,25 @@ vector<Fact> CEGAR::get_flaws(
     vector<vector<int>> wildcard_plan = abstraction.get_plan();
     vector<Fact> flaws;
 
+    cout << "DEBUG: Validating wildcard plan with " << wildcard_plan.size() << " steps" << endl;
+    int step_num = 0;
     for (vector<int> &equivalent_ops : wildcard_plan) {
         assert(flaws.empty());
+        cout << "DEBUG: Step " << step_num << " - " << equivalent_ops.size() << " equivalent operators" << endl;
         
         for (int op_id : equivalent_ops) {
             OperatorProxy op = task_proxy.get_operators()[op_id];
+            cout << "  Checking operator " << op_id << ": " << op.get_name() << endl;
+            cout << "    Preconditions: ";
+            for (FactProxy pre : op.get_preconditions()) {
+                cout << "var" << pre.get_variable().get_id() << "=" << pre.get_value() << " ";
+            }
+            cout << endl;
+            cout << "    Effects: ";
+            for (EffectProxy eff : op.get_effects()) {
+                cout << "var" << eff.get_fact().get_variable().get_id() << "=" << eff.get_fact().get_value() << " ";
+            }
+            cout << endl;
             
             // Check propositional preconditions
             vector<Fact> operator_flaws =
@@ -566,7 +580,9 @@ vector<Fact> CEGAR::get_flaws(
                 }
             } else {
                 // Propositional flaw detected (not on comparison axiom)
+                cout << "DEBUG: Adding propositional flaws to flaws vector:" << endl;
                 for (Fact &flaw : operator_flaws) {
+                    cout << "  Adding flaw: var" << flaw.var << "=" << flaw.value << endl;
                     flaws.emplace_back(flaw.var, flaw.value);
                 }
             }
@@ -576,19 +592,49 @@ vector<Fact> CEGAR::get_flaws(
             // Convert numeric flaws to propositional flaws for now
             // (We'll handle numeric refinement in fix_flaws)
             // For now, add the propositional variable from the comparison axiom
+            cout << "DEBUG: Flaw found at step " << step_num << endl;
+            cout << "DEBUG: Converting numeric flaws to propositional flaws:" << endl;
             for (const NumericFlaw &nf : detected_numeric_flaws) {
                 // Add the propositional variable that failed
                 // (The fix_flaws will need to be updated to handle numeric refinement)
+                cout << "  Adding flaw from numeric: var" << nf.prop_var_id << "=0 (from numeric var " 
+                     << nf.numeric_var_id << ")" << endl;
                 flaws.emplace_back(nf.prop_var_id, 0);  // Value doesn't matter for now
             }
+            cout << "DEBUG: Returning " << flaws.size() << " total flaws at step " << step_num << endl;
             return flaws;
         }
+        step_num++;
     }
 
     // Check goal flaws
     assert(flaws.empty());
+    cout << "DEBUG: Plan executed successfully, checking goals..." << endl;
+    cout << "DEBUG: Current state after plan execution:" << endl;
+    for (size_t i = 0; i < current_state.size(); ++i) {
+        if (i < 30) {  // Only print first 30 variables to avoid clutter
+            cout << "  ID: " << i << "=" << current_state[i] << endl;
+        }
+    }
+    cout << "DEBUG: Goals:" << endl;
+    for (const FactProxy &goal : task_proxy.get_goals()) {
+        int var_id = goal.get_variable().get_id();
+        int required = goal.get_value();
+        int actual = current_state[var_id];
+        cout << "  ID: " << var_id << ": required=" << required << ", actual=" << actual;
+        if (required != actual) {
+            cout << " <- MISMATCH";
+        }
+        cout << endl;
+    }
+    
     flaws = get_goal_flaws(task_proxy.get_goals(), current_state,
                            blacklisted_variables);
+    
+    cout << "DEBUG: Goal flaws detected: " << flaws.size() << endl;
+    for (const Fact &flaw : flaws) {
+        cout << "  Goal flaw: ID: " << flaw.var << "=" << flaw.value << endl;
+    }
     
     // Also check for numeric flaws in goals
     for (const FactProxy &goal : task_proxy.get_goals()) {
@@ -602,6 +648,7 @@ vector<Fact> CEGAR::get_flaws(
             
             if (required_value != actual_value) {
                 // Numeric goal flaw detected!
+                cout << "DEBUG: Numeric goal flaw on var" << prop_var_id << endl;
                 const unordered_set<int> &dep_vars = it->second;
                 for (int numeric_var_id : dep_vars) {
                     ap_float concrete_value = numeric_state[numeric_var_id];
@@ -610,11 +657,15 @@ vector<Fact> CEGAR::get_flaws(
                         numeric_var_id, concrete_value, prop_var_id);
                 }
                 // Add propositional variable to flaws for compatibility
+                cout << "  Adding goal flaw: var" << prop_var_id << "=0" << endl;
                 flaws.emplace_back(prop_var_id, 0);
             }
         }
     }
+    cout << "STOP" << endl;
+    exit(0);
     
+    cout << "DEBUG: Returning " << flaws.size() << " total goal flaws" << endl;
     return flaws;
 }
 
@@ -643,14 +694,46 @@ bool CEGAR::fix_single_random_flaw(
     int abstraction_size) {
     // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
     int repetitions = ceil(1 + std::log(flaws.size()));
+    cout << "DEBUG fix_single_random_flaw: Processing " << flaws.size() << " flaws, "
+         << repetitions << " repetitions" << endl;
     for (int i = 0; i < repetitions; ++i) {
         Fact fact(*rng->choose(flaws));
+        cout << "  Attempt " << (i+1) << ": chosen flaw var" << fact.var << "=" << fact.value << endl;
+        cout << "    Current abstract_domain_size[" << fact.var << "] = " 
+             << abstract_domain_sizes[fact.var] << endl;
+        cout << "    Real domain size = " << real_domain_sizes[fact.var] << endl;
+        
         if (can_refine_variable(abstraction_size, fact.var)) {
+            cout << "    Can refine - adding to abstraction" << endl;
             add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
+            
+            // Show domain mapping before modification
+            cout << "    Domain mapping before: [";
+            for (size_t j = 0; j < domain_mapping[fact.var].size(); ++j) {
+                if (j > 0) cout << ", ";
+                cout << domain_mapping[fact.var][j];
+            }
+            cout << "]" << endl;
+            
+            cout << "    Setting domain_mapping[" << fact.var << "][" << fact.value 
+                 << "] = " << abstract_domain_sizes[fact.var] << endl;
             domain_mapping[fact.var][fact.value] =
                 abstract_domain_sizes[fact.var];
+            
+            // Show domain mapping after modification
+            cout << "    Domain mapping after: [";
+            for (size_t j = 0; j < domain_mapping[fact.var].size(); ++j) {
+                if (j > 0) cout << ", ";
+                cout << domain_mapping[fact.var][j];
+            }
+            cout << "]" << endl;
+            
             abstract_domain_sizes[fact.var] += 1;
+            cout << "    New abstract_domain_size[" << fact.var << "] = " 
+                 << abstract_domain_sizes[fact.var] << endl;
             return true;
+        } else {
+            cout << "    Cannot refine (blacklisted or size limit)" << endl;
         }
     }
     return false;
@@ -851,12 +934,27 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         return regular_vars;
     };
     
+    GoalsProxy goal = task_proxy.get_goals();
+        for (FactProxy goal_fact : goal) {
+            cout << "DEBUG:   Goal: ";
+            cout << goal_fact.get_variable().get_name()
+                    << "=" << goal_fact.get_value() << endl;
+        }
+
     // Now build the comparison axiom mapping
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+    cout << "DEBUG: Building comparison axiom mapping, total axioms: " << comparison_axioms.size() << endl;
     for (ComparisonAxiomProxy axiom : comparison_axioms) {
         // Get the propositional variable created by this comparison axiom
         FactProxy true_fact = axiom.get_true_fact();
+        FactProxy false_fact = axiom.get_false_fact();
+
+        
+        assert(true_fact.get_variable().get_id() == false_fact.get_variable().get_id());
         int prop_var_id = true_fact.get_variable().get_id();
+        
+        cout << "DEBUG: Processing comparison axiom for var" << prop_var_id 
+             << " (" << true_fact.get_variable().get_name() << ")" << endl;
         
         // Get the numeric variables used in the comparison (may be derived!)
         int left_var_id = axiom.get_left_variable().get_id();
@@ -877,7 +975,16 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         
         // Store the mapping
         comparison_axiom_dependencies[prop_var_id] = regular_vars;
+        
+        cout << "DEBUG: Stored mapping for var" << prop_var_id << " -> {";
+        for (int reg_var : regular_vars) {
+            cout << reg_var << " ";
+        }
+        cout << "}" << endl;
     }
+    
+    cout << "DEBUG: Total comparison axiom dependencies stored: " 
+         << comparison_axiom_dependencies.size() << endl;
 }
 
 DomainAbstraction CEGAR::build_abstraction(
@@ -896,7 +1003,7 @@ DomainAbstraction CEGAR::build_abstraction(
         VariableProxy var = task_proxy.get_variables()[var_id];
         bool is_derived = (var_id >= task_proxy.get_variables().size() - task_proxy.get_axioms().size());
         bool has_mapping = !domain_mapping[var_id].empty();
-        cout << "  Variable " << var_id << " (" << var.get_id() << "): "
+        cout << "  Variable " << var_id << " (" << var.get_name() << "): "
              << "derived=" << (is_derived ? "yes" : "no") << ", "
              << "has_mapping=" << (has_mapping ? "yes" : "no") << ", "
              << "domain_size=" << var.get_domain_size() << endl;
@@ -925,6 +1032,18 @@ DomainAbstraction CEGAR::build_abstraction(
     
     // Build mapping from comparison axiom propositional variables to numeric variables
     build_comparison_axiom_mapping(task_proxy);
+    
+    // DEBUG: Print all comparison axiom mappings
+    cout << "DEBUG: Comparison axiom mappings:" << endl;
+    for (const auto &entry : comparison_axiom_dependencies) {
+        int prop_var_id = entry.first;
+        const unordered_set<int> &numeric_var_ids = entry.second;
+        cout << "  Propositional var " << prop_var_id << " depends on numeric vars: ";
+        for (int nvar : numeric_var_ids) {
+            cout << nvar << " ";
+        }
+        cout << endl;
+    }
     
     DomainAbstractionFactory factory(
         task_proxy, domain_mapping, abstract_domain_sizes,
