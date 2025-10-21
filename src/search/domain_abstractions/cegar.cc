@@ -417,17 +417,53 @@ static vector<Fact> get_precondition_flaws(
     return flaws;
 }
 
-static vector<Fact> get_goal_flaws(
-    const GoalsProxy &goals, const vector<int> &current_state,
-    const unordered_set<int> &blacklisted_variables) {
-    vector<Fact> flaws;
-    for (const FactProxy &goal : goals) {
-        int var_id = goal.get_variable().get_id();
-        if (blacklisted_variables.count(var_id) == 0
-            && current_state[var_id] != goal.get_value()) {
-            flaws.emplace_back(var_id, goal.get_value());
+// Helper function to check if a variable is derived (appears in axiom effects)
+static bool is_derived_variable(const TaskProxy &task_proxy, int var_id) {
+    for (OperatorProxy ax : task_proxy.get_axioms()) {
+        for (EffectProxy eff : ax.get_effects()) {
+            if (eff.get_fact().get_variable().get_id() == var_id) {
+                return true;
+            }
         }
     }
+    return false;
+}
+
+static vector<Fact> get_goal_flaws(
+    const TaskProxy &task_proxy, const vector<int> &current_state,
+    const unordered_set<int> &blacklisted_variables) {
+    vector<Fact> flaws;
+    
+    // First, collect non-derived goals directly
+    for (const FactProxy &goal : task_proxy.get_goals()) {
+        int var_id = goal.get_variable().get_id();
+        if (!is_derived_variable(task_proxy, var_id)) {
+            if (blacklisted_variables.count(var_id) == 0
+                && current_state[var_id] != goal.get_value()) {
+                flaws.emplace_back(var_id, goal.get_value());
+            }
+        }
+    }
+    
+    // Reconstruct goals from goal axioms (numeric goals are compiled into axioms)
+    // There should be at most two axioms: one dummy axiom (no preconditions),
+    // and one optional goal axiom that encodes numeric/propositional goals
+    assert(task_proxy.get_axioms().size() <= 2);
+    
+    for (OperatorProxy axiom : task_proxy.get_axioms()) {
+        // Goal axioms have preconditions and exactly one effect
+        if (!axiom.get_preconditions().empty() && axiom.get_effects().size() == 1) {
+            // The preconditions of this goal axiom are the actual goals
+            for (FactProxy pre : axiom.get_preconditions()) {
+                int var_id = pre.get_variable().get_id();
+                if (blacklisted_variables.count(var_id) == 0
+                    && current_state[var_id] != pre.get_value()) {
+                    flaws.emplace_back(var_id, pre.get_value());
+                }
+            }
+        }
+    }
+    
     return flaws;
 }
 
@@ -589,19 +625,12 @@ vector<Fact> CEGAR::get_flaws(
         }
         
         if (!flaws.empty() || !detected_numeric_flaws.empty()) {
-            // Convert numeric flaws to propositional flaws for now
-            // (We'll handle numeric refinement in fix_flaws)
-            // For now, add the propositional variable from the comparison axiom
+            // We found flaws - return them
+            // Note: We don't add comparison axiom variables to the flaws vector
+            // because they will be handled through numeric refinement
             cout << "DEBUG: Flaw found at step " << step_num << endl;
-            cout << "DEBUG: Converting numeric flaws to propositional flaws:" << endl;
-            for (const NumericFlaw &nf : detected_numeric_flaws) {
-                // Add the propositional variable that failed
-                // (The fix_flaws will need to be updated to handle numeric refinement)
-                cout << "  Adding flaw from numeric: var" << nf.prop_var_id << "=0 (from numeric var " 
-                     << nf.numeric_var_id << ")" << endl;
-                flaws.emplace_back(nf.prop_var_id, 0);  // Value doesn't matter for now
-            }
-            cout << "DEBUG: Returning " << flaws.size() << " total flaws at step " << step_num << endl;
+            cout << "DEBUG: Propositional flaws: " << flaws.size() 
+                 << ", Numeric flaws: " << detected_numeric_flaws.size() << endl;
             return flaws;
         }
         step_num++;
@@ -628,45 +657,40 @@ vector<Fact> CEGAR::get_flaws(
         cout << endl;
     }
     
-    flaws = get_goal_flaws(task_proxy.get_goals(), current_state,
+    flaws = get_goal_flaws(task_proxy, current_state,
                            blacklisted_variables);
     
     cout << "DEBUG: Goal flaws detected: " << flaws.size() << endl;
+    
+    // Separate comparison axiom flaws from regular propositional flaws
+    vector<Fact> filtered_flaws;
     for (const Fact &flaw : flaws) {
         cout << "  Goal flaw: ID: " << flaw.var << "=" << flaw.value << endl;
-    }
-    
-    // Also check for numeric flaws in goals
-    for (const FactProxy &goal : task_proxy.get_goals()) {
-        int prop_var_id = goal.get_variable().get_id();
         
-        // Check if this goal is a comparison axiom-derived variable
-        auto it = comparison_axiom_dependencies.find(prop_var_id);
+        // Check if this goal flaw is on a comparison axiom variable (numeric goal)
+        auto it = comparison_axiom_dependencies.find(flaw.var);
         if (it != comparison_axiom_dependencies.end()) {
-            int required_value = goal.get_value();
-            int actual_value = current_state[prop_var_id];
-            
-            if (required_value != actual_value) {
-                // Numeric goal flaw detected!
-                cout << "DEBUG: Numeric goal flaw on var" << prop_var_id << endl;
-                const unordered_set<int> &dep_vars = it->second;
-                for (int numeric_var_id : dep_vars) {
-                    ap_float concrete_value = numeric_state[numeric_var_id];
-                    // Add to numeric flaws
-                    detected_numeric_flaws.emplace_back(
-                        numeric_var_id, concrete_value, prop_var_id);
-                }
-                // Add propositional variable to flaws for compatibility
-                cout << "  Adding goal flaw: var" << prop_var_id << "=0" << endl;
-                flaws.emplace_back(prop_var_id, 0);
+            cout << "    -> This is a comparison axiom variable (numeric goal)" << endl;
+            // This is a numeric goal flaw - trace back to regular numeric variables
+            const unordered_set<int> &dep_vars = it->second;
+            for (int numeric_var_id : dep_vars) {
+                ap_float concrete_value = numeric_state[numeric_var_id];
+                cout << "       Depends on numeric var" << numeric_var_id 
+                     << " with value " << concrete_value << endl;
+                detected_numeric_flaws.emplace_back(
+                    numeric_var_id, concrete_value, flaw.var);
             }
+            // Don't add comparison axiom variables to filtered_flaws
+            // We'll handle them through numeric refinement
+        } else {
+            // Regular propositional flaw - keep it
+            filtered_flaws.push_back(flaw);
         }
     }
-    cout << "STOP" << endl;
-    exit(0);
     
-    cout << "DEBUG: Returning " << flaws.size() << " total goal flaws" << endl;
-    return flaws;
+    cout << "DEBUG: Total flaws: " << filtered_flaws.size() << " propositional, "
+         << detected_numeric_flaws.size() << " numeric" << endl;
+    return filtered_flaws;
 }
 
 bool CEGAR::fix_flaws(
@@ -1062,7 +1086,7 @@ DomainAbstraction CEGAR::build_abstraction(
         vector<Fact> flaws =
             get_flaws(task_proxy, concrete_init, abstraction);
 
-        if (flaws.empty()) {
+        if (flaws.empty() && detected_numeric_flaws.empty()) {
             
             cout << "No more flaws found, terminating CEGAR refinement."
                 << endl;

@@ -233,17 +233,55 @@ MatchTree DomainAbstractionFactory::build_match_tree(
     return match_tree;
 }
 
-//TODO: Support numeric goal states as well.
+// Helper function to check if a variable is derived (appears in axiom effects)
+static bool is_derived_variable(const TaskProxy &task_proxy, int var_id) {
+    for (OperatorProxy ax : task_proxy.get_axioms()) {
+        for (EffectProxy eff : ax.get_effects()) {
+            if (eff.get_fact().get_variable().get_id() == var_id) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Compute abstract goals, including goals compiled into goal axioms.
+// Numeric goals in numeric FD are sometimes compiled into a goal axiom,
+// and we need to extract them from the axiom preconditions.
 vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
     const TaskProxy &task_proxy) {
     vector<Fact> abstract_goals;
+    
+    // First, collect non-derived goals directly
     for (FactProxy goal : task_proxy.get_goals()) {
         int var_id = goal.get_variable().get_id();
-        if (!variable_is_trivial(var_id)) {
-            int val = goal.get_value();
-            abstract_goals.emplace_back(var_id, domain_mapping[var_id][val]);
+        if (!is_derived_variable(task_proxy, var_id)) {
+            if (!variable_is_trivial(var_id)) {
+                int val = goal.get_value();
+                abstract_goals.emplace_back(var_id, domain_mapping[var_id][val]);
+            }
         }
     }
+    
+    // Reconstruct goals from goal axioms (numeric goals are compiled into axioms)
+    // There should be at most two axioms: one dummy axiom (no preconditions),
+    // and one optional goal axiom that encodes numeric/propositional goals
+    assert(task_proxy.get_axioms().size() <= 2);
+    
+    for (OperatorProxy axiom : task_proxy.get_axioms()) {
+        // Goal axioms have preconditions and exactly one effect
+        if (!axiom.get_preconditions().empty() && axiom.get_effects().size() == 1) {
+            // The preconditions of this goal axiom are the actual goals
+            for (FactProxy pre : axiom.get_preconditions()) {
+                int var_id = pre.get_variable().get_id();
+                if (!variable_is_trivial(var_id)) {
+                    int val = pre.get_value();
+                    abstract_goals.emplace_back(var_id, domain_mapping[var_id][val]);
+                }
+            }
+        }
+    }
+    
     return abstract_goals;
 }
 
