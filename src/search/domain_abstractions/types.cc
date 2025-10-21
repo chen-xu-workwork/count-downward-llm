@@ -30,20 +30,22 @@ int NumericDomainMapping::split_at(ap_float n) {
         return get_num_partitions();
     }
     
-    // Create two new partitions
+    // Split the range into two parts:
+    // Keep the old partition index for the lower part [old_lower, n)
+    // Create a new partition index for the upper part [n, old_upper)
     int num_partitions = get_num_partitions();
-    int new_partition_lower = num_partitions;      // for range [old_lower, n)
-    int new_partition_upper = num_partitions + 1;  // for range [n, old_upper)
+    int old_partition = old_range.partition_index;  // Reuse for lower part
+    int new_partition = num_partitions;             // New index for upper part
     
     ap_float old_lower = old_range.lower;
     ap_float old_upper = old_range.upper;
     
-    // Replace the old range with the lower part [old_lower, n)
-    ranges[range_index] = NumericRange(old_lower, n, new_partition_lower);
+    // Replace the old range with the lower part [old_lower, n), keeping old partition index
+    ranges[range_index] = NumericRange(old_lower, n, old_partition);
     
-    // Insert the upper part [n, old_upper) after the current range
+    // Insert the upper part [n, old_upper) with new partition index
     ranges.insert(ranges.begin() + range_index + 1,
-                  NumericRange(n, old_upper, new_partition_upper));
+                  NumericRange(n, old_upper, new_partition));
     
     return get_num_partitions();
 }
