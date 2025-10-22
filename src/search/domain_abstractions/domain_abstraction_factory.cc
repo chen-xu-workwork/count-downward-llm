@@ -207,6 +207,15 @@ DomainAbstractionFactory::DomainAbstractionFactory (
 
 vector<AbstractOperator> DomainAbstractionFactory::compute_abstract_operators(
     const TaskProxy &task_proxy, const vector<int> &domain_sizes) {
+    cout << "DEBUG FACTORY: Building abstract operators with " 
+         << numeric_domain_sizes.size() << " numeric variables" << endl;
+    int total_numeric_partitions = 0;
+    for (int ns : numeric_domain_sizes) {
+        total_numeric_partitions += ns;
+    }
+    cout << "DEBUG FACTORY: Total numeric partitions across all variables: " 
+         << total_numeric_partitions << endl;
+    
     // Create numeric helper to handle all operator construction
     // The helper handles both propositional and numeric effects, including cascades
     DomainAbstractionNumericHelper helper(
@@ -273,13 +282,14 @@ vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
         cout << "DEBUG GOALS:   Goal var" << var_id << "=" << goal.get_value() 
              << " (derived=" << (is_derived_variable(task_proxy, var_id) ? "yes" : "no")
              << ", trivial=" << (variable_is_trivial(var_id) ? "yes" : "no") << ")" << endl;
-        if (!is_derived_variable(task_proxy, var_id)) {
-            if (!variable_is_trivial(var_id)) {
-                int val = goal.get_value();
-                abstract_goals.emplace_back(var_id, domain_mapping[var_id][val]);
-                cout << "DEBUG GOALS:     Added to abstract_goals: var" << var_id 
-                     << "=" << domain_mapping[var_id][val] << " (abstract value)" << endl;
-            }
+        
+        // Add goal if it has a domain mapping (even if derived!)
+        // Derived variables like var25 (goal axiom) can have domain mappings from initial splits
+        if (!variable_is_trivial(var_id)) {
+            int val = goal.get_value();
+            abstract_goals.emplace_back(var_id, domain_mapping[var_id][val]);
+            cout << "DEBUG GOALS:     Added to abstract_goals: var" << var_id 
+                 << "=" << domain_mapping[var_id][val] << " (abstract value)" << endl;
         }
     }
     
@@ -389,9 +399,14 @@ void DomainAbstractionFactory::compute_distances(
     AdaptiveQueue<int> pq;
 
     // initialize queue
+    cout << "DEBUG DIJKSTRA: Checking which abstract states are goals (total states: " << num_states << ")" << endl;
     for (int state_index = 0; state_index < num_states; ++state_index) {
-        if (is_goal_state(state_index, abstract_goals, domain_sizes)) {
-            cout << "DEBUG DIJKSTRA: Goal state index = " << state_index << endl;
+        bool is_goal = is_goal_state(state_index, abstract_goals, domain_sizes);
+        if (state_index < 20 || is_goal) {  // Print first 20 states or any goal states
+            cout << "DEBUG DIJKSTRA: State " << state_index << " is " 
+                 << (is_goal ? "GOAL" : "not goal") << endl;
+        }
+        if (is_goal) {
             pq.push(0, state_index);
             distances.push_back(0);
         } else {
@@ -415,10 +430,13 @@ void DomainAbstractionFactory::compute_distances(
 
     //NOTE: looks like regression. Why not progression from inital state?
     // Dijkstra loop
+    int dijkstra_iterations = 0;
+    int total_expansions = 0;
     while (!pq.empty()) {
         pair<int, int> node = pq.pop();
         int distance = node.first;
         int state_index = node.second;
+        dijkstra_iterations++;
         if (distance > distances[state_index]) {
             continue;
         }
@@ -427,13 +445,32 @@ void DomainAbstractionFactory::compute_distances(
         // These handle both propositional-only and numeric operators
         vector<int> applicable_operator_ids;
         match_tree.get_applicable_operator_ids(state_index, applicable_operator_ids);
+        
+        if (dijkstra_iterations <= 10 && applicable_operator_ids.size() > 0) {
+            cout << "DEBUG DIJKSTRA: Iteration " << dijkstra_iterations 
+                 << ", expanding state " << state_index 
+                 << " with distance " << distance
+                 << ", applicable ops: " << applicable_operator_ids.size() << endl;
+        }
+        
+        int valid_predecessors_this_state = 0;
+        int out_of_bounds_predecessors = 0;
         for (int op_id : applicable_operator_ids) {
             const AbstractOperator &op = operators[op_id];
             int alternative_cost = distances[state_index] + op.get_cost();
             
             // Iterate over all possible hash effects (predecessors)
             // Propositional operators have 1 effect, numeric operators have multiple
-            for (int hash_effect : op.get_hash_effects()) {
+            const vector<int> &hash_effects_vec = op.get_hash_effects();
+            if (dijkstra_iterations == 1 && op_id == 0) {
+                cout << "DEBUG DIJKSTRA:   Op 0 has " << hash_effects_vec.size() << " hash effects: ";
+                for (int he : hash_effects_vec) {
+                    cout << he << " ";
+                }
+                cout << endl;
+            }
+            
+            for (int hash_effect : hash_effects_vec) {
                 int predecessor = state_index + hash_effect;
                 
                 // Skip predecessors that are out of bounds
@@ -441,10 +478,22 @@ void DomainAbstractionFactory::compute_distances(
                 // partition transitions, but the actual reachable state space is
                 // constrained by propositional variables or problem structure
                 if (predecessor < 0 || predecessor >= num_states) {
+                    if (dijkstra_iterations == 1) {
+                        out_of_bounds_predecessors++;
+                    }
                     continue;  // Skip this invalid predecessor
                 }
                 
+                valid_predecessors_this_state++;
+                
                 if (alternative_cost < distances[predecessor]) {
+                    total_expansions++;
+                    if (total_expansions <= 20) {
+                        cout << "DEBUG DIJKSTRA:   Updated state " << predecessor 
+                             << " from distance " << distances[predecessor] 
+                             << " to " << alternative_cost 
+                             << " (hash_effect=" << hash_effect << ")" << endl;
+                    }
                     distances[predecessor] = alternative_cost;
                     pq.push(alternative_cost, predecessor);
                     if (compute_plan) {
@@ -453,7 +502,16 @@ void DomainAbstractionFactory::compute_distances(
                 }
             }
         }
+        
+        if (dijkstra_iterations == 1) {
+            cout << "DEBUG DIJKSTRA:   State " << state_index 
+                 << ": valid_predecessors=" << valid_predecessors_this_state
+                 << ", out_of_bounds=" << out_of_bounds_predecessors << endl;
+        }
     }
+    
+    cout << "DEBUG DIJKSTRA: Completed " << dijkstra_iterations << " iterations, " 
+         << total_expansions << " distance updates" << endl;
 }
 
 void DomainAbstractionFactory::compute_abstract_plan(
@@ -477,6 +535,12 @@ void DomainAbstractionFactory::compute_abstract_plan(
       from the given state.
     */
     State initial_state = task_proxy.get_initial_state();
+
+    // DEBUG: Check if initial state has evaluated axioms
+    cout << "DEBUG PLAN: Initial state values:" << endl;
+    for (int var_id = 0; var_id < initial_state.size(); ++var_id) {
+        cout << "  var" << var_id << " = " << initial_state[var_id].get_value() << endl;
+    }
 
     // Build propositional part of abstract state
     vector<int> prop_state;
@@ -513,7 +577,29 @@ void DomainAbstractionFactory::compute_abstract_plan(
     }
     
     cout << "DEBUG PLAN: Final initial state index = " << current_state << endl;
+    cout << "DEBUG PLAN: Total abstract states = " << num_states << endl;
     cout << "DEBUG PLAN: Distance to goal = " << distances[current_state] << endl;
+    
+    // Count how many states are reachable (have finite distance)
+    int reachable_count = 0;
+    for (int d : distances) {
+        if (d != numeric_limits<int>::max()) {
+            reachable_count++;
+        }
+    }
+    cout << "DEBUG PLAN: Reachable states = " << reachable_count << " / " << num_states << endl;
+    
+    // List which states are reachable and their distances
+    cout << "DEBUG PLAN: Reachable state details:" << endl;
+    for (int i = 0; i < min(static_cast<int>(distances.size()), 20); ++i) {
+        if (distances[i] != numeric_limits<int>::max() || i == current_state) {
+            bool is_goal = is_goal_state(i, abstract_goals, domain_sizes);
+            cout << "  State " << i << ": distance=" << distances[i] 
+                 << (is_goal ? " (GOAL)" : "")
+                 << (i == current_state ? " (INITIAL)" : "") << endl;
+        }
+    }
+
 
     if (distances[current_state] != numeric_limits<int>::max()) {
         while (!is_goal_state(current_state, abstract_goals, domain_sizes)) {

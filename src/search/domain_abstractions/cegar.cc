@@ -901,6 +901,10 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
     vector<vector<int>> axiom_dependencies(num_numeric_vars);
     
     AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+    cout << "DEBUG AXIOM MAP: Building assignment axiom dependency graph" << endl;
+    cout << "DEBUG AXIOM MAP: Total numeric variables: " << num_numeric_vars << endl;
+    cout << "DEBUG AXIOM MAP: Assignment axioms: " << assignment_axioms.size() << endl;
+    
     for (AssignmentAxiomProxy axiom : assignment_axioms) {
         int derived_id = axiom.get_assignment_variable().get_id();
         int left_id = axiom.get_left_variable().get_id();
@@ -914,6 +918,11 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
             }
             if (right_id >= 0 && right_id != left_id) {
                 axiom_dependencies[derived_id].push_back(right_id);
+            }
+            
+            if (derived_id == 70 || derived_id == 21 || derived_id == 37 || derived_id == 66) {
+                cout << "DEBUG AXIOM MAP:   Axiom: var" << derived_id << " := var" 
+                     << left_id << " op var" << right_id << endl;
             }
         }
     }
@@ -978,6 +987,19 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         if (right_var_id >= 0) {
             unordered_set<int> right_deps = find_regular_dependencies(right_var_id, find_regular_dependencies);
             regular_vars.insert(right_deps.begin(), right_deps.end());
+        }
+        
+        if (prop_var_id == 24) {
+            cout << "DEBUG AXIOM MAP:   Var24 (goal comparison axiom):" << endl;
+            cout << "DEBUG AXIOM MAP:     left_var=" << left_var_id 
+                 << " (derived=" << (left_var_id >= 0 && is_derived[left_var_id] ? "yes" : "no") << ")" << endl;
+            cout << "DEBUG AXIOM MAP:     right_var=" << right_var_id 
+                 << " (derived=" << (right_var_id >= 0 && is_derived[right_var_id] ? "yes" : "no") << ")" << endl;
+            cout << "DEBUG AXIOM MAP:     Regular dependencies: ";
+            for (int reg_var : regular_vars) {
+                cout << reg_var << " ";
+            }
+            cout << endl;
         }
         
         // Store the mapping

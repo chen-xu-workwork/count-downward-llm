@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cassert>
 #include <queue>
+#include <unordered_set>
 
 using namespace std;
 using namespace arithmetic_expression;
@@ -228,9 +229,31 @@ vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operator
     
     // Build abstract operators for all concrete operators
     OperatorsProxy operators = task_proxy.get_operators();
+    
+    // Track which numeric variables are modified by operators
+    unordered_set<int> modified_numeric_vars;
+    
     for (OperatorProxy op : operators) {
+        // Check which numeric variables this operator modifies
+        for (auto ass_eff_proxy : op.get_ass_effects()) {
+            NumAssProxy ass_eff = ass_eff_proxy.get_assignment();
+            int num_var_id = ass_eff.get_affected_variable().get_id();
+            modified_numeric_vars.insert(num_var_id);
+        }
+        
         build_abstract_operator(op, abstract_operators);
     }
+    
+    cout << "DEBUG HELPER: Numeric variables modified by operators:" << endl;
+    cout << "DEBUG HELPER:   Total: " << modified_numeric_vars.size() << " variables" << endl;
+    cout << "DEBUG HELPER:   IDs: ";
+    vector<int> sorted_vars(modified_numeric_vars.begin(), modified_numeric_vars.end());
+    sort(sorted_vars.begin(), sorted_vars.end());
+    for (int var_id : sorted_vars) {
+        cout << var_id << " ";
+        if (var_id == 70) cout << "(VAR70!) ";
+    }
+    cout << endl;
     
     return abstract_operators;
 }
@@ -357,6 +380,28 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
     if (pos == static_cast<int>(effects_without_pre.size())) {
         // All effects without precondition have been checked: insert operator.
         if (!eff_pairs.empty() || !ass_effects.empty()) {
+            // DEBUG: Print operator details for first few of EACH factory creation
+            if (operators.size() < 3) {
+                cout << "DEBUG OP: Creating operator " << operators.size()
+                     << " (concrete_id=" << concrete_op_id << ")" << endl;
+                cout << "  pre_pairs (" << pre_pairs.size() << "): ";
+                for (const auto &p : pre_pairs) {
+                    cout << "var" << p.var << "=" << p.value << " ";
+                }
+                cout << endl;
+                cout << "  eff_pairs (" << eff_pairs.size() << "): ";
+                for (const auto &e : eff_pairs) {
+                    cout << "var" << e.var << "=" << e.value << " ";
+                }
+                cout << endl;
+                cout << "  prev_pairs (" << prev_pairs.size() << "): ";
+                for (const auto &p : prev_pairs) {
+                    cout << "var" << p.var << "=" << p.value << " ";
+                }
+                cout << endl;
+                cout << "  ass_effects (" << ass_effects.size() << ")" << endl;
+            }
+            
             // Compute all hash effects including cascades
             vector<int> complete_hash_effects = 
                 compute_hash_effects_with_cascades(pre_pairs, eff_pairs, ass_effects);
@@ -403,6 +448,14 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
     const vector<Fact> &eff_pairs,
     const vector<NumAssProxy> &ass_effects) {
     
+    static int call_count = 0;
+    int local_call = call_count++;
+    bool debug_this_call = (local_call < 3) || (local_call >= 146 && local_call < 149);
+    
+    if (debug_this_call) {
+        cout << "DEBUG HASH: compute_hash_effects_with_cascades called (count=" << local_call << ")" << endl;
+    }
+    
     vector<int> hash_effects;
     
     // Compute base hash effect from propositional effects
@@ -420,6 +473,11 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
         base_hash_effect += effect;
     }
     
+    if (debug_this_call) {
+        cout << "  base_hash_effect=" << base_hash_effect << endl;
+        cout << "  ass_effects.size()=" << ass_effects.size() << endl;
+    }
+    
     // If no numeric effects, just return the base effect
     if (ass_effects.empty()) {
         hash_effects.push_back(base_hash_effect);
@@ -428,10 +486,16 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
     
     // Identify which numeric variables are affected
     vector<bool> affected_numeric_vars(numeric_domain_mapping.size(), false);
+    vector<int> affected_var_list;
     for (const NumAssProxy &ass_eff : ass_effects) {
         int num_var_id = ass_eff.get_affected_variable().get_id();
         if (num_var_id >= 0 && num_var_id < static_cast<int>(numeric_domain_mapping.size())) {
             affected_numeric_vars[num_var_id] = true;
+            affected_var_list.push_back(num_var_id);
+            if (debug_this_call) {
+                cout << "  Affected numeric var: " << num_var_id 
+                     << " (partitions: " << numeric_domain_sizes[num_var_id] << ")" << endl;
+            }
         }
     }
     
@@ -472,6 +536,9 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
             }
             
             hash_effects.push_back(total_effect);
+            if (debug_this_call && hash_effects.size() <= 5) {
+                cout << "  Generated hash_effect: " << total_effect << endl;
+            }
             return;
         }
         
@@ -532,6 +599,10 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
     
     vector<int> changed_vars, old_parts, new_parts;
     enumerate_effects(0, 0, changed_vars, old_parts, new_parts, nullptr);
+    
+    if (debug_this_call) {
+        cout << "  Total hash_effects generated: " << hash_effects.size() << endl;
+    }
     
     return hash_effects;
 }
