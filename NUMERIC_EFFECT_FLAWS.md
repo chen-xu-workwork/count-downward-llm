@@ -139,55 +139,76 @@ New partitions: (-∞, 1) → 0, [1, 2) → 1, [2, ∞) → 2
 - Goal check: x = 3 is in partition 3 `(2, ∞)`, goal is x > 2 ✓
 - **Success!**
 
-## Implementation Requirements
+## Implementation Requirements - SIMPLIFIED APPROACH
 
-### 1. Detect Effect Flaws During Plan Execution
+### The One Rule
+
+**Always split at the concrete numeric values observed when executing the abstract plan.**
+
+### 1. Detect Flaws During Plan Execution
 
 When validating the abstract plan in concrete space:
 
 ```cpp
-// After applying operator o
-vector<ap_float> numeric_state_before = ...;
-apply_numeric_effects(numeric_state, op);
-evaluate_axioms(current_state, numeric_state);
-
-// Check if numeric variables ended up in expected partitions
-for (each numeric_var affected by o) {
-    int expected_abstract_value = ...;  // From abstract plan
-    int actual_abstract_value = get_partition_index(numeric_var, numeric_state[numeric_var]);
+vector<NumericFlaw> get_flaws(...) {
+    vector<ap_float> numeric_state = initial_numeric_state;
     
-    if (expected_abstract_value != actual_abstract_value) {
-        // Effect flaw!
-        detected_numeric_flaws.emplace_back(
-            numeric_var, 
-            numeric_state[numeric_var],  // Concrete value AFTER effect
-            prop_var_id
-        );
+    // Execute plan step by step
+    for (each operator o in abstract_plan) {
+        // Check preconditions
+        if (!preconditions_satisfied(o, state, numeric_state)) {
+            // Precondition flaw on some comparison axiom
+            for (each failed comparison axiom c) {
+                // Trace to regular numeric variables
+                for (each var v in dependencies[c]) {
+                    // Record CURRENT concrete value
+                    detected_numeric_flaws.add(v, numeric_state[v]);
+                }
+            }
+            return flaws;
+        }
+        
+        // Apply effects
+        apply_effects(state, numeric_state, o);
+    }
+    
+    // Check goals
+    if (!goals_satisfied(state, numeric_state)) {
+        for (each failed goal comparison axiom c) {
+            for (each var v in dependencies[c]) {
+                // Record CURRENT concrete value
+                detected_numeric_flaws.add(v, numeric_state[v]);
+            }
+        }
     }
 }
 ```
 
-### 2. Key Difference from Goal/Precondition Flaws
+### 2. Fix Flaws by Splitting at Observed Values
 
-| Flaw Type | Split At | Reason |
-|-----------|----------|---------|
-| **Goal Flaw** | Goal threshold (e.g., 2 for `x > 2`) | Distinguish goal states from non-goal states |
-| **Precondition Flaw** | Precondition threshold (e.g., 2 for `x ≤ 2`) | Distinguish when operator is applicable |
-| **Effect Flaw** | **Concrete value AFTER effect** (e.g., 1 after `x += 1` from x=0) | Distinguish intermediate values reached by effects |
+```cpp
+bool fix_numeric_flaws(vector<NumericFlaw> &flaws) {
+    for (each flaw in flaws) {
+        // Simply split at the concrete value we observed
+        numeric_domain_mapping[flaw.var_id].split_at(flaw.concrete_value);
+    }
+}
+```
 
-### 3. When to Check for Effect Flaws
+### 3. No Special Cases
 
-Effect flaws should be checked:
-- **During plan validation** in `get_flaws()`
-- **After applying each operator** in the abstract plan
-- **For each numeric variable** affected by the operator's numeric effects
+- No distinction between "first refinement" vs "subsequent refinement"
+- No threshold extraction from comparison axioms
+- No boundary checking or special handling
+- No effect flaw detection after operator application
 
-### 4. Progressive Refinement Still Applies
+### 4. Progressive Refinement Happens Naturally
 
-Effect flaws use **progressive refinement**:
-- Split at the concrete value where the effect left us
-- Do NOT split at thresholds from preconditions/goals
-- Let multiple iterations gradually refine the abstraction
+By always splitting at observed concrete values:
+- First iteration: Split at values where goals/preconditions fail
+- Next iterations: Split at new concrete values observed
+- Gradually builds up fine-grained partitioning
+- Converges when abstract plan matches concrete execution
 
 ## Why This Wasn't Caught Earlier
 

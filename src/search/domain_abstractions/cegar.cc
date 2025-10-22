@@ -30,18 +30,12 @@ private:
     // Structure to represent a numeric flaw
     struct NumericFlaw {
         int numeric_var_id;      // Regular numeric variable that needs refinement
-        ap_float concrete_value; // Concrete value that caused the flaw
+        ap_float concrete_value; // Concrete value observed when flaw occurred
         int prop_var_id;         // Propositional variable (comparison axiom) that failed
-        bool is_effect_flaw;     // True if this is an effect flaw, false if goal/precondition flaw
         
-        NumericFlaw(int var_id, ap_float value, int prop_id, bool is_effect = false)
-            : numeric_var_id(var_id), concrete_value(value), prop_var_id(prop_id), 
-              is_effect_flaw(is_effect) {}
+        NumericFlaw(int var_id, ap_float value, int prop_id)
+            : numeric_var_id(var_id), concrete_value(value), prop_var_id(prop_id) {}
     };
-    
-    // Track which comparison axiom variables have been refined
-    // (to decide between threshold-based vs effect-based refinement)
-    mutable std::unordered_set<int> refined_comparison_axioms;
     
     // Track how many times each numeric variable has been refined
     // to prevent infinite loops
@@ -584,126 +578,45 @@ vector<Fact> CEGAR::get_flaws(
                     op, current_state, blacklisted_variables);
 
             if (operator_flaws.empty()) {
-                // Propositional preconditions satisfied
-                // Apply operator and track numeric effects
-                
-                // Save pre-state numeric values for effect flaw detection
-                vector<ap_float> pre_numeric_state = numeric_state;
-                
+                // Propositional preconditions satisfied - apply operator
                 flaws.clear();
                 detected_numeric_flaws.clear();
                 apply_op_to_state(current_state, op);
                 apply_numeric_effects(numeric_state, op);
                 g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_state);
                 g_axiom_evaluator->evaluate(current_state, numeric_state);
-                
-                // Check for effect flaws: did numeric effects move variables to unexpected partitions?
-                // Only check for comparison axioms that have been refined before
-                for (FactProxy pre : op.get_preconditions()) {
-                    int prop_var_id = pre.get_variable().get_id();
-                    
-                    // Check if this is a comparison axiom that has been refined
-                    if (refined_comparison_axioms.count(prop_var_id) > 0) {
-                        auto it = comparison_axiom_dependencies.find(prop_var_id);
-                        if (it != comparison_axiom_dependencies.end()) {
-                            // Check if numeric variables moved to unexpected partitions
-                            const unordered_set<int> &dep_vars = it->second;
-                            for (int numeric_var_id : dep_vars) {
-                                ap_float post_value = numeric_state[numeric_var_id];
-                                ap_float pre_value = pre_numeric_state[numeric_var_id];
-                                
-                                // If the value changed, check if it's a real effect flaw
-                                if (post_value != pre_value) {
-                                    // Check if value is at a partition boundary
-                                    // If the value is already at a boundary, it's not a flaw
-                                    const vector<NumericRange> &ranges = numeric_domain_mapping[numeric_var_id].get_ranges();
-                                    bool at_boundary = false;
-                                    for (const NumericRange &range : ranges) {
-                                        if (post_value == range.lower || post_value == range.upper) {
-                                            at_boundary = true;
-                                            break;
-                                        }
-                                    }
-                                    
-                                    if (!at_boundary) {
-                                        cout << "DEBUG: Effect flaw on numeric var " << numeric_var_id
-                                             << " (pre=" << pre_value 
-                                             << ", post=" << post_value << ")" << endl;
-                                        detected_numeric_flaws.emplace_back(
-                                            numeric_var_id, post_value, prop_var_id, true);
-                                    } else {
-                                        cout << "DEBUG: Numeric var " << numeric_var_id
-                                             << " moved to boundary value " << post_value 
-                                             << " - not a flaw" << endl;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                if (!detected_numeric_flaws.empty()) {
-                    // Effect flaws detected
-                    cout << "DEBUG: " << detected_numeric_flaws.size() << " effect flaws detected" << endl;
-                    return flaws;
-                }
-                
                 break;
             } else {
-                // Propositional precondition flaw detected
+                // Precondition flaw detected
                 cout << "DEBUG: Precondition flaw detected" << endl;
                 
                 // Check if any precondition flaw is on a comparison axiom variable
-                bool has_numeric_precondition_flaw = false;
                 for (Fact &flaw : operator_flaws) {
                     auto it = comparison_axiom_dependencies.find(flaw.var);
                     if (it != comparison_axiom_dependencies.end()) {
-                        // This is a numeric precondition flaw
+                        // Numeric precondition flaw - trace to regular numeric variables
                         const unordered_set<int> &dep_vars = it->second;
-                        
-                        // Check if this comparison axiom has been refined before
-                        if (refined_comparison_axioms.count(flaw.var) > 0) {
-                            // Already refined - treat as effect flaw and split at current value
-                            cout << "DEBUG: Numeric precondition flaw on already-refined var " << flaw.var 
-                                 << " - treating as effect flaw" << endl;
-                            // For goal/precondition flaws on already-refined variables,
-                            // we always report the flaw even if at boundary, because the
-                            // precondition is not satisfied. Being at a boundary doesn't
-                            // mean the comparison is true.
-                            for (int numeric_var_id : dep_vars) {
-                                ap_float concrete_value = numeric_state[numeric_var_id];
-                                detected_numeric_flaws.emplace_back(
-                                    numeric_var_id, concrete_value, flaw.var, true);
-                            }
-                        } else {
-                            // First time - split at threshold (goal/precondition value)
-                            cout << "DEBUG: Numeric precondition flaw on new var " << flaw.var 
-                                 << " - splitting at threshold" << endl;
-                            for (int numeric_var_id : dep_vars) {
-                                ap_float concrete_value = numeric_state[numeric_var_id];
-                                detected_numeric_flaws.emplace_back(
-                                    numeric_var_id, concrete_value, flaw.var, false);
-                            }
+                        for (int numeric_var_id : dep_vars) {
+                            // Split at current concrete value
+                            ap_float concrete_value = numeric_state[numeric_var_id];
+                            detected_numeric_flaws.emplace_back(
+                                numeric_var_id, concrete_value, flaw.var);
                         }
-                        has_numeric_precondition_flaw = true;
                     } else {
                         // Regular propositional flaw
-                        cout << "  Adding propositional flaw: var" << flaw.var << "=" << flaw.value << endl;
                         flaws.emplace_back(flaw.var, flaw.value);
                     }
                 }
                 
-                if (has_numeric_precondition_flaw) {
-                    // Clear propositional flaws, let numeric refinement handle it
+                // If we have numeric flaws, clear propositional flaws
+                // (numeric refinement should handle the issue)
+                if (!detected_numeric_flaws.empty()) {
                     flaws.clear();
                 }
             }
         }
         
         if (!flaws.empty() || !detected_numeric_flaws.empty()) {
-            // We found flaws - return them
-            // Note: We don't add comparison axiom variables to the flaws vector
-            // because they will be handled through numeric refinement
             cout << "DEBUG: Flaw found at step " << step_num << endl;
             cout << "DEBUG: Propositional flaws: " << flaws.size() 
                  << ", Numeric flaws: " << detected_numeric_flaws.size() << endl;
@@ -717,20 +630,9 @@ vector<Fact> CEGAR::get_flaws(
     cout << "DEBUG: Plan executed successfully, checking goals..." << endl;
     cout << "DEBUG: Current state after plan execution:" << endl;
     for (size_t i = 0; i < current_state.size(); ++i) {
-        if (i < 30) {  // Only print first 30 variables to avoid clutter
+        if (i < 30) {  // Only print first 30 variables
             cout << "  ID: " << i << "=" << current_state[i] << endl;
         }
-    }
-    cout << "DEBUG: Goals:" << endl;
-    for (const FactProxy &goal : task_proxy.get_goals()) {
-        int var_id = goal.get_variable().get_id();
-        int required = goal.get_value();
-        int actual = current_state[var_id];
-        cout << "  ID: " << var_id << ": required=" << required << ", actual=" << actual;
-        if (required != actual) {
-            cout << " <- MISMATCH";
-        }
-        cout << endl;
     }
     
     flaws = get_goal_flaws(task_proxy, current_state,
@@ -743,41 +645,20 @@ vector<Fact> CEGAR::get_flaws(
     for (const Fact &flaw : flaws) {
         cout << "  Goal flaw: ID: " << flaw.var << "=" << flaw.value << endl;
         
-        // Check if this goal flaw is on a comparison axiom variable (numeric goal)
+        // Check if this goal flaw is on a comparison axiom variable
         auto it = comparison_axiom_dependencies.find(flaw.var);
         if (it != comparison_axiom_dependencies.end()) {
             cout << "    -> This is a comparison axiom variable (numeric goal)" << endl;
-            // This is a numeric goal flaw - trace back to regular numeric variables
+            // Numeric goal flaw - trace to regular numeric variables
             const unordered_set<int> &dep_vars = it->second;
-            
-            // Check if this comparison axiom has been refined before
-            if (refined_comparison_axioms.count(flaw.var) > 0) {
-                // Already refined - treat as effect flaw and split at current value
-                cout << "       Already refined - treating as effect flaw" << endl;
-                // For goal/precondition flaws on already-refined variables,
-                // we always report the flaw even if at boundary, because the
-                // comparison is not satisfied. Being at a boundary doesn't
-                // mean the comparison is true.
-                for (int numeric_var_id : dep_vars) {
-                    ap_float concrete_value = numeric_state[numeric_var_id];
-                    cout << "       Depends on numeric var" << numeric_var_id 
-                         << " with value " << concrete_value << " (effect flaw)" << endl;
-                    detected_numeric_flaws.emplace_back(
-                        numeric_var_id, concrete_value, flaw.var, true);
-                }
-            } else {
-                // First time - split at threshold (goal value)
-                cout << "       First time - splitting at threshold" << endl;
-                for (int numeric_var_id : dep_vars) {
-                    ap_float concrete_value = numeric_state[numeric_var_id];
-                    cout << "       Depends on numeric var" << numeric_var_id 
-                         << " with value " << concrete_value << " (goal flaw)" << endl;
-                    detected_numeric_flaws.emplace_back(
-                        numeric_var_id, concrete_value, flaw.var, false);
-                }
+            for (int numeric_var_id : dep_vars) {
+                // Split at current concrete value
+                ap_float concrete_value = numeric_state[numeric_var_id];
+                cout << "       Depends on numeric var" << numeric_var_id 
+                     << " with value " << concrete_value << endl;
+                detected_numeric_flaws.emplace_back(
+                    numeric_var_id, concrete_value, flaw.var);
             }
-            // Don't add comparison axiom variables to filtered_flaws
-            // We'll handle them through numeric refinement
         } else {
             // Regular propositional flaw - keep it
             filtered_flaws.push_back(flaw);
@@ -1269,6 +1150,40 @@ DomainAbstraction CEGAR::build_abstraction(
             }
         }
 
+        cout << "DEBUG: About to create new factory with:" << endl;
+        cout << "  abstract_domain_sizes.size() = " << abstract_domain_sizes.size() << endl;
+        cout << "  numeric_domain_mapping.size() = " << numeric_domain_mapping.size() << endl;
+        cout << "  numeric_domain_sizes.size() = " << numeric_domain_sizes.size() << endl;
+        cout << "  Numeric domain sizes values: ";
+        for (size_t i = 0; i < numeric_domain_sizes.size() && i < 10; ++i) {
+            cout << numeric_domain_sizes[i] << " ";
+        }
+        cout << endl;
+        
+        // Validate that numeric_domain_sizes matches the actual partitions
+        cout << "DEBUG: Validating numeric domain mappings before creating factory..." << endl;
+        bool all_valid = true;
+        for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
+            int actual_partitions = numeric_domain_mapping[i].get_num_partitions();
+            int expected_partitions = numeric_domain_sizes[i];
+            if (actual_partitions != expected_partitions) {
+                cout << "ERROR: Mismatch for variable " << i 
+                     << ": actual_partitions=" << actual_partitions
+                     << " but numeric_domain_sizes[" << i << "]=" << expected_partitions << endl;
+                all_valid = false;
+            }
+            if (!numeric_domain_mapping[i].is_valid()) {
+                cout << "ERROR: Variable " << i << " has invalid ranges!" << endl;
+                cout << "  Number of ranges: " << numeric_domain_mapping[i].get_num_ranges() << endl;
+                all_valid = false;
+            }
+        }
+        if (!all_valid) {
+            cout << "FATAL: Invalid state before factory creation!" << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
+        cout << "DEBUG: Validation complete. Creating factory..." << endl;
+
         DomainAbstractionFactory new_factory(
             task_proxy, domain_mapping, abstract_domain_sizes,
             numeric_domain_mapping, numeric_domain_sizes,
@@ -1361,12 +1276,11 @@ bool CEGAR::fix_numeric_flaws(
         int numeric_var_id = flaw.numeric_var_id;
         ap_float concrete_value = flaw.concrete_value;
         int prop_var_id = flaw.prop_var_id;
-        bool is_effect_flaw = flaw.is_effect_flaw;
         
         // Check if we've attempted to refine this variable too many times
         int attempt_count = numeric_var_refinement_count[numeric_var_id];
         
-        if (attempt_count >= 5) {
+        if (attempt_count >= 10) {
             cout << "DEBUG: Skipping flaw for v" << numeric_var_id 
                  << " at value " << concrete_value
                  << " (variable refined " << attempt_count << " times already - may be stuck)"
@@ -1376,81 +1290,22 @@ bool CEGAR::fix_numeric_flaws(
         
         cout << "DEBUG: Processing numeric flaw for v" << numeric_var_id 
              << " at value " << concrete_value
-             << (is_effect_flaw ? " (effect flaw)" : " (goal/precondition flaw)")
              << " (variable refinement count: " << attempt_count << ")"
              << endl;
-        cout << "  Current partitions for v" << numeric_var_id << ": "
-             << numeric_domain_mapping[numeric_var_id].get_num_partitions() << endl;
-        
-        // Print current ranges
-        const vector<NumericRange> &ranges = numeric_domain_mapping[numeric_var_id].get_ranges();
-        cout << "  Current ranges:" << endl;
-        for (const NumericRange &range : ranges) {
-            cout << "    Partition " << range.partition_index << ": [" 
-                 << range.lower << ", " << range.upper << ")";
-            if (concrete_value >= range.lower && concrete_value < range.upper) {
-                cout << " <- value " << concrete_value << " is HERE";
-            }
-            cout << endl;
-        }
         
         // Check if we can refine this variable
         if (can_refine_numeric_variable(abstraction_size, numeric_var_id)) {
-            ap_float split_value = concrete_value;
-            
-            // Find which range contains the value
-            const vector<NumericRange> &ranges = numeric_domain_mapping[numeric_var_id].get_ranges();
-            int containing_range_index = -1;
-            for (size_t i = 0; i < ranges.size(); ++i) {
-                const NumericRange &range = ranges[i];
-                if (range.contains(concrete_value)) {
-                    containing_range_index = i;
-                    break;
-                }
-            }
-            
-            if (containing_range_index < 0) {
-                cout << "  ERROR: Value " << concrete_value 
-                     << " not found in any range!" << endl;
+            // Bounds check
+            if (numeric_var_id < 0 || numeric_var_id >= (int)numeric_domain_mapping.size()) {
+                cout << "ERROR: numeric_var_id " << numeric_var_id 
+                     << " is out of bounds! numeric_domain_mapping.size()=" 
+                     << numeric_domain_mapping.size() << endl;
                 continue;
             }
             
-            const NumericRange &containing_range = ranges[containing_range_index];
-            
-            // Check if the value is at the lower boundary of its containing range
-            bool at_lower_boundary = (concrete_value == containing_range.lower);
-            
-            if (at_lower_boundary) {
-                // Value is at the lower boundary of a range
-                // We need to split that range to separate this value from the rest
-                // Split at concrete_value + 1 to create [value, value+1) and [value+1, ...)
-                
-                // Check if there's room to split (range must have width > 1)
-                if (containing_range.upper == std::numeric_limits<ap_float>::infinity() ||
-                    containing_range.upper > concrete_value + 1) {
-                    split_value = concrete_value + 1;
-                    cout << "  Value at boundary " << concrete_value 
-                         << " (lower bound of range), splitting at " << split_value 
-                         << " to isolate it" << endl;
-                } else {
-                    // Range is too narrow to split further
-                    cout << "  Value at boundary " << concrete_value 
-                         << " but range [" << containing_range.lower << ", " << containing_range.upper
-                         << ") is too narrow to split" << endl;
-                    continue;  // Skip this flaw
-                }
-            }
-            // If not at boundary, split_value remains concrete_value
-            
-            if (!is_effect_flaw) {
-                cout << "  First refinement (goal/precondition): splitting at value " << split_value << endl;
-            } else {
-                cout << "  Effect flaw: splitting at value " << split_value << endl;
-            }
-            
-            // Split at the value
+            // Simply split at the observed concrete value
             int old_num_partitions = numeric_domain_mapping[numeric_var_id].get_num_partitions();
-            int new_num_partitions = numeric_domain_mapping[numeric_var_id].split_at(split_value);
+            int new_num_partitions = numeric_domain_mapping[numeric_var_id].split_at(concrete_value);
             
             if (new_num_partitions > old_num_partitions) {
                 // Successfully split
@@ -1460,20 +1315,16 @@ bool CEGAR::fix_numeric_flaws(
                 // Increment refinement counter for this variable
                 numeric_var_refinement_count[numeric_var_id]++;
                 
-                // Mark this comparison axiom as refined
-                refined_comparison_axioms.insert(prop_var_id);
-                
                 cout << "Refined numeric variable " << numeric_var_id 
-                     << " at value " << split_value
+                     << " at value " << concrete_value
                      << " (partitions: " << old_num_partitions << " -> " << new_num_partitions << ")"
                      << endl;
             } else {
-                // Split did not increase partition count - value might already be a boundary
+                // Split did not increase partition count - value is already a boundary
                 cout << "DEBUG: Could not refine numeric variable " << numeric_var_id 
-                     << " at value " << split_value
-                     << " (partitions unchanged: " << old_num_partitions << ")"
+                     << " at value " << concrete_value
+                     << " (already at partition boundary)"
                      << endl;
-                cout << "  This means the value is already at a partition boundary!" << endl;
             }
         } else {
             cout << "DEBUG: Cannot refine numeric variable " << numeric_var_id 
@@ -1483,6 +1334,8 @@ bool CEGAR::fix_numeric_flaws(
     
     if (!refined_any) {
         cout << "WARNING: fix_numeric_flaws() called but no numeric variables were refined!" << endl;
+        cout << "  This usually means all flaws are at partition boundaries," << endl;
+        cout << "  which indicates the abstraction is already distinguishing these values." << endl;
     }
     
     return refined_any;

@@ -89,6 +89,31 @@ public:
         return ranges.size();
     }
     
+    // Validate internal consistency
+    bool is_valid() const {
+        if (ranges.empty()) return false;
+        
+        // Check that ranges are sorted and contiguous
+        for (size_t i = 0; i + 1 < ranges.size(); ++i) {
+            if (ranges[i].upper != ranges[i+1].lower) {
+                return false;  // Gap or overlap
+            }
+            if (ranges[i].lower >= ranges[i].upper) {
+                return false;  // Invalid range
+            }
+        }
+        
+        // Check first range starts at -inf and last ends at +inf
+        if (ranges.front().lower != -std::numeric_limits<ap_float>::infinity()) {
+            return false;
+        }
+        if (ranges.back().upper != std::numeric_limits<ap_float>::infinity()) {
+            return false;
+        }
+        
+        return true;
+    }
+    
     // Debug method: print the ranges
     void dump() const;
 };

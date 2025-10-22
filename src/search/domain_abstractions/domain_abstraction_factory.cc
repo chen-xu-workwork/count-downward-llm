@@ -342,6 +342,14 @@ void DomainAbstractionFactory::compute_distances(
             for (int hash_effect : op.get_hash_effects()) {
                 int predecessor = state_index + hash_effect;
                 
+                // Skip predecessors that are out of bounds
+                // This can happen when hash effects are computed for all possible
+                // partition transitions, but the actual reachable state space is
+                // constrained by propositional variables or problem structure
+                if (predecessor < 0 || predecessor >= num_states) {
+                    continue;  // Skip this invalid predecessor
+                }
+                
                 if (alternative_cost < distances[predecessor]) {
                     distances[predecessor] = alternative_cost;
                     pq.push(alternative_cost, predecessor);
