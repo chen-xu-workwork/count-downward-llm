@@ -105,6 +105,17 @@ public:
               utils::LogProxy &log) const;
 };
 
+// Structure to store numeric goal conditions
+// For each numeric variable that appears in goals, stores the partition indices that satisfy the goal
+struct NumericGoalCondition {
+    int numeric_var_id;  // ID of the numeric variable
+    comp_operator op;    // comparison operator (lt, le, eq, ge, gt)
+    ap_float constant;   // constant value to compare against
+    
+    NumericGoalCondition(int var_id, comp_operator op, ap_float constant)
+        : numeric_var_id(var_id), op(op), constant(constant) {}
+};
+
 class DomainAbstractionFactory {
     DomainMapping domain_mapping;
     NumericDomainMappingType numeric_domain_mapping;
@@ -127,6 +138,9 @@ class DomainAbstractionFactory {
     
     // Operators that have numeric effects
     std::vector<int> numeric_operators;
+    
+    // Numeric goal conditions extracted from comparison axioms
+    std::vector<NumericGoalCondition> numeric_goal_conditions;
 
     std::vector<AbstractOperator> compute_abstract_operators(
         const TaskProxy &task_proxy, const std::vector<int> &domain_sizes);

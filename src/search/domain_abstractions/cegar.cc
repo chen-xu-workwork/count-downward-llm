@@ -548,6 +548,12 @@ vector<Fact> CEGAR::get_flaws(
     
     // Initialize numeric state
     vector<ap_float> numeric_state = g_root_task()->get_initial_state_numeric_values();
+    
+    // CRITICAL: Evaluate axioms on initial state!
+    // Without this, derived variables (comparison axioms) are uninitialized,
+    // causing empty plans to incorrectly appear valid even when goals aren't satisfied.
+    g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_state);
+    g_axiom_evaluator->evaluate(current_state, numeric_state);
 
     vector<vector<int>> wildcard_plan = abstraction.get_plan();
     vector<Fact> flaws;
@@ -1228,6 +1234,8 @@ bool CEGAR::can_refine_variable(
     }
     
     int domain_size = abstract_domain_sizes[var_id];
+    cout << "Domain size of var" << var_id << " is " << domain_size << endl;
+    cout << "Old abstraction size: " << old_abstraction_size << endl;
     int abs_size_without_var = old_abstraction_size / domain_size;
     if (utils::is_product_within_limit(abs_size_without_var, domain_size + 1,
                                        max_abstraction_size)) {
@@ -1251,6 +1259,12 @@ bool CEGAR::can_refine_numeric_variable(
     
     int current_partitions = numeric_domain_mapping[numeric_var_id].get_num_partitions();
     int abs_size_without_var = old_abstraction_size / current_partitions;
+
+    cout << "Numeric variable " << numeric_var_id 
+         << " has " << current_partitions << " partitions." << endl;
+    cout << "Old abstraction size: " << old_abstraction_size << endl;
+    cout << "Abstraction size without this variable: " << abs_size_without_var << endl;
+    cout << "Max abstraction size: " << max_abstraction_size << endl;
     
     // Splitting will create one more partition
     if (utils::is_product_within_limit(abs_size_without_var, current_partitions + 1,

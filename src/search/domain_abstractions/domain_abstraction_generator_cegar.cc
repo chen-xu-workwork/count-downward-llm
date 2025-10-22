@@ -90,7 +90,7 @@ static shared_ptr<DomainAbstractionGenerator> _parse(OptionParser &parser) {
     parser.add_option<int>(
         "max_abstraction_size",
         "Max number of states of the final abstraction.",
-        "1M");
+        "1000000");
     parser.add_option<double>(
         "max_time",
         "Max time for building abstraction.",

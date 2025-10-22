@@ -248,17 +248,37 @@ static bool is_derived_variable(const TaskProxy &task_proxy, int var_id) {
 // Compute abstract goals, including goals compiled into goal axioms.
 // Numeric goals in numeric FD are sometimes compiled into a goal axiom,
 // and we need to extract them from the axiom preconditions.
+// Helper: Find which comparison axiom achieves a given fact
+static int get_achieving_comp_axiom(const TaskProxy &proxy, const FactProxy &condition) {
+    for (auto op : proxy.get_comparison_axioms()) {
+        if (condition.get_variable() == op.get_true_fact().get_variable()) {
+            return op.get_id();
+        }
+    }
+    return -1;
+}
+
 vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
     const TaskProxy &task_proxy) {
     vector<Fact> abstract_goals;
     
+    cout << "DEBUG GOALS: Computing abstract goals..." << endl;
+    cout << "DEBUG GOALS: Direct task goals: " << task_proxy.get_goals().size() << endl;
+    cout << "DEBUG GOALS: Comparison axioms: " << task_proxy.get_comparison_axioms().size() << endl;
+    cout << "DEBUG GOALS: Numeric domain mapping size: " << numeric_domain_mapping.size() << endl;
+    
     // First, collect non-derived goals directly
     for (FactProxy goal : task_proxy.get_goals()) {
         int var_id = goal.get_variable().get_id();
+        cout << "DEBUG GOALS:   Goal var" << var_id << "=" << goal.get_value() 
+             << " (derived=" << (is_derived_variable(task_proxy, var_id) ? "yes" : "no")
+             << ", trivial=" << (variable_is_trivial(var_id) ? "yes" : "no") << ")" << endl;
         if (!is_derived_variable(task_proxy, var_id)) {
             if (!variable_is_trivial(var_id)) {
                 int val = goal.get_value();
                 abstract_goals.emplace_back(var_id, domain_mapping[var_id][val]);
+                cout << "DEBUG GOALS:     Added to abstract_goals: var" << var_id 
+                     << "=" << domain_mapping[var_id][val] << " (abstract value)" << endl;
             }
         }
     }
@@ -268,18 +288,91 @@ vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
     // and one optional goal axiom that encodes numeric/propositional goals
     assert(task_proxy.get_axioms().size() <= 2);
     
+    cout << "DEBUG GOALS: Checking axioms for goal conditions..." << endl;
     for (OperatorProxy axiom : task_proxy.get_axioms()) {
+        cout << "DEBUG GOALS:   Axiom has " << axiom.get_preconditions().size() 
+             << " preconditions, " << axiom.get_effects().size() << " effects" << endl;
         // Goal axioms have preconditions and exactly one effect
         if (!axiom.get_preconditions().empty() && axiom.get_effects().size() == 1) {
+            cout << "DEBUG GOALS:   This is a goal axiom - extracting preconditions as goals" << endl;
             // The preconditions of this goal axiom are the actual goals
             for (FactProxy pre : axiom.get_preconditions()) {
                 int var_id = pre.get_variable().get_id();
-                if (!variable_is_trivial(var_id)) {
+                cout << "DEBUG GOALS:     Goal axiom precondition: var" << var_id << "=" << pre.get_value()
+                     << " (trivial=" << (variable_is_trivial(var_id) ? "yes" : "no") << ")" << endl;
+                
+                // Check if this is a comparison axiom variable (derived numeric condition)
+                cout << "DEBUG GOALS:       Looking for comparison axiom..." << endl;
+                int c_axiom_id = get_achieving_comp_axiom(task_proxy, pre);
+                cout << "DEBUG GOALS:       c_axiom_id=" << c_axiom_id << endl;
+                
+                if (c_axiom_id != -1) {
+                    // This is a comparison axiom - extract the numeric condition
+                    cout << "DEBUG GOALS:       Found comparison axiom " << c_axiom_id << endl;
+                    ComparisonAxiomProxy c_axiom = task_proxy.get_comparison_axioms()[c_axiom_id];
+                    
+                    NumericVariableProxy left_var = c_axiom.get_left_variable();
+                    NumericVariableProxy right_var = c_axiom.get_right_variable();
+                    comp_operator op = c_axiom.get_comparison_operator_type();
+                    
+                    cout << "DEBUG GOALS:       This is a comparison axiom goal!" << endl;
+                    cout << "DEBUG GOALS:       Left: " << left_var.get_name() 
+                         << " (type=" << (int)left_var.get_var_type() << ")" << endl;
+                    cout << "DEBUG GOALS:       Op: " << (int)op << endl;
+                    cout << "DEBUG GOALS:       Right: " << right_var.get_name() 
+                         << " (type=" << (int)right_var.get_var_type() << ")" << endl;
+                    
+                    // Handle simple case: one numeric variable compared to a constant
+                    // Format: var OP constant
+                    if (left_var.get_var_type() == numType::regular && 
+                        right_var.get_var_type() == numType::constant) {
+                        int num_var_id = left_var.get_id();
+                        ap_float constant = right_var.get_initial_state_value();
+                        numeric_goal_conditions.emplace_back(num_var_id, op, constant);
+                        cout << "DEBUG GOALS:       Added numeric goal: var" << num_var_id 
+                             << " " << (int)op << " " << constant << endl;
+                    }
+                    // Format: constant OP var => need to flip operator
+                    else if (left_var.get_var_type() == numType::constant && 
+                             right_var.get_var_type() == numType::regular) {
+                        int num_var_id = right_var.get_id();
+                        ap_float constant = left_var.get_initial_state_value();
+                        // Flip operator: c < v becomes v > c, etc.
+                        comp_operator flipped_op;
+                        if (op == comp_operator::lt) flipped_op = comp_operator::gt;
+                        else if (op == comp_operator::le) flipped_op = comp_operator::ge;
+                        else if (op == comp_operator::eq) flipped_op = comp_operator::eq;
+                        else if (op == comp_operator::ge) flipped_op = comp_operator::le;
+                        else if (op == comp_operator::gt) flipped_op = comp_operator::lt;
+                        else flipped_op = op;
+                        numeric_goal_conditions.emplace_back(num_var_id, flipped_op, constant);
+                        cout << "DEBUG GOALS:       Added numeric goal (flipped): var" << num_var_id 
+                             << " " << (int)flipped_op << " " << constant << endl;
+                    }
+                    else {
+                        cout << "DEBUG GOALS:       WARNING: Complex numeric goal (var-var comparison), skipping" << endl;
+                    }
+                }
+                else if (!variable_is_trivial(var_id)) {
+                    // Regular propositional goal
                     int val = pre.get_value();
                     abstract_goals.emplace_back(var_id, domain_mapping[var_id][val]);
+                    cout << "DEBUG GOALS:       Added to abstract_goals: var" << var_id 
+                         << "=" << domain_mapping[var_id][val] << " (abstract value)" << endl;
                 }
             }
         }
+    }
+    
+    cout << "DEBUG GOALS: Total propositional abstract goals: " << abstract_goals.size() << endl;
+    for (const Fact &goal : abstract_goals) {
+        cout << "DEBUG GOALS:   var" << goal.var << "=" << goal.value << endl;
+    }
+    
+    cout << "DEBUG GOALS: Total numeric goal conditions: " << numeric_goal_conditions.size() << endl;
+    for (const auto &cond : numeric_goal_conditions) {
+        cout << "DEBUG GOALS:   num_var" << cond.numeric_var_id 
+             << " " << (int)cond.op << " " << cond.constant << endl;
     }
     
     return abstract_goals;
@@ -298,6 +391,7 @@ void DomainAbstractionFactory::compute_distances(
     // initialize queue
     for (int state_index = 0; state_index < num_states; ++state_index) {
         if (is_goal_state(state_index, abstract_goals, domain_sizes)) {
+            cout << "DEBUG DIJKSTRA: Goal state index = " << state_index << endl;
             pq.push(0, state_index);
             distances.push_back(0);
         } else {
@@ -392,6 +486,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
     
     // Compute hash for propositional variables
     int current_state = hash_index(prop_state);
+    cout << "DEBUG PLAN: Initial propositional hash = " << current_state << endl;
     
     // Add numeric variables to hash
     if (!numeric_domain_mapping.empty()) {
@@ -408,8 +503,17 @@ void DomainAbstractionFactory::compute_abstract_plan(
             // hash_multipliers for numeric vars start after propositional vars
             int hash_multiplier_idx = initial_state.size() + num_var_id;
             current_state += partition * hash_multipliers[hash_multiplier_idx];
+            
+            if (partition > 0) {
+                cout << "DEBUG PLAN:   Numeric var " << num_var_id << " = " << value 
+                     << " -> partition " << partition 
+                     << " (multiplier=" << hash_multipliers[hash_multiplier_idx] << ")" << endl;
+            }
         }
     }
+    
+    cout << "DEBUG PLAN: Final initial state index = " << current_state << endl;
+    cout << "DEBUG PLAN: Distance to goal = " << distances[current_state] << endl;
 
     if (distances[current_state] != numeric_limits<int>::max()) {
         while (!is_goal_state(current_state, abstract_goals, domain_sizes)) {
@@ -488,6 +592,7 @@ bool DomainAbstractionFactory::is_goal_state(
     int state_index,
     const vector<Fact> &abstract_goals,
     const vector<int> &domain_sizes) const {
+    // Check propositional goals
     for (const Fact &abstract_goal : abstract_goals) {
         int var_id = abstract_goal.var;
         int temp = state_index / hash_multipliers[var_id];
@@ -496,6 +601,82 @@ bool DomainAbstractionFactory::is_goal_state(
             return false;
         }
     }
+    
+    // Check numeric goal conditions
+    // For each numeric goal, extract the partition index and check if it satisfies the condition
+    for (const auto &numeric_goal : numeric_goal_conditions) {
+        int num_var_id = numeric_goal.numeric_var_id;
+        
+        // Sanity check
+        if (num_var_id >= static_cast<int>(numeric_domain_mapping.size())) {
+            cerr << "ERROR: Numeric goal refers to var" << num_var_id 
+                 << " but only " << numeric_domain_mapping.size() 
+                 << " numeric variables in mapping!" << endl;
+            return false;
+        }
+        
+        // Get the partition index for this numeric variable from the state_index
+        // Numeric variables come after propositional variables in the hash
+        int var_id_in_hash = domain_mapping.size() + num_var_id;
+        
+        if (var_id_in_hash >= static_cast<int>(hash_multipliers.size())) {
+            cerr << "ERROR: var_id_in_hash=" << var_id_in_hash 
+                 << " exceeds hash_multipliers size " << hash_multipliers.size() << endl;
+            return false;
+        }
+        
+        int temp = state_index / hash_multipliers[var_id_in_hash];
+        int partition_index = temp % numeric_domain_sizes[num_var_id];
+        
+        // Check if this partition satisfies the goal condition
+        const NumericDomainMapping &domain_map = numeric_domain_mapping[num_var_id];
+        const auto &ranges = domain_map.get_ranges();
+        
+        // Find the range with this partition index
+        bool partition_satisfies_goal = false;
+        for (const auto &range : ranges) {
+            if (range.partition_index == partition_index) {
+                ap_float lower = range.lower;
+                ap_float upper = range.upper;
+                ap_float constant = numeric_goal.constant;
+                
+                switch (numeric_goal.op) {
+                    case comp_operator::lt:
+                        // Entire partition must be < constant: upper <= constant
+                        partition_satisfies_goal = (upper <= constant);
+                        break;
+                    case comp_operator::le:
+                        // Entire partition must be <= constant: upper <= constant
+                        // (since ranges are [lower, upper) exclusive on upper, upper <= c means all values are <= c)
+                        partition_satisfies_goal = (upper <= constant);
+                        break;
+                    case comp_operator::eq:
+                        // Entire partition must equal constant: lower == constant && upper == constant (single point)
+                        partition_satisfies_goal = (lower == constant && upper == constant);
+                        break;
+                    case comp_operator::ge:
+                        // Entire partition must be >= constant: lower >= constant
+                        partition_satisfies_goal = (lower >= constant);
+                        break;
+                    case comp_operator::gt:
+                        // Entire partition must be > constant: lower > constant
+                        // (since ranges are [lower, upper) inclusive on lower, lower > c means all values are > c)
+                        partition_satisfies_goal = (lower > constant);
+                        break;
+                    case comp_operator::ue:
+                        // Undefined/error operator - should not appear in goals
+                        partition_satisfies_goal = false;
+                        break;
+                }
+                break;  // Found the right range, exit search
+            }
+        }
+        
+        if (!partition_satisfies_goal) {
+            return false;
+        }
+    }
+    
     return true;
 }
 
