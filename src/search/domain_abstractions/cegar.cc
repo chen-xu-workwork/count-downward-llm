@@ -74,6 +74,11 @@ private:
         int comp_op;  // 0=<, 1=<=, 2=>, 3=>=, 4==, 5=!=
     };
     std::unordered_map<int, ComparisonInfo> comparison_axiom_info;
+    
+    // PHASE 2: Set of all numeric variables that are modified by operators
+    // When ANY numeric flaw is detected, we should refine ALL these variables
+    // to ensure non-zero hash effects in the abstraction
+    std::unordered_set<int> operator_modified_numeric_vars;
 
     DomainMapping compute_initial_domain_mapping(const TaskProxy &task_proxy);
     vector<int> compute_initial_split(
@@ -124,6 +129,11 @@ private:
         const TaskProxy &task_proxy);
     
     void build_comparison_axiom_mapping(const TaskProxy &task_proxy);
+    
+    // Debug: print axiom dependency trees
+    void print_cegar_axiom_trees(const TaskProxy &task_proxy,
+                                 const std::vector<bool> &is_derived,
+                                 const std::vector<std::vector<int>> &axiom_dependencies);
     
     // Numeric variable refinement
     bool fix_numeric_flaws(const std::vector<NumericFlaw> &numeric_flaws,
@@ -671,6 +681,35 @@ vector<Fact> CEGAR::get_flaws(
         }
     }
     
+    // PHASE 2 FIX: If we detected ANY numeric flaws, also add flaws for 
+    // ALL operator-modified numeric variables to ensure they get refined.
+    // This is critical because operators may modify variables that don't 
+    // appear in comparison axiom dependencies, leading to hash_effect=0.
+    if (!detected_numeric_flaws.empty() && !operator_modified_numeric_vars.empty()) {
+        cout << "DEBUG PHASE2: Numeric flaws detected - adding all operator-modified variables" << endl;
+        
+        // Track which variables we've already added flaws for
+        unordered_set<int> flaw_vars_already_added;
+        for (const NumericFlaw &flaw : detected_numeric_flaws) {
+            flaw_vars_already_added.insert(flaw.numeric_var_id);
+        }
+        
+        // Add flaws for operator-modified variables not yet in detected_numeric_flaws
+        for (int op_modified_var : operator_modified_numeric_vars) {
+            if (flaw_vars_already_added.find(op_modified_var) == flaw_vars_already_added.end()) {
+                // This operator-modified variable isn't in our detected flaws - add it
+                ap_float concrete_value = numeric_state[op_modified_var];
+                cout << "  Adding flaw for operator-modified var" << op_modified_var 
+                     << " (value=" << concrete_value << ")" << endl;
+                detected_numeric_flaws.emplace_back(
+                    op_modified_var, concrete_value, -1);  // -1 for prop_var_id (not from comparison axiom)
+            }
+        }
+        
+        cout << "DEBUG PHASE2: Total numeric flaws after adding operator-modified vars: " 
+             << detected_numeric_flaws.size() << endl;
+    }
+    
     cout << "DEBUG: Total flaws: " << filtered_flaws.size() << " propositional, "
          << detected_numeric_flaws.size() << " numeric" << endl;
     return filtered_flaws;
@@ -1022,6 +1061,149 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
     
     cout << "DEBUG: Total comparison axiom dependencies stored: " 
          << comparison_axiom_dependencies.size() << endl;
+    
+    // PHASE 2: Collect all numeric variables modified by operators
+    // This ensures we refine ALL operator-modified variables when numeric flaws occur
+    operator_modified_numeric_vars.clear();
+    
+    cout << "DEBUG PHASE2: Collecting operator-modified numeric variables..." << endl;
+    OperatorsProxy operators = task_proxy.get_operators();
+    for (OperatorProxy op : operators) {
+        // Check additive effects (NumAss effects)
+        for (auto ass_eff_proxy : op.get_ass_effects()) {
+            NumAssProxy ass_eff = ass_eff_proxy.get_assignment();
+            int affected_var_id = ass_eff.get_affected_variable().get_id();
+            
+            if (affected_var_id >= 0 && affected_var_id < num_numeric_vars) {
+                // Only add if this is a REGULAR variable (not derived)
+                if (!is_derived[affected_var_id]) {
+                    operator_modified_numeric_vars.insert(affected_var_id);
+                }
+            }
+        }
+    }
+    
+    cout << "DEBUG PHASE2: Operator-modified numeric variables: ";
+    vector<int> sorted_op_vars(operator_modified_numeric_vars.begin(), 
+                                operator_modified_numeric_vars.end());
+    sort(sorted_op_vars.begin(), sorted_op_vars.end());
+    for (int var_id : sorted_op_vars) {
+        cout << "var" << var_id << " ";
+    }
+    cout << endl;
+    cout << "DEBUG PHASE2: Total: " << operator_modified_numeric_vars.size() 
+         << " variables" << endl;
+    
+    // Print comprehensive axiom dependency tree for CEGAR
+    print_cegar_axiom_trees(task_proxy, is_derived, axiom_dependencies);
+}
+
+void CEGAR::print_cegar_axiom_trees(
+    const TaskProxy &task_proxy,
+    const vector<bool> &is_derived,
+    const vector<vector<int>> &axiom_dependencies) {
+    
+    cout << "\n========== CEGAR: Axiom Dependency Trees ==========" << endl;
+    
+    int num_numeric_vars = task_proxy.get_numeric_variables().size();
+    
+    // Print assignment axioms with derived status
+    cout << "\n--- Assignment Axioms (from CEGAR perspective) ---" << endl;
+    AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+    cout << "Total assignment axioms: " << assignment_axioms.size() << endl;
+    
+    for (AssignmentAxiomProxy axiom : assignment_axioms) {
+        int derived_id = axiom.get_assignment_variable().get_id();
+        int left_id = axiom.get_left_variable().get_id();
+        int right_id = axiom.get_right_variable().get_id();
+        cal_operator op = axiom.get_arithmetic_operator_type();
+        
+        string op_str;
+        switch (op) {
+            case cal_operator::sum: op_str = "+"; break;
+            case cal_operator::diff: op_str = "-"; break;
+            case cal_operator::mult: op_str = "*"; break;
+            case cal_operator::divi: op_str = "/"; break;
+            default: op_str = "?"; break;
+        }
+        
+        NumericVariableProxy derived_var = axiom.get_assignment_variable();
+        NumericVariableProxy left_var = axiom.get_left_variable();
+        NumericVariableProxy right_var = axiom.get_right_variable();
+        
+        cout << "  Axiom: var" << derived_id << " := var" << left_id << " " << op_str << " var" << right_id;
+        if (derived_id == 66 || derived_id == 67 || derived_id == 68 || derived_id == 70 || 
+            derived_id == 21 || derived_id == 22 || derived_id == 26 || derived_id == 28) {
+            cout << " *** KEY VAR ***";
+        }
+        cout << endl;
+        cout << "    Names: " << derived_var.get_name() << " := " 
+             << left_var.get_name() << " " << op_str << " " << right_var.get_name() << endl;
+        cout << "    Derived: " << (is_derived[derived_id] ? "YES" : "NO")
+             << ", Left: " << (left_id >= 0 && is_derived[left_id] ? "YES" : "NO")
+             << ", Right: " << (right_id >= 0 && is_derived[right_id] ? "YES" : "NO") << endl;
+    }
+    
+    // Print comparison axioms and their regular dependencies
+    cout << "\n--- Comparison Axioms -> Regular Variable Mappings ---" << endl;
+    cout << "Format: prop_varX := (numvar_left op numvar_right) -> {regular dependencies}" << endl;
+    
+    for (const auto &entry : comparison_axiom_dependencies) {
+        int prop_var_id = entry.first;
+        const unordered_set<int> &regular_vars = entry.second;
+        
+        cout << "  Propositional var" << prop_var_id << " depends on numeric vars: {";
+        for (int reg_var : regular_vars) {
+            cout << reg_var << " ";
+        }
+        cout << "}" << endl;
+    }
+    
+    // Print full dependency chains for key variables
+    cout << "\n--- Full Dependency Chains for Key Variables ---" << endl;
+    vector<int> key_vars = {66, 67, 68, 70, 21, 22, 26, 28};
+    
+    for (int var_id : key_vars) {
+        if (var_id >= num_numeric_vars) continue;
+        
+        cout << "\nvar" << var_id << ": ";
+        if (is_derived[var_id]) {
+            cout << "DERIVED, depends on: [";
+            for (size_t i = 0; i < axiom_dependencies[var_id].size(); ++i) {
+                cout << "var" << axiom_dependencies[var_id][i];
+                if (i < axiom_dependencies[var_id].size() - 1) cout << ", ";
+            }
+            cout << "]" << endl;
+            
+            // Print full transitive closure to regular variables
+            function<unordered_set<int>(int)> find_all_regular;
+            find_all_regular = [&](int v) -> unordered_set<int> {
+                unordered_set<int> result;
+                if (v < 0 || v >= num_numeric_vars) return result;
+                
+                if (!is_derived[v]) {
+                    result.insert(v);
+                } else {
+                    for (int dep : axiom_dependencies[v]) {
+                        unordered_set<int> deps = find_all_regular(dep);
+                        result.insert(deps.begin(), deps.end());
+                    }
+                }
+                return result;
+            };
+            
+            unordered_set<int> regular_deps = find_all_regular(var_id);
+            cout << "  Traces to REGULAR variables: {";
+            for (int reg : regular_deps) {
+                cout << "var" << reg << " ";
+            }
+            cout << "}" << endl;
+        } else {
+            cout << "REGULAR (base variable)" << endl;
+        }
+    }
+    
+    cout << "\n===================================================\n" << endl;
 }
 
 DomainAbstraction CEGAR::build_abstraction(

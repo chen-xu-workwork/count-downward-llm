@@ -52,6 +52,7 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
     build_numeric_variables();
     find_derived_variables();
     build_axiom_dependencies();
+    print_axiom_dependency_trees();  // DEBUG: Print dependency trees
     build_goals();
 }
 
@@ -166,6 +167,112 @@ void DomainAbstractionNumericHelper::build_axiom_dependencies() {
     // because they produce propositional variables, not numeric ones.
     // However, we'll need to track them for cascade computation.
     // This is handled in compute_affected_comparison_axioms().
+}
+
+void DomainAbstractionNumericHelper::print_axiom_dependency_trees() {
+    cout << "\n========== NUMERIC HELPER: Axiom Dependency Trees ==========" << endl;
+    
+    // Print assignment axiom dependencies (numeric -> numeric)
+    cout << "\n--- Assignment Axioms (Numeric Dependencies) ---" << endl;
+    AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+    cout << "Total assignment axioms: " << assignment_axioms.size() << endl;
+    
+    for (AssignmentAxiomProxy axiom : assignment_axioms) {
+        int derived_id = axiom.get_assignment_variable().get_id();
+        int left_id = axiom.get_left_variable().get_id();
+        int right_id = axiom.get_right_variable().get_id();
+        cal_operator op = axiom.get_arithmetic_operator_type();
+        
+        string op_str;
+        switch (op) {
+            case cal_operator::sum: op_str = "+"; break;
+            case cal_operator::diff: op_str = "-"; break;
+            case cal_operator::mult: op_str = "*"; break;
+            case cal_operator::divi: op_str = "/"; break;
+            default: op_str = "?"; break;
+        }
+        
+        NumericVariableProxy derived_var = axiom.get_assignment_variable();
+        NumericVariableProxy left_var = axiom.get_left_variable();
+        NumericVariableProxy right_var = axiom.get_right_variable();
+        
+        cout << "  Axiom: var" << derived_id << " := var" << left_id << " " << op_str << " var" << right_id << endl;
+        cout << "    Names: " << derived_var.get_name() << " := " 
+             << left_var.get_name() << " " << op_str << " " << right_var.get_name() << endl;
+        cout << "    Derived: " << (is_derived_num_var[derived_id] ? "YES" : "NO")
+             << ", Left derived: " << (is_derived_num_var[left_id] ? "YES" : "NO")
+             << ", Right derived: " << (is_derived_num_var[right_id] ? "YES" : "NO") << endl;
+    }
+    
+    // Print comparison axiom dependencies (numeric -> propositional)
+    cout << "\n--- Comparison Axioms (Numeric -> Propositional) ---" << endl;
+    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+    cout << "Total comparison axioms: " << comparison_axioms.size() << endl;
+    
+    for (ComparisonAxiomProxy axiom : comparison_axioms) {
+        NumericVariableProxy left_var = axiom.get_left_variable();
+        NumericVariableProxy right_var = axiom.get_right_variable();
+        comp_operator op = axiom.get_comparison_operator_type();
+        FactProxy true_fact = axiom.get_true_fact();
+        
+        int left_id = left_var.get_id();
+        int right_id = right_var.get_id();
+        int prop_var_id = true_fact.get_variable().get_id();
+        
+        string op_str;
+        switch (op) {
+            case comp_operator::lt: op_str = "<"; break;
+            case comp_operator::le: op_str = "<="; break;
+            case comp_operator::eq: op_str = "=="; break;
+            case comp_operator::ge: op_str = ">="; break;
+            case comp_operator::gt: op_str = ">"; break;
+            default: op_str = "?"; break;
+        }
+        
+        cout << "  Axiom: prop_var" << prop_var_id << " := (var" << left_id << " " << op_str << " var" << right_id << ")" << endl;
+        cout << "    Names: " << true_fact.get_variable().get_name() << " := (" 
+             << left_var.get_name() << " " << op_str << " " << right_var.get_name() << ")" << endl;
+        cout << "    Left derived: " << (is_derived_num_var[left_id] ? "YES" : "NO")
+             << ", Right derived: " << (is_derived_num_var[right_id] ? "YES" : "NO") << endl;
+    }
+    
+    // Print dependency summary for key variables (those modified by operators)
+    cout << "\n--- Variables Modified by Operators (from earlier analysis) ---" << endl;
+    cout << "Expected: 66, 67, 68, 70" << endl;
+    
+    // Print forward dependencies (what each variable depends on)
+    cout << "\n--- Forward Dependencies (Variable -> Dependencies) ---" << endl;
+    cout << "Format: varX depends on [varY, varZ, ...]" << endl;
+    for (size_t i = 0; i < axiom_dependencies.size(); ++i) {
+        if (!axiom_dependencies[i].empty()) {
+            cout << "  var" << i << " depends on: [";
+            for (size_t j = 0; j < axiom_dependencies[i].size(); ++j) {
+                cout << "var" << axiom_dependencies[i][j];
+                if (j < axiom_dependencies[i].size() - 1) cout << ", ";
+            }
+            cout << "]";
+            if (is_derived_num_var[i]) cout << " (DERIVED)";
+            cout << endl;
+        }
+    }
+    
+    // Print reverse dependencies (what depends on each variable)
+    cout << "\n--- Reverse Dependencies (Variable -> What Depends On It) ---" << endl;
+    cout << "Format: varX affects [varY, varZ, ...]" << endl;
+    for (size_t i = 0; i < reverse_axiom_dependencies.size(); ++i) {
+        if (!reverse_axiom_dependencies[i].empty()) {
+            cout << "  var" << i << " affects: [";
+            for (size_t j = 0; j < reverse_axiom_dependencies[i].size(); ++j) {
+                cout << "var" << reverse_axiom_dependencies[i][j];
+                if (j < reverse_axiom_dependencies[i].size() - 1) cout << ", ";
+            }
+            cout << "]";
+            if (!is_derived_num_var[i]) cout << " (REGULAR/BASE)";
+            cout << endl;
+        }
+    }
+    
+    cout << "\n============================================================\n" << endl;
 }
 
 void DomainAbstractionNumericHelper::build_goals() {
@@ -378,43 +485,47 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
     vector<AbstractOperator> &operators) {
     
     if (pos == static_cast<int>(effects_without_pre.size())) {
-        // All effects without precondition have been checked: insert operator.
+        // All effects without precondition have been checked.
+        // Now enumerate numeric partition transitions.
         if (!eff_pairs.empty() || !ass_effects.empty()) {
-            // DEBUG: Print operator details for first few of EACH factory creation
-            if (operators.size() < 3) {
-                cout << "DEBUG OP: Creating operator " << operators.size()
-                     << " (concrete_id=" << concrete_op_id << ")" << endl;
-                cout << "  pre_pairs (" << pre_pairs.size() << "): ";
-                for (const auto &p : pre_pairs) {
-                    cout << "var" << p.var << "=" << p.value << " ";
-                }
-                cout << endl;
-                cout << "  eff_pairs (" << eff_pairs.size() << "): ";
-                for (const auto &e : eff_pairs) {
-                    cout << "var" << e.var << "=" << e.value << " ";
-                }
-                cout << endl;
-                cout << "  prev_pairs (" << prev_pairs.size() << "): ";
-                for (const auto &p : prev_pairs) {
-                    cout << "var" << p.var << "=" << p.value << " ";
-                }
-                cout << endl;
-                cout << "  ass_effects (" << ass_effects.size() << ")" << endl;
-            }
+            size_t ops_before = operators.size();
             
             // Compute all hash effects including cascades
             vector<int> complete_hash_effects = 
                 compute_hash_effects_with_cascades(pre_pairs, eff_pairs, ass_effects);
             
-            // Create abstract operator with pre-computed hash effects
-            operators.emplace_back(
-                prev_pairs,              // prevail conditions
-                pre_pairs,               // preconditions
-                eff_pairs,               // propositional effects
-                ass_effects,             // numeric assignment effects
-                cost,                    // operator cost
-                complete_hash_effects,   // pre-computed hash effects with cascades
-                concrete_op_id);         // concrete operator ID
+            // PHASE 1 REFACTORING: Create ONE abstract operator per hash effect
+            // instead of one operator with multiple hash effects
+            for (int hash_effect : complete_hash_effects) {
+                // Create abstract operator with single hash effect (wrapped in vector)
+                vector<int> single_hash_effect = {hash_effect};
+                operators.emplace_back(
+                    prev_pairs,              // prevail conditions
+                    pre_pairs,               // preconditions
+                    eff_pairs,               // propositional effects
+                    ass_effects,             // numeric assignment effects
+                    cost,                    // operator cost
+                    single_hash_effect,      // single hash effect (in vector for compatibility)
+                    concrete_op_id);         // concrete operator ID
+            }
+            
+            // DEBUG: Print summary for first few operators
+            if (ops_before < 3) {
+                cout << "DEBUG OP: Created " << (operators.size() - ops_before) 
+                     << " abstract operators from concrete_id=" << concrete_op_id << endl;
+                cout << "  pre_pairs: " << pre_pairs.size() 
+                     << ", eff_pairs: " << eff_pairs.size()
+                     << ", prev_pairs: " << prev_pairs.size()
+                     << ", ass_effects: " << ass_effects.size() << endl;
+                cout << "  hash_effects generated: " << complete_hash_effects.size() << endl;
+                if (complete_hash_effects.size() <= 5) {
+                    cout << "  hash_effect values: ";
+                    for (int h : complete_hash_effects) {
+                        cout << h << " ";
+                    }
+                    cout << endl;
+                }
+            }
         }
     } else {
         // For each possible value for the current variable, build an
@@ -464,6 +575,11 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
     // and pre_pairs contains the new values (where we're going to)
     int base_hash_effect = 0;
     assert(pre_pairs.size() == eff_pairs.size());
+    
+    if (debug_this_call) {
+        cout << "  pre_pairs.size()=" << pre_pairs.size() << ", eff_pairs.size()=" << eff_pairs.size() << endl;
+    }
+    
     for (size_t i = 0; i < pre_pairs.size(); ++i) {
         int var_id = pre_pairs[i].var;
         assert(var_id == eff_pairs[i].var);
@@ -471,6 +587,12 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
         int new_val = pre_pairs[i].value;
         int effect = (new_val - old_val) * hash_multipliers[var_id];
         base_hash_effect += effect;
+        
+        if (debug_this_call) {
+            cout << "    var" << var_id << ": old=" << old_val << ", new=" << new_val 
+                 << ", multiplier=" << hash_multipliers[var_id] 
+                 << ", effect=" << effect << endl;
+        }
     }
     
     if (debug_this_call) {
@@ -516,6 +638,15 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
                 // 1. Direct cascades: Compute affected comparison axioms (propositional cascades)
                 vector<Fact> affected_facts = 
                     compute_affected_comparison_axioms(changed_vars, old_parts, new_parts);
+                
+                if (debug_this_call && !affected_facts.empty()) {
+                    cout << "  Comparison axiom cascades: " << affected_facts.size() << " facts" << endl;
+                    for (const Fact &fact : affected_facts) {
+                        cout << "    var" << fact.var << "=" << fact.value 
+                             << " (multiplier=" << hash_multipliers[fact.var] 
+                             << ", contribution=" << (fact.value * hash_multipliers[fact.var]) << ")" << endl;
+                    }
+                }
                 
                 for (const Fact &fact : affected_facts) {
                     // Add propositional variable contribution
@@ -861,17 +992,24 @@ vector<Fact> DomainAbstractionNumericHelper::compute_affected_comparison_axioms(
             }
         }
         
-        // If either partition changed, the comparison result might change
-        // Evaluate the comparison exactly to determine the truth value
+        // Get the facts
+        FactProxy true_fact = axiom.get_true_fact();
+        FactProxy false_fact = axiom.get_false_fact();
+        int prop_var_id = true_fact.get_variable().get_id();
         
-        if (left_partition_old != left_partition_new || 
-            right_partition_old != right_partition_new) {
-            
-            // Get the facts
-            FactProxy true_fact = axiom.get_true_fact();
-            FactProxy false_fact = axiom.get_false_fact();
-            int prop_var_id = true_fact.get_variable().get_id();
-            
+        // CRITICAL FIX: Even if partitions don't change, the comparison result MIGHT change
+        // because the concrete numeric values change within the partition!
+        // This is especially important when variables have only 1 partition (fully abstract).
+        // 
+        // We must be CONSERVATIVE: if a variable in the comparison is modified,
+        // assume BOTH possible truth values for the comparison axiom.
+        
+        // Check if partitions actually changed
+        bool partition_changed = (left_partition_old != left_partition_new || 
+                                  right_partition_old != right_partition_new);
+        
+        if (partition_changed) {
+            // Partitions changed - evaluate comparison based on new partitions
             // If a variable didn't change, use its current (new) partition
             int eval_left_partition = (left_partition_new != -1) ? left_partition_new : left_partition_old;
             int eval_right_partition = (right_partition_new != -1) ? right_partition_new : right_partition_old;
@@ -890,6 +1028,12 @@ vector<Fact> DomainAbstractionNumericHelper::compute_affected_comparison_axioms(
                 affected_facts.emplace_back(prop_var_id, true_fact.get_value());
                 affected_facts.emplace_back(prop_var_id, false_fact.get_value());
             }
+        } else {
+            // Partitions didn't change, but numeric values DID change
+            // We can't determine the exact result, so be conservative
+            // and add BOTH possible truth values
+            affected_facts.emplace_back(prop_var_id, true_fact.get_value());
+            affected_facts.emplace_back(prop_var_id, false_fact.get_value());
         }
     }
     

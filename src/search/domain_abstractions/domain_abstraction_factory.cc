@@ -16,6 +16,8 @@
 #include "match_tree.h"
 #include "../priority_queue.h"
 
+#include <sstream>
+
 
 using namespace std;
 
@@ -388,6 +390,41 @@ vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
     return abstract_goals;
 }
 
+// Helper function to decode an abstract state index into its variable values
+string decode_abstract_state(int state_index, const vector<int> &domain_sizes,
+                              const NumericDomainMappingType &numeric_domain_mapping,
+                              const vector<int> &hash_multipliers) {
+    stringstream ss;
+    ss << "State " << state_index << ": [";
+    
+    // Decode propositional variables
+    int remaining = state_index;
+    for (size_t var_id = 0; var_id < domain_sizes.size(); ++var_id) {
+        int multiplier = hash_multipliers[var_id];
+        int value = (remaining / multiplier) % domain_sizes[var_id];
+        ss << "v" << var_id << "=" << value;
+        if (var_id < domain_sizes.size() - 1 || !numeric_domain_mapping.empty()) {
+            ss << ", ";
+        }
+    }
+    
+    // Decode numeric variables (partitions)
+    for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+        int multiplier_idx = domain_sizes.size() + num_var_id;
+        int multiplier = hash_multipliers[multiplier_idx];
+        int num_partitions = numeric_domain_mapping[num_var_id].get_num_partitions();
+        int partition = (remaining / multiplier) % num_partitions;
+        
+        ss << "num" << num_var_id << "=p" << partition;
+        if (num_var_id < numeric_domain_mapping.size() - 1) {
+            ss << ", ";
+        }
+    }
+    
+    ss << "]";
+    return ss.str();
+}
+
 //Regression search to get lookup value for all abstract states, similar to PDBs.
 void DomainAbstractionFactory::compute_distances(
     const TaskProxy &task_proxy,
@@ -400,11 +437,17 @@ void DomainAbstractionFactory::compute_distances(
 
     // initialize queue
     cout << "DEBUG DIJKSTRA: Checking which abstract states are goals (total states: " << num_states << ")" << endl;
+    int first_goal_state = -1;
     for (int state_index = 0; state_index < num_states; ++state_index) {
         bool is_goal = is_goal_state(state_index, abstract_goals, domain_sizes);
         if (state_index < 20 || is_goal) {  // Print first 20 states or any goal states
-            cout << "DEBUG DIJKSTRA: State " << state_index << " is " 
+            string decoded = decode_abstract_state(state_index, domain_sizes, 
+                                                  numeric_domain_mapping, hash_multipliers);
+            cout << "DEBUG DIJKSTRA: " << decoded << " is " 
                  << (is_goal ? "GOAL" : "not goal") << endl;
+            if (is_goal && first_goal_state == -1) {
+                first_goal_state = state_index;
+            }
         }
         if (is_goal) {
             pq.push(0, state_index);
@@ -432,6 +475,7 @@ void DomainAbstractionFactory::compute_distances(
     // Dijkstra loop
     int dijkstra_iterations = 0;
     int total_expansions = 0;
+    bool first_goal_expanded = false;
     while (!pq.empty()) {
         pair<int, int> node = pq.pop();
         int distance = node.first;
@@ -440,11 +484,26 @@ void DomainAbstractionFactory::compute_distances(
         if (distance > distances[state_index]) {
             continue;
         }
+        
+        // Special detailed debugging for first goal state expansion
+        bool is_first_goal_expansion = (state_index == first_goal_state && !first_goal_expanded);
+        if (is_first_goal_expansion) {
+            first_goal_expanded = true;
+            cout << "\n========== DETAILED DEBUG: FIRST GOAL STATE EXPANSION ==========" << endl;
+            string decoded = decode_abstract_state(state_index, domain_sizes, 
+                                                  numeric_domain_mapping, hash_multipliers);
+            cout << "Expanding: " << decoded << endl;
+            cout << "Distance: " << distance << endl;
+        }
 
         // Regress using abstract operators (from match tree)
         // These handle both propositional-only and numeric operators
         vector<int> applicable_operator_ids;
         match_tree.get_applicable_operator_ids(state_index, applicable_operator_ids);
+        
+        if (is_first_goal_expansion) {
+            cout << "Applicable operators: " << applicable_operator_ids.size() << endl;
+        }
         
         if (dijkstra_iterations <= 10 && applicable_operator_ids.size() > 0) {
             cout << "DEBUG DIJKSTRA: Iteration " << dijkstra_iterations 
@@ -455,9 +514,16 @@ void DomainAbstractionFactory::compute_distances(
         
         int valid_predecessors_this_state = 0;
         int out_of_bounds_predecessors = 0;
+        int operators_checked = 0;
         for (int op_id : applicable_operator_ids) {
             const AbstractOperator &op = operators[op_id];
             int alternative_cost = distances[state_index] + op.get_cost();
+            
+            if (is_first_goal_expansion && operators_checked < 5) {
+                cout << "  Operator " << op_id << " (concrete_id=" << op.get_concrete_op_id() 
+                     << ", cost=" << op.get_cost() << ")" << endl;
+                operators_checked++;
+            }
             
             // Iterate over all possible hash effects (predecessors)
             // Propositional operators have 1 effect, numeric operators have multiple
@@ -470,6 +536,21 @@ void DomainAbstractionFactory::compute_distances(
                 cout << endl;
             }
             
+            if (is_first_goal_expansion && operators_checked <= 5) {
+                cout << "    Hash effects (" << hash_effects_vec.size() << "): ";
+                int shown = 0;
+                for (int he : hash_effects_vec) {
+                    if (shown < 10) {
+                        cout << he << " ";
+                        shown++;
+                    }
+                }
+                if (hash_effects_vec.size() > 10) cout << "...";
+                cout << endl;
+            }
+            
+            int predecessors_this_op = 0;
+            int out_of_bounds_this_op = 0;
             for (int hash_effect : hash_effects_vec) {
                 int predecessor = state_index + hash_effect;
                 
@@ -481,13 +562,25 @@ void DomainAbstractionFactory::compute_distances(
                     if (dijkstra_iterations == 1) {
                         out_of_bounds_predecessors++;
                     }
+                    if (is_first_goal_expansion && operators_checked <= 5) {
+                        out_of_bounds_this_op++;
+                    }
                     continue;  // Skip this invalid predecessor
                 }
                 
                 valid_predecessors_this_state++;
+                predecessors_this_op++;
                 
                 if (alternative_cost < distances[predecessor]) {
                     total_expansions++;
+                    
+                    if (is_first_goal_expansion && operators_checked <= 5 && predecessors_this_op <= 3) {
+                        string pred_decoded = decode_abstract_state(predecessor, domain_sizes,
+                                                                   numeric_domain_mapping, hash_multipliers);
+                        cout << "    Predecessor " << predecessors_this_op << ": " << pred_decoded 
+                             << " (hash_effect=" << hash_effect << ")" << endl;
+                    }
+                    
                     if (total_expansions <= 20) {
                         cout << "DEBUG DIJKSTRA:   Updated state " << predecessor 
                              << " from distance " << distances[predecessor] 
@@ -501,6 +594,17 @@ void DomainAbstractionFactory::compute_distances(
                     }
                 }
             }
+            
+            if (is_first_goal_expansion && operators_checked <= 5) {
+                cout << "    Valid predecessors: " << predecessors_this_op 
+                     << ", Out of bounds: " << out_of_bounds_this_op << endl;
+            }
+        }
+        
+        if (is_first_goal_expansion) {
+            cout << "Total valid predecessors generated: " << valid_predecessors_this_state << endl;
+            cout << "Total out of bounds: " << out_of_bounds_predecessors << endl;
+            cout << "===============================================================\n" << endl;
         }
         
         if (dijkstra_iterations == 1) {

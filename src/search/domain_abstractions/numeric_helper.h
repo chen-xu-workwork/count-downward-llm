@@ -225,6 +225,7 @@ private:
     void find_derived_variables();  // Find both numeric and propositional derived vars
     void build_goals();
     void build_axiom_dependencies();
+    void print_axiom_dependency_trees();  // Debug: print dependency trees
     
     // Helper methods for building abstract operators
     void build_abstract_operator(
