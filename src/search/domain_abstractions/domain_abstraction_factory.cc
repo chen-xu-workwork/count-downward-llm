@@ -643,6 +643,11 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
             continue;  // Variable not in hash function - skip
         }
         
+        // Skip trivial variables (those with empty domain_mapping)
+        if (variable_is_trivial(prop_var_id)) {
+            continue;
+        }
+        
         int multiplier = hash_multipliers[prop_var_id];
         
         // Extract current value of this comparison axiom from base_predecessor_index
@@ -680,6 +685,12 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
         // Get the hash multiplier for this propositional variable
         if (prop_var_id >= static_cast<int>(hash_multipliers.size())) {
             // Variable not in hash function - skip
+            enumerate_combinations(comparison_idx + 1, current_hash_adjustment);
+            return;
+        }
+        
+        // Skip trivial variables (those with empty domain_mapping)
+        if (variable_is_trivial(prop_var_id)) {
             enumerate_combinations(comparison_idx + 1, current_hash_adjustment);
             return;
         }
