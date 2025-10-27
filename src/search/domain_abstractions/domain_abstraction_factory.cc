@@ -646,12 +646,13 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
         int multiplier = hash_multipliers[prop_var_id];
         
         // Extract current value of this comparison axiom from base_predecessor_index
-        int current_value = (base_predecessor_index / multiplier) % 2;
+        // Comparison axioms have domain size 3: true (0), false (1), unknown (2)
+        int current_value = (base_predecessor_index / multiplier) % 3;
         
-        // Assuming UNKNOWN is value 0 (check domain mapping to confirm)
-        // We need to reset from current_value to UNKNOWN (0)
-        // Delta = (0 - current_value) * multiplier
-        int unknown_value = 0;  // Typically UNKNOWN is encoded as 0
+        // UNKNOWN is value 2 (from output file: index 0 = true, 1 = false, 2 = <none of those>)
+        // We need to reset from current_value to UNKNOWN (2)
+        // Delta = (2 - current_value) * multiplier
+        int unknown_value = domain_mapping[prop_var_id][2];
         int delta_to_unknown = (unknown_value - current_value) * multiplier;
         reset_to_unknown_adjustment += delta_to_unknown;
     }
@@ -685,32 +686,29 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
         
         int multiplier = hash_multipliers[prop_var_id];
         
-        // All comparisons are now at UNKNOWN (value 0) in state_with_unknowns
-        // Compute delta from UNKNOWN (0) to target value
-        int unknown_value = 0;
+        // All comparisons are now at UNKNOWN (value 2) in state_with_unknowns
+        // Compute delta from UNKNOWN (2) to target value
+        int unknown_value = domain_mapping[prop_var_id][2];
         
         if (comp.eval_result == AffectedComparison::DEFINITELY_TRUE) {
             // Comparison must be true in the predecessor
             // Delta from UNKNOWN to true_value
-            int delta_from_unknown = (comp.true_value - unknown_value) * multiplier;
+            int delta_from_unknown = (domain_mapping[comp.prop_var_id][comp.true_value] - unknown_value) * multiplier;
             enumerate_combinations(comparison_idx + 1, 
                                  current_hash_adjustment + delta_from_unknown);
         } else if (comp.eval_result == AffectedComparison::DEFINITELY_FALSE) {
             // Comparison must be false in the predecessor
             // Delta from UNKNOWN to false_value
-            int delta_from_unknown = (comp.false_value - unknown_value) * multiplier;
+            
+            int delta_from_unknown = (domain_mapping[comp.prop_var_id][comp.false_value] - unknown_value) * multiplier;
             enumerate_combinations(comparison_idx + 1,
                                  current_hash_adjustment + delta_from_unknown);
         } else {
-            // UNKNOWN - enumerate both possibilities (optimistic branching)
+            // UNKNOWN - enumerate true possibilitie (optimistic branching)
             // Try TRUE: delta from UNKNOWN to true_value
-            int true_delta = (comp.true_value - unknown_value) * multiplier;
+            int true_delta = (domain_mapping[comp.prop_var_id][comp.true_value] - unknown_value) * multiplier;
             enumerate_combinations(comparison_idx + 1,
                                  current_hash_adjustment + true_delta);
-            // Try FALSE: delta from UNKNOWN to false_value
-            int false_delta = (comp.false_value - unknown_value) * multiplier;
-            enumerate_combinations(comparison_idx + 1,
-                                 current_hash_adjustment + false_delta);
         }
     };
     
