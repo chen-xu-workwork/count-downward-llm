@@ -84,24 +84,53 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
             }
             
             if (affected_numeric_vars[var_idx]) {
-                // Try all possible target partitions for this affected variable
-                int num_partitions = numeric_domain_sizes[var_idx];
-                int hash_multiplier = hash_multipliers[pre_pairs.size() + var_idx];
-                
-                for (int target_partition = 0; target_partition < num_partitions; ++target_partition) {
-                    // We don't know the source partition here, so we compute effects
-                    // relative to partition 0. During regression, we'll adjust based on
-                    // the actual state.
-                    int effect_contribution = target_partition * hash_multiplier;
-                    enumerate_effects(var_idx + 1, current_effect + effect_contribution);
-                }
-            } else {
+                    // Try all possible source and target partitions for this affected variable
+                    // and compute the hash contribution as (target - source) * multiplier.
+                    // This yields correct regression offsets: predecessor = state + (target - source)*multiplier
+                    int num_partitions = numeric_domain_sizes[var_idx];
+                    // Numeric hash multipliers are stored after all propositional
+                    // variable multipliers in the hash_multipliers vector. Using
+                    // pre_pairs.size() here is incorrect (that is the number of
+                    // precondition facts) and can lead to picking the wrong
+                    // multiplier index. Compute the correct offset into
+                    // hash_multipliers for numeric variables.
+                    int numeric_offset = static_cast<int>(hash_multipliers.size()) - static_cast<int>(numeric_domain_mapping.size());
+                    int hash_multiplier = hash_multipliers[numeric_offset + var_idx];
+
+                    for (int source_partition = 0; source_partition < num_partitions; ++source_partition) {
+                        for (int target_partition = 0; target_partition < num_partitions; ++target_partition) {
+                            int effect_contribution = (target_partition - source_partition) * hash_multiplier;
+                            enumerate_effects(var_idx + 1, current_effect + effect_contribution);
+                        }
+                    }
+                } else {
                 // Not affected: no contribution to hash effect from this variable
                 enumerate_effects(var_idx + 1, current_effect);
             }
         };
         
         enumerate_effects(0, base_hash_effect);
+    }
+
+    // Debug: if a particular concrete operator shows suspicious hash effects,
+    // print details to help trace the source of negative/large effects.
+    // (Concrete operator IDs are from the input task; adjust as needed.)
+    if (concrete_op_id == 145) {
+        cout << "DEBUG FACTORY: Operator concrete_id=145 constructed" << endl;
+        cout << "  prev_pairs:";
+        for (const Fact &f : prev_pairs) cout << " (v" << f.var << "=" << f.value << ")";
+        cout << endl;
+        cout << "  pre_pairs:";
+        for (const Fact &f : pre_pairs) cout << " (v" << f.var << "=" << f.value << ")";
+        cout << endl;
+        cout << "  eff_pairs:";
+        for (const Fact &f : eff_pairs) cout << " (v" << f.var << "=" << f.value << ")";
+        cout << endl;
+        cout << "  ass_effects size=" << ass_effects.size() << endl;
+        cout << "  base_hash_effect=" << base_hash_effect << endl;
+        cout << "  hash_effects:";
+        for (int he : hash_effects) cout << " " << he;
+        cout << endl;
     }
 }
 
@@ -131,6 +160,21 @@ AbstractOperator::AbstractOperator(
     
     // Note: pre_pairs are preconditions in progression, not needed in regression
     // (they're handled by the effects already)
+
+    // Debug print for operators constructed via pre-computed hash effects
+    if (concrete_op_id == 145) {
+        cout << "DEBUG FACTORY: (precomputed) Operator concrete_id=145 constructed" << endl;
+        cout << "  prev_pairs:";
+        for (const Fact &f : prev_pairs) cout << " (v" << f.var << "=" << f.value << ")";
+        cout << endl;
+        cout << "  eff_pairs:";
+        for (const Fact &f : eff_pairs) cout << " (v" << f.var << "=" << f.value << ")";
+        cout << endl;
+        cout << "  ass_effects size=" << ass_effects.size() << endl;
+        cout << "  hash_effects:";
+        for (int he : hash_effects) cout << " " << he;
+        cout << endl;
+    }
 }
 
 DomainAbstractionFactory::DomainAbstractionFactory (
@@ -553,19 +597,29 @@ void DomainAbstractionFactory::compute_distances(
             int out_of_bounds_this_op = 0;
             for (int hash_effect : hash_effects_vec) {
                 int predecessor = state_index + hash_effect;
-                
-                // Skip predecessors that are out of bounds
-                // This can happen when hash effects are computed for all possible
-                // partition transitions, but the actual reachable state space is
-                // constrained by propositional variables or problem structure
+
+                // Skip predecessors that are out of bounds. This can legitimately
+                // happen because we enumerate many numeric partition transitions
+                // conservatively; some of those transitions do not correspond to
+                // valid abstract predecessors for the current propositional part.
                 if (predecessor < 0 || predecessor >= num_states) {
                     if (dijkstra_iterations == 1) {
                         out_of_bounds_predecessors++;
                     }
                     if (is_first_goal_expansion && operators_checked <= 5) {
                         out_of_bounds_this_op++;
+                        cout << "DEBUG DIJKSTRA:   Skipping out-of-bounds predecessor: "
+                             << "state_index=" << state_index
+                             << " hash_effect=" << hash_effect
+                             << " predecessor=" << predecessor
+                             << " op_id=" << op_id
+                             << " concrete_id=" << op.get_concrete_op_id()
+                             << endl;
                     }
-                    continue;  // Skip this invalid predecessor
+                    // Continue without asserting to allow the search to proceed
+                    // while we gather diagnostics. Invalid predecessors are
+                    // expected in conservative enumerations and should be skipped.
+                    continue;
                 }
                 
                 valid_predecessors_this_state++;
@@ -683,6 +737,14 @@ void DomainAbstractionFactory::compute_abstract_plan(
     cout << "DEBUG PLAN: Final initial state index = " << current_state << endl;
     cout << "DEBUG PLAN: Total abstract states = " << num_states << endl;
     cout << "DEBUG PLAN: Distance to goal = " << distances[current_state] << endl;
+
+    //print distances
+    for (int i = 0; i < distances.size(); ++i) {
+        bool is_goal = is_goal_state(i, abstract_goals, domain_sizes);
+        cout << "DEBUG PLAN: Distance[" << i << "] = " << distances[i] 
+                << (is_goal ? " (GOAL)" : "")
+                << (i == current_state ? " (INITIAL)" : "") << endl;
+    }
     
     // Count how many states are reachable (have finite distance)
     int reachable_count = 0;

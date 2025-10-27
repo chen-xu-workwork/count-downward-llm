@@ -38,6 +38,18 @@ struct ResNumericVariable {
         : var_id(var_id), name(std::move(name)), expr(std::move(expr)) {}
 };
 
+/**
+ * Structure representing a single abstract transition.
+ * Each transition corresponds to a valid (source_partition -> target_partition)
+ * combination for numeric variables. The target partition is added as a
+ * precondition so the operator is only applicable from states where the
+ * numeric variable is in the target partition (for regression).
+ */
+struct TransitionInfo {
+    int hash_effect;
+    std::vector<Fact> target_partition_preconditions;  // Target partitions as preconditions
+};
+
 // Forward declaration - AbstractOperator is defined in domain_abstraction_factory.h
 class AbstractOperator;
 
@@ -277,6 +289,23 @@ private:
      * 4. Cascading effects on derived propositional variables (comparison axioms)
      */
     std::vector<int> compute_hash_effects_with_cascades(
+        const std::vector<Fact> &pre_pairs,
+        const std::vector<Fact> &eff_pairs,
+        const std::vector<NumAssProxy> &ass_effects);
+    
+    /**
+     * NEW APPROACH: Compute hash effects WITH explicit numeric preconditions.
+     * Instead of enumerating all partition pairs and checking boundaries later,
+     * this determines which source partitions can reach which target partitions
+     * and returns transitions with explicit preconditions.
+     * 
+     * For each valid (source -> target) transition:
+     * - Computes the hash effect
+     * - Adds numeric preconditions (source partition constraints)
+     * 
+     * This eliminates the need for boundary checking in regression search.
+     */
+    std::vector<TransitionInfo> compute_hash_effects_with_preconditions(
         const std::vector<Fact> &pre_pairs,
         const std::vector<Fact> &eff_pairs,
         const std::vector<NumAssProxy> &ass_effects);

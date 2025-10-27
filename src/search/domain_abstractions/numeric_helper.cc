@@ -381,6 +381,13 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     // All variable value pairs that are an effect without precondition
     vector<Fact> effects_without_pre;
 
+    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+    vector<int> num_ids;
+    for (ComparisonAxiomProxy axiom : comparison_axioms) {
+        num_ids.push_back(axiom.get_true_fact().get_variable().get_id());
+        assert(axiom.get_true_fact().get_variable().get_id() == axiom.get_false_fact().get_variable().get_id());
+    }
+
     int num_variables = task_proxy.get_variables().size();
     vector<int> has_precondition_on_var(num_variables, -1);
     vector<int> has_effect_on_var(num_variables, -1);
@@ -437,6 +444,8 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
         } else {
             prev_pairs.emplace_back(var_id, val);
         }
+
+        //TODO: comparison axiom results should not be stored as prev_pairs. Instead they should be handled separately.
     }
     
     // Collect numeric effects (assignment effects)
@@ -490,18 +499,32 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
         if (!eff_pairs.empty() || !ass_effects.empty()) {
             size_t ops_before = operators.size();
             
-            // Compute all hash effects including cascades
-            vector<int> complete_hash_effects = 
-                compute_hash_effects_with_cascades(pre_pairs, eff_pairs, ass_effects);
+            // NEW APPROACH: Instead of enumerating all partition pairs and checking
+            // boundaries later, we enumerate only VALID transitions and add
+            // explicit numeric preconditions (source partitions) to each operator.
+            //
+            // For each target partition combination, we determine which source
+            // partitions can reach it, and create one operator per valid
+            // (source -> target) transition with the source partition as a precondition.
             
-            // PHASE 1 REFACTORING: Create ONE abstract operator per hash effect
-            // instead of one operator with multiple hash effects
-            for (int hash_effect : complete_hash_effects) {
-                // Create abstract operator with single hash effect (wrapped in vector)
-                vector<int> single_hash_effect = {hash_effect};
+            vector<TransitionInfo> transitions = 
+                compute_hash_effects_with_preconditions(pre_pairs, eff_pairs, ass_effects);
+            
+            // Create one abstract operator per transition
+            for (const TransitionInfo &trans : transitions) {
+                // Add target partition preconditions to existing pre_pairs
+                // These ensure the operator is only applicable when numeric variables
+                // are in the target partitions (for regression)
+                vector<Fact> extended_pre_pairs = pre_pairs;
+                extended_pre_pairs.insert(extended_pre_pairs.end(),
+                                         trans.target_partition_preconditions.begin(),
+                                         trans.target_partition_preconditions.end());
+                
+                // Create abstract operator with single hash effect
+                vector<int> single_hash_effect = {trans.hash_effect};
                 operators.emplace_back(
                     prev_pairs,              // prevail conditions
-                    pre_pairs,               // preconditions
+                    extended_pre_pairs,      // preconditions (propositional + target partitions)
                     eff_pairs,               // propositional effects
                     ass_effects,             // numeric assignment effects
                     cost,                    // operator cost
@@ -517,13 +540,12 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                      << ", eff_pairs: " << eff_pairs.size()
                      << ", prev_pairs: " << prev_pairs.size()
                      << ", ass_effects: " << ass_effects.size() << endl;
-                cout << "  hash_effects generated: " << complete_hash_effects.size() << endl;
-                if (complete_hash_effects.size() <= 5) {
-                    cout << "  hash_effect values: ";
-                    for (int h : complete_hash_effects) {
-                        cout << h << " ";
+                cout << "  transitions generated: " << transitions.size() << endl;
+                if (transitions.size() <= 5) {
+                    for (size_t i = 0; i < transitions.size(); ++i) {
+                        cout << "  transition " << i << ": hash_effect=" << transitions[i].hash_effect
+                             << ", target_preconds=" << transitions[i].target_partition_preconditions.size() << endl;
                     }
-                    cout << endl;
                 }
             }
         }
@@ -579,6 +601,8 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
     if (debug_this_call) {
         cout << "  pre_pairs.size()=" << pre_pairs.size() << ", eff_pairs.size()=" << eff_pairs.size() << endl;
     }
+
+
     
     for (size_t i = 0; i < pre_pairs.size(); ++i) {
         int var_id = pre_pairs[i].var;
@@ -618,6 +642,8 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
                 cout << "  Affected numeric var: " << num_var_id 
                      << " (partitions: " << numeric_domain_sizes[num_var_id] << ")" << endl;
             }
+        } else {
+            exit(1);
         }
     }
     
@@ -677,6 +703,9 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
             // This variable is affected - enumerate reachable partition transitions
             int num_partitions = numeric_domain_sizes[var_idx];
             // Hash multipliers for numeric vars come after ALL propositional vars
+            if (domain_sizes.size() + var_idx >= static_cast<int>(hash_multipliers.size())) {
+                exit(1);
+            }
             int hash_multiplier = hash_multipliers[domain_sizes.size() + var_idx];
             
             // Find the assignment effect for this variable
@@ -707,7 +736,9 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
                     // Compute hash contribution for this transition
                     int effect_contribution = 
                         (target_partition - source_partition) * hash_multiplier;
-                    
+                    if (effect_contribution) {
+                        cout << "  Generated hash_effect: " << effect_contribution << endl;
+                    }
                     // Track this variable change for cascade computation
                     changed_vars.push_back(var_idx);
                     old_parts.push_back(source_partition);
@@ -736,6 +767,210 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
     }
     
     return hash_effects;
+}
+
+// NEW APPROACH: Compute transitions with explicit numeric preconditions
+// Instead of enumerating all (source, target) pairs and checking boundaries,
+// this inverts the logic: for each target partition, determine which source
+// partitions can reach it, and create transitions with source preconditions.
+vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with_preconditions(
+    const vector<Fact> &pre_pairs,
+    const vector<Fact> &eff_pairs,
+    const vector<NumAssProxy> &ass_effects) {
+    
+    static int call_count = 0;
+    int local_call = call_count++;
+    bool debug_this_call = (local_call < 3) || (local_call >= 146 && local_call < 149);
+    
+    if (debug_this_call) {
+        cout << "DEBUG HASH: compute_hash_effects_with_preconditions called (count=" << local_call << ")" << endl;
+    }
+    
+    vector<TransitionInfo> transitions;
+    
+    // Compute base hash effect from propositional effects
+    int base_hash_effect = 0;
+    assert(pre_pairs.size() == eff_pairs.size());
+    
+    if (debug_this_call) {
+        cout << "  pre_pairs.size()=" << pre_pairs.size() << ", eff_pairs.size()=" << eff_pairs.size() << endl;
+    }
+    
+    for (size_t i = 0; i < pre_pairs.size(); ++i) {
+        int var_id = pre_pairs[i].var;
+        assert(var_id == eff_pairs[i].var);
+        int old_val = eff_pairs[i].value;
+        int new_val = pre_pairs[i].value;
+        int effect = (new_val - old_val) * hash_multipliers[var_id];
+        base_hash_effect += effect;
+        
+        if (debug_this_call) {
+            cout << "    var" << var_id << ": old=" << old_val << ", new=" << new_val 
+                 << ", multiplier=" << hash_multipliers[var_id] 
+                 << ", effect=" << effect << endl;
+        }
+    }
+    
+    if (debug_this_call) {
+        cout << "  base_hash_effect=" << base_hash_effect << endl;
+        cout << "  ass_effects.size()=" << ass_effects.size() << endl;
+    }
+    
+    // If no numeric effects, just return single transition with no numeric preconditions
+    if (ass_effects.empty()) {
+        TransitionInfo trans;
+        trans.hash_effect = base_hash_effect;
+        // No numeric preconditions needed
+        transitions.push_back(trans);
+        return transitions;
+    }
+    
+    // Identify which numeric variables are affected
+    vector<bool> affected_numeric_vars(numeric_domain_mapping.size(), false);
+    for (const NumAssProxy &ass_eff : ass_effects) {
+        int num_var_id = ass_eff.get_affected_variable().get_id();
+        if (num_var_id >= 0 && num_var_id < static_cast<int>(numeric_domain_mapping.size())) {
+            affected_numeric_vars[num_var_id] = true;
+            if (debug_this_call) {
+                cout << "  Affected numeric var: " << num_var_id 
+                     << " (partitions: " << numeric_domain_sizes[num_var_id] << ")" << endl;
+            }
+        } else {
+            exit(1);
+        }
+    }
+    
+    // NEW LOGIC: Enumerate target partitions, then determine valid source partitions
+    // For each combination of target partitions, determine which source partition
+    // combinations can reach it.
+    // This eliminates invalid transitions that would lead to out-of-bounds predecessors.
+    // We add the target partitions as preconditions so the MatchTree only applies
+    // the operator when numeric variables are in the correct target partitions.
+    function<void(size_t, int, vector<Fact>&, vector<int>&, vector<int>&, vector<int>&)> enumerate_targets =
+        [&](size_t var_idx, int current_effect, vector<Fact> &target_preconds,
+            vector<int> &changed_vars, vector<int> &old_parts, vector<int> &new_parts) {
+        
+        if (var_idx == numeric_domain_mapping.size()) {
+            // Base case: we've fixed a combination of target partitions
+            // Now add the transition with hash effect and target partition preconditions
+            int total_effect = base_hash_effect + current_effect;
+            
+            // Compute cascading effects for this specific transition
+            if (!changed_vars.empty()) {
+                // 1. Direct cascades: comparison axioms
+                vector<Fact> affected_facts = 
+                    compute_affected_comparison_axioms(changed_vars, old_parts, new_parts);
+                
+                for (const Fact &fact : affected_facts) {
+                    total_effect += fact.value * hash_multipliers[fact.var];
+                }
+                
+                // 2. Indirect cascades: assignment axioms
+                vector<Fact> assignment_cascade_facts = 
+                    compute_assignment_axiom_cascades(changed_vars, old_parts, new_parts);
+                
+                for (const Fact &fact : assignment_cascade_facts) {
+                    total_effect += fact.value * hash_multipliers[fact.var];
+                }
+            }
+            
+            TransitionInfo trans;
+            trans.hash_effect = total_effect;
+            trans.target_partition_preconditions = target_preconds;
+            transitions.push_back(trans);
+            
+            if (debug_this_call && transitions.size() <= 5) {
+                cout << "  Generated transition: hash_effect=" << total_effect
+                     << ", target_preconds=" << target_preconds.size() << endl;
+            }
+            return;
+        }
+        
+        if (affected_numeric_vars[var_idx]) {
+            // This variable is affected - enumerate target partitions
+            int num_partitions = numeric_domain_sizes[var_idx];
+            int hash_multiplier = hash_multipliers[domain_sizes.size() + var_idx];
+            
+            // Find the assignment effect for this variable
+            const NumAssProxy *ass_eff_for_var = nullptr;
+            for (const NumAssProxy &ass_eff : ass_effects) {
+                if (ass_eff.get_affected_variable().get_id() == static_cast<int>(var_idx)) {
+                    ass_eff_for_var = &ass_eff;
+                    break;
+                }
+            }
+            
+            // For each target partition, determine which source partitions can reach it
+            for (int target_partition = 0; target_partition < num_partitions; ++target_partition) {
+                // Determine which source partitions can lead to this target
+                vector<int> valid_sources;
+                
+                if (ass_eff_for_var) {
+                    // Check each source partition to see if it can reach the target
+                    for (int source_partition = 0; source_partition < num_partitions; ++source_partition) {
+                        vector<int> reachable = compute_reachable_partitions(
+                            var_idx, source_partition, *ass_eff_for_var);
+                        
+                        // Check if target is in the reachable set
+                        if (find(reachable.begin(), reachable.end(), target_partition) != reachable.end()) {
+                            valid_sources.push_back(source_partition);
+                        }
+                    }
+                } else {
+                    // No effect found - shouldn't happen, but be conservative
+                    for (int i = 0; i < num_partitions; ++i) {
+                        valid_sources.push_back(i);
+                    }
+                }
+                
+                // For each valid source partition, create a transition
+                for (int source_partition : valid_sources) {
+                    // Skip backward transitions that would produce negative hash effects
+                    // These can cause out-of-bounds predecessors in regression search
+                    if (target_partition < source_partition) {
+                        continue;
+                    }
+                    
+                    // Add target partition as precondition (for regression)
+                    // The variable ID in the abstract state is: domain_sizes.size() + var_idx
+                    int abstract_num_var_id = domain_sizes.size() + var_idx;
+                    target_preconds.emplace_back(abstract_num_var_id, target_partition);
+                    
+                    // Compute hash contribution for this transition
+                    int effect_contribution = 
+                        (target_partition - source_partition) * hash_multiplier;
+                    
+                    // Track this change for cascades
+                    changed_vars.push_back(var_idx);
+                    old_parts.push_back(source_partition);
+                    new_parts.push_back(target_partition);
+                    
+                    enumerate_targets(var_idx + 1, current_effect + effect_contribution,
+                                    target_preconds, changed_vars, old_parts, new_parts);
+                    
+                    // Backtrack
+                    target_preconds.pop_back();
+                    changed_vars.pop_back();
+                    old_parts.pop_back();
+                    new_parts.pop_back();
+                }
+            }
+        } else {
+            // Not affected: no contribution from this variable
+            enumerate_targets(var_idx + 1, current_effect, target_preconds,
+                            changed_vars, old_parts, new_parts);
+        }
+    };
+    
+    vector<Fact> target_preconds;
+    vector<int> changed_vars, old_parts, new_parts;
+    enumerate_targets(0, 0, target_preconds, changed_vars, old_parts, new_parts);
+    
+    if (debug_this_call) {
+        cout << "  Total transitions generated: " << transitions.size() << endl;
+    }
+    
+    return transitions;
 }
 
 vector<Fact> DomainAbstractionNumericHelper::compute_assignment_axiom_cascades(
@@ -1065,6 +1300,7 @@ vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
     if (source_range.partition_index == -1) {
         // Source partition not found - this shouldn't happen
         // Return empty vector to indicate error
+        exit(1);
         return reachable_partitions;
     }
     
@@ -1140,6 +1376,7 @@ vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
             break;
             
         default:
+            exit(1);
             // Unknown operator, be conservative
             for (const NumericRange &range : ranges) {
                 reachable_partitions.push_back(range.partition_index);
@@ -1148,10 +1385,27 @@ vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
     }
     
     // Now find which target partitions overlap with [result_lower, result_upper)
+    if (numeric_var_id == 67 || numeric_var_id == 66) {  // Debug specific variables
+        cout << "DEBUG REACHABLE: var" << numeric_var_id 
+             << " source_partition=" << source_partition
+             << " source_range=[" << source_lower << ", " << source_upper << ")"
+             << " operand=" << operand_value
+             << " op=" << (int)op_type
+             << " result_range=[" << result_lower << ", " << result_upper << ")" << endl;
+    }
+    
     for (const NumericRange &range : ranges) {
         // Check if [result_lower, result_upper) overlaps with [range.lower, range.upper)
         // Two ranges [a, b) and [c, d) overlap if: a < d AND c < b
-        if (result_lower < range.upper && range.lower < result_upper) {
+        bool overlaps = (result_lower < range.upper && range.lower < result_upper);
+        
+        if (numeric_var_id == 67 || numeric_var_id == 66) {
+            cout << "  partition " << range.partition_index 
+                 << " range=[" << range.lower << ", " << range.upper << ")"
+                 << " overlaps=" << overlaps << endl;
+        }
+        
+        if (overlaps) {
             reachable_partitions.push_back(range.partition_index);
         }
     }

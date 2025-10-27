@@ -1226,6 +1226,9 @@ DomainAbstraction CEGAR::build_abstraction(
              << "derived=" << (is_derived ? "yes" : "no") << ", "
              << "has_mapping=" << (has_mapping ? "yes" : "no") << ", "
              << "domain_size=" << var.get_domain_size() << endl;
+        if (is_derived) {
+            blacklisted_variables.insert(var_id);
+        }
     }
     
     // Debug: Show logic axioms
