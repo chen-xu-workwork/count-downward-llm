@@ -512,20 +512,34 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
             
             // Create one abstract operator per transition
             for (const TransitionInfo &trans : transitions) {
-                // Add target partition preconditions to existing pre_pairs
-                // These ensure the operator is only applicable when numeric variables
-                // are in the target partitions (for regression)
+                // Add partition facts to pre_pairs and eff_pairs (for regression)
+                // In regression:
+                //   - pre_pairs + eff_pairs = preconditions (things that must be true)
+                //   - target_partition_facts go in pre_pairs (current state partition)
+                //   - source_partition_facts go in eff_pairs (predecessor state partition)
                 vector<Fact> extended_pre_pairs = pre_pairs;
+                vector<Fact> extended_eff_pairs = eff_pairs;
+                
+                // Sanity check: source and target facts must have same size
+                if (trans.source_partition_facts.size() != trans.target_partition_facts.size()) {
+                    cout << "ERROR: Mismatched partition facts! source=" << trans.source_partition_facts.size()
+                         << " target=" << trans.target_partition_facts.size() << endl;
+                    exit(1);
+                }
+                
                 extended_pre_pairs.insert(extended_pre_pairs.end(),
-                                         trans.target_partition_preconditions.begin(),
-                                         trans.target_partition_preconditions.end());
+                                         trans.target_partition_facts.begin(),
+                                         trans.target_partition_facts.end());
+                extended_eff_pairs.insert(extended_eff_pairs.end(),
+                                         trans.source_partition_facts.begin(),
+                                         trans.source_partition_facts.end());
                 
                 // Create abstract operator with single hash effect
                 vector<int> single_hash_effect = {trans.hash_effect};
                 operators.emplace_back(
-                    prev_pairs,              // prevail conditions
+                    prev_pairs,              // prevail conditions (propositional only)
                     extended_pre_pairs,      // preconditions (propositional + target partitions)
-                    eff_pairs,               // propositional effects
+                    extended_eff_pairs,      // effects (propositional + source partitions)
                     ass_effects,             // numeric assignment effects
                     cost,                    // operator cost
                     single_hash_effect,      // single hash effect (in vector for compatibility)
@@ -544,7 +558,8 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                 if (transitions.size() <= 5) {
                     for (size_t i = 0; i < transitions.size(); ++i) {
                         cout << "  transition " << i << ": hash_effect=" << transitions[i].hash_effect
-                             << ", target_preconds=" << transitions[i].target_partition_preconditions.size() << endl;
+                             << ", source_facts=" << transitions[i].source_partition_facts.size()
+                             << ", target_facts=" << transitions[i].target_partition_facts.size() << endl;
                     }
                 }
             }
@@ -840,19 +855,26 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
         }
     }
     
-    // NEW LOGIC: Enumerate target partitions, then determine valid source partitions
-    // For each combination of target partitions, determine which source partition
-    // combinations can reach it.
-    // This eliminates invalid transitions that would lead to out-of-bounds predecessors.
-    // We add the target partitions as preconditions so the MatchTree only applies
-    // the operator when numeric variables are in the correct target partitions.
-    function<void(size_t, int, vector<Fact>&, vector<int>&, vector<int>&, vector<int>&)> enumerate_targets =
-        [&](size_t var_idx, int current_effect, vector<Fact> &target_preconds,
+    // NEW LOGIC FOR REGRESSION SEARCH:
+    // Enumerate target partitions (where operator leads TO in forward / where we ARE in regression),
+    // then determine valid source partitions (where operator comes FROM in forward / predecessor in regression).
+    // 
+    // In regression context:
+    // - target_partition = partition in the FORWARD post-state (current state in regression)
+    // - source_partition = partition in the FORWARD pre-state (predecessor state in regression)
+    // - Precondition = source_partition (the predecessor must have this partition)
+    // - hash_effect = (target - source) * multiplier
+    // - predecessor_index = current_index + hash_effect
+    //
+    // This ensures operators are only applicable when the predecessor would be valid (≥ 0).
+    function<void(size_t, int, vector<Fact>&, vector<Fact>&, vector<int>&, vector<int>&, vector<int>&)> enumerate_targets =
+        [&](size_t var_idx, int current_effect, 
+            vector<Fact> &source_facts, vector<Fact> &target_facts,
             vector<int> &changed_vars, vector<int> &old_parts, vector<int> &new_parts) {
         
         if (var_idx == numeric_domain_mapping.size()) {
             // Base case: we've fixed a combination of target partitions
-            // Now add the transition with hash effect and target partition preconditions
+            // Now add the transition with hash effect and partition facts
             int total_effect = base_hash_effect + current_effect;
             
             // Compute cascading effects for this specific transition
@@ -876,12 +898,14 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
             
             TransitionInfo trans;
             trans.hash_effect = total_effect;
-            trans.target_partition_preconditions = target_preconds;
+            trans.source_partition_facts = source_facts;
+            trans.target_partition_facts = target_facts;
             transitions.push_back(trans);
             
             if (debug_this_call && transitions.size() <= 5) {
                 cout << "  Generated transition: hash_effect=" << total_effect
-                     << ", target_preconds=" << target_preconds.size() << endl;
+                     << ", source=" << source_facts.size() 
+                     << ", target=" << target_facts.size() << endl;
             }
             return;
         }
@@ -925,16 +949,11 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 
                 // For each valid source partition, create a transition
                 for (int source_partition : valid_sources) {
-                    // Skip backward transitions that would produce negative hash effects
-                    // These can cause out-of-bounds predecessors in regression search
-                    if (target_partition < source_partition) {
-                        continue;
-                    }
-                    
-                    // Add target partition as precondition (for regression)
+                    // Add both source and target partition facts
                     // The variable ID in the abstract state is: domain_sizes.size() + var_idx
                     int abstract_num_var_id = domain_sizes.size() + var_idx;
-                    target_preconds.emplace_back(abstract_num_var_id, target_partition);
+                    source_facts.emplace_back(abstract_num_var_id, source_partition);
+                    target_facts.emplace_back(abstract_num_var_id, target_partition);
                     
                     // Compute hash contribution for this transition
                     int effect_contribution = 
@@ -946,10 +965,11 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                     new_parts.push_back(target_partition);
                     
                     enumerate_targets(var_idx + 1, current_effect + effect_contribution,
-                                    target_preconds, changed_vars, old_parts, new_parts);
+                                    source_facts, target_facts, changed_vars, old_parts, new_parts);
                     
                     // Backtrack
-                    target_preconds.pop_back();
+                    source_facts.pop_back();
+                    target_facts.pop_back();
                     changed_vars.pop_back();
                     old_parts.pop_back();
                     new_parts.pop_back();
@@ -957,14 +977,14 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
             }
         } else {
             // Not affected: no contribution from this variable
-            enumerate_targets(var_idx + 1, current_effect, target_preconds,
+            enumerate_targets(var_idx + 1, current_effect, source_facts, target_facts,
                             changed_vars, old_parts, new_parts);
         }
     };
     
-    vector<Fact> target_preconds;
+    vector<Fact> source_facts, target_facts;
     vector<int> changed_vars, old_parts, new_parts;
-    enumerate_targets(0, 0, target_preconds, changed_vars, old_parts, new_parts);
+    enumerate_targets(0, 0, source_facts, target_facts, changed_vars, old_parts, new_parts);
     
     if (debug_this_call) {
         cout << "  Total transitions generated: " << transitions.size() << endl;

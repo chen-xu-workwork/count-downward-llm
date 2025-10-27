@@ -41,13 +41,16 @@ struct ResNumericVariable {
 /**
  * Structure representing a single abstract transition.
  * Each transition corresponds to a valid (source_partition -> target_partition)
- * combination for numeric variables. The target partition is added as a
- * precondition so the operator is only applicable from states where the
- * numeric variable is in the target partition (for regression).
+ * combination for numeric variables. 
+ * 
+ * In regression:
+ * - source_partition_facts: where predecessor was (goes in eff_pairs)
+ * - target_partition_facts: where current state is (goes in pre_pairs)
  */
 struct TransitionInfo {
     int hash_effect;
-    std::vector<Fact> target_partition_preconditions;  // Target partitions as preconditions
+    std::vector<Fact> source_partition_facts;  // Source partitions (predecessor state)
+    std::vector<Fact> target_partition_facts;  // Target partitions (current state)
 };
 
 // Forward declaration - AbstractOperator is defined in domain_abstraction_factory.h

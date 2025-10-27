@@ -235,7 +235,15 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     
     vector<AbstractOperator> operators =
         compute_abstract_operators(task_proxy, domain_sizes);
-    MatchTree match_tree = build_match_tree(domain_sizes, operators);
+    
+    // Build combined domain sizes for MatchTree (propositional + numeric)
+    // MatchTree needs to know domain sizes for ALL variables, including numeric partitions
+    vector<int> combined_domain_sizes = domain_sizes;
+    combined_domain_sizes.insert(combined_domain_sizes.end(),
+                                 numeric_domain_sizes.begin(),
+                                 numeric_domain_sizes.end());
+    
+    MatchTree match_tree = build_match_tree(combined_domain_sizes, operators);
     vector<Fact> abstract_goals = compute_abstract_goals(task_proxy);
     //TODO: add abstract numeric goals
 
@@ -615,6 +623,13 @@ void DomainAbstractionFactory::compute_distances(
                              << " op_id=" << op_id
                              << " concrete_id=" << op.get_concrete_op_id()
                              << endl;
+                        // Print preconditions of this operator
+                        cout << "DEBUG DIJKSTRA:   Operator preconditions: ";
+                        const vector<Fact> &preconds = op.get_regression_preconditions();
+                        for (const Fact &pc : preconds) {
+                            cout << "var" << pc.var << "=" << pc.value << " ";
+                        }
+                        cout << endl;
                     }
                     // Continue without asserting to allow the search to proceed
                     // while we gather diagnostics. Invalid predecessors are
