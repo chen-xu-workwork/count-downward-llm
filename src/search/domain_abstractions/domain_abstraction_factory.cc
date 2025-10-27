@@ -322,21 +322,38 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
     // Start with the directly changed variables, then add derived variables that depend on them
     unordered_set<int> affected_numeric_vars(changed_numeric_vars.begin(), changed_numeric_vars.end());
     unordered_map<int, pair<ap_float, ap_float>> computed_ranges;  // var_id -> (lower, upper)
-    
+    //cout << "DEBUG FACTORY: Directly changed numeric vars:";
+    //for (int var_id : changed_numeric_vars) {
+    //    cout << " " << var_id;
+    //}
+    //cout << endl;
     // Store the ranges of directly changed variables
     for (size_t i = 0; i < changed_numeric_vars.size(); ++i) {
         int var_id = changed_numeric_vars[i];
         int partition = source_partitions[i];
         
+        //cout << "DEBUG FACTORY:   Looking up range for var" << var_id 
+        //     << " partition=" << partition << endl;
+        
         if (var_id < static_cast<int>(numeric_domain_mapping.size())) {
             const NumericDomainMapping &mapping = numeric_domain_mapping[var_id];
             const vector<NumericRange> &ranges = mapping.get_ranges();
             
+            //cout << "DEBUG FACTORY:     Found " << ranges.size() << " ranges" << endl;
+            
+            bool found = false;
             for (const NumericRange &range : ranges) {
                 if (range.partition_index == partition) {
                     computed_ranges[var_id] = {range.lower, range.upper};
+                    //cout << "DEBUG FACTORY:     -> Stored range [" << range.lower 
+                    //     << ", " << range.upper << "]" << endl;
+                    found = true;
                     break;
                 }
+            }
+            if (!found) {
+                //cout << "DEBUG FACTORY:     -> WARNING: Partition " << partition 
+                //     << " not found in ranges!" << endl;
             }
         }
     }
@@ -349,6 +366,8 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
         
         AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
         for (AssignmentAxiomProxy axiom : assignment_axioms) {
+            //cout << "DEBUG FACTORY: Considering assignment axiom for derived var "
+            //     << axiom.get_assignment_variable().get_id() << endl;
             int derived_var_id = axiom.get_assignment_variable().get_id();
             
             // Skip if we've already computed this derived variable
@@ -357,25 +376,58 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
             }
             
             // Check if this axiom depends on variables we know
-            int left_var_id = axiom.get_left_variable().get_id();
-            int right_var_id = axiom.get_right_variable().get_id();
-            
+            NumericVariableProxy left_var = axiom.get_left_variable();
+            NumericVariableProxy right_var = axiom.get_right_variable();
+            int left_var_id = left_var.get_id();
+            int right_var_id = right_var.get_id();
+
+            //cout << "DEBUG FACTORY:   left_var=" << left_var_id 
+            //     << " (type=" << (int)left_var.get_var_type() << ")"
+            //     << ", right_var=" << right_var_id 
+            //     << " (type=" << (int)right_var.get_var_type() << ")" << endl;
+
+            // A variable is "known" if:
+            // 1. It's in affected_numeric_vars AND computed_ranges (changed by operator or derived)
+            // 2. It's a constant (always known)
             bool left_known = (affected_numeric_vars.count(left_var_id) > 0 && 
-                              computed_ranges.count(left_var_id) > 0);
+                              computed_ranges.count(left_var_id) > 0) ||
+                             (left_var.get_var_type() == numType::constant);
             bool right_known = (affected_numeric_vars.count(right_var_id) > 0 && 
-                               computed_ranges.count(right_var_id) > 0);
+                               computed_ranges.count(right_var_id) > 0) ||
+                              (right_var.get_var_type() == numType::constant);
             
-            // For now, we need BOTH operands to be known
-            // TODO: Handle cases where one operand is a constant
+            //cout << "DEBUG FACTORY:   left_known=" << left_known 
+            //     << ", right_known=" << right_known << endl;
+            //
+            // We need BOTH operands to be known to compute the derived variable
             if (!left_known || !right_known) {
                 continue;
             }
             
-            // Compute the range of the derived variable using interval arithmetic
-            ap_float left_lower = computed_ranges[left_var_id].first;
-            ap_float left_upper = computed_ranges[left_var_id].second;
-            ap_float right_lower = computed_ranges[right_var_id].first;
-            ap_float right_upper = computed_ranges[right_var_id].second;
+            // Get ranges for left and right variables
+            ap_float left_lower, left_upper, right_lower, right_upper;
+            
+            if (left_var.get_var_type() == numType::constant) {
+                // Constant: range is a single value
+                ap_float const_val = left_var.get_initial_state_value();
+                left_lower = const_val;
+                left_upper = const_val;
+            } else {
+                // Regular or derived variable: use computed range
+                left_lower = computed_ranges[left_var_id].first;
+                left_upper = computed_ranges[left_var_id].second;
+            }
+            
+            if (right_var.get_var_type() == numType::constant) {
+                // Constant: range is a single value
+                ap_float const_val = right_var.get_initial_state_value();
+                right_lower = const_val;
+                right_upper = const_val;
+            } else {
+                // Regular or derived variable: use computed range
+                right_lower = computed_ranges[right_var_id].first;
+                right_upper = computed_ranges[right_var_id].second;
+            }
             
             ap_float derived_lower, derived_upper;
             
@@ -402,9 +454,10 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
                     }
                     break;
                 case cal_operator::divi:
-                    // Division is tricky - skip for now
+                    // Division is tricky - skip for now (would need to handle division by zero)
                     continue;
                 default:
+                    // Unknown operator - skip
                     continue;
             }
             
@@ -428,22 +481,32 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
         enum EvalResult { DEFINITELY_TRUE, DEFINITELY_FALSE, UNKNOWN };
         EvalResult eval_result;
     };
+
     
     vector<AffectedComparison> affected_comparisons;
     
     // Scan all comparison axioms
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+    //cout << "DEBUG FACTORY: Scanning " << comparison_axioms.size() << " comparison axioms" << endl;
     for (ComparisonAxiomProxy axiom : comparison_axioms) {
         int left_var_id = axiom.get_left_variable().get_id();
         int right_var_id = axiom.get_right_variable().get_id();
+        int prop_var_id = axiom.get_true_fact().get_variable().get_id();
+        
+        //cout << "DEBUG FACTORY:   Comparison axiom prop_var=" << prop_var_id 
+        //     << " checks left=" << left_var_id << " vs right=" << right_var_id << endl;
         
         // Check if this comparison depends on any affected variable (including derived)
         bool depends_on_affected = (affected_numeric_vars.count(left_var_id) > 0 || 
                                     affected_numeric_vars.count(right_var_id) > 0);
         
+        //cout << "DEBUG FACTORY:     depends_on_affected=" << depends_on_affected << endl;
+        
         if (!depends_on_affected) {
             continue;  // This comparison is not affected by the operator
         }
+        
+        //cout << "DEBUG FACTORY:     -> This comparison IS affected!" << endl;
         
         // This comparison is affected - evaluate it
         AffectedComparison affected;
@@ -484,9 +547,14 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
             const NumericDomainMapping &left_mapping = numeric_domain_mapping[left_var_id];
             const vector<NumericRange> &left_ranges = left_mapping.get_ranges();
             // For variables not in changed_numeric_vars, we don't know the partition - assume the whole range
-            if (left_ranges.size() == 1) {
-                left_lower = left_ranges[0].lower;
-                left_upper = left_ranges[0].upper;
+            if (!left_ranges.empty()) {
+                // Take the union of all ranges (min of all lowers, max of all uppers)
+                left_lower = numeric_limits<ap_float>::infinity();
+                left_upper = -numeric_limits<ap_float>::infinity();
+                for (const NumericRange &range : left_ranges) {
+                    left_lower = min(left_lower, range.lower);
+                    left_upper = max(left_upper, range.upper);
+                }
                 found_left = true;
             }
         }
@@ -495,14 +563,20 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
             const NumericDomainMapping &right_mapping = numeric_domain_mapping[right_var_id];
             const vector<NumericRange> &right_ranges = right_mapping.get_ranges();
             // For variables not in changed_numeric_vars, we don't know the partition - assume the whole range
-            if (right_ranges.size() == 1) {
-                right_lower = right_ranges[0].lower;
-                right_upper = right_ranges[0].upper;
+            if (!right_ranges.empty()) {
+                // Take the union of all ranges (min of all lowers, max of all uppers)
+                right_lower = numeric_limits<ap_float>::infinity();
+                right_upper = -numeric_limits<ap_float>::infinity();
+                for (const NumericRange &range : right_ranges) {
+                    right_lower = min(right_lower, range.lower);
+                    right_upper = max(right_upper, range.upper);
+                }
                 found_right = true;
             }
         }
         
         if (!found_left || !found_right) {
+            // If we can't determine ranges, mark as UNKNOWN (optimistically assume both true/false possible)
             affected.eval_result = AffectedComparison::UNKNOWN;
             affected_comparisons.push_back(affected);
             continue;
@@ -556,17 +630,46 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
         
         affected_comparisons.push_back(affected);
     }
+
+    cout << "DEBUG FACTORY: Total affected comparisons: " 
+         << affected_comparisons.size() << endl;
     
-    // Step 2: Enumerate all combinations of comparison axiom truth values
+    // Step 2: Reset all affected comparison axioms to UNKNOWN in the base state
+    // This ensures we compute deltas from a consistent baseline
+    int reset_to_unknown_adjustment = 0;
+    for (const AffectedComparison &comp : affected_comparisons) {
+        int prop_var_id = comp.prop_var_id;
+        if (prop_var_id >= static_cast<int>(hash_multipliers.size())) {
+            continue;  // Variable not in hash function - skip
+        }
+        
+        int multiplier = hash_multipliers[prop_var_id];
+        
+        // Extract current value of this comparison axiom from base_predecessor_index
+        int current_value = (base_predecessor_index / multiplier) % 2;
+        
+        // Assuming UNKNOWN is value 0 (check domain mapping to confirm)
+        // We need to reset from current_value to UNKNOWN (0)
+        // Delta = (0 - current_value) * multiplier
+        int unknown_value = 0;  // Typically UNKNOWN is encoded as 0
+        int delta_to_unknown = (unknown_value - current_value) * multiplier;
+        reset_to_unknown_adjustment += delta_to_unknown;
+    }
+    
+    // Apply the reset: now all affected comparisons are UNKNOWN
+    int state_with_unknowns = base_predecessor_index + reset_to_unknown_adjustment;
+    
+    // Step 3: Enumerate all combinations of comparison axiom truth values
     // For DEFINITELY_TRUE/FALSE, we use the fixed value
-    // For UNKNOWN, we enumerate both true and false
+    // For UNKNOWN, we enumerate both true and false (optimistic branching)
+    // All deltas are now computed from UNKNOWN (value 0) to the target value
     
     function<void(size_t, int)> enumerate_combinations =
         [&](size_t comparison_idx, int current_hash_adjustment) {
         
         if (comparison_idx == affected_comparisons.size()) {
             // Base case: we've fixed all comparison axiom values
-            result.push_back(base_predecessor_index + current_hash_adjustment);
+            result.push_back(state_with_unknowns + current_hash_adjustment);
             return;
         }
         
@@ -582,26 +685,32 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
         
         int multiplier = hash_multipliers[prop_var_id];
         
+        // All comparisons are now at UNKNOWN (value 0) in state_with_unknowns
+        // Compute delta from UNKNOWN (0) to target value
+        int unknown_value = 0;
+        
         if (comp.eval_result == AffectedComparison::DEFINITELY_TRUE) {
-            // Comparison must be true
-            int value_adjustment = comp.true_value * multiplier;
+            // Comparison must be true in the predecessor
+            // Delta from UNKNOWN to true_value
+            int delta_from_unknown = (comp.true_value - unknown_value) * multiplier;
             enumerate_combinations(comparison_idx + 1, 
-                                 current_hash_adjustment + value_adjustment);
+                                 current_hash_adjustment + delta_from_unknown);
         } else if (comp.eval_result == AffectedComparison::DEFINITELY_FALSE) {
-            // Comparison must be false
-            int value_adjustment = comp.false_value * multiplier;
+            // Comparison must be false in the predecessor
+            // Delta from UNKNOWN to false_value
+            int delta_from_unknown = (comp.false_value - unknown_value) * multiplier;
             enumerate_combinations(comparison_idx + 1,
-                                 current_hash_adjustment + value_adjustment);
+                                 current_hash_adjustment + delta_from_unknown);
         } else {
-            // UNKNOWN - OPTIMISTIC BIAS: prefer TRUE
-            // We assume the comparison is true unless partition ranges make it impossible.
-            // This reduces branching factor while maintaining correctness:
-            // - The abstraction remains sound (true states are reachable)
-            // - We avoid negative preconditions when possible
-            // - CEGAR will refine if this assumption causes spurious solutions
-            int value_adjustment = comp.true_value * multiplier;
+            // UNKNOWN - enumerate both possibilities (optimistic branching)
+            // Try TRUE: delta from UNKNOWN to true_value
+            int true_delta = (comp.true_value - unknown_value) * multiplier;
             enumerate_combinations(comparison_idx + 1,
-                                 current_hash_adjustment + value_adjustment);
+                                 current_hash_adjustment + true_delta);
+            // Try FALSE: delta from UNKNOWN to false_value
+            int false_delta = (comp.false_value - unknown_value) * multiplier;
+            enumerate_combinations(comparison_idx + 1,
+                                 current_hash_adjustment + false_delta);
         }
     };
     

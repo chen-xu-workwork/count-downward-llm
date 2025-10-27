@@ -372,6 +372,16 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     // Build abstract operator following the same pattern as factory's
     // build_abstract_operators, but adapted for numeric effects
     
+    // DEBUG: Track specific operators
+    string op_name = op.get_name();
+    bool is_advance_time = (op_name.find("advance_time") != string::npos);
+    if (is_advance_time && op.get_id() < 3) {
+        cout << "DEBUG BUILD_OP: Building operator " << op.get_id() << ": " << op_name << endl;
+        cout << "  Preconditions: " << op.get_preconditions().size() << endl;
+        cout << "  Effects: " << op.get_effects().size() << endl;
+        cout << "  Numeric effects: " << op.get_ass_effects().size() << endl;
+    }
+    
     // All variable value pairs that are a prevail condition
     vector<Fact> prev_pairs;
     // All variable value pairs that are a precondition (value != -1)
@@ -452,6 +462,25 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     vector<NumAssProxy> ass_effects;
     for (auto ass_eff : op.get_ass_effects()) {
         ass_effects.push_back(ass_eff.get_assignment());
+    }
+    
+    // DEBUG: Show what we collected for advance_time operators
+    if (is_advance_time && op.get_id() < 3) {
+        cout << "  After processing:" << endl;
+        cout << "    prev_pairs: " << prev_pairs.size() << endl;
+        cout << "    pre_pairs: " << pre_pairs.size() << endl;
+        cout << "    eff_pairs: " << eff_pairs.size() << endl;
+        cout << "    effects_without_pre: " << effects_without_pre.size() << endl;
+        cout << "    ass_effects: " << ass_effects.size() << endl;
+        for (const Fact &f : pre_pairs) {
+            cout << "      pre_pair: var" << f.var << "=" << f.value << endl;
+        }
+        for (const Fact &f : eff_pairs) {
+            cout << "      eff_pair: var" << f.var << "=" << f.value << endl;
+        }
+        for (const Fact &f : effects_without_pre) {
+            cout << "      effect_without_pre: var" << f.var << "=" << f.value << endl;
+        }
     }
     
     // Enumerate all possible abstract transitions
@@ -545,6 +574,13 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                     // We need to convert back to numeric variable ID
                     int abstract_var_id = trans.source_partition_facts[i].var;
                     int num_var_id = abstract_var_id - domain_sizes.size();  // Numeric vars come after propositional
+                    
+                    if (ops_before < 3) {
+                        cout << "DEBUG HELPER: transition " << i 
+                             << ": abstract_var_id=" << abstract_var_id
+                             << ", domain_sizes.size()=" << domain_sizes.size()
+                             << ", num_var_id=" << num_var_id << endl;
+                    }
                     
                     changed_numeric_vars.push_back(num_var_id);
                     source_partitions_list.push_back(trans.source_partition_facts[i].value);
