@@ -142,11 +142,17 @@ AbstractOperator::AbstractOperator(
     const vector<NumAssProxy> &ass_effects,
     int cost,
     const vector<int> &pre_computed_hash_effects,
-    int concrete_op_id)
+    int concrete_op_id,
+    const vector<int> &changed_numeric_vars,
+    const vector<int> &source_partitions,
+    const vector<int> &target_partitions)
     : concrete_op_id(concrete_op_id),
       cost(cost),
       hash_effects(pre_computed_hash_effects),
-      regression_numeric_preconditions(ass_effects) {
+      regression_numeric_preconditions(ass_effects),
+      changed_numeric_vars(changed_numeric_vars),
+      source_partitions(source_partitions),
+      target_partitions(target_partitions) {
     
     // Build regression preconditions from progression effects and prevail
     // In regression: we need the post-state (effects) as preconditions
@@ -174,6 +180,7 @@ AbstractOperator::AbstractOperator(
         cout << "  hash_effects:";
         for (int he : hash_effects) cout << " " << he;
         cout << endl;
+        cout << "  changed_numeric_vars: " << changed_numeric_vars.size() << endl;
     }
 }
 
@@ -294,6 +301,236 @@ MatchTree DomainAbstractionFactory::build_match_tree(
         match_tree.insert(op_id, op.get_regression_preconditions());
     }
     return match_tree;
+}
+
+vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
+    int base_predecessor_index,
+    const vector<int> &changed_numeric_vars,
+    const vector<int> &source_partitions,
+    const vector<int> &target_partitions,
+    const TaskProxy &task_proxy) const {
+    
+    vector<int> result;
+    
+    // If no numeric variables changed, just return the base predecessor
+    if (changed_numeric_vars.empty()) {
+        result.push_back(base_predecessor_index);
+        return result;
+    }
+    
+    // Step 1: Identify affected comparison axioms
+    // A comparison axiom is affected if it depends on any changed numeric variable
+    struct AffectedComparison {
+        int prop_var_id;           // Propositional variable ID for the comparison result
+        int true_value;            // Value when comparison is true
+        int false_value;           // Value when comparison is false
+        int left_var_id;           // Left operand numeric variable ID
+        int right_var_id;          // Right operand numeric variable ID
+        comp_operator op;          // Comparison operator
+        
+        // Evaluation result for this specific transition
+        enum EvalResult { DEFINITELY_TRUE, DEFINITELY_FALSE, UNKNOWN };
+        EvalResult eval_result;
+    };
+    
+    vector<AffectedComparison> affected_comparisons;
+    
+    // Scan all comparison axioms
+    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+    for (ComparisonAxiomProxy axiom : comparison_axioms) {
+        int left_var_id = axiom.get_left_variable().get_id();
+        int right_var_id = axiom.get_right_variable().get_id();
+        
+        // Check if this comparison depends on any changed variable
+        bool depends_on_changed = false;
+        for (int changed_id : changed_numeric_vars) {
+            if (left_var_id == changed_id || right_var_id == changed_id) {
+                depends_on_changed = true;
+                break;
+            }
+        }
+        
+        if (!depends_on_changed) {
+            continue;  // This comparison is not affected by the operator
+        }
+        
+        // This comparison is affected - evaluate it
+        AffectedComparison affected;
+        affected.prop_var_id = axiom.get_true_fact().get_variable().get_id();
+        affected.true_value = axiom.get_true_fact().get_value();
+        affected.false_value = axiom.get_false_fact().get_value();
+        affected.left_var_id = left_var_id;
+        affected.right_var_id = right_var_id;
+        affected.op = axiom.get_comparison_operator_type();
+        
+        // Find the partitions for left and right variables in the SOURCE state (predecessor)
+        // We need to check: can the comparison be true/false given these partitions?
+        int left_partition = -1;
+        int right_partition = -1;
+        
+        for (size_t i = 0; i < changed_numeric_vars.size(); ++i) {
+            if (changed_numeric_vars[i] == left_var_id) {
+                left_partition = source_partitions[i];
+            }
+            if (changed_numeric_vars[i] == right_var_id) {
+                right_partition = source_partitions[i];
+            }
+        }
+        
+        // If a variable is not in changed_numeric_vars, we don't know its partition
+        // This is a limitation - for now, conservatively assume UNKNOWN
+        if (left_partition == -1 || right_partition == -1) {
+            affected.eval_result = AffectedComparison::UNKNOWN;
+            affected_comparisons.push_back(affected);
+            continue;
+        }
+        
+        // Evaluate the comparison based on partition ranges
+        // Get the numeric domain mappings for left and right variables
+        if (left_var_id >= static_cast<int>(numeric_domain_mapping.size()) ||
+            right_var_id >= static_cast<int>(numeric_domain_mapping.size())) {
+            // Variable not in mapping - skip
+            continue;
+        }
+        
+        const NumericDomainMapping &left_mapping = numeric_domain_mapping[left_var_id];
+        const NumericDomainMapping &right_mapping = numeric_domain_mapping[right_var_id];
+        
+        // Get the ranges for the source partitions
+        const vector<NumericRange> &left_ranges = left_mapping.get_ranges();
+        const vector<NumericRange> &right_ranges = right_mapping.get_ranges();
+        
+        ap_float left_lower = -numeric_limits<ap_float>::infinity();
+        ap_float left_upper = numeric_limits<ap_float>::infinity();
+        ap_float right_lower = -numeric_limits<ap_float>::infinity();
+        ap_float right_upper = numeric_limits<ap_float>::infinity();
+        
+        bool found_left = false, found_right = false;
+        for (const NumericRange &range : left_ranges) {
+            if (range.partition_index == left_partition) {
+                left_lower = range.lower;
+                left_upper = range.upper;
+                found_left = true;
+                break;
+            }
+        }
+        for (const NumericRange &range : right_ranges) {
+            if (range.partition_index == right_partition) {
+                right_lower = range.lower;
+                right_upper = range.upper;
+                found_right = true;
+                break;
+            }
+        }
+        
+        if (!found_left || !found_right) {
+            affected.eval_result = AffectedComparison::UNKNOWN;
+            affected_comparisons.push_back(affected);
+            continue;
+        }
+        
+        // Now evaluate: can the comparison be true? false? or both?
+        // For each operator, check if there exist values in the ranges that satisfy/don't satisfy it
+        bool can_be_true = false;
+        bool can_be_false = false;
+        
+        switch (affected.op) {
+            case comp_operator::lt:  // left < right
+                // Can be true if: exists left_val < right_val
+                // This is possible if left_lower < right_upper
+                can_be_true = (left_lower < right_upper);
+                // Can be false if: exists left_val >= right_val
+                // This is possible if left_upper >= right_lower
+                can_be_false = (left_upper >= right_lower);
+                break;
+            case comp_operator::le:  // left <= right
+                can_be_true = (left_lower <= right_upper);
+                can_be_false = (left_upper > right_lower);
+                break;
+            case comp_operator::eq:  // left == right
+                // Can be true if ranges overlap
+                can_be_true = (left_lower < right_upper && right_lower < left_upper);
+                // Can be false if values can differ
+                can_be_false = (left_lower < right_lower || left_upper > right_upper ||
+                               right_lower < left_lower || right_upper > left_upper);
+                break;
+            case comp_operator::ge:  // left >= right
+                can_be_true = (left_upper >= right_lower);
+                can_be_false = (left_lower < right_upper);
+                break;
+            case comp_operator::gt:  // left > right
+                can_be_true = (left_upper > right_lower);
+                can_be_false = (left_lower <= right_upper);
+                break;
+            default:
+                can_be_true = true;
+                can_be_false = true;
+        }
+        
+        if (can_be_true && !can_be_false) {
+            affected.eval_result = AffectedComparison::DEFINITELY_TRUE;
+        } else if (!can_be_true && can_be_false) {
+            affected.eval_result = AffectedComparison::DEFINITELY_FALSE;
+        } else {
+            affected.eval_result = AffectedComparison::UNKNOWN;
+        }
+        
+        affected_comparisons.push_back(affected);
+    }
+    
+    // Step 2: Enumerate all combinations of comparison axiom truth values
+    // For DEFINITELY_TRUE/FALSE, we use the fixed value
+    // For UNKNOWN, we enumerate both true and false
+    
+    function<void(size_t, int)> enumerate_combinations =
+        [&](size_t comparison_idx, int current_hash_adjustment) {
+        
+        if (comparison_idx == affected_comparisons.size()) {
+            // Base case: we've fixed all comparison axiom values
+            result.push_back(base_predecessor_index + current_hash_adjustment);
+            return;
+        }
+        
+        const AffectedComparison &comp = affected_comparisons[comparison_idx];
+        int prop_var_id = comp.prop_var_id;
+        
+        // Get the hash multiplier for this propositional variable
+        if (prop_var_id >= static_cast<int>(hash_multipliers.size())) {
+            // Variable not in hash function - skip
+            enumerate_combinations(comparison_idx + 1, current_hash_adjustment);
+            return;
+        }
+        
+        int multiplier = hash_multipliers[prop_var_id];
+        
+        if (comp.eval_result == AffectedComparison::DEFINITELY_TRUE) {
+            // Comparison must be true
+            int value_adjustment = comp.true_value * multiplier;
+            enumerate_combinations(comparison_idx + 1, 
+                                 current_hash_adjustment + value_adjustment);
+        } else if (comp.eval_result == AffectedComparison::DEFINITELY_FALSE) {
+            // Comparison must be false
+            int value_adjustment = comp.false_value * multiplier;
+            enumerate_combinations(comparison_idx + 1,
+                                 current_hash_adjustment + value_adjustment);
+        } else {
+            // UNKNOWN - enumerate both possibilities
+            int true_adjustment = comp.true_value * multiplier;
+            int false_adjustment = comp.false_value * multiplier;
+            enumerate_combinations(comparison_idx + 1,
+                                 current_hash_adjustment + true_adjustment);
+            enumerate_combinations(comparison_idx + 1,
+                                 current_hash_adjustment + false_adjustment);
+        }
+    };
+    
+    enumerate_combinations(0, 0);
+    
+    // TODO: Handle assignment axiom cascades (derived numeric variables)
+    // This would require computing derived variable ranges and recursively
+    // checking comparison axioms that depend on them
+    
+    return result;
 }
 
 // Helper function to check if a variable is derived (appears in axiom effects)
@@ -603,63 +840,76 @@ void DomainAbstractionFactory::compute_distances(
             
             int predecessors_this_op = 0;
             int out_of_bounds_this_op = 0;
-            for (int hash_effect : hash_effects_vec) {
-                int predecessor = state_index + hash_effect;
-
-                // Skip predecessors that are out of bounds. This can legitimately
-                // happen because we enumerate many numeric partition transitions
-                // conservatively; some of those transitions do not correspond to
-                // valid abstract predecessors for the current propositional part.
-                if (predecessor < 0 || predecessor >= num_states) {
-                    if (dijkstra_iterations == 1) {
-                        out_of_bounds_predecessors++;
-                    }
-                    if (is_first_goal_expansion && operators_checked <= 5) {
-                        out_of_bounds_this_op++;
-                        cout << "DEBUG DIJKSTRA:   Skipping out-of-bounds predecessor: "
-                             << "state_index=" << state_index
-                             << " hash_effect=" << hash_effect
-                             << " predecessor=" << predecessor
-                             << " op_id=" << op_id
-                             << " concrete_id=" << op.get_concrete_op_id()
-                             << endl;
-                        // Print preconditions of this operator
-                        cout << "DEBUG DIJKSTRA:   Operator preconditions: ";
-                        const vector<Fact> &preconds = op.get_regression_preconditions();
-                        for (const Fact &pc : preconds) {
-                            cout << "var" << pc.var << "=" << pc.value << " ";
-                        }
-                        cout << endl;
-                    }
-                    // Continue without asserting to allow the search to proceed
-                    // while we gather diagnostics. Invalid predecessors are
-                    // expected in conservative enumerations and should be skipped.
-                    continue;
+            for (int base_hash_effect : hash_effects_vec) {
+                // Enumerate all possible predecessors considering comparison axiom cascades
+                vector<int> possible_predecessors = enumerate_cascade_predecessors(
+                    state_index + base_hash_effect,
+                    op.get_changed_numeric_vars(),
+                    op.get_source_partitions(),
+                    op.get_target_partitions(),
+                    task_proxy);
+                
+                if (is_first_goal_expansion && operators_checked <= 5) {
+                    cout << "    Base hash_effect=" << base_hash_effect 
+                         << ", cascade predecessors: " << possible_predecessors.size() << endl;
                 }
                 
-                valid_predecessors_this_state++;
-                predecessors_this_op++;
-                
-                if (alternative_cost < distances[predecessor]) {
-                    total_expansions++;
-                    
-                    if (is_first_goal_expansion && operators_checked <= 5 && predecessors_this_op <= 3) {
-                        string pred_decoded = decode_abstract_state(predecessor, domain_sizes,
-                                                                   numeric_domain_mapping, hash_multipliers);
-                        cout << "    Predecessor " << predecessors_this_op << ": " << pred_decoded 
-                             << " (hash_effect=" << hash_effect << ")" << endl;
+                for (int predecessor : possible_predecessors) {
+                    // Skip predecessors that are out of bounds. This can legitimately
+                    // happen because we enumerate many numeric partition transitions
+                    // conservatively; some of those transitions do not correspond to
+                    // valid abstract predecessors for the current propositional part.
+                    if (predecessor < 0 || predecessor >= num_states) {
+                        if (dijkstra_iterations == 1) {
+                            out_of_bounds_predecessors++;
+                        }
+                        if (is_first_goal_expansion && operators_checked <= 5) {
+                            out_of_bounds_this_op++;
+                            cout << "DEBUG DIJKSTRA:   Skipping out-of-bounds predecessor: "
+                                 << "state_index=" << state_index
+                                 << " base_hash_effect=" << base_hash_effect
+                                 << " predecessor=" << predecessor
+                                 << " op_id=" << op_id
+                                 << " concrete_id=" << op.get_concrete_op_id()
+                                 << endl;
+                            // Print preconditions of this operator
+                            cout << "DEBUG DIJKSTRA:   Operator preconditions: ";
+                            const vector<Fact> &preconds = op.get_regression_preconditions();
+                            for (const Fact &pc : preconds) {
+                                cout << "var" << pc.var << "=" << pc.value << " ";
+                            }
+                            cout << endl;
+                        }
+                        // Continue without asserting to allow the search to proceed
+                        // while we gather diagnostics. Invalid predecessors are
+                        // expected in conservative enumerations and should be skipped.
+                        continue;
                     }
                     
-                    if (total_expansions <= 20) {
-                        cout << "DEBUG DIJKSTRA:   Updated state " << predecessor 
-                             << " from distance " << distances[predecessor] 
-                             << " to " << alternative_cost 
-                             << " (hash_effect=" << hash_effect << ")" << endl;
-                    }
-                    distances[predecessor] = alternative_cost;
-                    pq.push(alternative_cost, predecessor);
-                    if (compute_plan) {
-                        generating_op_ids[predecessor] = op_id;
+                    valid_predecessors_this_state++;
+                    predecessors_this_op++;
+                    
+                    if (alternative_cost < distances[predecessor]) {
+                        total_expansions++;
+                        
+                        if (is_first_goal_expansion && operators_checked <= 5 && predecessors_this_op <= 3) {
+                            string pred_decoded = decode_abstract_state(predecessor, domain_sizes,
+                                                                       numeric_domain_mapping, hash_multipliers);
+                            cout << "    Predecessor " << predecessors_this_op << ": " << pred_decoded 
+                                 << " (base_hash=" << base_hash_effect << ", cascaded_index=" << predecessor << ")" << endl;
+                        }
+                        
+                        if (total_expansions <= 20) {
+                            cout << "DEBUG DIJKSTRA:   Updated state " << predecessor 
+                                 << " from distance " << distances[predecessor] 
+                                 << " to " << alternative_cost 
+                                 << " (base_hash_effect=" << base_hash_effect << ")" << endl;
+                        }
+                        distances[predecessor] = alternative_cost;
+                        pq.push(alternative_cost, predecessor);
+                        if (compute_plan) {
+                            generating_op_ids[predecessor] = op_id;
+                        }
                     }
                 }
             }

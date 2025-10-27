@@ -38,11 +38,22 @@ class AbstractOperator {
       abstract state number.
       
       For propositional-only operators: single hash effect
-      For operators with numeric effects: multiple hash effects (one per possible successor)
+      For operators with numeric effects: ONE hash effect per numeric partition transition
+      (comparison axiom cascades are handled on-the-fly in Dijkstra, not pre-computed)
     */
     std::vector<int> hash_effects;
-
-
+    
+    /*
+      Information about numeric variable transitions for cascade enumeration.
+      Only populated for operators with numeric effects.
+      
+      changed_numeric_vars[i] = ID of the i-th numeric variable modified by this operator
+      source_partitions[i] = source partition for changed_numeric_vars[i] (predecessor state)
+      target_partitions[i] = target partition for changed_numeric_vars[i] (current state)
+    */
+    std::vector<int> changed_numeric_vars;
+    std::vector<int> source_partitions;
+    std::vector<int> target_partitions;
 
 public:
     /*
@@ -62,9 +73,12 @@ public:
                      int concrete_op_id);
     
     /*
-      Constructor that accepts pre-computed hash effects (with cascades).
-      This is used by the numeric helper which computes all hash effects
-      including cascading effects from axioms.
+      Constructor that accepts pre-computed hash effects WITHOUT cascades.
+      This is used by the numeric helper which computes hash effects for
+      numeric partition transitions only. Comparison axiom cascades are
+      handled on-the-fly during Dijkstra search.
+      
+      Parameters include numeric transition information for cascade enumeration.
     */
     AbstractOperator(const std::vector<Fact> &prevail,
                      const std::vector<Fact> &preconditions,
@@ -72,7 +86,10 @@ public:
                      const std::vector<NumAssProxy> &ass_effects,
                      int cost,
                      const std::vector<int> &pre_computed_hash_effects,
-                     int concrete_op_id);
+                     int concrete_op_id,
+                     const std::vector<int> &changed_numeric_vars,
+                     const std::vector<int> &source_partitions,
+                     const std::vector<int> &target_partitions);
     ~AbstractOperator() = default;
 
     /*
@@ -101,6 +118,15 @@ public:
       the original concrete operator)
     */
     int get_cost() const {return cost;}
+    
+    /*
+      Returns information about numeric variable transitions for cascade enumeration.
+      Empty vectors if operator has no numeric effects.
+    */
+    const std::vector<int> &get_changed_numeric_vars() const {return changed_numeric_vars;}
+    const std::vector<int> &get_source_partitions() const {return source_partitions;}
+    const std::vector<int> &get_target_partitions() const {return target_partitions;}
+    
     void dump(const VariablesProxy &variables,
               utils::LogProxy &log) const;
 };
@@ -147,6 +173,29 @@ class DomainAbstractionFactory {
     MatchTree build_match_tree(const std::vector<int> &domain_sizes,
                                const std::vector<AbstractOperator> &operators);
     std::vector<Fact> compute_abstract_goals(const TaskProxy &task_proxy);
+    
+    /*
+      Enumerate all possible predecessor states that could result from applying
+      an operator with numeric effects, considering cascading comparison axioms
+      and assignment axioms.
+      
+      Parameters:
+        - base_predecessor_index: The predecessor index from numeric partition transitions only
+        - changed_numeric_vars: IDs of numeric variables modified by the operator
+        - source_partitions: Source partitions for each changed variable (predecessor state)
+        - target_partitions: Target partitions for each changed variable (current state)
+        - task_proxy: Task for accessing axioms
+        
+      Returns:
+        Vector of possible predecessor indices accounting for all comparison axiom combinations
+    */
+    std::vector<int> enumerate_cascade_predecessors(
+        int base_predecessor_index,
+        const std::vector<int> &changed_numeric_vars,
+        const std::vector<int> &source_partitions,
+        const std::vector<int> &target_partitions,
+        const TaskProxy &task_proxy) const;
+    
     void compute_distances(
         const TaskProxy &task_proxy,
         const std::vector<AbstractOperator> &operators,

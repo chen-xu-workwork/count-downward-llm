@@ -534,16 +534,36 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                                          trans.source_partition_facts.begin(),
                                          trans.source_partition_facts.end());
                 
-                // Create abstract operator with single hash effect
+                // Extract numeric transition information for cascade enumeration
+                vector<int> changed_numeric_vars;
+                vector<int> source_partitions_list;
+                vector<int> target_partitions_list;
+                
+                for (size_t i = 0; i < trans.source_partition_facts.size(); ++i) {
+                    // Extract the numeric variable ID and partitions
+                    // source_partition_facts[i].var is the abstract state variable ID
+                    // We need to convert back to numeric variable ID
+                    int abstract_var_id = trans.source_partition_facts[i].var;
+                    int num_var_id = abstract_var_id - domain_sizes.size();  // Numeric vars come after propositional
+                    
+                    changed_numeric_vars.push_back(num_var_id);
+                    source_partitions_list.push_back(trans.source_partition_facts[i].value);
+                    target_partitions_list.push_back(trans.target_partition_facts[i].value);
+                }
+                
+                // Create abstract operator with single hash effect (NO cascades)
                 vector<int> single_hash_effect = {trans.hash_effect};
                 operators.emplace_back(
-                    prev_pairs,              // prevail conditions (propositional only)
-                    extended_pre_pairs,      // preconditions (propositional + target partitions)
-                    extended_eff_pairs,      // effects (propositional + source partitions)
-                    ass_effects,             // numeric assignment effects
-                    cost,                    // operator cost
-                    single_hash_effect,      // single hash effect (in vector for compatibility)
-                    concrete_op_id);         // concrete operator ID
+                    prev_pairs,                 // prevail conditions (propositional only)
+                    extended_pre_pairs,         // preconditions (propositional + target partitions)
+                    extended_eff_pairs,         // effects (propositional + source partitions)
+                    ass_effects,                // numeric assignment effects
+                    cost,                       // operator cost
+                    single_hash_effect,         // single hash effect (in vector for compatibility)
+                    concrete_op_id,             // concrete operator ID
+                    changed_numeric_vars,       // numeric variables modified by this operator
+                    source_partitions_list,     // source partitions for changed variables
+                    target_partitions_list);    // target partitions for changed variables
             }
             
             // DEBUG: Print summary for first few operators
@@ -877,24 +897,11 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
             // Now add the transition with hash effect and partition facts
             int total_effect = base_hash_effect + current_effect;
             
-            // Compute cascading effects for this specific transition
-            if (!changed_vars.empty()) {
-                // 1. Direct cascades: comparison axioms
-                vector<Fact> affected_facts = 
-                    compute_affected_comparison_axioms(changed_vars, old_parts, new_parts);
-                
-                for (const Fact &fact : affected_facts) {
-                    total_effect += fact.value * hash_multipliers[fact.var];
-                }
-                
-                // 2. Indirect cascades: assignment axioms
-                vector<Fact> assignment_cascade_facts = 
-                    compute_assignment_axiom_cascades(changed_vars, old_parts, new_parts);
-                
-                for (const Fact &fact : assignment_cascade_facts) {
-                    total_effect += fact.value * hash_multipliers[fact.var];
-                }
-            }
+            // NOTE: We do NOT compute cascading effects here anymore!
+            // Comparison axiom cascades (propositional variables derived from comparisons)
+            // and assignment axiom cascades (derived numeric variables) are now handled
+            // ON-THE-FLY during Dijkstra search, not pre-computed in operators.
+            // This prevents operator explosion and allows more accurate evaluation.
             
             TransitionInfo trans;
             trans.hash_effect = total_effect;
