@@ -1212,6 +1212,33 @@ DomainAbstraction CEGAR::build_abstraction(
     utils::reserve_extra_memory_padding(memory_padding_in_mb);
     utils::CountdownTimer timer(max_time);
 
+    // Blacklist logic axiom variables (derived variables that are NOT comparison axioms)
+    // Logic axioms are typically used for goal compilation and should not be refined
+    // Only comparison axioms should be refinable
+    // MUST be done BEFORE compute_initial_domain_mapping!
+    
+    // First, collect all comparison axiom variable IDs
+    unordered_set<int> comparison_axiom_var_ids;
+    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+    for (ComparisonAxiomProxy axiom : comparison_axioms) {
+        int var_id = axiom.get_true_fact().get_variable().get_id();
+        comparison_axiom_var_ids.insert(var_id);
+    }
+    
+    // Now blacklist all axiom variables that are NOT comparison axioms
+    cout << "Blacklisting logic axiom variables:" << endl;
+    for (OperatorProxy axiom : task_proxy.get_axioms()) {
+        for (EffectProxy eff : axiom.get_effects()) {
+            int var_id = eff.get_fact().get_variable().get_id();
+            // Only blacklist if this is NOT a comparison axiom
+            if (comparison_axiom_var_ids.count(var_id) == 0) {
+                blacklisted_variables.insert(var_id);
+                cout << "  Blacklisted logic axiom variable " << var_id 
+                     << " (" << eff.get_fact().get_variable().get_name() << ")" << endl;
+            }
+        }
+    }
+
     DomainMapping domain_mapping =
         compute_initial_domain_mapping(task_proxy);
     cout << "Initial domain mapping: " << domain_mapping << endl;
@@ -1220,15 +1247,14 @@ DomainAbstraction CEGAR::build_abstraction(
     cout << "Variable analysis:" << endl;
     for (int var_id = 0; var_id < task_proxy.get_variables().size(); ++var_id) {
         VariableProxy var = task_proxy.get_variables()[var_id];
-        bool is_derived = (var_id >= task_proxy.get_variables().size() - task_proxy.get_axioms().size());
+        bool is_comparison = (comparison_axiom_var_ids.count(var_id) > 0);
+        bool is_blacklisted = (blacklisted_variables.count(var_id) > 0);
         bool has_mapping = !domain_mapping[var_id].empty();
         cout << "  Variable " << var_id << " (" << var.get_name() << "): "
-             << "derived=" << (is_derived ? "yes" : "no") << ", "
+             << "comparison=" << (is_comparison ? "yes" : "no") << ", "
+             << "blacklisted=" << (is_blacklisted ? "yes" : "no") << ", "
              << "has_mapping=" << (has_mapping ? "yes" : "no") << ", "
              << "domain_size=" << var.get_domain_size() << endl;
-        if (is_derived) {
-            blacklisted_variables.insert(var_id);
-        }
     }
     
     // Debug: Show logic axioms

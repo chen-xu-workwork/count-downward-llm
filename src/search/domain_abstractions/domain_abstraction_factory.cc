@@ -312,6 +312,32 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
     
     vector<int> result;
     
+    // DEBUG: Check comparison axiom refinement status (every time to track iterations)
+    static int call_count = 0;
+    call_count++;
+    if (call_count == 1 || call_count % 100 == 0) {
+        cout << "DEBUG FACTORY [call " << call_count << "]: Checking ALL comparison axiom variables for refinement status:" << endl;
+        ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+        int total_comp_axioms = 0;
+        int trivial_comp_axioms = 0;
+        int refined_comp_axioms = 0;
+        for (ComparisonAxiomProxy axiom : comparison_axioms) {
+            int prop_var_id = axiom.get_true_fact().get_variable().get_id();
+            total_comp_axioms++;
+            bool is_trivial = variable_is_trivial(prop_var_id);
+            if (is_trivial) {
+                trivial_comp_axioms++;
+            } else {
+                refined_comp_axioms++;
+                cout << "  Comparison axiom var" << prop_var_id << " IS REFINED, domain_mapping size=" 
+                     << domain_mapping[prop_var_id].size() << endl;
+            }
+        }
+        cout << "DEBUG FACTORY: Comparison axiom summary: total=" << total_comp_axioms 
+             << ", trivial=" << trivial_comp_axioms 
+             << ", refined=" << refined_comp_axioms << endl;
+    }
+    
     // If no numeric variables changed, just return the base predecessor
     if (changed_numeric_vars.empty()) {
         result.push_back(base_predecessor_index);
@@ -637,6 +663,8 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
     // Step 2: Reset all affected comparison axioms to UNKNOWN in the base state
     // This ensures we compute deltas from a consistent baseline
     int reset_to_unknown_adjustment = 0;
+    int trivial_count = 0;
+    int non_trivial_count = 0;
     for (const AffectedComparison &comp : affected_comparisons) {
         int prop_var_id = comp.prop_var_id;
         if (prop_var_id >= static_cast<int>(hash_multipliers.size())) {
@@ -645,8 +673,10 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
         
         // Skip trivial variables (those with empty domain_mapping)
         if (variable_is_trivial(prop_var_id)) {
+            trivial_count++;
             continue;
         }
+        non_trivial_count++;
         
         int multiplier = hash_multipliers[prop_var_id];
         
@@ -661,6 +691,11 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
         int delta_to_unknown = (unknown_value - current_value) * multiplier;
         reset_to_unknown_adjustment += delta_to_unknown;
     }
+    
+    cout << "DEBUG FACTORY: Comparison axiom refinement status: " 
+         << "trivial=" << trivial_count 
+         << ", non_trivial=" << non_trivial_count 
+         << ", total=" << affected_comparisons.size() << endl;
     
     // Apply the reset: now all affected comparisons are UNKNOWN
     int state_with_unknowns = base_predecessor_index + reset_to_unknown_adjustment;
@@ -714,12 +749,14 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
             int delta_from_unknown = (domain_mapping[comp.prop_var_id][comp.false_value] - unknown_value) * multiplier;
             enumerate_combinations(comparison_idx + 1,
                                  current_hash_adjustment + delta_from_unknown);
+            exit(1);
         } else {
             // UNKNOWN - enumerate true possibilitie (optimistic branching)
             // Try TRUE: delta from UNKNOWN to true_value
             int true_delta = (domain_mapping[comp.prop_var_id][comp.true_value] - unknown_value) * multiplier;
             enumerate_combinations(comparison_idx + 1,
                                  current_hash_adjustment + true_delta);
+            exit(1);
         }
     };
     
