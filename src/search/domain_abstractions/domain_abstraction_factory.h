@@ -143,6 +143,7 @@ struct NumericGoalCondition {
 };
 
 class DomainAbstractionFactory {
+    TaskProxy task_proxy;
     DomainMapping domain_mapping;
     NumericDomainMappingType numeric_domain_mapping;
     std::vector<int> numeric_domain_sizes;
@@ -173,28 +174,6 @@ class DomainAbstractionFactory {
     MatchTree build_match_tree(const std::vector<int> &domain_sizes,
                                const std::vector<AbstractOperator> &operators);
     std::vector<Fact> compute_abstract_goals(const TaskProxy &task_proxy);
-    
-    /*
-      Enumerate all possible predecessor states that could result from applying
-      an operator with numeric effects, considering cascading comparison axioms
-      and assignment axioms.
-      
-      Parameters:
-        - base_predecessor_index: The predecessor index from numeric partition transitions only
-        - changed_numeric_vars: IDs of numeric variables modified by the operator
-        - source_partitions: Source partitions for each changed variable (predecessor state)
-        - target_partitions: Target partitions for each changed variable (current state)
-        - task_proxy: Task for accessing axioms
-        
-      Returns:
-        Vector of possible predecessor indices accounting for all comparison axiom combinations
-    */
-    std::vector<int> enumerate_cascade_predecessors(
-        int base_predecessor_index,
-        const std::vector<int> &changed_numeric_vars,
-        const std::vector<int> &source_partitions,
-        const std::vector<int> &target_partitions,
-        const TaskProxy &task_proxy) const;
     
     void compute_distances(
         const TaskProxy &task_proxy,
@@ -242,6 +221,30 @@ public:
     std::vector<std::vector<int>> &&extract_wildcard_plan() {
         return std::move(wildcard_plan);
     };
+    
+    /*
+      Enumerate all possible predecessor states that could result from applying
+      an operator with numeric effects, considering cascading comparison axioms
+      and assignment axioms.
+      
+      Parameters:
+        - base_predecessor_index: The predecessor index from numeric partition transitions only
+        - changed_numeric_vars: IDs of numeric variables modified by the operator
+        - source_partitions: Source partitions for each changed variable (predecessor state)
+        - target_partitions: Target partitions for each changed variable (current state)
+        - task_proxy: Task for accessing axioms
+        
+      Returns:
+        Vector of possible predecessor indices accounting for all comparison axiom combinations
+        
+      For the initial state (no numeric changes), returns a vector of size 1.
+    */
+    std::vector<int> enumerate_cascade_predecessors(
+        int base_predecessor_index,
+        const std::vector<int> &changed_numeric_vars,
+        const std::vector<int> &source_partitions,
+        const std::vector<int> &target_partitions,
+        const TaskProxy &task_proxy) const;
 };
 }
 

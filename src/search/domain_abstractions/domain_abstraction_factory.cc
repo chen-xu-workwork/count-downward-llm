@@ -193,7 +193,8 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     bool compute_plan,
     const shared_ptr<utils::RandomNumberGenerator> &rng,
     bool compute_wildcard_plan)
-    : domain_mapping(domain_mapping),
+    : task_proxy(task_proxy),
+      domain_mapping(domain_mapping),
       numeric_domain_mapping(numeric_domain_mapping),
       numeric_domain_sizes(numeric_domain_sizes) {
         verify_no_non_numeric_axioms(task_proxy);
@@ -339,8 +340,10 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
     }
     
     // If no numeric variables changed, just return the base predecessor
+    // For the initial state (no numeric changes), return a vector of size 1
     if (changed_numeric_vars.empty()) {
         result.push_back(base_predecessor_index);
+        assert(result.size() == 1);
         return result;
     }
     
@@ -1424,6 +1427,6 @@ DomainAbstraction DomainAbstractionFactory::generate() {
     
     return DomainAbstraction(move(domain_mapping), move(numeric_domain_mapping),
                              move(hash_multipliers), move(distances), move(wildcard_plan),
-                             move(state_registry));
+                             move(state_registry), task_proxy);
 }
 }
