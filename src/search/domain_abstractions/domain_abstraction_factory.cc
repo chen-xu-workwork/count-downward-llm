@@ -803,15 +803,34 @@ vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
     cout << "DEBUG GOALS: Comparison axioms: " << task_proxy.get_comparison_axioms().size() << endl;
     cout << "DEBUG GOALS: Numeric domain mapping size: " << numeric_domain_mapping.size() << endl;
     
-    // First, collect non-derived goals directly
+    // First, identify goal axiom effect variables (these should be filtered out)
+    // Goal axioms have preconditions and exactly one effect
+    // The effect is NOT a real goal, only the preconditions are
+    unordered_set<int> goal_axiom_effect_vars;
+    for (OperatorProxy axiom : task_proxy.get_axioms()) {
+        if (!axiom.get_preconditions().empty() && axiom.get_effects().size() == 1) {
+            // This is a goal axiom - its effect variable should be filtered
+            int effect_var_id = axiom.get_effects()[0].get_fact().get_variable().get_id();
+            goal_axiom_effect_vars.insert(effect_var_id);
+            cout << "DEBUG GOALS: Identified goal axiom effect variable: var" << effect_var_id << endl;
+        }
+    }
+    
+    // Now collect non-derived goals directly, but SKIP goal axiom effects
     for (FactProxy goal : task_proxy.get_goals()) {
         int var_id = goal.get_variable().get_id();
         cout << "DEBUG GOALS:   Goal var" << var_id << "=" << goal.get_value() 
              << " (derived=" << (is_derived_variable(task_proxy, var_id) ? "yes" : "no")
-             << ", trivial=" << (variable_is_trivial(var_id) ? "yes" : "no") << ")" << endl;
+             << ", trivial=" << (variable_is_trivial(var_id) ? "yes" : "no")
+             << ", is_goal_axiom_effect=" << (goal_axiom_effect_vars.count(var_id) > 0 ? "yes" : "no") << ")" << endl;
         
-        // Add goal if it has a domain mapping (even if derived!)
-        // Derived variables like var25 (goal axiom) can have domain mappings from initial splits
+        // Skip goal axiom effect variables - they are not real goals
+        if (goal_axiom_effect_vars.count(var_id) > 0) {
+            cout << "DEBUG GOALS:     Skipping goal axiom effect variable" << endl;
+            continue;
+        }
+        
+        // Add goal if it has a domain mapping
         if (!variable_is_trivial(var_id)) {
             int val = goal.get_value();
             abstract_goals.emplace_back(var_id, domain_mapping[var_id][val]);
