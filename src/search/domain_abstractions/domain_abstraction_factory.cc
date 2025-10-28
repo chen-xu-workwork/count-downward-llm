@@ -1561,7 +1561,23 @@ std::vector<int> DomainAbstractionFactory::compute_abstract_numeric_predecessors
 }
 
 DomainAbstraction DomainAbstractionFactory::generate() {
+    // Check if we have any non-trivial numeric variables (with more than 1 partition)
+    bool has_numeric_vars = false;
+    for (const auto &num_mapping : numeric_domain_mapping) {
+        if (num_mapping.get_ranges().size() > 1) {
+            has_numeric_vars = true;
+            break;
+        }
+    }
+    
+    // Create state registry if we have numeric variables
+    unique_ptr<DomainAbstractionStateRegistry> state_registry = nullptr;
+    if (has_numeric_vars) {
+        state_registry = make_unique<DomainAbstractionStateRegistry>();
+    }
+    
     return DomainAbstraction(move(domain_mapping), move(numeric_domain_mapping),
-                             move(hash_multipliers), move(distances), move(wildcard_plan));
+                             move(hash_multipliers), move(distances), move(wildcard_plan),
+                             move(state_registry));
 }
 }
