@@ -675,6 +675,12 @@ vector<Fact> CEGAR::get_flaws(
                 detected_numeric_flaws.emplace_back(
                     numeric_var_id, concrete_value, flaw.var);
             }
+            
+            // ALSO refine the comparison axiom variable itself
+            // This is important for the propositional domain abstraction
+            cout << "    -> Also adding comparison axiom var" << flaw.var 
+                 << " to propositional flaws for refinement" << endl;
+            filtered_flaws.push_back(flaw);
         } else {
             // Regular propositional flaw - keep it
             filtered_flaws.push_back(flaw);

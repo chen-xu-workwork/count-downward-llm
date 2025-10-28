@@ -749,14 +749,12 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
             int delta_from_unknown = (domain_mapping[comp.prop_var_id][comp.false_value] - unknown_value) * multiplier;
             enumerate_combinations(comparison_idx + 1,
                                  current_hash_adjustment + delta_from_unknown);
-            exit(1);
         } else {
             // UNKNOWN - enumerate true possibilitie (optimistic branching)
             // Try TRUE: delta from UNKNOWN to true_value
             int true_delta = (domain_mapping[comp.prop_var_id][comp.true_value] - unknown_value) * multiplier;
             enumerate_combinations(comparison_idx + 1,
                                  current_hash_adjustment + true_delta);
-            exit(1);
         }
     };
     
@@ -1364,6 +1362,23 @@ bool DomainAbstractionFactory::is_goal_state(
     int state_index,
     const vector<Fact> &abstract_goals,
     const vector<int> &domain_sizes) const {
+    
+    // DEBUG: Print goals being checked (only once)
+    static bool debug_printed = false;
+    if (!debug_printed) {
+        debug_printed = true;
+        cout << "\n=== is_goal_state DEBUG ===" << endl;
+        cout << "Abstract (propositional) goals:" << endl;
+        for (const Fact &goal : abstract_goals) {
+            cout << "  var" << goal.var << " = " << goal.value << endl;
+        }
+        cout << "Numeric goal conditions:" << endl;
+        for (const auto &ng : numeric_goal_conditions) {
+            cout << "  var" << ng.numeric_var_id << " " << ng.op << " " << ng.constant << endl;
+        }
+        cout << "===================================\n" << endl;
+    }
+    
     // Check propositional goals
     for (const Fact &abstract_goal : abstract_goals) {
         int var_id = abstract_goal.var;
