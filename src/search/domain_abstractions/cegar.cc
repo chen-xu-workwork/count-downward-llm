@@ -1435,6 +1435,68 @@ DomainAbstraction CEGAR::build_abstraction(
             true, rng, true);
         abstraction = new_factory.generate();
         ++iteration;
+        
+        // DEBUG: Print state 126 after iteration 2
+        if (iteration == 3) {  // iteration was just incremented, so iteration 2 just finished
+            cout << "\n========== DEBUG: STATE 126 AFTER ITERATION 2 ==========" << endl;
+            
+            // Check if state 126 exists in the abstraction
+            int total_states = abstraction.size();
+            cout << "Total abstract states: " << total_states << endl;
+            
+            if (126 < total_states) {
+                int distance_126 = abstraction.get_distance_by_index(126);
+                cout << "State 126 distance: " << distance_126;
+                if (distance_126 == numeric_limits<int>::max()) {
+                    cout << " (DEAD-END / INFINITY)";
+                } else {
+                    cout << " (reachable)";
+                }
+                cout << endl;
+                
+                // Try to decode state 126 to show what it represents
+                // We need to decode the state based on domain sizes
+                cout << "State 126 decoded representation: ";
+                int state_index = 126;
+                vector<int> state_values;
+                
+                // Decode using domain sizes (reverse of hash computation)
+                for (size_t i = 0; i < abstract_domain_sizes.size(); ++i) {
+                    int domain_size = abstract_domain_sizes[i];
+                    if (domain_size > 1) {
+                        int value = state_index % domain_size;
+                        state_values.push_back(value);
+                        state_index /= domain_size;
+                    } else {
+                        state_values.push_back(0);
+                    }
+                }
+                
+                // Print the decoded state
+                cout << "[";
+                for (size_t i = 0; i < state_values.size(); ++i) {
+                    if (i > 0) cout << ", ";
+                    cout << "v" << i << "=" << state_values[i];
+                }
+                cout << "]" << endl;
+                
+                // Check if this corresponds to the initial state
+                cout << "Checking if state 126 is the initial state..." << endl;
+                State init_state = task_proxy.get_initial_state();
+                int init_distance = abstraction.get_value(init_state);
+                cout << "Initial state distance from abstraction.get_value(): " << init_distance;
+                if (init_distance == numeric_limits<int>::max()) {
+                    cout << " (DEAD-END / INFINITY) !!!";
+                } else {
+                    cout << " (reachable)";
+                }
+                cout << endl;
+            } else {
+                cout << "State 126 does NOT exist (out of bounds)" << endl;
+            }
+            
+            cout << "========== END DEBUG: STATE 126 ==========" << endl << endl;
+        }
     }
 
     if (utils::extra_memory_padding_is_reserved()) {

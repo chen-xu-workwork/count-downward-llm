@@ -48,6 +48,22 @@ extern std::vector<int> enumerate_cascade_predecessors(
     const NumericDomainMappingType &numeric_domain_mapping,
     const std::vector<int> &hash_multipliers);
 
+/*
+  Compute the abstract state hash for a concrete state, including:
+  1. Propositional variables (with comparison axioms set to UNKNOWN initially)
+  2. Numeric variable partitions
+  3. Full cascade evaluation of derived numeric variables and comparison axioms
+  
+  This ensures comparison axioms are evaluated optimistically based on the
+  ranges computed from assignment axioms.
+*/
+extern size_t compute_abstract_state_hash(
+    const State &state,
+    const TaskProxy &task_proxy,
+    const DomainMapping &domain_mapping,
+    const NumericDomainMappingType &numeric_domain_mapping,
+    const std::vector<int> &hash_multipliers);
+
 extern std::string get_rovner_et_al_reference();
 }
 

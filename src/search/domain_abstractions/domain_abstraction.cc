@@ -1,8 +1,12 @@
 #include "domain_abstraction.h"
 
+#include "utils.h"
 #include "../utils/logging.h"
 #include "../utils/system.h"
 #include "../numeric_pdbs/numeric_helper.h"
+
+#include <algorithm>
+#include <limits>
 
 using namespace std;
 using namespace numeric_pdbs;
@@ -37,55 +41,17 @@ int DomainAbstraction::get_value(const State &state) const {
         // Mixed propositional and numeric case - use state registry
         assert(state_registry);
         
-        // Compute combined hash for both propositional and numeric variables
-        size_t state_hash = 0;
+        // Compute the abstract state hash using the utility function that includes
+        // full cascade evaluation of derived numeric variables and comparison axioms
+        size_t state_hash = compute_abstract_state_hash(
+            state, task_proxy, domain_mapping, 
+            numeric_domain_mapping, hash_multipliers);
         
-        // 1. Add propositional variables to hash
-        // domain_mapping[i].empty() means variable i is not in the abstraction
-        for (size_t i = 0; i < domain_mapping.size(); ++i) {
-            if (!domain_mapping[i].empty()) {
-                int val = state[i].get_value();
-                int abstract_val = domain_mapping[i][val];
-                state_hash += hash_multipliers[i] * abstract_val;
-            }
-        }
-        
-        // 2. Add numeric variables to hash
-        // numeric_domain_mapping[i] corresponds to numeric variable i
-        for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
-            ap_float value = state.nval(i);
-            int partition = numeric_domain_mapping[i].get_partition_index(value);
-            // Add partition to hash (using a simple multiplication like propositional vars)
-            // Note: We need appropriate hash multipliers for numeric variables too
-            state_hash += hash_multipliers[domain_mapping.size() + i] * partition;
-        }
-
-        // 3. Include comparison axiom values in the hash
-        // Comparison axioms are already evaluated in the state by the axiom evaluator.
-        // We just need to include their values in the hash calculation.
-        ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-        for (ComparisonAxiomProxy axiom : comparison_axioms) {
-            int prop_var_id = axiom.get_true_fact().get_variable().get_id();
-            
-            // Skip if this comparison axiom is not in the abstraction (trivial variable)
-            if (prop_var_id >= static_cast<int>(domain_mapping.size()) || 
-                domain_mapping[prop_var_id].empty()) {
-                continue;
-            }
-            
-            // Get the abstract value for this comparison axiom
-            int state_value = state[prop_var_id].get_value();
-            int abstract_value = domain_mapping[prop_var_id][state_value];
-            
-            // Add to hash
-            state_hash += hash_multipliers[prop_var_id] * abstract_value;
-        }
-        
-        // 3. Create DomainAbstractionState and look it up in state registry
+        // Create DomainAbstractionState and look it up in state registry
         DomainAbstractionState abs_state(state_hash);
         size_t state_id = state_registry->get_id(abs_state);
         
-        // 4. Return the distance if the state was found
+        // Return the distance if the state was found
         if (state_id == numeric_limits<size_t>::max()) {
             // State not found in registry - this shouldn't happen if the abstraction
             // was properly built, but we'll return infinity as a safe fallback

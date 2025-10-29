@@ -3,6 +3,7 @@
 #include "domain_abstraction.h"
 #include "match_tree.h"
 #include "numeric_helper.h"
+#include "utils.h"
 
 
 #include "../tasks/root_task.h"
@@ -1129,41 +1130,15 @@ void DomainAbstractionFactory::compute_abstract_plan(
         cout << "  var" << var_id << " = " << initial_state[var_id].get_value() << endl;
     }
 
-    // Build propositional part of abstract state
-    vector<int> prop_state;
-    for (int var_id = 0; var_id < initial_state.size(); ++var_id) {
-        prop_state.push_back(initial_state[var_id].get_value());
-    }
+    // Compute the abstract state hash using the utility function that includes
+    // full cascade evaluation of derived numeric variables and comparison axioms
+    size_t current_state_hash = compute_abstract_state_hash(
+        initial_state, task_proxy, domain_mapping, 
+        numeric_domain_mapping, hash_multipliers);
     
-    // Compute hash for propositional variables
-    int current_state = hash_index(prop_state);
-    cout << "DEBUG PLAN: Initial propositional hash = " << current_state << endl;
+    int current_state = static_cast<int>(current_state_hash);
     
-    // Add numeric variables to hash
-    if (!numeric_domain_mapping.empty()) {
-        vector<ap_float> numeric_values = g_root_task()->get_initial_state_numeric_values();
-        
-        // For each numeric variable in the abstraction, find its partition
-        for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
-            ap_float value = numeric_values[num_var_id];
-            
-            // Find which partition this value falls into
-            int partition = numeric_domain_mapping[num_var_id].get_partition_index(value);
-            
-            // Add partition contribution to hash
-            // hash_multipliers for numeric vars start after propositional vars
-            int hash_multiplier_idx = initial_state.size() + num_var_id;
-            current_state += partition * hash_multipliers[hash_multiplier_idx];
-            
-            if (partition > 0) {
-                cout << "DEBUG PLAN:   Numeric var " << num_var_id << " = " << value 
-                     << " -> partition " << partition 
-                     << " (multiplier=" << hash_multipliers[hash_multiplier_idx] << ")" << endl;
-            }
-        }
-    }
-    
-    cout << "DEBUG PLAN: Final initial state index = " << current_state << endl;
+    cout << "DEBUG PLAN: Final initial state index (with cascade) = " << current_state << endl;
     cout << "DEBUG PLAN: Total abstract states = " << num_states << endl;
     cout << "DEBUG PLAN: Distance to goal = " << distances[current_state] << endl;
 

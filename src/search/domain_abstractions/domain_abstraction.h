@@ -87,6 +87,13 @@ public:
     int size() const {
         return distances.size();
     }
+    
+    int get_distance_by_index(int index) const {
+        if (index >= 0 && index < static_cast<int>(distances.size())) {
+            return distances[index];
+        }
+        return std::numeric_limits<int>::max();
+    }
 
     void dump(utils::LogProxy &log) const;
 };
