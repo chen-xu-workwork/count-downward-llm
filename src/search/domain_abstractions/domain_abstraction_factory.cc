@@ -1228,20 +1228,52 @@ void DomainAbstractionFactory::compute_abstract_plan(
             }
 
             // Compute equivalent ops
+            // We need to find all operators that can take us from current_state to successor_state
+            // with the same cost as the generating operator
             vector<int> cheapest_operators;
             vector<int> applicable_operator_ids;
             match_tree.get_applicable_operator_ids(successor_state, applicable_operator_ids);
             for (int applicable_op_id : applicable_operator_ids) {
                 const AbstractOperator &applicable_op = operators[applicable_op_id];
+                
+                // Check if this operator has the same cost
+                if (applicable_op.get_cost() != op.get_cost()) {
+                    continue;
+                }
+                
                 // Check all hash effects of the applicable operator
                 for (int applicable_hash_effect : applicable_op.get_hash_effects()) {
-                    int predecessor = successor_state + applicable_hash_effect;
-                    if (predecessor == current_state && op.get_cost() == applicable_op.get_cost()) {
+                    // Compute base predecessor (without comparison axiom evaluation)
+                    int base_predecessor = successor_state + applicable_hash_effect;
+                    
+                    // Enumerate all possible predecessors with evaluated comparison axioms
+                    // This is the REVERSE of progression: we're checking if applying this operator
+                    // to current_state leads to successor_state
+                    vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
+                        base_predecessor,
+                        applicable_op.get_changed_numeric_vars(),
+                        applicable_op.get_source_partitions(),  // In regression: source = predecessor
+                        applicable_op.get_target_partitions(),  // In regression: target = current (successor)
+                        task_proxy);
+                    
+                    // Check if current_state is among the possible predecessors
+                    if (find(possible_predecessors.begin(), possible_predecessors.end(), current_state) 
+                        != possible_predecessors.end()) {
+                        // This operator can take us from current_state to successor_state!
                         cheapest_operators.emplace_back(applicable_op.get_concrete_op_id());
                         break; // Only add once per operator
                     }
                 }
             }
+            
+            // Debug: print operators found
+            cout << "DEBUG PLAN: Found " << cheapest_operators.size() 
+                 << " equivalent operators for transition from state " << current_state 
+                 << " to " << successor_state << endl;
+            if (cheapest_operators.empty()) {
+                cout << "DEBUG PLAN: WARNING - No operators found! This will cause an empty plan." << endl;
+            }
+            
             if (compute_wildcard_plan) {
                 rng->shuffle(cheapest_operators);
                 wildcard_plan.push_back(move(cheapest_operators));
@@ -1253,6 +1285,9 @@ void DomainAbstractionFactory::compute_abstract_plan(
 
             current_state = successor_state;
         }
+        
+        cout << "DEBUG PLAN: Wildcard plan construction complete with " 
+             << wildcard_plan.size() << " steps" << endl;
     }
     utils::release_vector_memory(generating_op_ids);
 }
