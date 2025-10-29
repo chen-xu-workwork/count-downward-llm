@@ -1307,10 +1307,26 @@ DomainAbstraction DomainAbstractionFactory::generate() {
         }
     }
     
-    // Create state registry if we have numeric variables
+    // Create and populate state registry if we have numeric variables
     unique_ptr<DomainAbstractionStateRegistry> state_registry = nullptr;
     if (has_numeric_vars) {
         state_registry = make_unique<DomainAbstractionStateRegistry>();
+        
+        // Populate the state registry with all states from the distances vector
+        // The state index IS the hash value in this abstraction
+        cout << "DEBUG: Populating state registry with " << distances.size() << " states" << endl;
+        for (size_t state_idx = 0; state_idx < distances.size(); ++state_idx) {
+            // The state_idx is the hash value for this abstract state
+            DomainAbstractionState abs_state(state_idx);
+            size_t registry_id = state_registry->insert_state(abs_state);
+            
+            // The registry_id should match state_idx for direct lookup
+            if (registry_id != state_idx) {
+                cout << "ERROR: Registry ID mismatch! state_idx=" << state_idx 
+                     << ", registry_id=" << registry_id << endl;
+            }
+        }
+        cout << "DEBUG: State registry size after population: " << state_registry->size() << endl;
     }
     
     return DomainAbstraction(move(domain_mapping), move(numeric_domain_mapping),

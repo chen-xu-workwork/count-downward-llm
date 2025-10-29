@@ -123,7 +123,7 @@ private:
     void add_variable_to_abstraction_if_necessary(
         int var, DomainMapping &abstraction);
 
-    void print_statistics(const TaskProxy &task_proxy);
+    void print_statistics(const TaskProxy &task_proxy, const DomainMapping &domain_mapping);
     
     NumericDomainMappingType compute_initial_numeric_domain_mapping(
         const TaskProxy &task_proxy);
@@ -859,9 +859,10 @@ bool CEGAR::fix_flaws_per_variable(
 }
 
 void CEGAR::print_statistics(
-    const TaskProxy &task_proxy) {
+    const TaskProxy &task_proxy, const DomainMapping &domain_mapping) {
     //assert(log.is_at_least_normal());
 
+    // Propositional variable statistics
     int num_variables = task_proxy.get_variables().size();
     int abstraction_size = 1;
     int num_trivial_variables = 0;
@@ -882,11 +883,96 @@ void CEGAR::print_statistics(
         avg_domain_size += domain_size_ratio / num_variables;
     }
 
+    // Numeric variable statistics
+    int num_numeric_variables = task_proxy.get_numeric_variables().size();
+    int num_trivial_numeric_vars = 0;
+    int num_refined_numeric_vars = 0;
+    int total_numeric_partitions = 0;
+    double avg_numeric_partitions = 0;
+    
+    for (int i = 0; i < num_numeric_variables; ++i) {
+        int num_partitions = numeric_domain_sizes[i];
+        total_numeric_partitions += num_partitions;
+        abstraction_size *= num_partitions;
+        
+        if (num_partitions == 1) {
+            ++num_trivial_numeric_vars;
+        } else {
+            ++num_refined_numeric_vars;
+        }
+    }
+    
+    if (num_numeric_variables > 0) {
+        avg_numeric_partitions = ((double) total_numeric_partitions) / num_numeric_variables;
+    }
+
+    cout << "\n=== CEGAR Statistics ===" << endl;
     cout << "Final abstraction size: " << abstraction_size << endl;
-    cout << "Total variables: " << num_variables << endl;
-    cout << "Trivial variables: " << num_trivial_variables << endl;
-    cout << "Complete variables: " << num_complete_variables << endl;
-    cout << "Average domain size: " << avg_domain_size << endl;
+    
+    cout << "\nPropositional variables:" << endl;
+    cout << "  Total: " << num_variables << endl;
+    cout << "  Trivial (size 1): " << num_trivial_variables << endl;
+    cout << "  Complete (not abstracted): " << num_complete_variables << endl;
+    cout << "  Average domain size ratio: " << avg_domain_size << endl;
+    
+    // Print details of non-trivial propositional variables
+    cout << "\n  Non-trivial propositional variables:" << endl;
+    for (int i = 0; i < num_variables; ++i) {
+        if (abstract_domain_sizes[i] > 1) {
+            VariableProxy var = task_proxy.get_variables()[i];
+            int original_size = var.get_domain_size();
+            cout << "    var" << i << " (" << var.get_name() << "): "
+                 << "abstract_size=" << abstract_domain_sizes[i] 
+                 << ", original_size=" << original_size << endl;
+            
+            // Print the domain mapping if it's not too large
+            if (abstract_domain_sizes[i] <= 10 && original_size <= 20) {
+                cout << "      mapping: [";
+                for (int val = 0; val < original_size; ++val) {
+                    if (val > 0) cout << ", ";
+                    cout << val << "->" << domain_mapping[i][val];
+                }
+                cout << "]" << endl;
+            }
+        }
+    }
+    
+    cout << "\nNumeric variables:" << endl;
+    cout << "  Total: " << num_numeric_variables << endl;
+    cout << "  Trivial (1 partition): " << num_trivial_numeric_vars << endl;
+    cout << "  Refined (>1 partition): " << num_refined_numeric_vars << endl;
+    cout << "  Total partitions: " << total_numeric_partitions << endl;
+    cout << "  Average partitions per variable: " << avg_numeric_partitions << endl;
+    
+    // Print details of refined numeric variables
+    cout << "\n  Refined numeric variables:" << endl;
+    for (int i = 0; i < num_numeric_variables; ++i) {
+        if (numeric_domain_sizes[i] > 1) {
+            NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
+            cout << "    var" << i << " (" << num_var.get_name() << "): "
+                 << numeric_domain_sizes[i] << " partitions" << endl;
+            
+            // Print the ranges for this variable
+            const vector<NumericRange> &ranges = numeric_domain_mapping[i].get_ranges();
+            for (size_t j = 0; j < ranges.size(); ++j) {
+                cout << "      partition " << ranges[j].partition_index << ": [";
+                if (ranges[j].lower == -numeric_limits<ap_float>::infinity()) {
+                    cout << "-inf";
+                } else {
+                    cout << ranges[j].lower;
+                }
+                cout << ", ";
+                if (ranges[j].upper == numeric_limits<ap_float>::infinity()) {
+                    cout << "inf";
+                } else {
+                    cout << ranges[j].upper;
+                }
+                cout << ")" << endl;
+            }
+        }
+    }
+    
+    cout << "========================\n" << endl;
 }
 
 void CEGAR::add_variable_to_abstraction_if_necessary(
@@ -1371,7 +1457,7 @@ DomainAbstraction CEGAR::build_abstraction(
     }
 
 
-    print_statistics(task_proxy);
+    print_statistics(task_proxy, domain_mapping);
     cout << "Number of CEGAR iterations: " << iteration << endl;
     //abstraction.dump(log);
 
