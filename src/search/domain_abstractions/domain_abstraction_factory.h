@@ -223,24 +223,34 @@ public:
     };
     
     /*
-      Enumerate all possible predecessor states that could result from applying
-      an operator with numeric effects, considering cascading comparison axioms
-      and assignment axioms.
+      Enumerate all possible state indices for a given base state, evaluating
+      comparison axioms based on numeric variable partition ranges.
+      
+      This function:
+      1. Computes ranges for changed numeric variables (from partitions)
+      2. Propagates ranges through assignment axioms to derived numeric variables
+      3. Evaluates comparison axioms using the computed ranges
+      4. Returns all possible state indices with different comparison axiom truth values
+      
+      Used both in regression (Dijkstra) and progression (plan extraction).
       
       Parameters:
-        - base_predecessor_index: The predecessor index from numeric partition transitions only
-        - changed_numeric_vars: IDs of numeric variables modified by the operator
-        - source_partitions: Source partitions for each changed variable (predecessor state)
-        - target_partitions: Target partitions for each changed variable (current state)
+        - base_state_index: The state index with comparison axioms set to UNKNOWN
+        - changed_numeric_vars: IDs of numeric variables that changed (empty for initial state)
+        - source_partitions: Source partitions for each changed variable (for regression/predecessors)
+        - target_partitions: Target partitions for each changed variable (for progression/successors)
         - task_proxy: Task for accessing axioms
         
       Returns:
-        Vector of possible predecessor indices accounting for all comparison axiom combinations
-        
-      For the initial state (no numeric changes), returns a vector of size 1.
+        Vector of possible state indices accounting for all comparison axiom combinations.
+        For states with no numeric changes (e.g., initial state), returns vector of size 1.
+      
+      The source/target partition interpretation depends on the direction:
+        - In REGRESSION (Dijkstra): source=predecessor partitions, target=current partitions
+        - In PROGRESSION (plan extraction): source=current partitions, target=successor partitions
     */
-    std::vector<int> enumerate_cascade_predecessors(
-        int base_predecessor_index,
+    std::vector<int> enumerate_states_with_evaluated_comparisons(
+        int base_state_index,
         const std::vector<int> &changed_numeric_vars,
         const std::vector<int> &source_partitions,
         const std::vector<int> &target_partitions,

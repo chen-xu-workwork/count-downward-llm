@@ -305,8 +305,8 @@ MatchTree DomainAbstractionFactory::build_match_tree(
     return match_tree;
 }
 
-vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
-    int base_predecessor_index,
+vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparisons(
+    int base_state_index,
     const vector<int> &changed_numeric_vars,
     const vector<int> &source_partitions,
     const vector<int> &target_partitions,
@@ -340,10 +340,10 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
              << ", refined=" << refined_comp_axioms << endl;
     }
     
-    // If no numeric variables changed, just return the base predecessor
+    // If no numeric variables changed, just return the base state
     // For the initial state (no numeric changes), return a vector of size 1
     if (changed_numeric_vars.empty()) {
-        result.push_back(base_predecessor_index);
+        result.push_back(base_state_index);
         assert(result.size() == 1);
         return result;
     }
@@ -684,9 +684,9 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
         
         int multiplier = hash_multipliers[prop_var_id];
         
-        // Extract current value of this comparison axiom from base_predecessor_index
+        // Extract current value of this comparison axiom from base_state_index
         // Comparison axioms have domain size 3: true (0), false (1), unknown (2)
-        int current_value = (base_predecessor_index / multiplier) % 3;
+        int current_value = (base_state_index / multiplier) % 3;
         
         // UNKNOWN is value 2 (from output file: index 0 = true, 1 = false, 2 = <none of those>)
         // We need to reset from current_value to UNKNOWN (2)
@@ -702,7 +702,7 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
          << ", total=" << affected_comparisons.size() << endl;
     
     // Apply the reset: now all affected comparisons are UNKNOWN
-    int state_with_unknowns = base_predecessor_index + reset_to_unknown_adjustment;
+    int state_with_unknowns = base_state_index + reset_to_unknown_adjustment;
     
     // Step 3: Enumerate all combinations of comparison axiom truth values
     // For DEFINITELY_TRUE/FALSE, we use the fixed value
@@ -759,6 +759,11 @@ vector<int> DomainAbstractionFactory::enumerate_cascade_predecessors(
             int true_delta = (domain_mapping[comp.prop_var_id][comp.true_value] - unknown_value) * multiplier;
             enumerate_combinations(comparison_idx + 1,
                                  current_hash_adjustment + true_delta);
+
+            // Try FALSE: delta from UNKNOWN to false_value
+            int false_delta = (domain_mapping[comp.prop_var_id][comp.false_value] - unknown_value) * multiplier;
+            enumerate_combinations(comparison_idx + 1,
+                                 current_hash_adjustment + false_delta);
         }
     };
     
@@ -1007,7 +1012,7 @@ void DomainAbstractionFactory::compute_distances(
             int out_of_bounds_this_op = 0;
             for (int base_hash_effect : hash_effects_vec) {
                 // Enumerate all possible predecessors considering comparison axiom cascades
-                vector<int> possible_predecessors = enumerate_cascade_predecessors(
+                vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                     state_index + base_hash_effect,
                     op.get_changed_numeric_vars(),
                     op.get_source_partitions(),
@@ -1178,21 +1183,41 @@ void DomainAbstractionFactory::compute_abstract_plan(
             const AbstractOperator &op = operators[op_id];
             
             // For operators with multiple hash effects (numeric operators), find the
-            // correct hash effect that leads to a valid successor
+            // correct hash effect that leads to a valid successor.
+            // IMPORTANT: We need to evaluate comparison axioms for successors just like
+            // we do for predecessors in Dijkstra!
             int hash_effect = -1;
             int successor_state = -1;
             
             for (int candidate_hash_effect : op.get_hash_effects()) {
-                int candidate_successor = current_state - candidate_hash_effect;
-                // Check if this successor is valid (was reached during Dijkstra)
-                assert(candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()));
-                if (candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()) &&
-                    distances[candidate_successor] != numeric_limits<int>::max() &&
-                    distances[candidate_successor] < distances[current_state]) {
-                    // Valid successor with lower distance
-                    hash_effect = candidate_hash_effect;
-                    successor_state = candidate_successor;
-                    break;
+                // Compute base successor (without comparison axiom evaluation)
+                int base_successor = current_state - candidate_hash_effect;
+                
+                // Enumerate all possible successors with evaluated comparison axioms
+                // For progression: we swap source/target partitions (opposite of regression)
+                // In progression: source=current partitions, target=successor partitions
+                vector<int> possible_successors = enumerate_states_with_evaluated_comparisons(
+                    base_successor,
+                    op.get_changed_numeric_vars(),
+                    op.get_target_partitions(),  // In progression: target becomes source
+                    op.get_source_partitions(),  // In progression: source becomes target
+                    task_proxy);
+                
+                // Find a valid successor with lower distance
+                for (int candidate_successor : possible_successors) {
+                    // Check if this successor is valid (was reached during Dijkstra)
+                    if (candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()) &&
+                        distances[candidate_successor] != numeric_limits<int>::max() &&
+                        distances[candidate_successor] < distances[current_state]) {
+                        // Valid successor with lower distance - use it!
+                        hash_effect = candidate_hash_effect;
+                        successor_state = candidate_successor;
+                        break;
+                    }
+                }
+                
+                if (successor_state != -1) {
+                    break;  // Found a valid successor
                 }
             }
             

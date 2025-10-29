@@ -87,6 +87,134 @@ size_t compute_abstract_state_hash(
     const NumericDomainMappingType &numeric_domain_mapping,
     const std::vector<int> &hash_multipliers) {
     
+    /* IMPORTANT: This function computes the abstract state hash for a CONCRETE state
+     * by using the actual evaluated comparison axiom values from the state.
+     * 
+     * This is correct because:
+     * 1. The concrete state has all comparison axioms properly evaluated (TRUE/FALSE)
+     * 2. We should hash based on what the state ACTUALLY IS, not what it COULD BE
+     * 
+     * Example to clarify partition boundaries:
+     * - If we split numeric variable at value 0, we get:
+     *   * Partition 0: (-∞, 0)   [lower part keeps old partition index]
+     *   * Partition 1: [0, ∞)    [upper part gets new partition index]
+     * 
+     * - So value 0 is in partition 1, not partition 0!
+     * 
+     * For comparison axioms with derived numeric variables:
+     * - Initial state: var17=0, var66=1000, var2=1060
+     * - Comparison: var17 >= var66-var2  →  0 >= 1000-1060  →  0 >= -60  →  TRUE
+     * - In abstract state:
+     *   * var17=0 → partition 1 → range [0, ∞)
+     *   * var66-var2=-60 → partition 0 → range (-∞, 0)
+     *   * Concrete evaluation: 0 >= -60 → TRUE
+     * 
+     * The OLD bug was using range-based optimistic evaluation which would consider:
+     *   * var17 ∈ [0, ∞), var66-var2 ∈ (-∞, 0)
+     *   * Could 0 >= x for x in (-∞, 0)? YES (always true)
+     *   * But this incorrectly made initial and goal states hash the same way!
+     * 
+     * The FIX is to use the concrete evaluation: the state KNOWS var17 >= var66-var2 is TRUE,
+     * so we use TRUE directly, not "what could it be based on ranges".
+     */
+    
+    size_t state_hash = 0;
+    
+    // Build a set of comparison axiom variable IDs for quick lookup
+    unordered_set<int> comparison_axiom_vars;
+    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+    for (ComparisonAxiomProxy axiom : comparison_axioms) {
+        comparison_axiom_vars.insert(axiom.get_true_fact().get_variable().get_id());
+    }
+    
+    // 1. Add propositional variables to hash
+    // For comparison axioms, we'll start with UNKNOWN and then evaluate them properly
+    // For other variables, use the concrete state value
+    for (size_t i = 0; i < domain_mapping.size(); ++i) {
+        if (!domain_mapping[i].empty()) {
+            int val;
+            if (comparison_axiom_vars.count(i) > 0) {
+                // Comparison axiom: Start with UNKNOWN value (2), we'll adjust it later
+                val = 2;
+            } else {
+                // Regular propositional variable: use actual state value
+                val = state[i].get_value();
+            }
+            int abstract_val = domain_mapping[i][val];
+            state_hash += hash_multipliers[i] * abstract_val;
+        }
+    }
+    
+    // 2. Add numeric variables to hash
+    for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
+        ap_float value = state.nval(i);
+        int partition = numeric_domain_mapping[i].get_partition_index(value);
+        state_hash += hash_multipliers[domain_mapping.size() + i] * partition;
+    }
+
+    // 3. Evaluate comparison axioms using CONCRETE state values
+    // This is the KEY FIX: use actual evaluated values, not range-based optimistic evaluation
+    
+    for (ComparisonAxiomProxy axiom : comparison_axioms) {
+        int prop_var_id = axiom.get_true_fact().get_variable().get_id();
+        
+        // Skip if this comparison axiom is not in the abstraction
+        if (prop_var_id >= static_cast<int>(domain_mapping.size()) || 
+            domain_mapping[prop_var_id].empty()) {
+            continue;
+        }
+        
+        // Check if the comparison axiom is already evaluated in the concrete state
+        // In a properly evaluated concrete state, it should be TRUE or FALSE
+        int concrete_value = state[prop_var_id].get_value();
+        int true_value = axiom.get_true_fact().get_value();
+        int false_value = axiom.get_false_fact().get_value();
+        
+        bool is_evaluated = (concrete_value == true_value || concrete_value == false_value);
+        
+        if (is_evaluated) {
+            // The comparison is already evaluated in the concrete state - use it directly!
+            // This is the correct approach for hashing concrete states.
+            int unknown_value = domain_mapping[prop_var_id][2];
+            int target_abstract = domain_mapping[prop_var_id][concrete_value];
+            int hash_adjustment = (target_abstract - unknown_value) * hash_multipliers[prop_var_id];
+            state_hash += hash_adjustment;
+        } else {
+            // The comparison is not evaluated (value = 2 = UNKNOWN)
+            // This shouldn't normally happen in a properly evaluated state
+            // Leave it as UNKNOWN (no hash adjustment needed)
+        }
+    }
+    
+    return state_hash;
+}
+
+size_t compute_abstract_state_hash_backup(
+    const State &state,
+    const TaskProxy &task_proxy,
+    const DomainMapping &domain_mapping,
+    const NumericDomainMappingType &numeric_domain_mapping,
+    const std::vector<int> &hash_multipliers) {
+    
+    /* BACKUP VERSION using OPTIMISTIC range-based evaluation
+     * 
+     * This version computes comparison axiom values based on the RANGES of numeric
+     * variables (from partitions + derived variable cascades), then optimistically
+     * chooses TRUE when both TRUE and FALSE are possible.
+     * 
+     * This was the ORIGINAL implementation that had a bug:
+     * - It treated concrete states as if they were abstract/partial states
+     * - It used ranges to determine "what could be" instead of "what is"
+     * - This caused initial and goal states to hash the same way
+     * 
+     * This approach MIGHT be useful for:
+     * - Predecessor enumeration (exploring what states COULD lead here)
+     * - Abstract state space construction (when we don't have concrete values)
+     * 
+     * But it should NOT be used for hashing concrete states!
+     * Use compute_abstract_state_hash() instead for that purpose.
+     */
+    
     size_t state_hash = 0;
     
     // Build a set of comparison axiom variable IDs for quick lookup

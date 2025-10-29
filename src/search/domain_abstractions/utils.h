@@ -52,12 +52,29 @@ extern std::vector<int> enumerate_cascade_predecessors(
   Compute the abstract state hash for a concrete state, including:
   1. Propositional variables (with comparison axioms set to UNKNOWN initially)
   2. Numeric variable partitions
-  3. Full cascade evaluation of derived numeric variables and comparison axioms
+  3. Evaluation of comparison axioms using CONCRETE state values
   
-  This ensures comparison axioms are evaluated optimistically based on the
-  ranges computed from assignment axioms.
+  This version uses the actual evaluated comparison axiom values from the state,
+  only falling back to range-based evaluation if the axiom is not yet evaluated.
 */
 extern size_t compute_abstract_state_hash(
+    const State &state,
+    const TaskProxy &task_proxy,
+    const DomainMapping &domain_mapping,
+    const NumericDomainMappingType &numeric_domain_mapping,
+    const std::vector<int> &hash_multipliers);
+
+/*
+  BACKUP VERSION: Compute the abstract state hash using OPTIMISTIC range-based
+  evaluation for comparison axioms. This version evaluates comparison axioms
+  based on the ranges computed from assignment axioms, optimistically choosing
+  TRUE when ranges permit both TRUE and FALSE.
+  
+  This approach is useful for exploring possibilities during predecessor
+  enumeration, but should NOT be used for hashing concrete states (use
+  compute_abstract_state_hash instead for that).
+*/
+extern size_t compute_abstract_state_hash_backup(
     const State &state,
     const TaskProxy &task_proxy,
     const DomainMapping &domain_mapping,
