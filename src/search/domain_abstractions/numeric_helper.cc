@@ -170,12 +170,8 @@ void DomainAbstractionNumericHelper::build_axiom_dependencies() {
 }
 
 void DomainAbstractionNumericHelper::print_axiom_dependency_trees() {
-    cout << "\n========== NUMERIC HELPER: Axiom Dependency Trees ==========" << endl;
     
-    // Print assignment axiom dependencies (numeric -> numeric)
-    cout << "\n--- Assignment Axioms (Numeric Dependencies) ---" << endl;
     AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
-    cout << "Total assignment axioms: " << assignment_axioms.size() << endl;
     
     for (AssignmentAxiomProxy axiom : assignment_axioms) {
         int derived_id = axiom.get_assignment_variable().get_id();
@@ -195,19 +191,10 @@ void DomainAbstractionNumericHelper::print_axiom_dependency_trees() {
         NumericVariableProxy derived_var = axiom.get_assignment_variable();
         NumericVariableProxy left_var = axiom.get_left_variable();
         NumericVariableProxy right_var = axiom.get_right_variable();
-        
-        cout << "  Axiom: var" << derived_id << " := var" << left_id << " " << op_str << " var" << right_id << endl;
-        cout << "    Names: " << derived_var.get_name() << " := " 
-             << left_var.get_name() << " " << op_str << " " << right_var.get_name() << endl;
-        cout << "    Derived: " << (is_derived_num_var[derived_id] ? "YES" : "NO")
-             << ", Left derived: " << (is_derived_num_var[left_id] ? "YES" : "NO")
-             << ", Right derived: " << (is_derived_num_var[right_id] ? "YES" : "NO") << endl;
     }
     
     // Print comparison axiom dependencies (numeric -> propositional)
-    cout << "\n--- Comparison Axioms (Numeric -> Propositional) ---" << endl;
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-    cout << "Total comparison axioms: " << comparison_axioms.size() << endl;
     
     for (ComparisonAxiomProxy axiom : comparison_axioms) {
         NumericVariableProxy left_var = axiom.get_left_variable();
@@ -228,51 +215,8 @@ void DomainAbstractionNumericHelper::print_axiom_dependency_trees() {
             case comp_operator::gt: op_str = ">"; break;
             default: op_str = "?"; break;
         }
-        
-        cout << "  Axiom: prop_var" << prop_var_id << " := (var" << left_id << " " << op_str << " var" << right_id << ")" << endl;
-        cout << "    Names: " << true_fact.get_variable().get_name() << " := (" 
-             << left_var.get_name() << " " << op_str << " " << right_var.get_name() << ")" << endl;
-        cout << "    Left derived: " << (is_derived_num_var[left_id] ? "YES" : "NO")
-             << ", Right derived: " << (is_derived_num_var[right_id] ? "YES" : "NO") << endl;
     }
     
-    // Print dependency summary for key variables (those modified by operators)
-    cout << "\n--- Variables Modified by Operators (from earlier analysis) ---" << endl;
-    cout << "Expected: 66, 67, 68, 70" << endl;
-    
-    // Print forward dependencies (what each variable depends on)
-    cout << "\n--- Forward Dependencies (Variable -> Dependencies) ---" << endl;
-    cout << "Format: varX depends on [varY, varZ, ...]" << endl;
-    for (size_t i = 0; i < axiom_dependencies.size(); ++i) {
-        if (!axiom_dependencies[i].empty()) {
-            cout << "  var" << i << " depends on: [";
-            for (size_t j = 0; j < axiom_dependencies[i].size(); ++j) {
-                cout << "var" << axiom_dependencies[i][j];
-                if (j < axiom_dependencies[i].size() - 1) cout << ", ";
-            }
-            cout << "]";
-            if (is_derived_num_var[i]) cout << " (DERIVED)";
-            cout << endl;
-        }
-    }
-    
-    // Print reverse dependencies (what depends on each variable)
-    cout << "\n--- Reverse Dependencies (Variable -> What Depends On It) ---" << endl;
-    cout << "Format: varX affects [varY, varZ, ...]" << endl;
-    for (size_t i = 0; i < reverse_axiom_dependencies.size(); ++i) {
-        if (!reverse_axiom_dependencies[i].empty()) {
-            cout << "  var" << i << " affects: [";
-            for (size_t j = 0; j < reverse_axiom_dependencies[i].size(); ++j) {
-                cout << "var" << reverse_axiom_dependencies[i][j];
-                if (j < reverse_axiom_dependencies[i].size() - 1) cout << ", ";
-            }
-            cout << "]";
-            if (!is_derived_num_var[i]) cout << " (REGULAR/BASE)";
-            cout << endl;
-        }
-    }
-    
-    cout << "\n============================================================\n" << endl;
 }
 
 void DomainAbstractionNumericHelper::build_goals() {
@@ -351,17 +295,6 @@ vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operator
         build_abstract_operator(op, abstract_operators);
     }
     
-    cout << "DEBUG HELPER: Numeric variables modified by operators:" << endl;
-    cout << "DEBUG HELPER:   Total: " << modified_numeric_vars.size() << " variables" << endl;
-    cout << "DEBUG HELPER:   IDs: ";
-    vector<int> sorted_vars(modified_numeric_vars.begin(), modified_numeric_vars.end());
-    sort(sorted_vars.begin(), sorted_vars.end());
-    for (int var_id : sorted_vars) {
-        cout << var_id << " ";
-        if (var_id == 70) cout << "(VAR70!) ";
-    }
-    cout << endl;
-    
     return abstract_operators;
 }
 
@@ -374,13 +307,6 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     
     // DEBUG: Track specific operators
     string op_name = op.get_name();
-    bool is_advance_time = (op_name.find("advance_time") != string::npos);
-    if (is_advance_time && op.get_id() < 3) {
-        cout << "DEBUG BUILD_OP: Building operator " << op.get_id() << ": " << op_name << endl;
-        cout << "  Preconditions: " << op.get_preconditions().size() << endl;
-        cout << "  Effects: " << op.get_effects().size() << endl;
-        cout << "  Numeric effects: " << op.get_ass_effects().size() << endl;
-    }
     
     // All variable value pairs that are a prevail condition
     vector<Fact> prev_pairs;
@@ -462,25 +388,6 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     vector<NumAssProxy> ass_effects;
     for (auto ass_eff : op.get_ass_effects()) {
         ass_effects.push_back(ass_eff.get_assignment());
-    }
-    
-    // DEBUG: Show what we collected for advance_time operators
-    if (is_advance_time && op.get_id() < 3) {
-        cout << "  After processing:" << endl;
-        cout << "    prev_pairs: " << prev_pairs.size() << endl;
-        cout << "    pre_pairs: " << pre_pairs.size() << endl;
-        cout << "    eff_pairs: " << eff_pairs.size() << endl;
-        cout << "    effects_without_pre: " << effects_without_pre.size() << endl;
-        cout << "    ass_effects: " << ass_effects.size() << endl;
-        for (const Fact &f : pre_pairs) {
-            cout << "      pre_pair: var" << f.var << "=" << f.value << endl;
-        }
-        for (const Fact &f : eff_pairs) {
-            cout << "      eff_pair: var" << f.var << "=" << f.value << endl;
-        }
-        for (const Fact &f : effects_without_pre) {
-            cout << "      effect_without_pre: var" << f.var << "=" << f.value << endl;
-        }
     }
     
     // Enumerate all possible abstract transitions
@@ -575,12 +482,6 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                     int abstract_var_id = trans.source_partition_facts[i].var;
                     int num_var_id = abstract_var_id - domain_sizes.size();  // Numeric vars come after propositional
                     
-                    if (ops_before < 3) {
-                        cout << "DEBUG HELPER: transition " << i 
-                             << ": abstract_var_id=" << abstract_var_id
-                             << ", domain_sizes.size()=" << domain_sizes.size()
-                             << ", num_var_id=" << num_var_id << endl;
-                    }
                     
                     changed_numeric_vars.push_back(num_var_id);
                     source_partitions_list.push_back(trans.source_partition_facts[i].value);
@@ -600,24 +501,6 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                     changed_numeric_vars,       // numeric variables modified by this operator
                     source_partitions_list,     // source partitions for changed variables
                     target_partitions_list);    // target partitions for changed variables
-            }
-            
-            // DEBUG: Print summary for first few operators
-            if (ops_before < 3) {
-                cout << "DEBUG OP: Created " << (operators.size() - ops_before) 
-                     << " abstract operators from concrete_id=" << concrete_op_id << endl;
-                cout << "  pre_pairs: " << pre_pairs.size() 
-                     << ", eff_pairs: " << eff_pairs.size()
-                     << ", prev_pairs: " << prev_pairs.size()
-                     << ", ass_effects: " << ass_effects.size() << endl;
-                cout << "  transitions generated: " << transitions.size() << endl;
-                if (transitions.size() <= 5) {
-                    for (size_t i = 0; i < transitions.size(); ++i) {
-                        cout << "  transition " << i << ": hash_effect=" << transitions[i].hash_effect
-                             << ", source_facts=" << transitions[i].source_partition_facts.size()
-                             << ", target_facts=" << transitions[i].target_partition_facts.size() << endl;
-                    }
-                }
             }
         }
     } else {
@@ -656,9 +539,6 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
     int local_call = call_count++;
     bool debug_this_call = (local_call < 3) || (local_call >= 146 && local_call < 149);
     
-    if (debug_this_call) {
-        cout << "DEBUG HASH: compute_hash_effects_with_cascades called (count=" << local_call << ")" << endl;
-    }
     
     vector<int> hash_effects;
     
@@ -668,10 +548,7 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
     // and pre_pairs contains the new values (where we're going to)
     int base_hash_effect = 0;
     assert(pre_pairs.size() == eff_pairs.size());
-    
-    if (debug_this_call) {
-        cout << "  pre_pairs.size()=" << pre_pairs.size() << ", eff_pairs.size()=" << eff_pairs.size() << endl;
-    }
+
 
 
     
@@ -683,17 +560,9 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
         int effect = (new_val - old_val) * hash_multipliers[var_id];
         base_hash_effect += effect;
         
-        if (debug_this_call) {
-            cout << "    var" << var_id << ": old=" << old_val << ", new=" << new_val 
-                 << ", multiplier=" << hash_multipliers[var_id] 
-                 << ", effect=" << effect << endl;
-        }
+  
     }
     
-    if (debug_this_call) {
-        cout << "  base_hash_effect=" << base_hash_effect << endl;
-        cout << "  ass_effects.size()=" << ass_effects.size() << endl;
-    }
     
     // If no numeric effects, just return the base effect
     if (ass_effects.empty()) {
@@ -709,10 +578,7 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
         if (num_var_id >= 0 && num_var_id < static_cast<int>(numeric_domain_mapping.size())) {
             affected_numeric_vars[num_var_id] = true;
             affected_var_list.push_back(num_var_id);
-            if (debug_this_call) {
-                cout << "  Affected numeric var: " << num_var_id 
-                     << " (partitions: " << numeric_domain_sizes[num_var_id] << ")" << endl;
-            }
+
         } else {
             exit(1);
         }
@@ -736,15 +602,6 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
                 vector<Fact> affected_facts = 
                     compute_affected_comparison_axioms(changed_vars, old_parts, new_parts);
                 
-                if (debug_this_call && !affected_facts.empty()) {
-                    cout << "  Comparison axiom cascades: " << affected_facts.size() << " facts" << endl;
-                    for (const Fact &fact : affected_facts) {
-                        cout << "    var" << fact.var << "=" << fact.value 
-                             << " (multiplier=" << hash_multipliers[fact.var] 
-                             << ", contribution=" << (fact.value * hash_multipliers[fact.var]) << ")" << endl;
-                    }
-                }
-                
                 for (const Fact &fact : affected_facts) {
                     // Add propositional variable contribution
                     // This is conservative - we add both true and false possibilities
@@ -764,9 +621,6 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
             }
             
             hash_effects.push_back(total_effect);
-            if (debug_this_call && hash_effects.size() <= 5) {
-                cout << "  Generated hash_effect: " << total_effect << endl;
-            }
             return;
         }
         
@@ -807,9 +661,7 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
                     // Compute hash contribution for this transition
                     int effect_contribution = 
                         (target_partition - source_partition) * hash_multiplier;
-                    if (effect_contribution) {
-                        cout << "  Generated hash_effect: " << effect_contribution << endl;
-                    }
+          
                     // Track this variable change for cascade computation
                     changed_vars.push_back(var_idx);
                     old_parts.push_back(source_partition);
@@ -833,10 +685,6 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
     vector<int> changed_vars, old_parts, new_parts;
     enumerate_effects(0, 0, changed_vars, old_parts, new_parts, nullptr);
     
-    if (debug_this_call) {
-        cout << "  Total hash_effects generated: " << hash_effects.size() << endl;
-    }
-    
     return hash_effects;
 }
 
@@ -853,19 +701,11 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
     int local_call = call_count++;
     bool debug_this_call = (local_call < 3) || (local_call >= 146 && local_call < 149);
     
-    if (debug_this_call) {
-        cout << "DEBUG HASH: compute_hash_effects_with_preconditions called (count=" << local_call << ")" << endl;
-    }
-    
     vector<TransitionInfo> transitions;
     
     // Compute base hash effect from propositional effects
     int base_hash_effect = 0;
     assert(pre_pairs.size() == eff_pairs.size());
-    
-    if (debug_this_call) {
-        cout << "  pre_pairs.size()=" << pre_pairs.size() << ", eff_pairs.size()=" << eff_pairs.size() << endl;
-    }
     
     for (size_t i = 0; i < pre_pairs.size(); ++i) {
         int var_id = pre_pairs[i].var;
@@ -874,17 +714,6 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
         int new_val = pre_pairs[i].value;
         int effect = (new_val - old_val) * hash_multipliers[var_id];
         base_hash_effect += effect;
-        
-        if (debug_this_call) {
-            cout << "    var" << var_id << ": old=" << old_val << ", new=" << new_val 
-                 << ", multiplier=" << hash_multipliers[var_id] 
-                 << ", effect=" << effect << endl;
-        }
-    }
-    
-    if (debug_this_call) {
-        cout << "  base_hash_effect=" << base_hash_effect << endl;
-        cout << "  ass_effects.size()=" << ass_effects.size() << endl;
     }
     
     // If no numeric effects, just return single transition with no numeric preconditions
@@ -902,10 +731,6 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
         int num_var_id = ass_eff.get_affected_variable().get_id();
         if (num_var_id >= 0 && num_var_id < static_cast<int>(numeric_domain_mapping.size())) {
             affected_numeric_vars[num_var_id] = true;
-            if (debug_this_call) {
-                cout << "  Affected numeric var: " << num_var_id 
-                     << " (partitions: " << numeric_domain_sizes[num_var_id] << ")" << endl;
-            }
         } else {
             exit(1);
         }
@@ -945,11 +770,6 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
             trans.target_partition_facts = target_facts;
             transitions.push_back(trans);
             
-            if (debug_this_call && transitions.size() <= 5) {
-                cout << "  Generated transition: hash_effect=" << total_effect
-                     << ", source=" << source_facts.size() 
-                     << ", target=" << target_facts.size() << endl;
-            }
             return;
         }
         
@@ -1028,10 +848,6 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
     vector<Fact> source_facts, target_facts;
     vector<int> changed_vars, old_parts, new_parts;
     enumerate_targets(0, 0, source_facts, target_facts, changed_vars, old_parts, new_parts);
-    
-    if (debug_this_call) {
-        cout << "  Total transitions generated: " << transitions.size() << endl;
-    }
     
     return transitions;
 }
@@ -1447,26 +1263,10 @@ vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
             return reachable_partitions;
     }
     
-    // Now find which target partitions overlap with [result_lower, result_upper)
-    if (numeric_var_id == 67 || numeric_var_id == 66) {  // Debug specific variables
-        cout << "DEBUG REACHABLE: var" << numeric_var_id 
-             << " source_partition=" << source_partition
-             << " source_range=[" << source_lower << ", " << source_upper << ")"
-             << " operand=" << operand_value
-             << " op=" << (int)op_type
-             << " result_range=[" << result_lower << ", " << result_upper << ")" << endl;
-    }
-    
     for (const NumericRange &range : ranges) {
         // Check if [result_lower, result_upper) overlaps with [range.lower, range.upper)
         // Two ranges [a, b) and [c, d) overlap if: a < d AND c < b
         bool overlaps = (result_lower < range.upper && range.lower < result_upper);
-        
-        if (numeric_var_id == 67 || numeric_var_id == 66) {
-            cout << "  partition " << range.partition_index 
-                 << " range=[" << range.lower << ", " << range.upper << ")"
-                 << " overlaps=" << overlaps << endl;
-        }
         
         if (overlaps) {
             reachable_partitions.push_back(range.partition_index);

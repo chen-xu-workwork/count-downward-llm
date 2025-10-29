@@ -112,27 +112,6 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
         
         enumerate_effects(0, base_hash_effect);
     }
-
-    // Debug: if a particular concrete operator shows suspicious hash effects,
-    // print details to help trace the source of negative/large effects.
-    // (Concrete operator IDs are from the input task; adjust as needed.)
-    if (concrete_op_id == 145) {
-        cout << "DEBUG FACTORY: Operator concrete_id=145 constructed" << endl;
-        cout << "  prev_pairs:";
-        for (const Fact &f : prev_pairs) cout << " (v" << f.var << "=" << f.value << ")";
-        cout << endl;
-        cout << "  pre_pairs:";
-        for (const Fact &f : pre_pairs) cout << " (v" << f.var << "=" << f.value << ")";
-        cout << endl;
-        cout << "  eff_pairs:";
-        for (const Fact &f : eff_pairs) cout << " (v" << f.var << "=" << f.value << ")";
-        cout << endl;
-        cout << "  ass_effects size=" << ass_effects.size() << endl;
-        cout << "  base_hash_effect=" << base_hash_effect << endl;
-        cout << "  hash_effects:";
-        for (int he : hash_effects) cout << " " << he;
-        cout << endl;
-    }
 }
 
 // Constructor with pre-computed hash effects (used by numeric helper)
@@ -164,25 +143,7 @@ AbstractOperator::AbstractOperator(
     for (const Fact &eff : eff_pairs) {
         regression_preconditions.push_back(eff);
     }
-    
-    // Note: pre_pairs are preconditions in progression, not needed in regression
-    // (they're handled by the effects already)
 
-    // Debug print for operators constructed via pre-computed hash effects
-    if (concrete_op_id == 145) {
-        cout << "DEBUG FACTORY: (precomputed) Operator concrete_id=145 constructed" << endl;
-        cout << "  prev_pairs:";
-        for (const Fact &f : prev_pairs) cout << " (v" << f.var << "=" << f.value << ")";
-        cout << endl;
-        cout << "  eff_pairs:";
-        for (const Fact &f : eff_pairs) cout << " (v" << f.var << "=" << f.value << ")";
-        cout << endl;
-        cout << "  ass_effects size=" << ass_effects.size() << endl;
-        cout << "  hash_effects:";
-        for (int he : hash_effects) cout << " " << he;
-        cout << endl;
-        cout << "  changed_numeric_vars: " << changed_numeric_vars.size() << endl;
-    }
 }
 
 DomainAbstractionFactory::DomainAbstractionFactory (
@@ -318,7 +279,6 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     static int call_count = 0;
     call_count++;
     if (call_count == 1 || call_count % 100 == 0) {
-        cout << "DEBUG FACTORY [call " << call_count << "]: Checking ALL comparison axiom variables for refinement status:" << endl;
         ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
         int total_comp_axioms = 0;
         int trivial_comp_axioms = 0;
@@ -331,13 +291,8 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
                 trivial_comp_axioms++;
             } else {
                 refined_comp_axioms++;
-                cout << "  Comparison axiom var" << prop_var_id << " IS REFINED, domain_mapping size=" 
-                     << domain_mapping[prop_var_id].size() << endl;
             }
         }
-        cout << "DEBUG FACTORY: Comparison axiom summary: total=" << total_comp_axioms 
-             << ", trivial=" << trivial_comp_axioms 
-             << ", refined=" << refined_comp_axioms << endl;
     }
     
     // If no numeric variables changed, just return the base state
@@ -661,9 +616,6 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         affected_comparisons.push_back(affected);
     }
 
-    cout << "DEBUG FACTORY: Total affected comparisons: " 
-         << affected_comparisons.size() << endl;
-    
     // Step 2: Reset all affected comparison axioms to UNKNOWN in the base state
     // This ensures we compute deltas from a consistent baseline
     int reset_to_unknown_adjustment = 0;
@@ -695,11 +647,6 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         int delta_to_unknown = (unknown_value - current_value) * multiplier;
         reset_to_unknown_adjustment += delta_to_unknown;
     }
-    
-    cout << "DEBUG FACTORY: Comparison axiom refinement status: " 
-         << "trivial=" << trivial_count 
-         << ", non_trivial=" << non_trivial_count 
-         << ", total=" << affected_comparisons.size() << endl;
     
     // Apply the reset: now all affected comparisons are UNKNOWN
     int state_with_unknowns = base_state_index + reset_to_unknown_adjustment;
@@ -902,8 +849,6 @@ void DomainAbstractionFactory::compute_distances(
         if (state_index < 20 || is_goal) {  // Print first 20 states or any goal states
             string decoded = decode_abstract_state(state_index, domain_sizes, 
                                                   numeric_domain_mapping, hash_multipliers);
-            cout << "DEBUG DIJKSTRA: " << decoded << " is " 
-                 << (is_goal ? "GOAL" : "not goal") << endl;
             if (is_goal && first_goal_state == -1) {
                 first_goal_state = state_index;
             }
@@ -946,30 +891,12 @@ void DomainAbstractionFactory::compute_distances(
         
         // Special detailed debugging for first goal state expansion
         bool is_first_goal_expansion = (state_index == first_goal_state && !first_goal_expanded);
-        if (is_first_goal_expansion) {
-            first_goal_expanded = true;
-            cout << "\n========== DETAILED DEBUG: FIRST GOAL STATE EXPANSION ==========" << endl;
-            string decoded = decode_abstract_state(state_index, domain_sizes, 
-                                                  numeric_domain_mapping, hash_multipliers);
-            cout << "Expanding: " << decoded << endl;
-            cout << "Distance: " << distance << endl;
-        }
-
+ 
         // Regress using abstract operators (from match tree)
         // These handle both propositional-only and numeric operators
         vector<int> applicable_operator_ids;
         match_tree.get_applicable_operator_ids(state_index, applicable_operator_ids);
         
-        if (is_first_goal_expansion) {
-            cout << "Applicable operators: " << applicable_operator_ids.size() << endl;
-        }
-        
-        if (dijkstra_iterations <= 10 && applicable_operator_ids.size() > 0) {
-            cout << "DEBUG DIJKSTRA: Iteration " << dijkstra_iterations 
-                 << ", expanding state " << state_index 
-                 << " with distance " << distance
-                 << ", applicable ops: " << applicable_operator_ids.size() << endl;
-        }
         
         int valid_predecessors_this_state = 0;
         int out_of_bounds_predecessors = 0;
@@ -977,36 +904,11 @@ void DomainAbstractionFactory::compute_distances(
         for (int op_id : applicable_operator_ids) {
             const AbstractOperator &op = operators[op_id];
             int alternative_cost = distances[state_index] + op.get_cost();
-            
-            if (is_first_goal_expansion && operators_checked < 5) {
-                cout << "  Operator " << op_id << " (concrete_id=" << op.get_concrete_op_id() 
-                     << ", cost=" << op.get_cost() << ")" << endl;
-                operators_checked++;
-            }
+        
             
             // Iterate over all possible hash effects (predecessors)
             // Propositional operators have 1 effect, numeric operators have multiple
             const vector<int> &hash_effects_vec = op.get_hash_effects();
-            if (dijkstra_iterations == 1 && op_id == 0) {
-                cout << "DEBUG DIJKSTRA:   Op 0 has " << hash_effects_vec.size() << " hash effects: ";
-                for (int he : hash_effects_vec) {
-                    cout << he << " ";
-                }
-                cout << endl;
-            }
-            
-            if (is_first_goal_expansion && operators_checked <= 5) {
-                cout << "    Hash effects (" << hash_effects_vec.size() << "): ";
-                int shown = 0;
-                for (int he : hash_effects_vec) {
-                    if (shown < 10) {
-                        cout << he << " ";
-                        shown++;
-                    }
-                }
-                if (hash_effects_vec.size() > 10) cout << "...";
-                cout << endl;
-            }
             
             int predecessors_this_op = 0;
             int out_of_bounds_this_op = 0;
@@ -1019,10 +921,6 @@ void DomainAbstractionFactory::compute_distances(
                     op.get_target_partitions(),
                     task_proxy);
                 
-                if (is_first_goal_expansion && operators_checked <= 5) {
-                    cout << "    Base hash_effect=" << base_hash_effect 
-                         << ", cascade predecessors: " << possible_predecessors.size() << endl;
-                }
                 
                 for (int predecessor : possible_predecessors) {
                     // Skip predecessors that are out of bounds. This can legitimately
@@ -1033,23 +931,7 @@ void DomainAbstractionFactory::compute_distances(
                         if (dijkstra_iterations == 1) {
                             out_of_bounds_predecessors++;
                         }
-                        if (is_first_goal_expansion && operators_checked <= 5) {
-                            out_of_bounds_this_op++;
-                            cout << "DEBUG DIJKSTRA:   Skipping out-of-bounds predecessor: "
-                                 << "state_index=" << state_index
-                                 << " base_hash_effect=" << base_hash_effect
-                                 << " predecessor=" << predecessor
-                                 << " op_id=" << op_id
-                                 << " concrete_id=" << op.get_concrete_op_id()
-                                 << endl;
-                            // Print preconditions of this operator
-                            cout << "DEBUG DIJKSTRA:   Operator preconditions: ";
-                            const vector<Fact> &preconds = op.get_regression_preconditions();
-                            for (const Fact &pc : preconds) {
-                                cout << "var" << pc.var << "=" << pc.value << " ";
-                            }
-                            cout << endl;
-                        }
+                       
                         // Continue without asserting to allow the search to proceed
                         // while we gather diagnostics. Invalid predecessors are
                         // expected in conservative enumerations and should be skipped.
@@ -1062,19 +944,6 @@ void DomainAbstractionFactory::compute_distances(
                     if (alternative_cost < distances[predecessor]) {
                         total_expansions++;
                         
-                        if (is_first_goal_expansion && operators_checked <= 5 && predecessors_this_op <= 3) {
-                            string pred_decoded = decode_abstract_state(predecessor, domain_sizes,
-                                                                       numeric_domain_mapping, hash_multipliers);
-                            cout << "    Predecessor " << predecessors_this_op << ": " << pred_decoded 
-                                 << " (base_hash=" << base_hash_effect << ", cascaded_index=" << predecessor << ")" << endl;
-                        }
-                        
-                        if (total_expansions <= 20) {
-                            cout << "DEBUG DIJKSTRA:   Updated state " << predecessor 
-                                 << " from distance " << distances[predecessor] 
-                                 << " to " << alternative_cost 
-                                 << " (base_hash_effect=" << base_hash_effect << ")" << endl;
-                        }
                         distances[predecessor] = alternative_cost;
                         pq.push(alternative_cost, predecessor);
                         if (compute_plan) {
@@ -1084,22 +953,6 @@ void DomainAbstractionFactory::compute_distances(
                 }
             }
             
-            if (is_first_goal_expansion && operators_checked <= 5) {
-                cout << "    Valid predecessors: " << predecessors_this_op 
-                     << ", Out of bounds: " << out_of_bounds_this_op << endl;
-            }
-        }
-        
-        if (is_first_goal_expansion) {
-            cout << "Total valid predecessors generated: " << valid_predecessors_this_state << endl;
-            cout << "Total out of bounds: " << out_of_bounds_predecessors << endl;
-            cout << "===============================================================\n" << endl;
-        }
-        
-        if (dijkstra_iterations == 1) {
-            cout << "DEBUG DIJKSTRA:   State " << state_index 
-                 << ": valid_predecessors=" << valid_predecessors_this_state
-                 << ", out_of_bounds=" << out_of_bounds_predecessors << endl;
         }
     }
     

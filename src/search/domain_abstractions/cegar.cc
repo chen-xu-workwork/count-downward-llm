@@ -576,17 +576,6 @@ vector<Fact> CEGAR::get_flaws(
         
         for (int op_id : equivalent_ops) {
             OperatorProxy op = task_proxy.get_operators()[op_id];
-            cout << "  Checking operator " << op_id << ": " << op.get_name() << endl;
-            cout << "    Preconditions: ";
-            for (FactProxy pre : op.get_preconditions()) {
-                cout << "var" << pre.get_variable().get_id() << "=" << pre.get_value() << " ";
-            }
-            cout << endl;
-            cout << "    Effects: ";
-            for (EffectProxy eff : op.get_effects()) {
-                cout << "var" << eff.get_fact().get_variable().get_id() << "=" << eff.get_fact().get_value() << " ";
-            }
-            cout << endl;
             
             // Check propositional preconditions
             vector<Fact> operator_flaws =
@@ -603,8 +592,6 @@ vector<Fact> CEGAR::get_flaws(
                 g_axiom_evaluator->evaluate(current_state, numeric_state);
                 break;
             } else {
-                // Precondition flaw detected
-                cout << "DEBUG: Precondition flaw detected" << endl;
                 
                 // Check if any precondition flaw is on a comparison axiom variable
                 for (Fact &flaw : operator_flaws) {
@@ -1344,90 +1331,25 @@ DomainAbstraction CEGAR::build_abstraction(
             break;
         }
 
-        // DEBUG: Print current numeric domain abstraction state
-        cout << "DEBUG: Current numeric domain abstraction after iteration #" << iteration << ":" << endl;
-        for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
-            const NumericDomainMapping &mapping = numeric_domain_mapping[i];
-            const vector<NumericRange> &ranges = mapping.get_ranges();
-            cout << "  Numeric var " << i << ": " << ranges.size() << " partitions, "
-                 << "domain_size=" << numeric_domain_sizes[i] << endl;
-            for (const NumericRange &range : ranges) {
-                cout << "    Partition " << range.partition_index << ": [" 
-                     << range.lower << ", " << range.upper << ")" << endl;
-            }
-        }
-        
-        // DEBUG: Print detected flaws for this iteration
-        cout << "DEBUG: Flaws detected in this iteration:" << endl;
-        cout << "  Propositional flaws: " << flaws.size() << endl;
-        if (!flaws.empty()) {
-            for (const Fact &flaw : flaws) {
-                int var_id = flaw.var;
-                cout << "    var" << var_id << "=" << flaw.value;
-                
-                // Show current abstract domain size for this variable
-                cout << " [abstract_domain_size=" << abstract_domain_sizes[var_id];
-                int concrete_domain_size = task_proxy.get_variables()[var_id].get_domain_size();
-                cout << ", concrete_domain_size=" << concrete_domain_size << "]";
-                
-                // Check if this is a comparison axiom variable
-                auto it = comparison_axiom_dependencies.find(var_id);
-                if (it != comparison_axiom_dependencies.end()) {
-                    cout << " (comparison axiom, depends on numeric vars: ";
-                    bool first = true;
-                    for (int nvar : it->second) {
-                        if (!first) cout << ", ";
-                        cout << nvar;
-                        first = false;
-                    }
-                    cout << ")";
-                } else {
-                    cout << " (regular propositional var)";
-                }
-                cout << endl;
-            }
-        }
-        cout << "  Numeric flaws: " << detected_numeric_flaws.size() << endl;
-        if (!detected_numeric_flaws.empty()) {
-            for (const NumericFlaw &nflaw : detected_numeric_flaws) {
-                cout << "    numeric_var" << nflaw.numeric_var_id 
-                     << " concrete_value=" << nflaw.concrete_value << endl;
-            }
-        }
 
-        cout << "DEBUG: About to create new factory with:" << endl;
-        cout << "  abstract_domain_sizes.size() = " << abstract_domain_sizes.size() << endl;
-        cout << "  numeric_domain_mapping.size() = " << numeric_domain_mapping.size() << endl;
-        cout << "  numeric_domain_sizes.size() = " << numeric_domain_sizes.size() << endl;
-        cout << "  Numeric domain sizes values: ";
-        for (size_t i = 0; i < numeric_domain_sizes.size() && i < 10; ++i) {
-            cout << numeric_domain_sizes[i] << " ";
-        }
-        cout << endl;
+     
         
         // Validate that numeric_domain_sizes matches the actual partitions
-        cout << "DEBUG: Validating numeric domain mappings before creating factory..." << endl;
+      
         bool all_valid = true;
         for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
             int actual_partitions = numeric_domain_mapping[i].get_num_partitions();
             int expected_partitions = numeric_domain_sizes[i];
             if (actual_partitions != expected_partitions) {
-                cout << "ERROR: Mismatch for variable " << i 
-                     << ": actual_partitions=" << actual_partitions
-                     << " but numeric_domain_sizes[" << i << "]=" << expected_partitions << endl;
                 all_valid = false;
             }
             if (!numeric_domain_mapping[i].is_valid()) {
-                cout << "ERROR: Variable " << i << " has invalid ranges!" << endl;
-                cout << "  Number of ranges: " << numeric_domain_mapping[i].get_num_ranges() << endl;
                 all_valid = false;
             }
         }
         if (!all_valid) {
-            cout << "FATAL: Invalid state before factory creation!" << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
-        cout << "DEBUG: Validation complete. Creating factory..." << endl;
 
         DomainAbstractionFactory new_factory(
             task_proxy, domain_mapping, abstract_domain_sizes,
@@ -1438,64 +1360,9 @@ DomainAbstraction CEGAR::build_abstraction(
         
         // DEBUG: Print state 126 after iteration 2
         if (iteration == 3) {  // iteration was just incremented, so iteration 2 just finished
-            cout << "\n========== DEBUG: STATE 126 AFTER ITERATION 2 ==========" << endl;
-            
             // Check if state 126 exists in the abstraction
             int total_states = abstraction.size();
-            cout << "Total abstract states: " << total_states << endl;
-            
-            if (126 < total_states) {
-                int distance_126 = abstraction.get_distance_by_index(126);
-                cout << "State 126 distance: " << distance_126;
-                if (distance_126 == numeric_limits<int>::max()) {
-                    cout << " (DEAD-END / INFINITY)";
-                } else {
-                    cout << " (reachable)";
-                }
-                cout << endl;
-                
-                // Try to decode state 126 to show what it represents
-                // We need to decode the state based on domain sizes
-                cout << "State 126 decoded representation: ";
-                int state_index = 126;
-                vector<int> state_values;
-                
-                // Decode using domain sizes (reverse of hash computation)
-                for (size_t i = 0; i < abstract_domain_sizes.size(); ++i) {
-                    int domain_size = abstract_domain_sizes[i];
-                    if (domain_size > 1) {
-                        int value = state_index % domain_size;
-                        state_values.push_back(value);
-                        state_index /= domain_size;
-                    } else {
-                        state_values.push_back(0);
-                    }
-                }
-                
-                // Print the decoded state
-                cout << "[";
-                for (size_t i = 0; i < state_values.size(); ++i) {
-                    if (i > 0) cout << ", ";
-                    cout << "v" << i << "=" << state_values[i];
-                }
-                cout << "]" << endl;
-                
-                // Check if this corresponds to the initial state
-                cout << "Checking if state 126 is the initial state..." << endl;
-                State init_state = task_proxy.get_initial_state();
-                int init_distance = abstraction.get_value(init_state);
-                cout << "Initial state distance from abstraction.get_value(): " << init_distance;
-                if (init_distance == numeric_limits<int>::max()) {
-                    cout << " (DEAD-END / INFINITY) !!!";
-                } else {
-                    cout << " (reachable)";
-                }
-                cout << endl;
-            } else {
-                cout << "State 126 does NOT exist (out of bounds)" << endl;
-            }
-            
-            cout << "========== END DEBUG: STATE 126 ==========" << endl << endl;
+          
         }
     }
 
@@ -1634,13 +1501,7 @@ bool CEGAR::fix_numeric_flaws(
                      << " at value " << concrete_value
                      << " (partitions: " << old_num_partitions << " -> " << new_num_partitions << ")"
                      << endl;
-            } else {
-                // Split did not increase partition count - value is already a boundary
-                cout << "DEBUG: Could not refine numeric variable " << numeric_var_id 
-                     << " at value " << concrete_value
-                     << " (already at partition boundary)"
-                     << endl;
-            }
+            } 
         } else {
             cout << "DEBUG: Cannot refine numeric variable " << numeric_var_id 
                  << " (blacklisted or size limit)" << endl;
