@@ -20,6 +20,7 @@
 #include <sstream>
 #include <fstream>
 #include <set>
+#include <iomanip>
 
 
 using namespace std;
@@ -1447,9 +1448,92 @@ void DomainAbstractionFactory::compute_distances(
     static int iteration_count = 0;
     iteration_count++;
     
+    // DEBUG: Print table of core variables for all states
+    if (iteration_count == 2) {
+        cout << "\n=== TABLE OF CORE VARIABLES FOR ALL " << num_states << " STATES ===\n";
+        
+        // First, identify which propositional variables are derived from axioms
+        vector<bool> is_axiom_var(task_proxy.get_variables().size(), false);
+        for (OperatorProxy axiom : task_proxy.get_axioms()) {
+            if (axiom.get_effects().size() == 1) {
+                int effect_var = axiom.get_effects()[0].get_fact().get_variable().get_id();
+                is_axiom_var[effect_var] = true;
+            }
+        }
+        
+        // Identify refined numeric variables and non-axiom propositional variables
+        vector<int> refined_numeric_vars;
+        int num_prop_vars = domain_sizes.size();
+        for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+            const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+            if (mapping.get_num_partitions() > 1) {
+                refined_numeric_vars.push_back(num_var_id);
+            }
+        }
+        
+        vector<int> non_axiom_vars;
+        for (size_t var_id = 0; var_id < domain_sizes.size(); ++var_id) {
+            if (!variable_is_trivial(var_id) && !is_axiom_var[var_id]) {
+                non_axiom_vars.push_back(var_id);
+            }
+        }
+        
+        // Print table header
+        cout << "\nState | Distance | ";
+        for (int num_var_id : refined_numeric_vars) {
+            cout << "num" << num_var_id << "_p | ";
+        }
+        for (int var_id : non_axiom_vars) {
+            cout << "var" << var_id << " | ";
+        }
+        cout << "\n";
+        
+        // Print separator
+        cout << "------|----------|";
+        for (size_t i = 0; i < refined_numeric_vars.size(); ++i) {
+            cout << "--------|";
+        }
+        for (size_t i = 0; i < non_axiom_vars.size(); ++i) {
+            cout << "--------|";
+        }
+        cout << "\n";
+        
+        // Print each state
+        for (int state_hash = 0; state_hash < num_states; ++state_hash) {
+            // State index
+            cout << setw(5) << state_hash << " | ";
+            
+            // Distance
+            int dist = distances[state_hash];
+            if (dist == numeric_limits<int>::max()) {
+                cout << setw(8) << "INF";
+            } else {
+                cout << setw(8) << dist;
+            }
+            cout << " | ";
+            
+            // Numeric partitions
+            for (int num_var_id : refined_numeric_vars) {
+                const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+                int abstract_var_id = num_prop_vars + num_var_id;
+                int partition = (state_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
+                cout << setw(6) << partition << " | ";
+            }
+            
+            // Non-axiom propositional variables
+            for (int var_id : non_axiom_vars) {
+                int value = (state_hash / hash_multipliers[var_id]) % domain_sizes[var_id];
+                cout << setw(6) << value << " | ";
+            }
+            
+            cout << "\n";
+        }
+        cout << "\n";
+    }
+    
     // DEBUG: Find states with same numeric partitions and non-axiom propositional variables
     if (distances[init_hash] == numeric_limits<int>::max() && iteration_count == 2) {
-        cout << "\n=== FINDING STATES WITH SAME CORE (numeric partitions + non-axiom vars) ===\n";
+        cout << "=== FINDING STATES WITH SAME CORE (numeric partitions + non-axiom vars) ===\n";
         
         // First, identify which propositional variables are derived from axioms
         vector<bool> is_axiom_var(task_proxy.get_variables().size(), false);
@@ -1550,6 +1634,112 @@ void DomainAbstractionFactory::compute_distances(
         
         if (matching_states.size() > 20) {
             cout << "  ... and " << (matching_states.size() - 20) << " more\n";
+        }
+        cout << "\n";
+    }
+    
+    // DEBUG: Test enumerate_states_with_evaluated_comparisons on initial state
+    if (distances[init_hash] == numeric_limits<int>::max() && iteration_count == 2) {
+        cout << "=== TESTING enumerate_states_with_evaluated_comparisons ON INITIAL STATE ===\n";
+        cout << "Initial state (state 14):\n";
+        cout << "  Hash: " << init_hash << "\n";
+        cout << "  Core: num11_p=1, num37_p=1, num66_p=1, var24=0\n";
+        
+        // To trigger comparison axiom evaluation, we need to pass refined numeric variables
+        // even if they don't change partitions (source == target)
+        vector<int> test_changed_vars;
+        vector<int> test_source_partitions;
+        vector<int> test_target_partitions;
+        
+        int num_prop_vars = domain_sizes.size();
+        
+        // Add the refined numeric variables with same source and target partition
+        for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+            const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+            if (mapping.get_num_partitions() > 1) {
+                int abstract_var_id = num_prop_vars + num_var_id;
+                int partition = (init_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
+                test_changed_vars.push_back(num_var_id);
+                test_source_partitions.push_back(partition);
+                test_target_partitions.push_back(partition);  // Same partition (no change)
+            }
+        }
+        
+        cout << "  Calling enumerate with " << test_changed_vars.size() << " refined numeric vars (no partition changes)\n";
+        
+        vector<int> enumerated_states = enumerate_states_with_evaluated_comparisons(
+            init_hash,
+            test_changed_vars,
+            test_source_partitions,
+            test_target_partitions,
+            task_proxy);
+        
+        cout << "\nGenerated " << enumerated_states.size() << " states:\n";
+        
+        // For each enumerated state, decode it and count TRUE comparison axioms
+        int most_optimistic_state = -1;
+        int max_true_comparisons = -1;
+        
+        for (int state_hash : enumerated_states) {
+            cout << "\n  State " << state_hash << ":\n";
+            
+            // Decode ALL propositional variables (including comparison axioms)
+            cout << "    Propositional vars: [";
+            vector<bool> is_axiom_var(task_proxy.get_variables().size(), false);
+            for (OperatorProxy axiom : task_proxy.get_axioms()) {
+                if (axiom.get_effects().size() == 1) {
+                    int effect_var = axiom.get_effects()[0].get_fact().get_variable().get_id();
+                    is_axiom_var[effect_var] = true;
+                }
+            }
+            
+            int true_comparison_count = 0;
+            bool first = true;
+            for (size_t var_id = 0; var_id < domain_sizes.size(); ++var_id) {
+                if (!variable_is_trivial(var_id)) {
+                    int value = (state_hash / hash_multipliers[var_id]) % domain_sizes[var_id];
+                    if (!first) cout << ", ";
+                    cout << "var" << var_id << "=" << value;
+                    if (is_axiom_var[var_id] && value == 1) {
+                        true_comparison_count++;
+                        cout << "(T)";
+                    } else if (is_axiom_var[var_id]) {
+                        cout << "(F)";
+                    }
+                    first = false;
+                }
+            }
+            cout << "]\n";
+            
+            // Decode numeric partitions
+            cout << "    Numeric partitions: [";
+            first = true;
+            for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+                const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+                if (mapping.get_num_partitions() > 1) {
+                    int abstract_var_id = num_prop_vars + num_var_id;
+                    int partition = (state_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
+                    if (!first) cout << ", ";
+                    cout << "num" << num_var_id << "_p=" << partition;
+                    first = false;
+                }
+            }
+            cout << "]\n";
+            
+            cout << "    TRUE comparisons: " << true_comparison_count << "\n";
+            cout << "    Distance: " << (state_hash < num_states ? distances[state_hash] : -1) << "\n";
+            
+            if (true_comparison_count > max_true_comparisons) {
+                max_true_comparisons = true_comparison_count;
+                most_optimistic_state = state_hash;
+            }
+        }
+        
+        cout << "\n*** MOST OPTIMISTIC STATE: " << most_optimistic_state 
+             << " with " << max_true_comparisons << " TRUE comparison axioms ***\n";
+        
+        if (most_optimistic_state >= 0 && most_optimistic_state < num_states) {
+            cout << "Distance to goal: " << distances[most_optimistic_state] << "\n";
         }
         cout << "\n";
     }
