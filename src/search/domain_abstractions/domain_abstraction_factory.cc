@@ -168,6 +168,29 @@ DomainAbstractionFactory::DomainAbstractionFactory (
       domain_mapping(domain_mapping),
       numeric_domain_mapping(numeric_domain_mapping),
       numeric_domain_sizes(numeric_domain_sizes) {
+        
+        // DEBUG: Check var24 status in domain_mapping
+        static int factory_construction_count = 0;
+        factory_construction_count++;
+        if (factory_construction_count <= 2) {
+            cout << "\n=== FACTORY CONSTRUCTION #" << factory_construction_count << " ===\n";
+            if (domain_mapping.size() > 24) {
+                cout << "var24 in domain_mapping:\n";
+                cout << "  domain_mapping[24].size() = " << domain_mapping[24].size() << "\n";
+                cout << "  domain_mapping[24].empty() = " << domain_mapping[24].empty() << "\n";
+                if (!domain_mapping[24].empty()) {
+                    cout << "  domain_mapping[24]: [";
+                    for (size_t i = 0; i < domain_mapping[24].size(); ++i) {
+                        if (i > 0) cout << ", ";
+                        cout << i << "->" << domain_mapping[24][i];
+                    }
+                    cout << "]\n";
+                }
+                cout << "  domain_sizes[24] = " << domain_sizes[24] << "\n";
+            }
+            cout << "================================\n\n";
+        }
+        
         verify_no_non_numeric_axioms(task_proxy);
         verify_no_conditional_effects(task_proxy);
 
@@ -304,16 +327,48 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         }
     }
     
-    // If no numeric variables changed, just return the base state
-    // For the initial state (no numeric changes), return a vector of size 1
+    // BUG FIX: Even if no numeric variables changed partitions, we still need to
+    // evaluate comparison axioms if any are refined (non-trivial)!
+    //
+    // The bug was: propositional-only operators or operators where numeric variables
+    // stay in the same partition would skip comparison axiom evaluation entirely.
+    // This caused states differing only in comparison axiom values to be unreachable.
+    //
+    // Example: State 14 (var24=0) was unreachable from State 13 (var24=1) even though
+    // operators with hash_effect=0 should bridge them via comparison axiom enumeration.
+    //
+    // The fix: Check if there are any refined comparison axioms. If so, we need to
+    // enumerate their possible truth values even when numeric variables don't change.
+    
     if (changed_numeric_vars.empty()) {
-        result.push_back(base_state_index);
-        assert(result.size() == 1);
-        return result;
+        // Check if there are any refined (non-trivial) comparison axioms
+        bool has_refined_comparisons = false;
+        ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+        for (ComparisonAxiomProxy axiom : comparison_axioms) {
+            int prop_var_id = axiom.get_true_fact().get_variable().get_id();
+            if (!variable_is_trivial(prop_var_id)) {
+                has_refined_comparisons = true;
+                break;
+            }
+        }
+        
+        if (!has_refined_comparisons) {
+            // No refined comparison axioms - early return is safe
+            result.push_back(base_state_index);
+            return result;
+        }
+        
+        // We have refined comparison axioms but no numeric changes.
+        // We still need to enumerate comparison axiom truth values!
+        // Fall through to the full enumeration logic below.
     }
     
     // Step 0: Compute transitive closure of affected numeric variables through assignment axioms
     // Start with the directly changed variables, then add derived variables that depend on them
+    //
+    // SPECIAL CASE: If changed_numeric_vars is empty but we have refined comparison axioms,
+    // we still need to enumerate those comparison axiom values. In this case, affected_numeric_vars
+    // will be empty, and we'll mark all refined comparison axioms as UNKNOWN (ambiguous).
     unordered_set<int> affected_numeric_vars(changed_numeric_vars.begin(), changed_numeric_vars.end());
     unordered_map<int, pair<ap_float, ap_float>> computed_ranges;  // var_id -> (lower, upper)
     //cout << "DEBUG FACTORY: Directly changed numeric vars:";
@@ -481,20 +536,96 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     
     // Scan all comparison axioms
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-    //cout << "DEBUG FACTORY: Scanning " << comparison_axioms.size() << " comparison axioms" << endl;
+    
+    // SPECIAL CASE: If affected_numeric_vars is empty (no numeric changes),
+    // but we have refined comparison axioms, we need to enumerate them directly!
+    // For refined comparisons, we can't evaluate based on ranges - we just enumerate
+    // all possible abstract values.
+    bool enumerate_all_refined_comparisons = affected_numeric_vars.empty() && changed_numeric_vars.empty();
+    
+    // DEBUG: Log when enumerating all refined comparisons
+    if (enumerate_all_refined_comparisons) {
+        static int enum_all_call_count = 0;
+        enum_all_call_count++;
+        if (enum_all_call_count <= 3) {
+            cout << "DEBUG ENUM_ALL [call " << enum_all_call_count << "]: base_state=" << base_state_index 
+                 << ", enumerating ALL refined comparison axioms" << endl;
+        }
+    }
+    
+    // For refined comparisons without numeric changes, enumerate directly over abstract values
+    if (enumerate_all_refined_comparisons) {
+        // Find all refined (non-trivial) comparison axioms
+        vector<int> refined_comparison_vars;
+        for (ComparisonAxiomProxy axiom : comparison_axioms) {
+            int prop_var_id = axiom.get_true_fact().get_variable().get_id();
+            if (!variable_is_trivial(prop_var_id)) {
+                refined_comparison_vars.push_back(prop_var_id);
+            }
+        }
+        
+        if (refined_comparison_vars.empty()) {
+            // No refined comparisons - just return base state
+            result.push_back(base_state_index);
+            return result;
+        }
+        
+        // Enumerate all combinations of abstract values for refined comparisons
+        // For simplicity, we enumerate all possible states by varying each comparison's abstract value
+        function<void(size_t, int)> enumerate_abstract_values =
+            [&](size_t var_idx, int current_state_index) {
+            
+            if (var_idx == refined_comparison_vars.size()) {
+                // Base case: we've set all comparison values
+                result.push_back(current_state_index);
+                return;
+            }
+            
+            int prop_var_id = refined_comparison_vars[var_idx];
+            if (prop_var_id >= static_cast<int>(hash_multipliers.size())) {
+                // Variable not in hash function - skip
+                enumerate_abstract_values(var_idx + 1, current_state_index);
+                return;
+            }
+            
+            int multiplier = hash_multipliers[prop_var_id];
+            
+            // Get current abstract value
+            int abstract_domain_size = *max_element(domain_mapping[prop_var_id].begin(), 
+                                                   domain_mapping[prop_var_id].end()) + 1;
+            int current_value = (current_state_index / multiplier) % abstract_domain_size;
+            
+            // Enumerate all possible abstract values
+            for (int abstract_value = 0; abstract_value < abstract_domain_size; ++abstract_value) {
+                int delta = (abstract_value - current_value) * multiplier;
+                enumerate_abstract_values(var_idx + 1, current_state_index + delta);
+            }
+        };
+        
+        enumerate_abstract_values(0, base_state_index);
+        
+        static int call_count = 0;
+        call_count++;
+        if (call_count <= 3) {
+            cout << "DEBUG ENUM_ABSTRACT: Generated " << result.size() << " states from base_state=" 
+                 << base_state_index << " by enumerating abstract values" << endl;
+        }
+        
+        return result;
+    }
+    
+    //
+    // Below is the normal path for operators WITH numeric effects
+    //
+    
     for (ComparisonAxiomProxy axiom : comparison_axioms) {
         int left_var_id = axiom.get_left_variable().get_id();
         int right_var_id = axiom.get_right_variable().get_id();
         int prop_var_id = axiom.get_true_fact().get_variable().get_id();
         
-        //cout << "DEBUG FACTORY:   Comparison axiom prop_var=" << prop_var_id 
-        //     << " checks left=" << left_var_id << " vs right=" << right_var_id << endl;
-        
         // Check if this comparison depends on any affected variable (including derived)
         bool depends_on_affected = (affected_numeric_vars.count(left_var_id) > 0 || 
                                     affected_numeric_vars.count(right_var_id) > 0);
-        
-        //cout << "DEBUG FACTORY:     depends_on_affected=" << depends_on_affected << endl;
         
         if (!depends_on_affected) {
             continue;  // This comparison is not affected by the operator
@@ -573,6 +704,16 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
             // If we can't determine ranges, mark as UNKNOWN (optimistically assume both true/false possible)
             affected.eval_result = AffectedComparison::UNKNOWN;
             affected_comparisons.push_back(affected);
+            
+            // DEBUG: Log when adding comparison to affected list without ranges
+            if (enumerate_all_refined_comparisons) {
+                static int no_range_count = 0;
+                no_range_count++;
+                if (no_range_count <= 3) {
+                    cout << "DEBUG ENUM_ALL: Added comp axiom var" << prop_var_id 
+                         << " to affected_comparisons (no ranges, marked UNKNOWN)" << endl;
+                }
+            }
             continue;
         }
         
@@ -623,6 +764,16 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         }
         
         affected_comparisons.push_back(affected);
+        
+        // DEBUG: Log when adding comparison to affected list with ranges
+        if (enumerate_all_refined_comparisons) {
+            static int with_range_count = 0;
+            with_range_count++;
+            if (with_range_count <= 3) {
+                cout << "DEBUG ENUM_ALL: Added comp axiom var" << prop_var_id 
+                     << " to affected_comparisons (with ranges, eval_result=" << (int)affected.eval_result << ")" << endl;
+            }
+        }
     }
 
     // Step 2: Reset all affected comparison axioms to UNKNOWN in the base state
@@ -1301,6 +1452,15 @@ void DomainAbstractionFactory::compute_distances(
             continue;
         }
         
+        // DEBUG: Log ALL state expansions in iteration 2
+        static int factory_call = 0;
+        if (dijkstra_iterations == 1) factory_call++;
+        bool debug_state_15 = (factory_call == 2 && state_index == 15);
+        if (factory_call == 2) {
+            cout << "DEBUG DIJKSTRA_EXPAND: Expanding state " << state_index 
+                 << " at distance " << distance << endl;
+        }
+        
         // Special detailed debugging for first goal state expansion
         bool is_first_goal_expansion = (state_index == first_goal_state && !first_goal_expanded);
         
@@ -1319,6 +1479,19 @@ void DomainAbstractionFactory::compute_distances(
         // DEBUG: Show applicable operators for first goal
         if (is_first_goal_expansion) {
             cout << "DEBUG EXPAND: " << applicable_operator_ids.size() << " operators applicable" << endl;
+        }
+        
+        // DEBUG: Show info for state 15
+        if (debug_state_15) {
+            cout << "DEBUG STATE_15: " << applicable_operator_ids.size() << " operators applicable to state 15" << endl;
+            int count_hash_effect_zero = 0;
+            for (int op_id : applicable_operator_ids) {
+                const AbstractOperator &op = operators[op_id];
+                if (op.get_hash_effects().size() == 1 && op.get_hash_effects()[0] == 0) {
+                    count_hash_effect_zero++;
+                }
+            }
+            cout << "DEBUG STATE_15: " << count_hash_effect_zero << " operators with hash_effect=0" << endl;
         }
         
         int valid_predecessors_this_state = 0;
@@ -1367,13 +1540,20 @@ void DomainAbstractionFactory::compute_distances(
                 cout << endl;
             }
             
-            // Iterate over all possible hash effecgitts (predecessors)
+            // Iterate over all possible hash effects (predecessors)
             // Propositional operators have 1 effect, numeric operators have multiple
             const vector<int> &hash_effects_vec = op.get_hash_effects();
             
             int predecessors_this_op = 0;
             int out_of_bounds_this_op = 0;
             for (int base_hash_effect : hash_effects_vec) {
+                // DEBUG: Log calls from state 15
+                if (debug_state_15 && base_hash_effect == 0 && operators_checked < 3) {
+                    cout << "DEBUG STATE_15: Calling enumerate_states with base_state=" 
+                         << (state_index + base_hash_effect) << ", changed_numeric_vars.size()=" 
+                         << op.get_changed_numeric_vars().size() << endl;
+                }
+                
                 // Enumerate all possible predecessors considering comparison axiom cascades
                 vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                     state_index + base_hash_effect,
