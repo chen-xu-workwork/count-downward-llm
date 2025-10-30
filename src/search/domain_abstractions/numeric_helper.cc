@@ -781,18 +781,21 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
         }
     }
     
-    // NEW LOGIC FOR REGRESSION SEARCH:
-    // Enumerate target partitions (where operator leads TO in forward / where we ARE in regression),
-    // then determine valid source partitions (where operator comes FROM in forward / predecessor in regression).
+    // PARTITION TRANSITION ENUMERATION:
+    // We enumerate partition transitions in PROGRESSION semantics (easier to understand):
+    // - source_partition = forward PRE (where operator starts)
+    // - target_partition = forward POST (where operator ends)
     // 
-    // In regression context:
-    // - target_partition = partition in the FORWARD post-state (current state in regression)
-    // - source_partition = partition in the FORWARD pre-state (predecessor state in regression)
-    // - Precondition = source_partition (the predecessor must have this partition)
-    // - hash_effect = (target - source) * multiplier
-    // - predecessor_index = current_index + hash_effect
-    //
-    // This ensures operators are only applicable when the predecessor would be valid (≥ 0).
+    // Then we convert to REGRESSION for the hash effect:
+    // In regression, we go backwards, so:
+    // - Current state (where we are) = forward POST = target_partition
+    // - Predecessor state (where we go) = forward PRE = source_partition
+    // - Hash effect moves from current to predecessor: (pre - post) = (source - target)
+    // 
+    // Example: forward effect v += 1 with partitions {(-inf,9), [9,inf)}
+    //   Transition 0->1: source=0 (PRE: v<9), target=1 (POST: v>=9)
+    //   In regression: current has v in partition 1, predecessor has v in partition 0
+    //   Hash effect = (0 - 1) * multiplier = -multiplier
     function<void(size_t, int, vector<Fact>&, vector<Fact>&, vector<int>&, vector<int>&, vector<int>&)> enumerate_targets =
         [&](size_t var_idx, int current_effect, 
             vector<Fact> &source_facts, vector<Fact> &target_facts,
@@ -840,39 +843,35 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 }
             }
             
-            // For each target partition, determine which source partitions can reach it
-            for (int target_partition = 0; target_partition < num_partitions; ++target_partition) {
-                // Determine which source partitions can lead to this target
-                vector<int> valid_sources;
+            // For each source partition (progression PRE), determine which target partitions 
+            // can be reached (progression POST).
+            // This uses PROGRESSION semantics: source = where we start, target = where we end
+            for (int source_partition = 0; source_partition < num_partitions; ++source_partition) {
+                vector<int> reachable_targets;
                 
                 if (ass_eff_for_var) {
-                    // Check each source partition to see if it can reach the target
-                    for (int source_partition = 0; source_partition < num_partitions; ++source_partition) {
-                        vector<int> reachable = compute_reachable_partitions(
-                            var_idx, source_partition, *ass_eff_for_var);
-                        
-                        if (debug_this_call && static_cast<int>(var_idx) == 66) {
-                            cout << "  var66 source=" << source_partition << " can reach: ";
-                            for (int r : reachable) cout << r << " ";
-                            cout << endl;
-                        }
-                        
-                        // Check if target is in the reachable set
-                        if (find(reachable.begin(), reachable.end(), target_partition) != reachable.end()) {
-                            valid_sources.push_back(source_partition);
-                        }
+                    // Compute which target partitions can be reached from this source
+                    // in the FORWARD/PROGRESSION direction
+                    reachable_targets = compute_reachable_partitions(
+                        var_idx, source_partition, *ass_eff_for_var);
+                    
+                    if (debug_this_call && static_cast<int>(var_idx) == 66) {
+                        cout << "  var66 source=" << source_partition << " can reach (progression): ";
+                        for (int r : reachable_targets) cout << r << " ";
+                        cout << endl;
                     }
                 } else {
                     // No effect found - shouldn't happen, but be conservative
+                    // Assume all partitions are reachable
                     for (int i = 0; i < num_partitions; ++i) {
-                        valid_sources.push_back(i);
+                        reachable_targets.push_back(i);
                     }
                 }
                 
-                // For each valid source partition, create a transition
-                for (int source_partition : valid_sources) {
+                // For each reachable target partition, create a transition
+                for (int target_partition : reachable_targets) {
                     if (debug_this_call && static_cast<int>(var_idx) == 66) {
-                        cout << "  var66: target=" << target_partition << ", source=" << source_partition << endl;
+                        cout << "  var66: creating transition " << source_partition << " -> " << target_partition << endl;
                     }
                     // Add both source and target partition facts
                     // The variable ID in the abstract state is: domain_sizes.size() + var_idx
@@ -880,21 +879,29 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                     source_facts.emplace_back(abstract_num_var_id, source_partition);
                     target_facts.emplace_back(abstract_num_var_id, target_partition);
                     
-                    // Compute hash contribution for this transition
-                    // In REGRESSION: source=current state, target=predecessor state
-                    // To reach predecessor from current: current_hash + effect = predecessor_hash
-                    // Therefore: effect = (target - source) * multiplier
+                    // Compute hash contribution for this transition using REGRESSION formula:
+                    // Following the original propositional-only constructor pattern:
+                    //   int effect = (new_val - old_val) * hash_multipliers[var];
+                    // Where:
+                    //   old_val = eff_pairs[i].value  (forward POST state = current in regression)
+                    //   new_val = pre_pairs[i].value  (forward PRE state = predecessor in regression)
+                    // 
+                    // For numeric partitions in progression semantics:
+                    //   source_partition = forward PRE (where operator starts)
+                    //   target_partition = forward POST (where operator ends)
+                    // 
+                    // In regression:
+                    //   old_val = target_partition (current state)
+                    //   new_val = source_partition (predecessor state)
+                    //   effect = (source - target) * multiplier
                     int effect_contribution = 
-                        (target_partition - source_partition) * hash_multiplier;
+                        (source_partition - target_partition) * hash_multiplier;
                     
                     if (debug_this_call) {
                         cout << "  DEBUG HASH CALC: var" << var_idx 
-                             << " src_part=" << source_partition 
-                             << " tgt_part=" << target_partition 
-                             << " formula=(" << target_partition << "-" << source_partition << ")*" << hash_multiplier
-                             << " = " << effect_contribution
-                             << " (stored as source_facts[" << source_partition << "], target_facts[" << target_partition << "])"
-                             << endl;
+                             << " progression: " << source_partition << "->" << target_partition
+                             << " regression_effect=(" << source_partition << "-" << target_partition << ")*" << hash_multiplier
+                             << " = " << effect_contribution << endl;
                     }
                     
                     // Track this change for cascades
@@ -1272,63 +1279,31 @@ vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
     // For variables, we would need to know their partition (handled elsewhere)
     ap_float operand_value = assigned_var.get_initial_state_value();
     
-    // IMPORTANT: We're building operators for REGRESSION search.
-    // In regression, effects are applied backwards:
-    // - Forward effect "x += c" (from A to A+c) means in regression "x -= c" (from A+c back to A)
-    // - Forward effect "x -= c" (from A to A-c) means in regression "x += c" (from A-c back to A)
-    // 
-    // However, the question here is different: we're asking "which target partitions  
-    // can be reached from the source partition?" In regression context, this means:
-    // "If we start in source partition and apply this operator (backwards), which
-    // target partitions can we end up in?"
+    // IMPORTANT: This function computes partition transitions using PROGRESSION semantics.
+    // Even though we're building operators for REGRESSION search, we enumerate transitions
+    // in the forward/progression direction because it's easier to reason about:
+    //   - source_partition = where the operator starts (forward PRE)
+    //   - target_partition = where the operator ends (forward POST)
     //
-    // Actually, wait - let me reconsider the semantics more carefully.
-    // The operator effect `var66 += price` means forward: var66 increases by price
-    // In REGRESSION, this same operator takes us BACK in time, so we need to UNDO the increase
-    // That means: to reach var66=X, we must have come from var66=X-price
+    // Example: For effect "v += 7" with partitions {0: [-inf,1000), 1: [1000,inf)}:
+    //   - Source 0, target 0: v starts in [0, 1000), stays in [0, 1000) after adding 7
+    //   - Source 0, target 1: v starts in [993, 1000), ends in [1000, 1007) after adding 7
+    //   - Source 1, target 1: v starts in [1000, inf), stays in [1000, inf) after adding 7
+    //   - No transition 1→0: can't decrease from 1 to 0 with += operation
     //
-    // BUT: compute_reachable_partitions is called with the source partition and asks
-    // "which target partitions can I reach?". In regression, this means:
-    // "From source partition (where we are now in regression = later in forward time),
-    //  which target partitions (where we were before in regression = earlier in forward time)
-    //  can we reach?"
+    // Later, the hash effect will be computed using REGRESSION formula:
+    //   hash_effect = (source - target) * multiplier
+    // This correctly moves from current state (target) to predecessor (source) in regression.
     //
-    // So for forward effect `var66 += price`:
-    // - Regression direction: we go from (var66=X+price) back to (var66=X)
-    // - Source partition: contains X+price values
-    // - Target partition: contains X values  
-    // - Operation to compute target from source: subtract price
-    // 
-    // Therefore: forward += becomes regression -=, forward -= becomes regression +=
+    // We use the FORWARD operator type (not inverted) because we're computing forward reachability.
+    f_operator forward_op_type = op_type;  // Use the operator as-is (forward semantics)
     
-    f_operator regression_op_type;
-    switch (op_type) {
-        case assign:
-            regression_op_type = assign;  // Assignment stays the same
-            break;
-        case increase:
-            regression_op_type = decrease;  // Forward += becomes regression -=
-            break;
-        case decrease:
-            regression_op_type = increase;  // Forward -= becomes regression +=
-            break;
-        case scale_up:
-            regression_op_type = scale_down;  // Forward *= becomes regression /=
-            break;
-        case scale_down:
-            regression_op_type = scale_up;  // Forward /= becomes regression *=
-            break;
-        default:
-            regression_op_type = op_type;
-            break;
-    }
-    
-    // Compute the result range based on the REGRESSION operator
+    // Compute the result range based on the FORWARD operator
     ap_float result_lower, result_upper;
     ap_float source_lower = source_range.lower;
     ap_float source_upper = source_range.upper;
     
-    switch (regression_op_type) {
+    switch (forward_op_type) {
         case assign:
             // x := c  -->  result is just [c, c] (single point)
             // But if assigned_var is not a constant, we need its range
@@ -1339,6 +1314,7 @@ vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
             
         case increase:
             // x += c  -->  [lower + c, upper + c)
+            // Example: v in [0, 1000), v += 7 → v in [7, 1007)
             result_lower = source_lower + operand_value;
             result_upper = source_upper + operand_value;
             break;
