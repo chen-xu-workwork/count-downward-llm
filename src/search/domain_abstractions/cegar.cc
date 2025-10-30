@@ -586,6 +586,51 @@ vector<Fact> CEGAR::get_flaws(
                 // Propositional preconditions satisfied - apply operator
                 flaws.clear();
                 detected_numeric_flaws.clear();
+                
+                // DEBUG: Print operator being executed
+                cout << "  Executing operator: " << op.get_name() << endl;
+                
+                // DEBUG: Print propositional effects
+                cout << "    Propositional effects:" << endl;
+                for (EffectProxy effect : op.get_effects()) {
+                    FactProxy effect_fact = effect.get_fact();
+                    int var_id = effect_fact.get_variable().get_id();
+                    int old_value = current_state[var_id];
+                    int new_value = effect_fact.get_value();
+                    cout << "      var" << var_id << ": " << old_value << " -> " << new_value << endl;
+                }
+                
+                // DEBUG: Print numeric effects
+                if (op.get_ass_effects().size() > 0) {
+                    cout << "    Numeric effects:" << endl;
+                    for (auto ass_eff_proxy : op.get_ass_effects()) {
+                        NumAssProxy effect = ass_eff_proxy.get_assignment();
+                        int affected_var_id = effect.get_affected_variable().get_id();
+                        ap_float old_value = numeric_state[affected_var_id];
+                        
+                        NumericVariableProxy assigned_var = effect.get_assigned_variable();
+                        ap_float operand = numeric_state[assigned_var.get_id()];
+                        
+                        f_operator op_type = effect.get_assigment_operator_type();
+                        string op_str;
+                        ap_float new_value = old_value;
+                        switch (op_type) {
+                            case assign: op_str = "="; new_value = operand; break;
+                            case increase: op_str = "+="; new_value = old_value + operand; break;
+                            case decrease: op_str = "-="; new_value = old_value - operand; break;
+                            case scale_up: op_str = "*="; new_value = old_value * operand; break;
+                            case scale_down: 
+                                op_str = "/="; 
+                                new_value = (operand != 0) ? old_value / operand : old_value; 
+                                break;
+                        }
+                        
+                        cout << "      num_var" << affected_var_id << " " << op_str << " num_var" 
+                             << assigned_var.get_id() << " (value=" << operand << "): " 
+                             << old_value << " -> " << new_value << endl;
+                    }
+                }
+                
                 apply_op_to_state(current_state, op);
                 apply_numeric_effects(numeric_state, op);
                 g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_state);
@@ -629,12 +674,24 @@ vector<Fact> CEGAR::get_flaws(
     // Check goal flaws
     assert(flaws.empty());
     cout << "DEBUG: Plan executed successfully, checking goals..." << endl;
-    cout << "DEBUG: Current state after plan execution:" << endl;
+    cout << "DEBUG: Current propositional state after plan execution:" << endl;
     for (size_t i = 0; i < current_state.size(); ++i) {
         if (i < 30) {  // Only print first 30 variables
-            cout << "  ID: " << i << "=" << current_state[i] << endl;
+            cout << "  var" << i << "=" << current_state[i] << endl;
         }
     }
+    
+    cout << "DEBUG: Current numeric state after plan execution:" << endl;
+    for (size_t i = 0; i < numeric_state.size(); ++i) {
+        if (i < 20) {  // Only print first 20 numeric variables
+            cout << "  num_var" << i << "=" << numeric_state[i] << endl;
+        }
+    }
+    
+    cout << "DEBUG: Specific variables of interest:" << endl;
+    if (13 < current_state.size()) cout << "  var13=" << current_state[13] << endl;
+    if (33 < current_state.size()) cout << "  var33=" << current_state[33] << endl;
+    if (66 < current_state.size()) cout << "  var66=" << current_state[66] << endl;
     
     flaws = get_goal_flaws(task_proxy, current_state,
                            blacklisted_variables);
