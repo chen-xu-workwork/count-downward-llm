@@ -664,6 +664,18 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     // For UNKNOWN, we enumerate both true and false (optimistic branching)
     // All deltas are now computed from UNKNOWN (value 0) to the target value
     
+    static int enum_call_count = 0;
+    enum_call_count++;
+    bool debug_enum = (enum_call_count <= 3 || enum_call_count % 100 == 0);
+    if (debug_enum && affected_comparisons.size() > 0) {
+        cout << "DEBUG ENUM_COMP [call " << enum_call_count << "]: " << affected_comparisons.size() << " affected comparisons" << endl;
+        for (size_t i = 0; i < affected_comparisons.size(); ++i) {
+            const AffectedComparison &comp = affected_comparisons[i];
+            cout << "  Comp " << i << ": var" << comp.prop_var_id << ", eval_result=" << (int)comp.eval_result
+                 << ", trivial=" << variable_is_trivial(comp.prop_var_id) << endl;
+        }
+    }
+    
     function<void(size_t, int)> enumerate_combinations =
         [&](size_t comparison_idx, int current_hash_adjustment) {
         
@@ -709,7 +721,14 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
             enumerate_combinations(comparison_idx + 1,
                                  current_hash_adjustment + delta_from_unknown);
         } else {
-            // UNKNOWN - enumerate true possibilitie (optimistic branching)
+            // UNKNOWN - enumerate true and false possibilities (optimistic branching)
+            
+            if (debug_enum && comparison_idx < 5) {
+                cout << "  BRANCHING on var" << prop_var_id << " (UNKNOWN): generating 2 states\n";
+                cout << "    TRUE path: adjustment += " << ((domain_mapping[comp.prop_var_id][comp.true_value] - unknown_value) * multiplier) << "\n";
+                cout << "    FALSE path: adjustment += " << ((domain_mapping[comp.prop_var_id][comp.false_value] - unknown_value) * multiplier) << "\n";
+            }
+            
             // Try TRUE: delta from UNKNOWN to true_value
             int true_delta = (domain_mapping[comp.prop_var_id][comp.true_value] - unknown_value) * multiplier;
             enumerate_combinations(comparison_idx + 1,
@@ -723,6 +742,18 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     };
     
     enumerate_combinations(0, 0);
+    
+    if (debug_enum && affected_comparisons.size() > 0) {
+        cout << "  RESULT: Generated " << result.size() << " states from base_state=" << base_state_index << endl;
+        if (result.size() <= 10) {
+            cout << "  States: ";
+            for (size_t i = 0; i < result.size(); ++i) {
+                if (i > 0) cout << ", ";
+                cout << result[i];
+            }
+            cout << endl;
+        }
+    }
     
     // TODO: Handle assignment axiom cascades (derived numeric variables)
     // This would require computing derived variable ranges and recursively
@@ -940,6 +971,27 @@ void DomainAbstractionFactory::compute_distances(
                         const NumericRange &range = ranges[part];
                         debug_file << "    partition " << part << ": [" << range.lower << ", " << range.upper << ")\n";
                     }
+                }
+            }
+        }
+        
+        debug_file << "\nAbstract numeric partition variables:\n";
+        debug_file << "(These represent which partition a refined numeric variable is in)\n";
+        int abstract_var_offset = domain_sizes.size();
+        for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+            const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+            int num_partitions = mapping.get_num_partitions();
+            if (num_partitions > 1) {
+                int abstract_var_id = abstract_var_offset + num_var_id;
+                debug_file << "var" << abstract_var_id << " (partition of num_var" << num_var_id << "):\n";
+                debug_file << "  Domain size: " << num_partitions << " (values 0.." << (num_partitions-1) << ")\n";
+                debug_file << "  Meaning:\n";
+                const vector<NumericRange> &ranges = mapping.get_ranges();
+                for (size_t part = 0; part < ranges.size(); ++part) {
+                    const NumericRange &range = ranges[part];
+                    debug_file << "    var" << abstract_var_id << " = " << part 
+                              << "  means  num_var" << num_var_id << " in [" 
+                              << range.lower << ", " << range.upper << ")\n";
                 }
             }
         }
@@ -1391,9 +1443,118 @@ void DomainAbstractionFactory::compute_distances(
     cout << "DEBUG DIJKSTRA: Initial state hash = " << init_hash 
          << ", distance = " << distances[init_hash] << endl;
     
-    // DEBUG: If initial state is unreachable, check which operators could apply to it
+    // Track which iteration this is for debug output
     static int iteration_count = 0;
     iteration_count++;
+    
+    // DEBUG: Find states with same numeric partitions and non-axiom propositional variables
+    if (distances[init_hash] == numeric_limits<int>::max() && iteration_count == 2) {
+        cout << "\n=== FINDING STATES WITH SAME CORE (numeric partitions + non-axiom vars) ===\n";
+        
+        // First, identify which propositional variables are derived from axioms
+        vector<bool> is_axiom_var(task_proxy.get_variables().size(), false);
+        for (OperatorProxy axiom : task_proxy.get_axioms()) {
+            if (axiom.get_effects().size() == 1) {
+                int effect_var = axiom.get_effects()[0].get_fact().get_variable().get_id();
+                is_axiom_var[effect_var] = true;
+            }
+        }
+        
+        // Extract initial state's numeric partitions (the "core" we're matching)
+        vector<int> init_numeric_partitions;
+        int num_prop_vars = domain_sizes.size();
+        for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+            const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+            if (mapping.get_num_partitions() > 1) {
+                // This numeric variable is refined - extract its partition from initial state
+                int abstract_var_id = num_prop_vars + num_var_id;
+                int partition = (init_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
+                init_numeric_partitions.push_back(partition);
+                cout << "  num_var" << num_var_id << ": partition " << partition << " (abstract var" << abstract_var_id << ")\n";
+            }
+        }
+        
+        // Extract initial state's non-axiom propositional values
+        vector<pair<int, int>> init_non_axiom_facts;
+        for (size_t var_id = 0; var_id < domain_sizes.size(); ++var_id) {
+            if (!variable_is_trivial(var_id) && !is_axiom_var[var_id]) {
+                int value = (init_hash / hash_multipliers[var_id]) % domain_sizes[var_id];
+                init_non_axiom_facts.push_back(make_pair(var_id, value));
+                cout << "  var" << var_id << " = " << value << " (non-axiom)\n";
+            }
+        }
+        
+        // Now scan all states to find matches
+        cout << "\nScanning " << num_states << " states for matches...\n";
+        vector<int> matching_states;
+        for (int state_hash = 0; state_hash < num_states; ++state_hash) {
+            bool matches = true;
+            
+            // Check numeric partitions
+            size_t partition_idx = 0;
+            for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+                const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+                if (mapping.get_num_partitions() > 1) {
+                    int abstract_var_id = num_prop_vars + num_var_id;
+                    int partition = (state_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
+                    if (partition != init_numeric_partitions[partition_idx]) {
+                        matches = false;
+                        break;
+                    }
+                    partition_idx++;
+                }
+            }
+            
+            if (!matches) continue;
+            
+            // Check non-axiom propositional variables
+            for (const auto &fact : init_non_axiom_facts) {
+                int var_id = fact.first;
+                int expected_value = fact.second;
+                int actual_value = (state_hash / hash_multipliers[var_id]) % domain_sizes[var_id];
+                if (actual_value != expected_value) {
+                    matches = false;
+                    break;
+                }
+            }
+            
+            if (matches) {
+                matching_states.push_back(state_hash);
+            }
+        }
+        
+        cout << "\nFound " << matching_states.size() << " states with same core:\n";
+        for (size_t i = 0; i < min(matching_states.size(), static_cast<size_t>(20)); ++i) {
+            int state_hash = matching_states[i];
+            int dist = distances[state_hash];
+            cout << "  State " << state_hash << ": distance = ";
+            if (dist == numeric_limits<int>::max()) {
+                cout << "INFINITE";
+            } else {
+                cout << dist;
+            }
+            
+            // Show the axiom variable values that differ
+            cout << " [";
+            bool first = true;
+            for (size_t var_id = 0; var_id < domain_sizes.size(); ++var_id) {
+                if (!variable_is_trivial(var_id) && is_axiom_var[var_id]) {
+                    int value = (state_hash / hash_multipliers[var_id]) % domain_sizes[var_id];
+                    if (!first) cout << ", ";
+                    cout << "var" << var_id << "=" << value;
+                    first = false;
+                }
+            }
+            cout << "]\n";
+        }
+        
+        if (matching_states.size() > 20) {
+            cout << "  ... and " << (matching_states.size() - 20) << " more\n";
+        }
+        cout << "\n";
+    }
+    
+    // DEBUG: If initial state is unreachable, check which operators could apply to it
     if (distances[init_hash] == numeric_limits<int>::max() && iteration_count == 2) {
         cout << "DEBUG INITIAL STATE: Checking applicable operators for unreachable initial state (iteration 2)" << endl;
         cout << "  Initial state hash: " << init_hash << endl;
