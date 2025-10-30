@@ -318,11 +318,13 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     vector<Fact> effects_without_pre;
 
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-    vector<int> num_ids;
+    vector<int> comparison_axiom_var_ids;
     for (ComparisonAxiomProxy axiom : comparison_axioms) {
-        num_ids.push_back(axiom.get_true_fact().get_variable().get_id());
+        comparison_axiom_var_ids.push_back(axiom.get_true_fact().get_variable().get_id());
         assert(axiom.get_true_fact().get_variable().get_id() == axiom.get_false_fact().get_variable().get_id());
     }
+    
+
 
     int num_variables = task_proxy.get_variables().size();
     vector<int> has_precondition_on_var(num_variables, -1);
@@ -337,6 +339,12 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
             continue;
         }
         
+        // Skip comparison axiom variables - they're handled via cascades, not preconditions
+        if (find(comparison_axiom_var_ids.begin(), comparison_axiom_var_ids.end(), var_id) 
+            != comparison_axiom_var_ids.end()) {
+            continue;
+        }
+        
         // Map concrete value to abstract value
         int abstract_val = domain_mapping[var_id][pre.get_value()];
         has_precondition_on_var[var_id] = abstract_val;
@@ -348,6 +356,12 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
         
         // Skip trivial variables - they're completely abstracted away
         if (variable_is_trivial(var_id)) {
+            continue;
+        }
+        
+        // Skip comparison axiom variables - they're handled via cascades, not effects
+        if (find(comparison_axiom_var_ids.begin(), comparison_axiom_var_ids.end(), var_id) 
+            != comparison_axiom_var_ids.end()) {
             continue;
         }
         
@@ -373,6 +387,12 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
             continue;
         }
         
+        // Skip comparison axiom variables - they're handled via cascades, not prevail/preconditions
+        if (find(comparison_axiom_var_ids.begin(), comparison_axiom_var_ids.end(), var_id) 
+            != comparison_axiom_var_ids.end()) {
+            continue;
+        }
+        
         // Map concrete value to abstract value
         int val = domain_mapping[var_id][pre.get_value()];
         if (has_effect_on_var[var_id] >= 0) {
@@ -380,8 +400,6 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
         } else {
             prev_pairs.emplace_back(var_id, val);
         }
-
-        //TODO: comparison axiom results should not be stored as prev_pairs. Instead they should be handled separately.
     }
     
     // Collect numeric effects (assignment effects)
@@ -699,7 +717,25 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
     
     static int call_count = 0;
     int local_call = call_count++;
-    bool debug_this_call = (local_call < 3) || (local_call >= 146 && local_call < 149);
+    
+    // Check if any of the ass_effects affects var 66 (the refined variable we're interested in)
+    bool affects_var66 = false;
+    for (const NumAssProxy &ass_eff : ass_effects) {
+        if (ass_eff.get_affected_variable().get_id() == 66) {
+            affects_var66 = true;
+            break;
+        }
+    }
+    bool debug_this_call = affects_var66;
+    
+    if (debug_this_call) {
+        cout << "DEBUG TRANSITIONS: Computing transitions for call " << local_call 
+             << " (affects var66)" << endl;
+        cout << "  ass_effects.size()=" << ass_effects.size() << endl;
+        for (size_t i = 0; i < ass_effects.size(); ++i) {
+            cout << "  ass_effect[" << i << "]: var " << ass_effects[i].get_affected_variable().get_id() << endl;
+        }
+    }
     
     vector<TransitionInfo> transitions;
     
@@ -730,7 +766,16 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
     for (const NumAssProxy &ass_eff : ass_effects) {
         int num_var_id = ass_eff.get_affected_variable().get_id();
         if (num_var_id >= 0 && num_var_id < static_cast<int>(numeric_domain_mapping.size())) {
-            affected_numeric_vars[num_var_id] = true;
+            // Only enumerate partitions for REFINED numeric variables (> 1 partition)
+            if (numeric_domain_sizes[num_var_id] > 1) {
+                affected_numeric_vars[num_var_id] = true;
+                if (debug_this_call) {
+                    cout << "  Affected refined numeric var " << num_var_id << ", num_partitions=" 
+                         << numeric_domain_sizes[num_var_id] << endl;
+                }
+            } else if (debug_this_call) {
+                cout << "  Skipping trivial numeric var " << num_var_id << " (only 1 partition)" << endl;
+            }
         } else {
             exit(1);
         }
@@ -770,6 +815,14 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
             trans.target_partition_facts = target_facts;
             transitions.push_back(trans);
             
+            if (debug_this_call) {
+                cout << "  Transition: hash_effect=" << total_effect << ", source_parts=";
+                for (const Fact &f : source_facts) cout << f.value << ",";
+                cout << " target_parts=";
+                for (const Fact &f : target_facts) cout << f.value << ",";
+                cout << endl;
+            }
+            
             return;
         }
         
@@ -798,6 +851,12 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                         vector<int> reachable = compute_reachable_partitions(
                             var_idx, source_partition, *ass_eff_for_var);
                         
+                        if (debug_this_call && static_cast<int>(var_idx) == 66) {
+                            cout << "  var66 source=" << source_partition << " can reach: ";
+                            for (int r : reachable) cout << r << " ";
+                            cout << endl;
+                        }
+                        
                         // Check if target is in the reachable set
                         if (find(reachable.begin(), reachable.end(), target_partition) != reachable.end()) {
                             valid_sources.push_back(source_partition);
@@ -812,6 +871,9 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 
                 // For each valid source partition, create a transition
                 for (int source_partition : valid_sources) {
+                    if (debug_this_call && static_cast<int>(var_idx) == 66) {
+                        cout << "  var66: target=" << target_partition << ", source=" << source_partition << endl;
+                    }
                     // Add both source and target partition facts
                     // The variable ID in the abstract state is: domain_sizes.size() + var_idx
                     int abstract_num_var_id = domain_sizes.size() + var_idx;
@@ -819,8 +881,21 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                     target_facts.emplace_back(abstract_num_var_id, target_partition);
                     
                     // Compute hash contribution for this transition
+                    // In REGRESSION: source=current state, target=predecessor state
+                    // To reach predecessor from current: current_hash + effect = predecessor_hash
+                    // Therefore: effect = (target - source) * multiplier
                     int effect_contribution = 
                         (target_partition - source_partition) * hash_multiplier;
+                    
+                    if (debug_this_call) {
+                        cout << "  DEBUG HASH CALC: var" << var_idx 
+                             << " src_part=" << source_partition 
+                             << " tgt_part=" << target_partition 
+                             << " formula=(" << target_partition << "-" << source_partition << ")*" << hash_multiplier
+                             << " = " << effect_contribution
+                             << " (stored as source_facts[" << source_partition << "], target_facts[" << target_partition << "])"
+                             << endl;
+                    }
                     
                     // Track this change for cascades
                     changed_vars.push_back(var_idx);
@@ -848,6 +923,10 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
     vector<Fact> source_facts, target_facts;
     vector<int> changed_vars, old_parts, new_parts;
     enumerate_targets(0, 0, source_facts, target_facts, changed_vars, old_parts, new_parts);
+    
+    if (debug_this_call) {
+        cout << "DEBUG TRANSITIONS: Generated " << transitions.size() << " transitions total" << endl;
+    }
     
     return transitions;
 }
@@ -1193,12 +1272,63 @@ vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
     // For variables, we would need to know their partition (handled elsewhere)
     ap_float operand_value = assigned_var.get_initial_state_value();
     
-    // Compute the result range based on the operator
+    // IMPORTANT: We're building operators for REGRESSION search.
+    // In regression, effects are applied backwards:
+    // - Forward effect "x += c" (from A to A+c) means in regression "x -= c" (from A+c back to A)
+    // - Forward effect "x -= c" (from A to A-c) means in regression "x += c" (from A-c back to A)
+    // 
+    // However, the question here is different: we're asking "which target partitions  
+    // can be reached from the source partition?" In regression context, this means:
+    // "If we start in source partition and apply this operator (backwards), which
+    // target partitions can we end up in?"
+    //
+    // Actually, wait - let me reconsider the semantics more carefully.
+    // The operator effect `var66 += price` means forward: var66 increases by price
+    // In REGRESSION, this same operator takes us BACK in time, so we need to UNDO the increase
+    // That means: to reach var66=X, we must have come from var66=X-price
+    //
+    // BUT: compute_reachable_partitions is called with the source partition and asks
+    // "which target partitions can I reach?". In regression, this means:
+    // "From source partition (where we are now in regression = later in forward time),
+    //  which target partitions (where we were before in regression = earlier in forward time)
+    //  can we reach?"
+    //
+    // So for forward effect `var66 += price`:
+    // - Regression direction: we go from (var66=X+price) back to (var66=X)
+    // - Source partition: contains X+price values
+    // - Target partition: contains X values  
+    // - Operation to compute target from source: subtract price
+    // 
+    // Therefore: forward += becomes regression -=, forward -= becomes regression +=
+    
+    f_operator regression_op_type;
+    switch (op_type) {
+        case assign:
+            regression_op_type = assign;  // Assignment stays the same
+            break;
+        case increase:
+            regression_op_type = decrease;  // Forward += becomes regression -=
+            break;
+        case decrease:
+            regression_op_type = increase;  // Forward -= becomes regression +=
+            break;
+        case scale_up:
+            regression_op_type = scale_down;  // Forward *= becomes regression /=
+            break;
+        case scale_down:
+            regression_op_type = scale_up;  // Forward /= becomes regression *=
+            break;
+        default:
+            regression_op_type = op_type;
+            break;
+    }
+    
+    // Compute the result range based on the REGRESSION operator
     ap_float result_lower, result_upper;
     ap_float source_lower = source_range.lower;
     ap_float source_upper = source_range.upper;
     
-    switch (op_type) {
+    switch (regression_op_type) {
         case assign:
             // x := c  -->  result is just [c, c] (single point)
             // But if assigned_var is not a constant, we need its range

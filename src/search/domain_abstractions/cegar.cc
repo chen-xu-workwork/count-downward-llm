@@ -592,12 +592,14 @@ vector<Fact> CEGAR::get_flaws(
                 g_axiom_evaluator->evaluate(current_state, numeric_state);
                 break;
             } else {
+                // We have precondition flaws
+                // KEY PRINCIPLE: Only add numeric flaws for comparison axioms that appear as precondition flaws
                 
                 // Check if any precondition flaw is on a comparison axiom variable
                 for (Fact &flaw : operator_flaws) {
                     auto it = comparison_axiom_dependencies.find(flaw.var);
                     if (it != comparison_axiom_dependencies.end()) {
-                        // Numeric precondition flaw - trace to regular numeric variables
+                        // This is a comparison axiom variable - trace to regular numeric variables it depends on
                         const unordered_set<int> &dep_vars = it->second;
                         for (int numeric_var_id : dep_vars) {
                             // Split at current concrete value
@@ -605,16 +607,12 @@ vector<Fact> CEGAR::get_flaws(
                             detected_numeric_flaws.emplace_back(
                                 numeric_var_id, concrete_value, flaw.var);
                         }
+                        // Also add the comparison axiom itself as a propositional flaw
+                        flaws.emplace_back(flaw.var, flaw.value);
                     } else {
                         // Regular propositional flaw
                         flaws.emplace_back(flaw.var, flaw.value);
                     }
-                }
-                
-                // If we have numeric flaws, clear propositional flaws
-                // (numeric refinement should handle the issue)
-                if (!detected_numeric_flaws.empty()) {
-                    flaws.clear();
                 }
             }
         }
@@ -644,6 +642,7 @@ vector<Fact> CEGAR::get_flaws(
     cout << "DEBUG: Goal flaws detected: " << flaws.size() << endl;
     
     // Separate comparison axiom flaws from regular propositional flaws
+    // KEY PRINCIPLE: Only add numeric flaws for comparison axioms that appear as propositional flaws
     vector<Fact> filtered_flaws;
     for (const Fact &flaw : flaws) {
         cout << "  Goal flaw: ID: " << flaw.var << "=" << flaw.value << endl;
@@ -652,20 +651,24 @@ vector<Fact> CEGAR::get_flaws(
         auto it = comparison_axiom_dependencies.find(flaw.var);
         if (it != comparison_axiom_dependencies.end()) {
             cout << "    -> This is a comparison axiom variable (numeric goal)" << endl;
-            // Numeric goal flaw - trace to regular numeric variables
+            // Numeric goal flaw - trace to regular numeric variables that this comparison depends on
             const unordered_set<int> &dep_vars = it->second;
+            bool added_any_numeric_flaw = false;
             for (int numeric_var_id : dep_vars) {
-                // Split at current concrete value
+                // Get current concrete value
                 ap_float concrete_value = numeric_state[numeric_var_id];
                 cout << "       Depends on numeric var" << numeric_var_id 
                      << " with value " << concrete_value << endl;
+                
+                // Add this as a numeric flaw to refine
                 detected_numeric_flaws.emplace_back(
                     numeric_var_id, concrete_value, flaw.var);
+                added_any_numeric_flaw = true;
             }
             
-            // ALSO refine the comparison axiom variable itself
-            // This is important for the propositional domain abstraction
-            cout << "    -> Also adding comparison axiom var" << flaw.var 
+            // ALWAYS refine the comparison axiom variable itself (propositional)
+            // This is important even if we can't refine the numeric variables
+            cout << "    -> Adding comparison axiom var" << flaw.var 
                  << " to propositional flaws for refinement" << endl;
             filtered_flaws.push_back(flaw);
         } else {
@@ -674,37 +677,9 @@ vector<Fact> CEGAR::get_flaws(
         }
     }
     
-    // PHASE 2 FIX: If we detected ANY numeric flaws, also add flaws for 
-    // ALL operator-modified numeric variables to ensure they get refined.
-    // This is critical because operators may modify variables that don't 
-    // appear in comparison axiom dependencies, leading to hash_effect=0.
-    if (!detected_numeric_flaws.empty() && !operator_modified_numeric_vars.empty()) {
-        cout << "DEBUG PHASE2: Numeric flaws detected - adding all operator-modified variables" << endl;
-        
-        // Track which variables we've already added flaws for
-        unordered_set<int> flaw_vars_already_added;
-        for (const NumericFlaw &flaw : detected_numeric_flaws) {
-            flaw_vars_already_added.insert(flaw.numeric_var_id);
-        }
-        
-        // Add flaws for operator-modified variables not yet in detected_numeric_flaws
-        for (int op_modified_var : operator_modified_numeric_vars) {
-            if (flaw_vars_already_added.find(op_modified_var) == flaw_vars_already_added.end()) {
-                // This operator-modified variable isn't in our detected flaws - add it
-                ap_float concrete_value = numeric_state[op_modified_var];
-                cout << "  Adding flaw for operator-modified var" << op_modified_var 
-                     << " (value=" << concrete_value << ")" << endl;
-                detected_numeric_flaws.emplace_back(
-                    op_modified_var, concrete_value, -1);  // -1 for prop_var_id (not from comparison axiom)
-            }
-        }
-        
-        cout << "DEBUG PHASE2: Total numeric flaws after adding operator-modified vars: " 
-             << detected_numeric_flaws.size() << endl;
-    }
-    
     cout << "DEBUG: Total flaws: " << filtered_flaws.size() << " propositional, "
          << detected_numeric_flaws.size() << " numeric" << endl;
+    cout << "DEBUG: Numeric flaws only added for comparison axioms that appear in propositional flaws" << endl;
     return filtered_flaws;
 }
 
@@ -1437,10 +1412,20 @@ DomainAbstraction CEGAR::build_abstraction(
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
 
+        // DEBUG: Print what we're passing to the factory
+        cout << "DEBUG CEGAR: Creating factory for iteration " << iteration << " with numeric_domain_sizes: ";
+        for (size_t i = 0; i < min(numeric_domain_sizes.size(), size_t(10)); ++i) {
+            cout << "v" << i << "=" << numeric_domain_sizes[i] << " ";
+        }
+        cout << endl;
+        cout << "DEBUG CEGAR: Specifically, v66=" << numeric_domain_sizes[66] << ", v17=" << numeric_domain_sizes[17] 
+             << ", v2=" << numeric_domain_sizes[2] << endl;
+        
         DomainAbstractionFactory new_factory(
             task_proxy, domain_mapping, abstract_domain_sizes,
             numeric_domain_mapping, numeric_domain_sizes,
             true, rng, true);
+        
         abstraction = new_factory.generate();
         ++iteration;
         

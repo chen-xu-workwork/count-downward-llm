@@ -134,11 +134,20 @@ AbstractOperator::AbstractOperator(
       source_partitions(source_partitions),
       target_partitions(target_partitions) {
     
-    // Build regression preconditions from progression effects and prevail
-    // In regression: we need the post-state (effects) as preconditions
-    regression_preconditions.reserve(prev_pairs.size() + eff_pairs.size());
+    // Build regression preconditions from progression effects, prevail, AND preconditions
+    // In regression: 
+    //   - prev_pairs: things that don't change (prevail in both directions)
+    //   - eff_pairs: forward effects = regression preconditions (current state)
+    //   - pre_pairs: forward preconditions = regression preconditions (for numeric partitions)
+    // Note: For propositional variables, pre_pairs are regression *effects* (they were required before, become true after regression)
+    // But for numeric partition facts in pre_pairs (target_partition_facts), they represent the CURRENT partition
+    // and thus are regression PRECONDITIONS!
+    regression_preconditions.reserve(prev_pairs.size() + pre_pairs.size() + eff_pairs.size());
     for (const Fact &prev : prev_pairs) {
         regression_preconditions.push_back(prev);
+    }
+    for (const Fact &pre : pre_pairs) {
+        regression_preconditions.push_back(pre);
     }
     for (const Fact &eff : eff_pairs) {
         regression_preconditions.push_back(eff);
@@ -891,12 +900,23 @@ void DomainAbstractionFactory::compute_distances(
         
         // Special detailed debugging for first goal state expansion
         bool is_first_goal_expansion = (state_index == first_goal_state && !first_goal_expanded);
+        
+        // DEBUG: Log when expanding the first goal state
+        if (is_first_goal_expansion) {
+            cout << "DEBUG EXPAND: Expanding first goal state " << state_index << endl;
+            string decoded = decode_abstract_state(state_index, domain_sizes, numeric_domain_mapping, hash_multipliers);
+            cout << "  " << decoded << endl;
+        }
  
         // Regress using abstract operators (from match tree)
         // These handle both propositional-only and numeric operators
         vector<int> applicable_operator_ids;
         match_tree.get_applicable_operator_ids(state_index, applicable_operator_ids);
         
+        // DEBUG: Show applicable operators for first goal
+        if (is_first_goal_expansion) {
+            cout << "DEBUG EXPAND: " << applicable_operator_ids.size() << " operators applicable" << endl;
+        }
         
         int valid_predecessors_this_state = 0;
         int out_of_bounds_predecessors = 0;
@@ -905,8 +925,46 @@ void DomainAbstractionFactory::compute_distances(
             const AbstractOperator &op = operators[op_id];
             int alternative_cost = distances[state_index] + op.get_cost();
         
+            // DEBUG: Show details for first goal expansion
+            // DEBUG: Look for operators that affect the refined numeric variables (17, 66, 2)
+            bool affects_refined_vars = false;
+            for (int var : op.get_changed_numeric_vars()) {
+                if (var == 17 || var == 66 || var == 2) {
+                    affects_refined_vars = true;
+                    break;
+                }
+            }
             
-            // Iterate over all possible hash effects (predecessors)
+            if (is_first_goal_expansion && (operators_checked < 3 || affects_refined_vars)) {
+                if (affects_refined_vars) {
+                    cout << "DEBUG EXPAND: *** FOUND OPERATOR AFFECTING REFINED VARS ***" << endl;
+                }
+                cout << "DEBUG EXPAND: Operator " << op_id << ", cost=" << op.get_cost() 
+                     << ", hash_effects=" << op.get_hash_effects().size() << endl;
+                cout << "DEBUG EXPAND:   changed_numeric_vars=" << op.get_changed_numeric_vars().size() << ": ";
+                for (size_t i = 0; i < min(op.get_changed_numeric_vars().size(), size_t(10)); ++i) {
+                    cout << op.get_changed_numeric_vars()[i];
+                    if (i < op.get_changed_numeric_vars().size() - 1 && i < 9) cout << ",";
+                }
+                if (op.get_changed_numeric_vars().size() > 10) cout << "...";
+                cout << endl;
+                cout << "DEBUG EXPAND:   source_partitions=" << op.get_source_partitions().size() << ": ";
+                for (size_t i = 0; i < min(op.get_source_partitions().size(), size_t(10)); ++i) {
+                    cout << op.get_source_partitions()[i];
+                    if (i < op.get_source_partitions().size() - 1 && i < 9) cout << ",";
+                }
+                if (op.get_source_partitions().size() > 10) cout << "...";
+                cout << endl;
+                cout << "DEBUG EXPAND:   target_partitions=" << op.get_target_partitions().size() << ": ";
+                for (size_t i = 0; i < min(op.get_target_partitions().size(), size_t(10)); ++i) {
+                    cout << op.get_target_partitions()[i];
+                    if (i < op.get_target_partitions().size() - 1 && i < 9) cout << ",";
+                }
+                if (op.get_target_partitions().size() > 10) cout << "...";
+                cout << endl;
+            }
+            
+            // Iterate over all possible hash effecgitts (predecessors)
             // Propositional operators have 1 effect, numeric operators have multiple
             const vector<int> &hash_effects_vec = op.get_hash_effects();
             
@@ -921,6 +979,17 @@ void DomainAbstractionFactory::compute_distances(
                     op.get_target_partitions(),
                     task_proxy);
                 
+                // DEBUG: Show predecessors for first goal  
+                if (is_first_goal_expansion && operators_checked < 3 && possible_predecessors.size() > 0) {
+                    cout << "DEBUG EXPAND:   base_hash_effect=" << base_hash_effect 
+                         << " → " << possible_predecessors.size() << " predecessors: ";
+                    for (size_t i = 0; i < min(possible_predecessors.size(), size_t(5)); ++i) {
+                        cout << possible_predecessors[i];
+                        if (i < possible_predecessors.size() - 1 && i < 4) cout << ",";
+                    }
+                    if (possible_predecessors.size() > 5) cout << "...";
+                    cout << endl;
+                }
                 
                 for (int predecessor : possible_predecessors) {
                     // Skip predecessors that are out of bounds. This can legitimately
@@ -952,12 +1021,96 @@ void DomainAbstractionFactory::compute_distances(
                     }
                 }
             }
+            operators_checked++;
             
+        }
+        
+        if (is_first_goal_expansion) {
+            first_goal_expanded = true;
+            cout << "DEBUG EXPAND: Total valid predecessors from goal: " << valid_predecessors_this_state << endl;
         }
     }
     
     cout << "DEBUG DIJKSTRA: Completed " << dijkstra_iterations << " iterations, " 
          << total_expansions << " distance updates" << endl;
+    
+    // DEBUG: Print initial state distance
+    State initial_state = task_proxy.get_initial_state();
+    int init_hash = compute_abstract_state_hash(initial_state, task_proxy, domain_mapping, 
+                                                  numeric_domain_mapping, hash_multipliers);
+    cout << "DEBUG DIJKSTRA: Initial state hash = " << init_hash 
+         << ", distance = " << distances[init_hash] << endl;
+    
+    // DEBUG: If initial state is unreachable, check which operators could apply to it
+    static int iteration_count = 0;
+    iteration_count++;
+    if (distances[init_hash] == numeric_limits<int>::max() && iteration_count == 2) {
+        cout << "DEBUG INITIAL STATE: Checking applicable operators for unreachable initial state (iteration 2)" << endl;
+        cout << "  Initial state hash: " << init_hash << endl;
+        
+        // Check which operators match this state
+        vector<int> applicable_ops;
+        match_tree.get_applicable_operator_ids(init_hash, applicable_ops);
+        cout << "  Number of applicable operators: " << applicable_ops.size() << endl;
+        
+        // Print first 20 applicable operators with their details
+        for (size_t i = 0; i < min(applicable_ops.size(), static_cast<size_t>(20)); ++i) {
+            int op_idx = applicable_ops[i];
+            const AbstractOperator &op = operators[op_idx];
+            cout << "  Operator " << op_idx << ": cost=" << op.get_cost() 
+                 << ", concrete_op=" << op.get_concrete_op_id()
+                 << ", transitions=" << op.get_hash_effects().size() << endl;
+            
+            // Print the first few hash effects (transitions)
+            const vector<int> &hash_effects = op.get_hash_effects();
+            for (size_t j = 0; j < min(hash_effects.size(), static_cast<size_t>(3)); ++j) {
+                int target = init_hash + hash_effects[j];
+                cout << "    Transition " << j << ": effect=" << hash_effects[j] 
+                     << ", target=" << target 
+                     << ", target_distance=" << (target < num_states ? distances[target] : -1) << endl;
+            }
+        }
+        
+        // Also print info about operators affecting var66
+        cout << "  Checking operators that affect var66:" << endl;
+        int var66_operators_count = 0;
+        for (size_t i = 0; i < applicable_ops.size(); ++i) {
+            int op_idx = applicable_ops[i];
+            const AbstractOperator &op = operators[op_idx];
+            
+            // Check if this operator affects var66 by examining its source/target partitions
+            const vector<int> &source_parts = op.get_source_partitions();
+            const vector<int> &target_parts = op.get_target_partitions();
+            
+            // var66 is the first numeric variable (index 0 in numeric arrays)
+            if (!source_parts.empty() && !target_parts.empty()) {
+                if (source_parts[0] != target_parts[0]) {
+                    var66_operators_count++;
+                    if (var66_operators_count <= 5) {
+                        const vector<int> &hash_effects = op.get_hash_effects();
+                        cout << "    Op " << op_idx << ": var66 transition " << source_parts[0] 
+                             << "->" << target_parts[0] << ", concrete_op=" << op.get_concrete_op_id()
+                             << ", hash_effects=[";
+                        for (size_t j = 0; j < hash_effects.size(); ++j) {
+                            if (j > 0) cout << ", ";
+                            cout << hash_effects[j];
+                        }
+                        cout << "], target_state=" << (init_hash + (hash_effects.empty() ? 0 : hash_effects[0])) << endl;
+                        
+                        // Print regression preconditions
+                        const vector<Fact> &regr_pre = op.get_regression_preconditions();
+                        cout << "      Regression preconditions: [";
+                        for (size_t j = 0; j < regr_pre.size(); ++j) {
+                            if (j > 0) cout << ", ";
+                            cout << "var" << regr_pre[j].var << "=" << regr_pre[j].value;
+                        }
+                        cout << "]" << endl;
+                    }
+                }
+            }
+        }
+        cout << "  Total operators affecting var66: " << var66_operators_count << endl;
+    }
 }
 
 void DomainAbstractionFactory::compute_abstract_plan(
@@ -1025,6 +1178,25 @@ void DomainAbstractionFactory::compute_abstract_plan(
             cout << "  State " << i << ": distance=" << distances[i] 
                  << (is_goal ? " (GOAL)" : "")
                  << (i == current_state ? " (INITIAL)" : "") << endl;
+        }
+    }
+    
+    // Decode the initial state to understand what it represents
+    if (current_state < num_states) {
+        cout << "DEBUG PLAN: Decoding initial state " << current_state << ":" << endl;
+        string decoded = decode_abstract_state(current_state, domain_sizes, 
+                                              numeric_domain_mapping, hash_multipliers);
+        cout << decoded << endl;
+    }
+    
+    // Also decode some reachable states for comparison
+    cout << "DEBUG PLAN: Decoding some reachable states:" << endl;
+    for (int i : {0, 1, 4, 6}) {
+        if (i < num_states) {
+            cout << "State " << i << ":" << endl;
+            string decoded = decode_abstract_state(i, domain_sizes, 
+                                                  numeric_domain_mapping, hash_multipliers);
+            cout << decoded << endl;
         }
     }
 
