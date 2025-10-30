@@ -482,11 +482,11 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                 }
                 
                 extended_pre_pairs.insert(extended_pre_pairs.end(),
-                                         trans.target_partition_facts.begin(),
-                                         trans.target_partition_facts.end());
-                extended_eff_pairs.insert(extended_eff_pairs.end(),
                                          trans.source_partition_facts.begin(),
                                          trans.source_partition_facts.end());
+                extended_eff_pairs.insert(extended_eff_pairs.end(),
+                                         trans.target_partition_facts.begin(),
+                                         trans.target_partition_facts.end());
                 
                 // Extract numeric transition information for cascade enumeration
                 vector<int> changed_numeric_vars;

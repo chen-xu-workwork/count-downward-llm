@@ -148,9 +148,6 @@ AbstractOperator::AbstractOperator(
     for (const Fact &prev : prev_pairs) {
         regression_preconditions.push_back(prev);
     }
-    for (const Fact &pre : pre_pairs) {
-        regression_preconditions.push_back(pre);
-    }
     for (const Fact &eff : eff_pairs) {
         regression_preconditions.push_back(eff);
     }
