@@ -70,8 +70,9 @@ private:
     
     // Store comparison axiom information including threshold for refinement
     struct ComparisonInfo {
-        ap_float threshold;
-        int comp_op;  // 0=<, 1=<=, 2=>, 3=>=, 4==, 5=!=
+        int left_var_id;   // ID of left numeric variable (might be constant)
+        int right_var_id;  // ID of right numeric variable (might be constant)
+        int comp_op;       // 0=<, 1=<=, 2=>, 3=>=, 4==, 5=!=
     };
     std::unordered_map<int, ComparisonInfo> comparison_axiom_info;
     
@@ -136,8 +137,11 @@ private:
                                  const std::vector<std::vector<int>> &axiom_dependencies);
     
     // Numeric variable refinement
+    ap_float extract_threshold_from_comparison(int prop_var_id, 
+                                               const TaskProxy &task_proxy) const;
     bool fix_numeric_flaws(const std::vector<NumericFlaw> &numeric_flaws,
-                          int abstraction_size);
+                          int abstraction_size,
+                          const TaskProxy &task_proxy);
 public:
     CEGAR(int max_abstraction_size,
           double max_time,
@@ -1157,9 +1161,8 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         
         // Store comparison info (operator and variable IDs for threshold extraction)
         ComparisonInfo info;
-        // We store the left and right variable IDs - one might be a constant
-        // The threshold will be determined when needed by checking variable values
-        info.threshold = 0;  // Placeholder - will be computed when needed
+        info.left_var_id = left_var_id;
+        info.right_var_id = right_var_id;
         info.comp_op = static_cast<int>(axiom.get_comparison_operator_type());
         comparison_axiom_info[prop_var_id] = info;
         
@@ -1438,7 +1441,7 @@ DomainAbstraction CEGAR::build_abstraction(
         // Then try to fix numeric flaws (if any)
         bool numeric_flaws_fixed = true;
         if (!detected_numeric_flaws.empty()) {
-            numeric_flaws_fixed = fix_numeric_flaws(detected_numeric_flaws, abstraction.size());
+            numeric_flaws_fixed = fix_numeric_flaws(detected_numeric_flaws, abstraction.size(), task_proxy);
         }
         
         if (!flaws_fixed || !numeric_flaws_fixed) {
@@ -1573,8 +1576,57 @@ bool CEGAR::can_refine_numeric_variable(
     return false;
 }
 
+ap_float CEGAR::extract_threshold_from_comparison(
+    int prop_var_id, const TaskProxy &task_proxy) const {
+    
+    // Look up the comparison info for this propositional variable
+    auto it = comparison_axiom_info.find(prop_var_id);
+    if (it == comparison_axiom_info.end()) {
+        // No comparison info found - shouldn't happen
+        cerr << "WARNING: No comparison info for prop_var_id " << prop_var_id << endl;
+        return 0.0;
+    }
+    
+    const ComparisonInfo &info = it->second;
+    int left_var_id = info.left_var_id;
+    int right_var_id = info.right_var_id;
+    
+    // Get the numeric variables
+    NumericVariablesProxy numeric_vars = task_proxy.get_numeric_variables();
+    
+    // One of the variables should be a constant (the threshold)
+    // The other is the actual numeric variable being compared
+    ap_float threshold = 0.0;
+    bool found_threshold = false;
+    
+    if (left_var_id >= 0 && left_var_id < (int)numeric_vars.size()) {
+        NumericVariableProxy left_var = numeric_vars[left_var_id];
+        if (left_var.get_var_type() == numType::constant) {
+            threshold = left_var.get_initial_state_value();
+            found_threshold = true;
+        }
+    }
+    
+    if (right_var_id >= 0 && right_var_id < (int)numeric_vars.size()) {
+        NumericVariableProxy right_var = numeric_vars[right_var_id];
+        if (right_var.get_var_type() == numType::constant) {
+            threshold = right_var.get_initial_state_value();
+            found_threshold = true;
+        }
+    }
+    
+    if (!found_threshold) {
+        // Neither side is a constant - this is a variable-to-variable comparison
+        // In this case, there's no fixed threshold to split at
+        cerr << "WARNING: Comparison axiom " << prop_var_id 
+             << " has no constant threshold (both sides are variables)" << endl;
+    }
+    
+    return threshold;
+}
+
 bool CEGAR::fix_numeric_flaws(
-    const vector<NumericFlaw> &numeric_flaws, int abstraction_size) {
+    const vector<NumericFlaw> &numeric_flaws, int abstraction_size, const TaskProxy &task_proxy) {
     
     if (numeric_flaws.empty()) {
         return true;
@@ -1613,12 +1665,35 @@ bool CEGAR::fix_numeric_flaws(
                 continue;
             }
             
-            // Simply split at the observed concrete value
+            // OPTION A: Split at both current value AND goal threshold
+            // This prevents duplicate flaws while promoting progress toward the goal
             int old_num_partitions = numeric_domain_mapping[numeric_var_id].get_num_partitions();
-            int new_num_partitions = numeric_domain_mapping[numeric_var_id].split_at(concrete_value);
+            
+            // First split: at the concrete value
+            int after_concrete_split = numeric_domain_mapping[numeric_var_id].split_at(concrete_value);
+            bool concrete_split_created_partition = (after_concrete_split > old_num_partitions);
+            
+            // Second split: at the goal threshold (if this is a comparison axiom flaw)
+            ap_float threshold = extract_threshold_from_comparison(prop_var_id, task_proxy);
+            int after_threshold_split = after_concrete_split;
+            bool threshold_split_created_partition = false;
+            
+            // Only split at threshold if it's different from concrete_value
+            // (to avoid splitting at the same point twice)
+            if (threshold != concrete_value) {
+                after_threshold_split = numeric_domain_mapping[numeric_var_id].split_at(threshold);
+                threshold_split_created_partition = (after_threshold_split > after_concrete_split);
+                
+                if (threshold_split_created_partition) {
+                    cout << "DEBUG: Also split v" << numeric_var_id 
+                         << " at goal threshold " << threshold << endl;
+                }
+            }
+            
+            int new_num_partitions = after_threshold_split;
             
             if (new_num_partitions > old_num_partitions) {
-                // Successfully split
+                // Successfully split - created at least one new partition
                 numeric_domain_sizes[numeric_var_id] = new_num_partitions;
                 refined_any = true;
                 
@@ -1626,9 +1701,18 @@ bool CEGAR::fix_numeric_flaws(
                 numeric_var_refinement_count[numeric_var_id]++;
                 
                 cout << "Refined numeric variable " << numeric_var_id 
-                     << " at value " << concrete_value
-                     << " (partitions: " << old_num_partitions << " -> " << new_num_partitions << ")"
+                     << " at value " << concrete_value;
+                if (threshold != concrete_value) {
+                    cout << " and threshold " << threshold;
+                }
+                cout << " (partitions: " << old_num_partitions << " -> " << new_num_partitions << ")"
                      << endl;
+            } else {
+                // No new partitions created - splits already exist
+                cout << "DEBUG: Flaw for v" << numeric_var_id 
+                     << " at value " << concrete_value 
+                     << " (threshold=" << threshold << ")"
+                     << " - splits already exist (no refinement needed)" << endl;
             } 
         } else {
             cout << "DEBUG: Cannot refine numeric variable " << numeric_var_id 
