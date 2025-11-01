@@ -681,21 +681,21 @@ vector<Fact> CEGAR::get_flaws(
     cout << "DEBUG: Current propositional state after plan execution:" << endl;
     for (size_t i = 0; i < current_state.size(); ++i) {
         if (i < 30) {  // Only print first 30 variables
-            cout << "  var" << i << "=" << current_state[i] << endl;
+            cout << "  fdr_" << i << "=" << current_state[i] << endl;
         }
     }
     
     cout << "DEBUG: Current numeric state after plan execution:" << endl;
     for (size_t i = 0; i < numeric_state.size(); ++i) {
         if (i < 20) {  // Only print first 20 numeric variables
-            cout << "  num_var" << i << "=" << numeric_state[i] << endl;
+            cout << "  num_" << i << "=" << numeric_state[i] << endl;
         }
     }
     
     cout << "DEBUG: Specific variables of interest:" << endl;
-    if (13 < current_state.size()) cout << "  var13=" << current_state[13] << endl;
-    if (33 < current_state.size()) cout << "  var33=" << current_state[33] << endl;
-    if (66 < current_state.size()) cout << "  var66=" << current_state[66] << endl;
+    if (13 < current_state.size()) cout << "  fdr_13=" << current_state[13] << endl;
+    if (33 < current_state.size()) cout << "  fdr_33=" << current_state[33] << endl;
+    if (66 < current_state.size()) cout << "  fdr_66=" << current_state[66] << endl;
     
     flaws = get_goal_flaws(task_proxy, current_state,
                            blacklisted_variables);
@@ -706,7 +706,7 @@ vector<Fact> CEGAR::get_flaws(
     // KEY PRINCIPLE: Only add numeric flaws for comparison axioms that appear as propositional flaws
     vector<Fact> filtered_flaws;
     for (const Fact &flaw : flaws) {
-        cout << "  Goal flaw: ID: " << flaw.var << "=" << flaw.value << endl;
+        cout << "  Goal flaw: ID: fdr_" << flaw.var << "=" << flaw.value << endl;
         
         // Check if this goal flaw is on a comparison axiom variable
         auto it = comparison_axiom_dependencies.find(flaw.var);
@@ -718,7 +718,7 @@ vector<Fact> CEGAR::get_flaws(
             for (int numeric_var_id : dep_vars) {
                 // Get current concrete value
                 ap_float concrete_value = numeric_state[numeric_var_id];
-                cout << "       Depends on numeric var" << numeric_var_id 
+                cout << "       Depends on num_" << numeric_var_id 
                      << " with value " << concrete_value << endl;
                 
                 // Add this as a numeric flaw to refine
@@ -729,7 +729,7 @@ vector<Fact> CEGAR::get_flaws(
             
             // ALWAYS refine the comparison axiom variable itself (propositional)
             // This is important even if we can't refine the numeric variables
-            cout << "    -> Adding comparison axiom var" << flaw.var 
+            cout << "    -> Adding comparison axiom fdr_" << flaw.var 
                  << " to propositional flaws for refinement" << endl;
             filtered_flaws.push_back(flaw);
         } else {
@@ -773,7 +773,7 @@ bool CEGAR::fix_single_random_flaw(
          << repetitions << " repetitions" << endl;
     for (int i = 0; i < repetitions; ++i) {
         Fact fact(*rng->choose(flaws));
-        cout << "  Attempt " << (i+1) << ": chosen flaw var" << fact.var << "=" << fact.value << endl;
+        cout << "  Attempt " << (i+1) << ": chosen flaw fdr_" << fact.var << "=" << fact.value << endl;
         cout << "    Current abstract_domain_size[" << fact.var << "] = " 
              << abstract_domain_sizes[fact.var] << endl;
         cout << "    Real domain size = " << real_domain_sizes[fact.var] << endl;
@@ -1075,8 +1075,8 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
             }
             
             if (derived_id == 70 || derived_id == 21 || derived_id == 37 || derived_id == 66) {
-                cout << "DEBUG AXIOM MAP:   Axiom: var" << derived_id << " := var" 
-                     << left_id << " op var" << right_id << endl;
+                cout << "DEBUG AXIOM MAP:   Axiom: num_" << derived_id << " := num_" 
+                     << left_id << " op num_" << right_id << endl;
             }
         }
     }
@@ -1123,7 +1123,7 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         assert(true_fact.get_variable().get_id() == false_fact.get_variable().get_id());
         int prop_var_id = true_fact.get_variable().get_id();
         
-        cout << "DEBUG: Processing comparison axiom for var" << prop_var_id 
+        cout << "DEBUG: Processing comparison axiom for fdr_" << prop_var_id 
              << " (" << true_fact.get_variable().get_name() << ")" << endl;
         
         // Get the numeric variables used in the comparison (may be derived!)
@@ -1144,14 +1144,14 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         }
         
         if (prop_var_id == 24) {
-            cout << "DEBUG AXIOM MAP:   Var24 (goal comparison axiom):" << endl;
-            cout << "DEBUG AXIOM MAP:     left_var=" << left_var_id 
+            cout << "DEBUG AXIOM MAP:   fdr_24 (goal comparison axiom):" << endl;
+            cout << "DEBUG AXIOM MAP:     left_var=num_" << left_var_id 
                  << " (derived=" << (left_var_id >= 0 && is_derived[left_var_id] ? "yes" : "no") << ")" << endl;
-            cout << "DEBUG AXIOM MAP:     right_var=" << right_var_id 
+            cout << "DEBUG AXIOM MAP:     right_var=num_" << right_var_id 
                  << " (derived=" << (right_var_id >= 0 && is_derived[right_var_id] ? "yes" : "no") << ")" << endl;
             cout << "DEBUG AXIOM MAP:     Regular dependencies: ";
             for (int reg_var : regular_vars) {
-                cout << reg_var << " ";
+                cout << "num_" << reg_var << " ";
             }
             cout << endl;
         }
@@ -1166,9 +1166,9 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         info.comp_op = static_cast<int>(axiom.get_comparison_operator_type());
         comparison_axiom_info[prop_var_id] = info;
         
-        cout << "DEBUG: Stored mapping for var" << prop_var_id << " -> {";
+        cout << "DEBUG: Stored mapping for fdr_" << prop_var_id << " -> {";
         for (int reg_var : regular_vars) {
-            cout << reg_var << " ";
+            cout << "num_" << reg_var << " ";
         }
         cout << "} with operator=" << info.comp_op << endl;
     }
@@ -1643,14 +1643,14 @@ bool CEGAR::fix_numeric_flaws(
         int attempt_count = numeric_var_refinement_count[numeric_var_id];
         
         if (attempt_count >= 10) {
-            cout << "DEBUG: Skipping flaw for v" << numeric_var_id 
+            cout << "DEBUG: Skipping flaw for num_" << numeric_var_id 
                  << " at value " << concrete_value
                  << " (variable refined " << attempt_count << " times already - may be stuck)"
                  << endl;
             continue;  // Skip this flaw to avoid infinite loop
         }
         
-        cout << "DEBUG: Processing numeric flaw for v" << numeric_var_id 
+        cout << "DEBUG: Processing numeric flaw for num_" << numeric_var_id 
              << " at value " << concrete_value
              << " (variable refinement count: " << attempt_count << ")"
              << endl;
@@ -1685,7 +1685,7 @@ bool CEGAR::fix_numeric_flaws(
                 threshold_split_created_partition = (after_threshold_split > after_concrete_split);
                 
                 if (threshold_split_created_partition) {
-                    cout << "DEBUG: Also split v" << numeric_var_id 
+                    cout << "DEBUG: Also split num_" << numeric_var_id 
                          << " at goal threshold " << threshold << endl;
                 }
             }
@@ -1700,7 +1700,7 @@ bool CEGAR::fix_numeric_flaws(
                 // Increment refinement counter for this variable
                 numeric_var_refinement_count[numeric_var_id]++;
                 
-                cout << "Refined numeric variable " << numeric_var_id 
+                cout << "Refined num_" << numeric_var_id 
                      << " at value " << concrete_value;
                 if (threshold != concrete_value) {
                     cout << " and threshold " << threshold;
@@ -1709,13 +1709,13 @@ bool CEGAR::fix_numeric_flaws(
                      << endl;
             } else {
                 // No new partitions created - splits already exist
-                cout << "DEBUG: Flaw for v" << numeric_var_id 
+                cout << "DEBUG: Flaw for num_" << numeric_var_id 
                      << " at value " << concrete_value 
                      << " (threshold=" << threshold << ")"
                      << " - splits already exist (no refinement needed)" << endl;
             } 
         } else {
-            cout << "DEBUG: Cannot refine numeric variable " << numeric_var_id 
+            cout << "DEBUG: Cannot refine num_" << numeric_var_id 
                  << " (blacklisted or size limit)" << endl;
         }
     }

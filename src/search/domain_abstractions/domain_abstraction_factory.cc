@@ -710,7 +710,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
                 static int no_range_count = 0;
                 no_range_count++;
                 if (no_range_count <= 3) {
-                    cout << "DEBUG ENUM_ALL: Added comp axiom var" << prop_var_id 
+                    cout << "DEBUG ENUM_ALL: Added comp axiom fdr_" << prop_var_id 
                          << " to affected_comparisons (no ranges, marked UNKNOWN)" << endl;
                 }
             }
@@ -770,7 +770,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
             static int with_range_count = 0;
             with_range_count++;
             if (with_range_count <= 3) {
-                cout << "DEBUG ENUM_ALL: Added comp axiom var" << prop_var_id 
+                cout << "DEBUG ENUM_ALL: Added comp axiom fdr_" << prop_var_id 
                      << " to affected_comparisons (with ranges, eval_result=" << (int)affected.eval_result << ")" << endl;
             }
         }
@@ -823,7 +823,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         cout << "DEBUG ENUM_COMP [call " << enum_call_count << "]: " << affected_comparisons.size() << " affected comparisons" << endl;
         for (size_t i = 0; i < affected_comparisons.size(); ++i) {
             const AffectedComparison &comp = affected_comparisons[i];
-            cout << "  Comp " << i << ": var" << comp.prop_var_id << ", eval_result=" << (int)comp.eval_result
+            cout << "  Comp " << i << ": fdr_" << comp.prop_var_id << ", eval_result=" << (int)comp.eval_result
                  << ", trivial=" << variable_is_trivial(comp.prop_var_id) << endl;
         }
     }
@@ -1502,7 +1502,7 @@ void DomainAbstractionFactory::compute_distances(
             int alternative_cost = distances[state_index] + op.get_cost();
         
             // DEBUG: Show details for first goal expansion
-            // DEBUG: Look for operators that affect the refined numeric variables (17, 66, 2)
+            // DEBUG: Look for operators that affect the refined numeric variables (num_17, num_66, num_2)
             bool affects_refined_vars = false;
             for (int var : op.get_changed_numeric_vars()) {
                 if (var == 17 || var == 66 || var == 2) {
