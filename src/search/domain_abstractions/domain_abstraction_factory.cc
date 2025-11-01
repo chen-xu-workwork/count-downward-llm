@@ -670,34 +670,20 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         // For constants (numeric variables with fixed values), we need to get them from the domain mapping
         if (!found_left && left_var_id < static_cast<int>(numeric_domain_mapping.size())) {
             const NumericDomainMapping &left_mapping = numeric_domain_mapping[left_var_id];
-            const vector<NumericRange> &left_ranges = left_mapping.get_ranges();
             // For variables not in changed_numeric_vars, we don't know the partition - assume the whole range
-            if (!left_ranges.empty()) {
-                // Take the union of all ranges (min of all lowers, max of all uppers)
-                left_lower = numeric_limits<ap_float>::infinity();
-                left_upper = -numeric_limits<ap_float>::infinity();
-                for (const NumericRange &range : left_ranges) {
-                    left_lower = min(left_lower, range.lower);
-                    left_upper = max(left_upper, range.upper);
-                }
-                found_left = true;
-            }
+            auto range_union = left_mapping.get_range_union();
+            left_lower = range_union.first;
+            left_upper = range_union.second;
+            found_left = true;
         }
         
         if (!found_right && right_var_id < static_cast<int>(numeric_domain_mapping.size())) {
             const NumericDomainMapping &right_mapping = numeric_domain_mapping[right_var_id];
-            const vector<NumericRange> &right_ranges = right_mapping.get_ranges();
             // For variables not in changed_numeric_vars, we don't know the partition - assume the whole range
-            if (!right_ranges.empty()) {
-                // Take the union of all ranges (min of all lowers, max of all uppers)
-                right_lower = numeric_limits<ap_float>::infinity();
-                right_upper = -numeric_limits<ap_float>::infinity();
-                for (const NumericRange &range : right_ranges) {
-                    right_lower = min(right_lower, range.lower);
-                    right_upper = max(right_upper, range.upper);
-                }
-                found_right = true;
-            }
+            auto range_union = right_mapping.get_range_union();
+            right_lower = range_union.first;
+            right_upper = range_union.second;
+            found_right = true;
         }
         
         if (!found_left || !found_right) {
@@ -717,47 +703,13 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
             continue;
         }
         
-        // Now evaluate: can the comparison be true? false? or both?
-        // For each operator, check if there exist values in the ranges that satisfy/don't satisfy it
-        bool can_be_true = false;
-        bool can_be_false = false;
+        // Now evaluate the comparison using NumericDomainMapping's static method
+        int eval_result = NumericDomainMapping::evaluate_comparison(
+            affected.op, left_lower, left_upper, right_lower, right_upper);
         
-        switch (affected.op) {
-            case comp_operator::lt:  // left < right
-                // Can be true if: exists left_val < right_val
-                // This is possible if left_lower < right_upper
-                can_be_true = (left_lower < right_upper);
-                // Can be false if: exists left_val >= right_val
-                // This is possible if left_upper >= right_lower
-                can_be_false = (left_upper >= right_lower);
-                break;
-            case comp_operator::le:  // left <= right
-                can_be_true = (left_lower <= right_upper);
-                can_be_false = (left_upper > right_lower);
-                break;
-            case comp_operator::eq:  // left == right
-                // Can be true if ranges overlap
-                can_be_true = (left_lower < right_upper && right_lower < left_upper);
-                // Can be false if values can differ
-                can_be_false = (left_lower < right_lower || left_upper > right_upper ||
-                               right_lower < left_lower || right_upper > left_upper);
-                break;
-            case comp_operator::ge:  // left >= right
-                can_be_true = (left_upper >= right_lower);
-                can_be_false = (left_lower < right_upper);
-                break;
-            case comp_operator::gt:  // left > right
-                can_be_true = (left_upper > right_lower);
-                can_be_false = (left_lower <= right_upper);
-                break;
-            default:
-                can_be_true = true;
-                can_be_false = true;
-        }
-        
-        if (can_be_true && !can_be_false) {
+        if (eval_result == 1) {
             affected.eval_result = AffectedComparison::DEFINITELY_TRUE;
-        } else if (!can_be_true && can_be_false) {
+        } else if (eval_result == 0) {
             affected.eval_result = AffectedComparison::DEFINITELY_FALSE;
         } else {
             affected.eval_result = AffectedComparison::UNKNOWN;

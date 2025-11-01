@@ -116,6 +116,28 @@ public:
     
     // Debug method: print the ranges
     void dump() const;
+    
+    // Get the range associated with a given partition index
+    // Returns nullptr if no range exists for this partition
+    const NumericRange* get_range_for_partition(int partition_index) const;
+    
+    // Get the union of all ranges (returns min of all lowers, max of all uppers)
+    std::pair<ap_float, ap_float> get_range_union() const;
+    
+    // Static method to evaluate a comparison between two ranges
+    // Returns: 0 = definitely false, 1 = definitely true, 2 = unknown
+    static int evaluate_comparison(
+        comp_operator op,
+        ap_float left_lower, ap_float left_upper,
+        ap_float right_lower, ap_float right_upper);
+    
+    // Evaluate a comparison between a partition in this mapping and a partition in another
+    // Returns: 0 = definitely false, 1 = definitely true, 2 = unknown
+    int evaluate_comparison_with(
+        const NumericDomainMapping &other,
+        int my_partition,
+        int other_partition,
+        comp_operator op) const;
 };
 
 // Domain Abstraction State
