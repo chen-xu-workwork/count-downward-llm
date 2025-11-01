@@ -4,6 +4,7 @@
 #include "../globals.h"
 #include <vector>
 #include <limits>
+#include <memory>
 
 namespace domain_abstractions {
 class DomainAbstraction;
@@ -15,7 +16,8 @@ using DomainMapping = std::vector<std::vector<int>>;
 class NumericDomainMapping;
 
 // For numeric variables: one NumericDomainMapping per numeric variable in the abstraction
-using NumericDomainMappingType = std::vector<NumericDomainMapping>;
+// Uses unique_ptr for polymorphism (StandardSplitMapping or ExclusionSplitMapping)
+using NumericDomainMappingType = std::vector<std::unique_ptr<NumericDomainMapping>>;
 
 // For numeric variables: represents a range with configurable boundaries
 // Examples: [lower, upper), (lower, upper], [lower, upper], (lower, upper)
@@ -56,7 +58,9 @@ struct NumericRange {
 
 // For numeric variables: each variable has a list of ranges that partition (-inf, inf)
 // The ranges must be sorted by lower bound and cover the entire real line without gaps
+// Abstract base class - use StandardSplitMapping or ExclusionSplitMapping
 class NumericDomainMapping {
+protected:
     std::vector<NumericRange> ranges;
     
 public:
@@ -66,6 +70,12 @@ public:
                            std::numeric_limits<ap_float>::infinity(),
                            0);
     }
+    
+    // Virtual destructor for proper cleanup
+    virtual ~NumericDomainMapping() = default;
+    
+    // Clone method for polymorphic copying
+    virtual std::unique_ptr<NumericDomainMapping> clone() const = 0;
     
     // Get the partition index for a given value
     int get_partition_index(ap_float value) const {
@@ -78,9 +88,10 @@ public:
         return -1;
     }
     
-    // Split at a given value n: creates ranges (..., n) and [n, ...)
+    // Split at a given value n
     // Returns the number of partitions after splitting
-    int split_at(ap_float n);
+    // Subclasses implement different splitting strategies
+    virtual int split_at(ap_float n) = 0;
     
     // Get the number of partitions (max partition index + 1)
     int get_num_partitions() const {
@@ -194,6 +205,32 @@ public:
         ap_float left_lower, ap_float left_upper,
         ap_float right_lower, ap_float right_upper,
         cal_operator op);
+};
+
+// Standard splitting strategy: splits (-inf, inf) into [(-inf, x), [x, inf)]
+// Creates 2 partitions with 2 ranges
+class StandardSplitMapping : public NumericDomainMapping {
+public:
+    // Split at point x: creates [lower, x) and [x, upper) with different partitions
+    int split_at(ap_float n) override;
+    
+    // Clone method for polymorphic copying
+    std::unique_ptr<NumericDomainMapping> clone() const override {
+        return std::make_unique<StandardSplitMapping>(*this);
+    }
+};
+
+// Exclusion splitting strategy: splits (-inf, inf) into [R\{x}, {x}]
+// Creates 2 partitions with 3 ranges (two ranges map to same partition)
+class ExclusionSplitMapping : public NumericDomainMapping {
+public:
+    // Split at point x: (-inf, x) and (x, inf) share one partition, [x,x] gets another
+    int split_at(ap_float n) override;
+    
+    // Clone method for polymorphic copying
+    std::unique_ptr<NumericDomainMapping> clone() const override {
+        return std::make_unique<ExclusionSplitMapping>(*this);
+    }
 };
 
 // Domain Abstraction State

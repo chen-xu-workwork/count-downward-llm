@@ -989,7 +989,7 @@ void CEGAR::print_statistics(
                  << numeric_domain_sizes[i] << " partitions" << endl;
             
             // Print the ranges for this variable
-            const vector<NumericRange> &ranges = numeric_domain_mapping[i].get_ranges();
+            const vector<NumericRange> &ranges = numeric_domain_mapping[i]->get_ranges();
             for (size_t j = 0; j < ranges.size(); ++j) {
                 cout << "      partition " << ranges[j].partition_index << ": [";
                 if (ranges[j].lower == -numeric_limits<ap_float>::infinity()) {
@@ -1025,8 +1025,12 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
     int num_numeric_variables = task_proxy.get_numeric_variables().size();
     
     // Initialize numeric domain mapping with full range (-inf, inf) for all numeric variables
-    // NumericDomainMapping default constructor already creates a single range covering (-inf, inf)
-    NumericDomainMappingType numeric_domain_mapping(num_numeric_variables);
+    // Use StandardSplitMapping as default (standard behavior: [lower,x), [x,upper))
+    NumericDomainMappingType numeric_domain_mapping;
+    numeric_domain_mapping.reserve(num_numeric_variables);
+    for (int i = 0; i < num_numeric_variables; ++i) {
+        numeric_domain_mapping.push_back(std::make_unique<StandardSplitMapping>());
+    }
     
     return numeric_domain_mapping;
 }
@@ -1459,12 +1463,12 @@ DomainAbstraction CEGAR::build_abstraction(
       
         bool all_valid = true;
         for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
-            int actual_partitions = numeric_domain_mapping[i].get_num_partitions();
+            int actual_partitions = numeric_domain_mapping[i]->get_num_partitions();
             int expected_partitions = numeric_domain_sizes[i];
             if (actual_partitions != expected_partitions) {
                 all_valid = false;
             }
-            if (!numeric_domain_mapping[i].is_valid()) {
+            if (!numeric_domain_mapping[i]->is_valid()) {
                 all_valid = false;
             }
         }
@@ -1556,7 +1560,7 @@ bool CEGAR::can_refine_numeric_variable(
         return false;
     }
     
-    int current_partitions = numeric_domain_mapping[numeric_var_id].get_num_partitions();
+    int current_partitions = numeric_domain_mapping[numeric_var_id]->get_num_partitions();
     int abs_size_without_var = old_abstraction_size / current_partitions;
 
     cout << "Numeric variable " << numeric_var_id 
@@ -1667,10 +1671,10 @@ bool CEGAR::fix_numeric_flaws(
             
             // OPTION A: Split at both current value AND goal threshold
             // This prevents duplicate flaws while promoting progress toward the goal
-            int old_num_partitions = numeric_domain_mapping[numeric_var_id].get_num_partitions();
+            int old_num_partitions = numeric_domain_mapping[numeric_var_id]->get_num_partitions();
             
             // First split: at the concrete value
-            int after_concrete_split = numeric_domain_mapping[numeric_var_id].split_at(concrete_value);
+            int after_concrete_split = numeric_domain_mapping[numeric_var_id]->split_at(concrete_value);
             bool concrete_split_created_partition = (after_concrete_split > old_num_partitions);
             
             // Second split: at the goal threshold (if this is a comparison axiom flaw)
@@ -1681,7 +1685,7 @@ bool CEGAR::fix_numeric_flaws(
             // Only split at threshold if it's different from concrete_value
             // (to avoid splitting at the same point twice)
             if (threshold != concrete_value) {
-                after_threshold_split = numeric_domain_mapping[numeric_var_id].split_at(threshold);
+                after_threshold_split = numeric_domain_mapping[numeric_var_id]->split_at(threshold);
                 threshold_split_created_partition = (after_threshold_split > after_concrete_split);
                 
                 if (threshold_split_created_partition) {

@@ -1008,8 +1008,8 @@ vector<Fact> DomainAbstractionNumericHelper::compute_assignment_axiom_cascades(
             continue; // Variable not in mapping
         }
         
-        const NumericDomainMapping &left_mapping = numeric_domain_mapping[left_var_id];
-        const NumericDomainMapping &right_mapping = numeric_domain_mapping[right_var_id];
+        const NumericDomainMapping &left_mapping = *numeric_domain_mapping[left_var_id];
+        const NumericDomainMapping &right_mapping = *numeric_domain_mapping[right_var_id];
         
         const vector<NumericRange> &left_ranges = left_mapping.get_ranges();
         const vector<NumericRange> &right_ranges = right_mapping.get_ranges();
@@ -1095,7 +1095,7 @@ vector<Fact> DomainAbstractionNumericHelper::compute_assignment_axiom_cascades(
             continue; // Derived variable not in mapping
         }
         
-        const NumericDomainMapping &derived_mapping = numeric_domain_mapping[derived_var_id];
+        const NumericDomainMapping &derived_mapping = *numeric_domain_mapping[derived_var_id];
         const vector<NumericRange> &derived_ranges = derived_mapping.get_ranges();
         
         // Find which partition(s) the old and new ranges overlap with
@@ -1247,7 +1247,7 @@ vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
     const NumAssProxy &ass_effect) const {
     
     // Get the numeric domain mapping for this variable
-    const NumericDomainMapping &mapping = numeric_domain_mapping[numeric_var_id];
+    const NumericDomainMapping &mapping = *numeric_domain_mapping[numeric_var_id];
     
     // Get the effect operator and operand value
     f_operator op_type = ass_effect.get_assigment_operator_type();
@@ -1304,8 +1304,8 @@ int DomainAbstractionNumericHelper::evaluate_comparison_exactly(
         return 2; // unknown
     }
     
-    const NumericDomainMapping &left_mapping = numeric_domain_mapping[left_var_id];
-    const NumericDomainMapping &right_mapping = numeric_domain_mapping[right_var_id];
+    const NumericDomainMapping &left_mapping = *numeric_domain_mapping[left_var_id];
+    const NumericDomainMapping &right_mapping = *numeric_domain_mapping[right_var_id];
     
     // Use evaluate_comparison_with method from NumericDomainMapping
     return left_mapping.evaluate_comparison_with(right_mapping, left_partition, right_partition, comp_op);

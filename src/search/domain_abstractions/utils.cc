@@ -148,7 +148,7 @@ size_t compute_abstract_state_hash(
     // 2. Add numeric variables to hash
     for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
         ap_float value = state.nval(i);
-        int partition = numeric_domain_mapping[i].get_partition_index(value);
+        int partition = numeric_domain_mapping[i]->get_partition_index(value);
         state_hash += hash_multipliers[domain_mapping.size() + i] * partition;
     }
 
@@ -289,7 +289,7 @@ size_t compute_abstract_state_hash_backup(
     // 2. Add numeric variables to hash
     for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
         ap_float value = state.nval(i);
-        int partition = numeric_domain_mapping[i].get_partition_index(value);
+        int partition = numeric_domain_mapping[i]->get_partition_index(value);
         state_hash += hash_multipliers[domain_mapping.size() + i] * partition;
     }
 
@@ -302,10 +302,10 @@ size_t compute_abstract_state_hash_backup(
     // Start with all base numeric variables
     for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
         ap_float value = state.nval(i);
-        int partition = numeric_domain_mapping[i].get_partition_index(value);
+        int partition = numeric_domain_mapping[i]->get_partition_index(value);
         
         // Find the range for this partition
-        const vector<NumericRange> &ranges = numeric_domain_mapping[i].get_ranges();
+        const vector<NumericRange> &ranges = numeric_domain_mapping[i]->get_ranges();
         for (const NumericRange &range : ranges) {
             if (range.partition_index == partition) {
                 computed_ranges[i] = {range.lower, range.upper};
@@ -439,7 +439,7 @@ size_t compute_abstract_state_hash_backup(
         
         // If not in computed_ranges, try domain mapping
         if (!found_left && left_var_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const vector<NumericRange> &left_ranges = numeric_domain_mapping[left_var_id].get_ranges();
+            const vector<NumericRange> &left_ranges = numeric_domain_mapping[left_var_id]->get_ranges();
             if (!left_ranges.empty()) {
                 left_lower = numeric_limits<ap_float>::infinity();
                 left_upper = -numeric_limits<ap_float>::infinity();
@@ -452,7 +452,7 @@ size_t compute_abstract_state_hash_backup(
         }
         
         if (!found_right && right_var_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const vector<NumericRange> &right_ranges = numeric_domain_mapping[right_var_id].get_ranges();
+            const vector<NumericRange> &right_ranges = numeric_domain_mapping[right_var_id]->get_ranges();
             if (!right_ranges.empty()) {
                 right_lower = numeric_limits<ap_float>::infinity();
                 right_upper = -numeric_limits<ap_float>::infinity();

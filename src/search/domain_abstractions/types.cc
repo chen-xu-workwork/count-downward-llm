@@ -40,7 +40,8 @@ bool NumericRange::overlaps_with(ap_float other_lower, ap_float other_upper,
     return true;
 }
 
-int NumericDomainMapping::split_at(ap_float n) {
+// StandardSplitMapping implementation
+int StandardSplitMapping::split_at(ap_float n) {
     // Find the range that contains n
     int range_index = -1;
     for (size_t i = 0; i < ranges.size(); ++i) {
@@ -82,6 +83,58 @@ int NumericDomainMapping::split_at(ap_float n) {
     // Lower boundary is inclusive at n, upper boundary comes from original range
     ranges.insert(ranges.begin() + range_index + 1,
                   NumericRange(n, old_upper, true, old_upper_inclusive, new_partition));
+    
+    return get_num_partitions();
+}
+
+// ExclusionSplitMapping implementation
+int ExclusionSplitMapping::split_at(ap_float n) {
+    // Find the range containing n
+    int range_index = -1;
+    for (size_t i = 0; i < ranges.size(); ++i) {
+        if (ranges[i].contains(n)) {
+            range_index = i;
+            break;
+        }
+    }
+    
+    // If n is not in any range, do nothing
+    if (range_index == -1) {
+        return get_num_partitions();
+    }
+    
+    NumericRange &old_range = ranges[range_index];
+    
+    // If n is already at a boundary, we need different logic
+    // For simplicity, assume n is strictly inside the range
+    if (old_range.lower == n || old_range.upper == n) {
+        // Could handle this, but for now just don't split
+        return get_num_partitions();
+    }
+    
+    int num_partitions = get_num_partitions();
+    int old_partition = old_range.partition_index;  // Will be reused for R\{x}
+    int point_partition = num_partitions;            // New partition for {x}
+    
+    ap_float old_lower = old_range.lower;
+    ap_float old_upper = old_range.upper;
+    bool old_lower_inclusive = old_range.lower_inclusive;
+    bool old_upper_inclusive = old_range.upper_inclusive;
+    
+    // Create three ranges:
+    // 1. Lower part: (-inf, n) with old partition (R\{x} lower part)
+    //    Upper boundary is exclusive at n
+    ranges[range_index] = NumericRange(old_lower, n, old_lower_inclusive, false, old_partition);
+    
+    // 2. Point: [n, n] with new partition ({x})
+    //    Both boundaries inclusive for single point
+    ranges.insert(ranges.begin() + range_index + 1,
+                  NumericRange(n, n, true, true, point_partition));
+    
+    // 3. Upper part: (n, inf) with old partition (R\{x} upper part)
+    //    Lower boundary is exclusive at n
+    ranges.insert(ranges.begin() + range_index + 2,
+                  NumericRange(n, old_upper, false, old_upper_inclusive, old_partition));
     
     return get_num_partitions();
 }

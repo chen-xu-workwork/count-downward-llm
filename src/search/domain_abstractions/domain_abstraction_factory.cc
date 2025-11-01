@@ -166,8 +166,11 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     bool compute_wildcard_plan)
     : task_proxy(task_proxy),
       domain_mapping(domain_mapping),
-      numeric_domain_mapping(numeric_domain_mapping),
       numeric_domain_sizes(numeric_domain_sizes) {
+        // Deep copy numeric_domain_mapping using clone() (can't copy unique_ptr directly)
+        for (const auto &mapping : numeric_domain_mapping) {
+            this->numeric_domain_mapping.push_back(mapping->clone());
+        }
         
         // DEBUG: Check var24 status in domain_mapping
         static int factory_construction_count = 0;
@@ -385,7 +388,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         //     << " partition=" << partition << endl;
         
         if (var_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const NumericDomainMapping &mapping = numeric_domain_mapping[var_id];
+            const NumericDomainMapping &mapping = *numeric_domain_mapping[var_id];
             const vector<NumericRange> &ranges = mapping.get_ranges();
             
             //cout << "DEBUG FACTORY:     Found " << ranges.size() << " ranges" << endl;
@@ -669,7 +672,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         // If not found yet and variables are not derived, they might be constants or in the base state
         // For constants (numeric variables with fixed values), we need to get them from the domain mapping
         if (!found_left && left_var_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const NumericDomainMapping &left_mapping = numeric_domain_mapping[left_var_id];
+            const NumericDomainMapping &left_mapping = *numeric_domain_mapping[left_var_id];
             // For variables not in changed_numeric_vars, we don't know the partition - assume the whole range
             auto range_union = left_mapping.get_range_union();
             left_lower = range_union.first;
@@ -678,7 +681,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         }
         
         if (!found_right && right_var_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const NumericDomainMapping &right_mapping = numeric_domain_mapping[right_var_id];
+            const NumericDomainMapping &right_mapping = *numeric_domain_mapping[right_var_id];
             // For variables not in changed_numeric_vars, we don't know the partition - assume the whole range
             auto range_union = right_mapping.get_range_union();
             right_lower = range_union.first;
@@ -961,7 +964,7 @@ string decode_abstract_state(int state_index, const vector<int> &domain_sizes,
     for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
         int multiplier_idx = domain_sizes.size() + num_var_id;
         int multiplier = hash_multipliers[multiplier_idx];
-        int num_partitions = numeric_domain_mapping[num_var_id].get_num_partitions();
+        int num_partitions = numeric_domain_mapping[num_var_id]->get_num_partitions();
         int partition = (remaining / multiplier) % num_partitions;
         
         ss << "num" << num_var_id << "=p" << partition;
@@ -1021,7 +1024,7 @@ void DomainAbstractionFactory::compute_distances(
             
             // Find partition
             if (num_var_id < numeric_domain_mapping.size()) {
-                const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+                const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
                 if (mapping.get_num_partitions() > 1) {
                     const vector<NumericRange> &ranges = mapping.get_ranges();
                     for (size_t part = 0; part < ranges.size(); ++part) {
@@ -1064,7 +1067,7 @@ void DomainAbstractionFactory::compute_distances(
             if (num_var_id >= numeric_domain_mapping.size()) {
                 debug_file << "  [TRIVIAL - 1 partition covering all values]\n";
             } else {
-                const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+                const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
                 int num_partitions = mapping.get_num_partitions();
                 if (num_partitions <= 1) {
                     debug_file << "  [TRIVIAL - 1 partition covering all values]\n";
@@ -1083,7 +1086,7 @@ void DomainAbstractionFactory::compute_distances(
         debug_file << "(These represent which partition a refined numeric variable is in)\n";
         int abstract_var_offset = domain_sizes.size();
         for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
-            const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+            const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
             int num_partitions = mapping.get_num_partitions();
             if (num_partitions > 1) {
                 int abstract_var_id = abstract_var_offset + num_var_id;
@@ -1169,7 +1172,7 @@ void DomainAbstractionFactory::compute_distances(
                 
                 // Show the range
                 if (num_var_idx < (int)numeric_domain_mapping.size()) {
-                    const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_idx];
+                    const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_idx];
                     if (goal.value < (int)mapping.get_ranges().size()) {
                         const NumericRange &range = mapping.get_ranges()[goal.value];
                         debug_file << " [" << range.lower << ", " << range.upper << ")";
@@ -1597,7 +1600,7 @@ void DomainAbstractionFactory::compute_distances(
         vector<int> refined_numeric_vars;
         int num_prop_vars = domain_sizes.size();
         for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
-            const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+            const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
             if (mapping.get_num_partitions() > 1) {
                 refined_numeric_vars.push_back(num_var_id);
             }
@@ -1646,7 +1649,7 @@ void DomainAbstractionFactory::compute_distances(
             
             // Numeric partitions
             for (int num_var_id : refined_numeric_vars) {
-                const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+                const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
                 int abstract_var_id = num_prop_vars + num_var_id;
                 int partition = (state_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
                 cout << setw(6) << partition << " | ";
@@ -1680,7 +1683,7 @@ void DomainAbstractionFactory::compute_distances(
         vector<int> init_numeric_partitions;
         int num_prop_vars = domain_sizes.size();
         for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
-            const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+            const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
             if (mapping.get_num_partitions() > 1) {
                 // This numeric variable is refined - extract its partition from initial state
                 int abstract_var_id = num_prop_vars + num_var_id;
@@ -1709,7 +1712,7 @@ void DomainAbstractionFactory::compute_distances(
             // Check numeric partitions
             size_t partition_idx = 0;
             for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
-                const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+                const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
                 if (mapping.get_num_partitions() > 1) {
                     int abstract_var_id = num_prop_vars + num_var_id;
                     int partition = (state_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
@@ -1787,7 +1790,7 @@ void DomainAbstractionFactory::compute_distances(
         
         // Add the refined numeric variables with same source and target partition
         for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
-            const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+            const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
             if (mapping.get_num_partitions() > 1) {
                 int abstract_var_id = num_prop_vars + num_var_id;
                 int partition = (init_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
@@ -1847,7 +1850,7 @@ void DomainAbstractionFactory::compute_distances(
             cout << "    Numeric partitions: [";
             first = true;
             for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
-                const NumericDomainMapping &mapping = numeric_domain_mapping[num_var_id];
+                const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
                 if (mapping.get_num_partitions() > 1) {
                     int abstract_var_id = num_prop_vars + num_var_id;
                     int partition = (state_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
@@ -2306,7 +2309,7 @@ DomainAbstraction DomainAbstractionFactory::generate() {
     // Check if we have any non-trivial numeric variables (with more than 1 partition)
     bool has_numeric_vars = false;
     for (const auto &num_mapping : numeric_domain_mapping) {
-        if (num_mapping.get_ranges().size() > 1) {
+        if (num_mapping->get_ranges().size() > 1) {
             has_numeric_vars = true;
             break;
         }
