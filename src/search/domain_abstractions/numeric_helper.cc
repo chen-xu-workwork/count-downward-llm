@@ -1245,38 +1245,12 @@ vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
     int source_partition,
     const NumAssProxy &ass_effect) const {
     
-    vector<int> reachable_partitions;
-    
-    // Get the source partition range
+    // Get the numeric domain mapping for this variable
     const NumericDomainMapping &mapping = numeric_domain_mapping[numeric_var_id];
-    const vector<NumericRange> &ranges = mapping.get_ranges();
     
-    // Find the range corresponding to the source partition
-    NumericRange source_range(-numeric_limits<ap_float>::infinity(),
-                             numeric_limits<ap_float>::infinity(),
-                             -1);
-    for (const NumericRange &range : ranges) {
-        if (range.partition_index == source_partition) {
-            source_range = range;
-            break;
-        }
-    }
-    
-    if (source_range.partition_index == -1) {
-        // Source partition not found - this shouldn't happen
-        // Return empty vector to indicate error
-        exit(1);
-        return reachable_partitions;
-    }
-    
-    // Apply the effect to compute the result range
-    // Get the effect operator and assigned variable
+    // Get the effect operator and operand value
     f_operator op_type = ass_effect.get_assigment_operator_type();
     NumericVariableProxy assigned_var = ass_effect.get_assigned_variable();
-    
-    // Get the value to use in the operation
-    // For constants, this is the initial state value (constants don't change)
-    // For variables, we would need to know their partition (handled elsewhere)
     ap_float operand_value = assigned_var.get_initial_state_value();
     
     // IMPORTANT: This function computes partition transitions using PROGRESSION semantics.
@@ -1294,100 +1268,9 @@ vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
     // Later, the hash effect will be computed using REGRESSION formula:
     //   hash_effect = (source - target) * multiplier
     // This correctly moves from current state (target) to predecessor (source) in regression.
-    //
-    // We use the FORWARD operator type (not inverted) because we're computing forward reachability.
-    f_operator forward_op_type = op_type;  // Use the operator as-is (forward semantics)
     
-    // Compute the result range based on the FORWARD operator
-    ap_float result_lower, result_upper;
-    ap_float source_lower = source_range.lower;
-    ap_float source_upper = source_range.upper;
-    
-    switch (forward_op_type) {
-        case assign:
-            // x := c  -->  result is just [c, c] (single point)
-            // But if assigned_var is not a constant, we need its range
-            // For now, assume constants (most common case)
-            result_lower = operand_value;
-            result_upper = operand_value;
-            break;
-            
-        case increase:
-            // x += c  -->  [lower + c, upper + c)
-            // Example: v in [0, 1000), v += 7 → v in [7, 1007)
-            result_lower = source_lower + operand_value;
-            result_upper = source_upper + operand_value;
-            break;
-            
-        case decrease:
-            // x -= c  -->  [lower - c, upper - c)
-            result_lower = source_lower - operand_value;
-            result_upper = source_upper - operand_value;
-            break;
-            
-        case scale_up:
-            // x *= c  -->  depends on sign of c and bounds
-            if (operand_value > 0) {
-                result_lower = source_lower * operand_value;
-                result_upper = source_upper * operand_value;
-            } else if (operand_value < 0) {
-                // Negative multiplier flips the order
-                result_lower = source_upper * operand_value;
-                result_upper = source_lower * operand_value;
-            } else {
-                // Multiply by zero
-                result_lower = 0;
-                result_upper = 0;
-            }
-            break;
-            
-        case scale_down:
-            // x /= c  -->  similar to scale_up but with division
-            if (operand_value > 0) {
-                result_lower = source_lower / operand_value;
-                result_upper = source_upper / operand_value;
-            } else if (operand_value < 0) {
-                // Negative divisor flips the order
-                result_lower = source_upper / operand_value;
-                result_upper = source_lower / operand_value;
-            } else {
-                // Division by zero - undefined, be conservative
-                // Return all partitions
-                for (const NumericRange &range : ranges) {
-                    reachable_partitions.push_back(range.partition_index);
-                }
-                return reachable_partitions;
-            }
-            break;
-            
-        default:
-            exit(1);
-            // Unknown operator, be conservative
-            for (const NumericRange &range : ranges) {
-                reachable_partitions.push_back(range.partition_index);
-            }
-            return reachable_partitions;
-    }
-    
-    for (const NumericRange &range : ranges) {
-        // Check if [result_lower, result_upper) overlaps with [range.lower, range.upper)
-        // Two ranges [a, b) and [c, d) overlap if: a < d AND c < b
-        bool overlaps = (result_lower < range.upper && range.lower < result_upper);
-        
-        if (overlaps) {
-            reachable_partitions.push_back(range.partition_index);
-        }
-    }
-    
-    // If no partitions found (shouldn't happen with proper partitioning),
-    // be conservative and return all
-    if (reachable_partitions.empty()) {
-        for (const NumericRange &range : ranges) {
-            reachable_partitions.push_back(range.partition_index);
-        }
-    }
-    
-    return reachable_partitions;
+    // Use NumericDomainMapping method to compute reachable partitions
+    return mapping.compute_reachable_partitions(source_partition, op_type, operand_value);
 }
 
 pair<ap_float, ap_float> DomainAbstractionNumericHelper::apply_range_operation(
@@ -1395,68 +1278,9 @@ pair<ap_float, ap_float> DomainAbstractionNumericHelper::apply_range_operation(
     ap_float right_lower, ap_float right_upper,
     cal_operator op) const {
     
-    ap_float result_lower, result_upper;
-    
-    switch (op) {
-        case sum: // left + right
-            result_lower = left_lower + right_lower;
-            result_upper = left_upper + right_upper;
-            break;
-            
-        case diff: // left - right
-            // [a,b) - [c,d) = [a-d, b-c)
-            result_lower = left_lower - right_upper;
-            result_upper = left_upper - right_lower;
-            break;
-            
-        case mult: // left * right
-            // Need to consider all four combinations and take min/max
-            {
-                ap_float products[4] = {
-                    left_lower * right_lower,
-                    left_lower * right_upper,
-                    left_upper * right_lower,
-                    left_upper * right_upper
-                };
-                result_lower = *min_element(products, products + 4);
-                result_upper = *max_element(products, products + 4);
-            }
-            break;
-            
-        case divi: // left / right
-            // Similar to mult, but need to check for division by zero
-            {
-                // If right range contains zero, result is undefined
-                if (right_lower < 0 && right_upper > 0) {
-                    // Range spans zero - return infinite range
-                    result_lower = -numeric_limits<ap_float>::infinity();
-                    result_upper = numeric_limits<ap_float>::infinity();
-                } else if (right_lower == 0 && right_upper == 0) {
-                    // Division by zero - undefined
-                    result_lower = -numeric_limits<ap_float>::infinity();
-                    result_upper = numeric_limits<ap_float>::infinity();
-                } else {
-                    // Safe to divide - check all four combinations
-                    ap_float quotients[4] = {
-                        left_lower / right_lower,
-                        left_lower / right_upper,
-                        left_upper / right_lower,
-                        left_upper / right_upper
-                    };
-                    result_lower = *min_element(quotients, quotients + 4);
-                    result_upper = *max_element(quotients, quotients + 4);
-                }
-            }
-            break;
-            
-        default:
-            // Unknown operator, return infinite range
-            result_lower = -numeric_limits<ap_float>::infinity();
-            result_upper = numeric_limits<ap_float>::infinity();
-            break;
-    }
-    
-    return make_pair(result_lower, result_upper);
+    // Use NumericDomainMapping static method
+    return NumericDomainMapping::apply_range_operation(
+        left_lower, left_upper, right_lower, right_upper, op);
 }
 
 int DomainAbstractionNumericHelper::evaluate_comparison_exactly(

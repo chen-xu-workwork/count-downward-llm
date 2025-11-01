@@ -138,6 +138,22 @@ public:
         int my_partition,
         int other_partition,
         comp_operator op) const;
+    
+    // Compute which partitions are reachable from a source partition after applying an effect
+    // Uses forward/progression semantics to determine reachability
+    // Returns: vector of partition indices that can be reached
+    std::vector<int> compute_reachable_partitions(
+        int source_partition,
+        f_operator effect_op,
+        ap_float operand_value) const;
+    
+    // Static method to apply a range operation (sum, diff, mult, divi) to two ranges
+    // Used for computing derived variable ranges from base variable ranges
+    // Returns: pair<lower, upper> representing the result range
+    static std::pair<ap_float, ap_float> apply_range_operation(
+        ap_float left_lower, ap_float left_upper,
+        ap_float right_lower, ap_float right_upper,
+        cal_operator op);
 };
 
 // Domain Abstraction State
