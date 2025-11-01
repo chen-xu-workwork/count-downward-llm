@@ -8,6 +8,38 @@
 
 namespace domain_abstractions {
 
+bool NumericRange::overlaps_with(ap_float other_lower, ap_float other_upper,
+                                   bool other_lower_inclusive, bool other_upper_inclusive) const {
+    // Two ranges overlap if they share at least one point
+    // This is complex with open/closed boundaries
+    
+    // First, check if ranges are disjoint (no overlap)
+    // Range 1: this range, Range 2: other range
+    
+    // Case 1: This range is entirely below other range
+    // this.upper compared to other.lower
+    if (upper < other_lower) {
+        return false;  // Definitely disjoint
+    }
+    if (upper == other_lower) {
+        // They touch at a point - overlap only if both include that point
+        return upper_inclusive && other_lower_inclusive;
+    }
+    
+    // Case 2: This range is entirely above other range
+    // this.lower compared to other.upper
+    if (lower > other_upper) {
+        return false;  // Definitely disjoint
+    }
+    if (lower == other_upper) {
+        // They touch at a point - overlap only if both include that point
+        return lower_inclusive && other_upper_inclusive;
+    }
+    
+    // If we get here, the ranges overlap
+    return true;
+}
+
 int NumericDomainMapping::split_at(ap_float n) {
     // Find the range that contains n
     int range_index = -1;
@@ -39,13 +71,17 @@ int NumericDomainMapping::split_at(ap_float n) {
     
     ap_float old_lower = old_range.lower;
     ap_float old_upper = old_range.upper;
+    bool old_lower_inclusive = old_range.lower_inclusive;
+    bool old_upper_inclusive = old_range.upper_inclusive;
     
     // Replace the old range with the lower part [old_lower, n), keeping old partition index
-    ranges[range_index] = NumericRange(old_lower, n, old_partition);
+    // Lower boundary comes from original range, upper boundary is exclusive at n
+    ranges[range_index] = NumericRange(old_lower, n, old_lower_inclusive, false, old_partition);
     
     // Insert the upper part [n, old_upper) with new partition index
+    // Lower boundary is inclusive at n, upper boundary comes from original range
     ranges.insert(ranges.begin() + range_index + 1,
-                  NumericRange(n, old_upper, new_partition));
+                  NumericRange(n, old_upper, true, old_upper_inclusive, new_partition));
     
     return get_num_partitions();
 }
@@ -55,7 +91,8 @@ void NumericDomainMapping::dump() const {
               << " partitions and " << get_num_ranges() << " ranges:" << std::endl;
     for (size_t i = 0; i < ranges.size(); ++i) {
         const auto &range = ranges[i];
-        std::cout << "  Range " << i << ": [";
+        // Print opening bracket/parenthesis
+        std::cout << "  Range " << i << ": " << (range.lower_inclusive ? "[" : "(");
         if (range.lower == -std::numeric_limits<ap_float>::infinity()) {
             std::cout << "-inf";
         } else {
@@ -67,7 +104,9 @@ void NumericDomainMapping::dump() const {
         } else {
             std::cout << range.upper;
         }
-        std::cout << ") -> partition " << range.partition_index << std::endl;
+        // Print closing bracket/parenthesis
+        std::cout << (range.upper_inclusive ? "]" : ")");
+        std::cout << " -> partition " << range.partition_index << std::endl;
     }
 }
 
@@ -269,10 +308,17 @@ std::vector<int> NumericDomainMapping::compute_reachable_partitions(
             return reachable_partitions;
     }
     
+    // Determine boundary inclusivity for result range
+    // For assign (single point), use [c, c] (both inclusive)
+    // For other operations, use [lower, upper) (left-inclusive, right-exclusive)
+    bool result_lower_inclusive = true;
+    bool result_upper_inclusive = (effect_op == assign && result_lower == result_upper);
+    
     // Find all partitions that overlap with the result range
     for (const auto &range : ranges) {
-        // Two ranges [a, b) and [c, d) overlap if: a < d AND c < b
-        bool overlaps = (result_lower < range.upper && range.lower < result_upper);
+        // Use the overlaps_with method which handles boundary inclusivity
+        bool overlaps = range.overlaps_with(result_lower, result_upper, 
+                                           result_lower_inclusive, result_upper_inclusive);
         
         if (overlaps) {
             reachable_partitions.push_back(range.partition_index);

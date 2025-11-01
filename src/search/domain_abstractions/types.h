@@ -17,21 +17,35 @@ class NumericDomainMapping;
 // For numeric variables: one NumericDomainMapping per numeric variable in the abstraction
 using NumericDomainMappingType = std::vector<NumericDomainMapping>;
 
-// For numeric variables: represents a range [lower, upper)
+// For numeric variables: represents a range with configurable boundaries
+// Examples: [lower, upper), (lower, upper], [lower, upper], (lower, upper)
 struct NumericRange {
-    ap_float lower;  // inclusive
-    ap_float upper;  // exclusive
-    int partition_index;  // which partition this range belongs to
+    ap_float lower;
+    ap_float upper;
+    bool lower_inclusive;  // true: [lower, ...  false: (lower, ...
+    bool upper_inclusive;  // true: ..., upper]  false: ..., upper)
+    int partition_index;   // which partition this range belongs to
     
     NumericRange(ap_float lower = -std::numeric_limits<ap_float>::infinity(),
                  ap_float upper = std::numeric_limits<ap_float>::infinity(),
+                 bool lower_inclusive = true,
+                 bool upper_inclusive = false,
                  int partition_index = 0)
-        : lower(lower), upper(upper), partition_index(partition_index) {}
+        : lower(lower), upper(upper), 
+          lower_inclusive(lower_inclusive), 
+          upper_inclusive(upper_inclusive),
+          partition_index(partition_index) {}
     
     // Check if a value is in this range
     bool contains(ap_float value) const {
-        return value >= lower && value < upper;
+        bool above_lower = lower_inclusive ? (value >= lower) : (value > lower);
+        bool below_upper = upper_inclusive ? (value <= upper) : (value < upper);
+        return above_lower && below_upper;
     }
+    
+    // Check if this range overlaps with another range specified by bounds
+    bool overlaps_with(ap_float other_lower, ap_float other_upper,
+                       bool other_lower_inclusive, bool other_upper_inclusive) const;
     
     // Check if this range covers the entire real line
     bool is_full_range() const {
@@ -95,11 +109,37 @@ public:
         
         // Check that ranges are sorted and contiguous
         for (size_t i = 0; i + 1 < ranges.size(); ++i) {
+            // Check bounds align
             if (ranges[i].upper != ranges[i+1].lower) {
-                return false;  // Gap or overlap
+                return false;  // Gap or overlap in bounds
             }
-            if (ranges[i].lower >= ranges[i].upper) {
+            
+            // Check boundary consistency at meeting point
+            // Adjacent ranges must not both include the boundary point
+            // (would cause overlap) or both exclude it (would cause gap)
+            if (ranges[i].upper_inclusive == ranges[i+1].lower_inclusive) {
+                return false;  // Both include or both exclude the boundary
+            }
+            
+            // Check range is not empty (lower < upper, or lower == upper with both inclusive)
+            if (ranges[i].lower > ranges[i].upper) {
                 return false;  // Invalid range
+            }
+            if (ranges[i].lower == ranges[i].upper) {
+                // Single point range - must have both boundaries inclusive
+                if (!ranges[i].lower_inclusive || !ranges[i].upper_inclusive) {
+                    return false;  // Empty range
+                }
+            }
+        }
+        
+        // Check last range validity
+        if (ranges.back().lower > ranges.back().upper) {
+            return false;
+        }
+        if (ranges.back().lower == ranges.back().upper) {
+            if (!ranges.back().lower_inclusive || !ranges.back().upper_inclusive) {
+                return false;
             }
         }
         

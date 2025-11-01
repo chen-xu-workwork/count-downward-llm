@@ -1100,18 +1100,19 @@ vector<Fact> DomainAbstractionNumericHelper::compute_assignment_axiom_cascades(
         
         // Find which partition(s) the old and new ranges overlap with
         // For simplicity, take the first overlapping partition
+        // Derived ranges use [lower, upper) convention (left-inclusive, right-exclusive)
         int old_derived_partition = -1;
         int new_derived_partition = -1;
         
         for (const NumericRange &range : derived_ranges) {
             if (old_derived_partition == -1 &&
-                old_derived_range.first < range.upper && 
-                range.lower < old_derived_range.second) {
+                range.overlaps_with(old_derived_range.first, old_derived_range.second, 
+                                   true, false)) {
                 old_derived_partition = range.partition_index;
             }
             if (new_derived_partition == -1 &&
-                new_derived_range.first < range.upper && 
-                range.lower < new_derived_range.second) {
+                range.overlaps_with(new_derived_range.first, new_derived_range.second,
+                                   true, false)) {
                 new_derived_partition = range.partition_index;
             }
             if (old_derived_partition != -1 && new_derived_partition != -1) {
