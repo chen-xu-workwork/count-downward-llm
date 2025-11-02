@@ -24,6 +24,8 @@ using namespace std;
 
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
+// Logging controls: keep concise iteration-level outputs by default
+static const bool VERBOSE_DEBUG = false;
 
 class CEGAR {
 private:
@@ -576,11 +578,11 @@ vector<Fact> CEGAR::get_flaws(
     vector<vector<int>> wildcard_plan = abstraction.get_plan();
     vector<Fact> flaws;
 
-    cout << "DEBUG: Validating wildcard plan with " << wildcard_plan.size() << " steps" << endl;
+    if (VERBOSE_DEBUG) cout << "DEBUG: Validating wildcard plan with " << wildcard_plan.size() << " steps" << endl;
     int step_num = 0;
     for (vector<int> &equivalent_ops : wildcard_plan) {
         assert(flaws.empty());
-        cout << "DEBUG: Step " << step_num << " - " << equivalent_ops.size() << " equivalent operators" << endl;
+        if (VERBOSE_DEBUG) cout << "DEBUG: Step " << step_num << " - " << equivalent_ops.size() << " equivalent operators" << endl;
         
         for (int op_id : equivalent_ops) {
             OperatorProxy op = task_proxy.get_operators()[op_id];
@@ -596,20 +598,22 @@ vector<Fact> CEGAR::get_flaws(
                 detected_numeric_flaws.clear();
                 
                 // DEBUG: Print operator being executed
-                cout << "  Executing operator: " << op.get_name() << endl;
+                if (VERBOSE_DEBUG) cout << "  Executing operator: " << op.get_name() << endl;
                 
                 // DEBUG: Print propositional effects
-                cout << "    Propositional effects:" << endl;
-                for (EffectProxy effect : op.get_effects()) {
-                    FactProxy effect_fact = effect.get_fact();
-                    int var_id = effect_fact.get_variable().get_id();
-                    int old_value = current_state[var_id];
-                    int new_value = effect_fact.get_value();
-                    cout << "      var" << var_id << ": " << old_value << " -> " << new_value << endl;
+                if (VERBOSE_DEBUG) {
+                    cout << "    Propositional effects:" << endl;
+                    for (EffectProxy effect : op.get_effects()) {
+                        FactProxy effect_fact = effect.get_fact();
+                        int var_id = effect_fact.get_variable().get_id();
+                        int old_value = current_state[var_id];
+                        int new_value = effect_fact.get_value();
+                        cout << "      var" << var_id << ": " << old_value << " -> " << new_value << endl;
+                    }
                 }
                 
                 // DEBUG: Print numeric effects
-                if (op.get_ass_effects().size() > 0) {
+                if (VERBOSE_DEBUG && op.get_ass_effects().size() > 0) {
                     cout << "    Numeric effects:" << endl;
                     for (auto ass_eff_proxy : op.get_ass_effects()) {
                         NumAssProxy effect = ass_eff_proxy.get_assignment();
@@ -632,7 +636,6 @@ vector<Fact> CEGAR::get_flaws(
                                 new_value = (operand != 0) ? old_value / operand : old_value; 
                                 break;
                         }
-                        
                         cout << "      num_var" << affected_var_id << " " << op_str << " num_var" 
                              << assigned_var.get_id() << " (value=" << operand << "): " 
                              << old_value << " -> " << new_value << endl;
@@ -681,57 +684,63 @@ vector<Fact> CEGAR::get_flaws(
 
     // Check goal flaws
     assert(flaws.empty());
-    cout << "DEBUG: Plan executed successfully, checking goals..." << endl;
-    cout << "DEBUG: Current propositional state after plan execution:" << endl;
-    for (size_t i = 0; i < current_state.size(); ++i) {
-        if (i < 30) {  // Only print first 30 variables
-            cout << "  fdr_" << i << "=" << current_state[i] << endl;
+    if (VERBOSE_DEBUG) {
+        cout << "DEBUG: Plan executed successfully, checking goals..." << endl;
+        cout << "DEBUG: Current propositional state after plan execution:" << endl;
+        for (size_t i = 0; i < current_state.size(); ++i) {
+            if (i < 30) {  // Only print first 30 variables
+                cout << "  fdr_" << i << "=" << current_state[i] << endl;
+            }
         }
-    }
-    
-    cout << "DEBUG: Current numeric state after plan execution:" << endl;
-    for (size_t i = 0; i < numeric_state.size(); ++i) {
-        if (i < 20) {  // Only print first 20 numeric variables
-            cout << "  num_" << i << "=" << numeric_state[i] << endl;
+        cout << "DEBUG: Current numeric state after plan execution:" << endl;
+        for (size_t i = 0; i < numeric_state.size(); ++i) {
+            if (i < 20) {  // Only print first 20 numeric variables
+                cout << "  num_" << i << "=" << numeric_state[i] << endl;
+            }
         }
+        cout << "DEBUG: Specific variables of interest:" << endl;
+        if (13 < current_state.size()) cout << "  fdr_13=" << current_state[13] << endl;
+        if (33 < current_state.size()) cout << "  fdr_33=" << current_state[33] << endl;
+        if (66 < current_state.size()) cout << "  fdr_66=" << current_state[66] << endl;
     }
-    
-    cout << "DEBUG: Specific variables of interest:" << endl;
-    if (13 < current_state.size()) cout << "  fdr_13=" << current_state[13] << endl;
-    if (33 < current_state.size()) cout << "  fdr_33=" << current_state[33] << endl;
-    if (66 < current_state.size()) cout << "  fdr_66=" << current_state[66] << endl;
     
     flaws = get_goal_flaws(task_proxy, current_state,
                            blacklisted_variables);
     
-    cout << "DEBUG: Goal flaws detected: " << flaws.size() << endl;
+    if (VERBOSE_DEBUG) cout << "DEBUG: Goal flaws detected: " << flaws.size() << endl;
     
     // Separate comparison axiom flaws from regular propositional flaws
     // KEY PRINCIPLE: Only add numeric flaws for comparison axioms that appear as propositional flaws
     vector<Fact> filtered_flaws;
     for (const Fact &flaw : flaws) {
-        cout << "  Goal flaw: ID: fdr_" << flaw.var << "=" << flaw.value << endl;
+    if (VERBOSE_DEBUG) cout << "  Goal flaw: ID: fdr_" << flaw.var << "=" << flaw.value << endl;
         
         // Check if this goal flaw is on a comparison axiom variable
         auto it = comparison_axiom_dependencies.find(flaw.var);
         if (it != comparison_axiom_dependencies.end()) {
-            cout << "    -> This is a comparison axiom variable (numeric goal)" << endl;
-            cout << "    -> Flaw is on fdr_" << flaw.var << endl;
+            if (VERBOSE_DEBUG) {
+                cout << "    -> This is a comparison axiom variable (numeric goal)" << endl;
+                cout << "    -> Flaw is on fdr_" << flaw.var << endl;
+            }
             
             // Numeric goal flaw - trace to regular numeric variables that this comparison depends on
             const unordered_set<int> &dep_vars = it->second;
             
-            cout << "    -> Will add numeric flaws for the following regular variables:" << endl;
-            for (int numeric_var_id : dep_vars) {
-                cout << "       num_" << numeric_var_id << endl;
+            if (VERBOSE_DEBUG) {
+                cout << "    -> Will add numeric flaws for the following regular variables:" << endl;
+                for (int numeric_var_id : dep_vars) {
+                    cout << "       num_" << numeric_var_id << endl;
+                }
             }
             
             bool added_any_numeric_flaw = false;
             for (int numeric_var_id : dep_vars) {
                 // Get current concrete value
                 ap_float concrete_value = numeric_state[numeric_var_id];
+             if (VERBOSE_DEBUG) {
                 cout << "       Adding numeric flaw: num_" << numeric_var_id 
-                     << " with concrete value " << concrete_value << endl;
+                    << " with concrete value " << concrete_value << endl;
+             }
                 
                 // Add this as a numeric flaw to refine
                 detected_numeric_flaws.emplace_back(
@@ -741,8 +750,10 @@ vector<Fact> CEGAR::get_flaws(
             
             // ALWAYS refine the comparison axiom variable itself (propositional)
             // This is important even if we can't refine the numeric variables
-            cout << "    -> Adding comparison axiom fdr_" << flaw.var 
+          if (VERBOSE_DEBUG) {
+             cout << "    -> Adding comparison axiom fdr_" << flaw.var 
                  << " to propositional flaws for refinement" << endl;
+          }
             filtered_flaws.push_back(flaw);
         } else {
             // Regular propositional flaw - keep it
@@ -750,9 +761,11 @@ vector<Fact> CEGAR::get_flaws(
         }
     }
     
-    cout << "DEBUG: Total flaws: " << filtered_flaws.size() << " propositional, "
-         << detected_numeric_flaws.size() << " numeric" << endl;
-    cout << "DEBUG: Numeric flaws only added for comparison axioms that appear in propositional flaws" << endl;
+    if (VERBOSE_DEBUG) {
+        cout << "DEBUG: Total flaws: " << filtered_flaws.size() << " propositional, "
+             << detected_numeric_flaws.size() << " numeric" << endl;
+        cout << "DEBUG: Numeric flaws only added for comparison axioms that appear in propositional flaws" << endl;
+    }
     return filtered_flaws;
 }
 
@@ -1494,6 +1507,36 @@ DomainAbstraction CEGAR::build_abstraction(
         vector<Fact> flaws =
             get_flaws(task_proxy, concrete_init, abstraction);
 
+        // SUMMARY: Final flaws and dependencies for this iteration
+        if (!flaws.empty() || !detected_numeric_flaws.empty()) {
+            cout << "SUMMARY: Flaws after plan validation" << endl;
+            if (!flaws.empty()) {
+                cout << "  Propositional flaws:" << endl;
+                for (const Fact &f : flaws) {
+                    bool is_comp = (comparison_axiom_dependencies.find(f.var) != comparison_axiom_dependencies.end());
+                    cout << "    fdr_" << f.var << "=" << f.value << (is_comp ? " (comparison)" : "") << endl;
+                    if (is_comp) {
+                        const auto &deps = comparison_axiom_dependencies.at(f.var);
+                        cout << "      depends on numeric: ";
+                        bool first = true;
+                        for (int nv : deps) { if (!first) cout << ", "; cout << "num_" << nv; first = false; }
+                        cout << endl;
+                    }
+                }
+            } else {
+                cout << "  Propositional flaws: none" << endl;
+            }
+            if (!detected_numeric_flaws.empty()) {
+                cout << "  Numeric flaws:" << endl;
+                for (const auto &nf : detected_numeric_flaws) {
+                    cout << "    num_" << nf.numeric_var_id << " at value " << nf.concrete_value
+                         << " (from axiom fdr_" << nf.prop_var_id << ")" << endl;
+                }
+            } else {
+                cout << "  Numeric flaws: none" << endl;
+            }
+        }
+
         if (flaws.empty() && detected_numeric_flaws.empty()) {
             
             cout << "No more flaws found, terminating CEGAR refinement."
@@ -1547,13 +1590,15 @@ DomainAbstraction CEGAR::build_abstraction(
         }
 
         // DEBUG: Print what we're passing to the factory
-        cout << "DEBUG CEGAR: Creating factory for iteration " << iteration << " with numeric_domain_sizes: ";
-        for (size_t i = 0; i < min(numeric_domain_sizes.size(), size_t(10)); ++i) {
-            cout << "v" << i << "=" << numeric_domain_sizes[i] << " ";
+        if (VERBOSE_DEBUG) {
+            cout << "DEBUG CEGAR: Creating factory for iteration " << iteration << " with numeric_domain_sizes: ";
+            for (size_t i = 0; i < min(numeric_domain_sizes.size(), size_t(10)); ++i) {
+                cout << "v" << i << "=" << numeric_domain_sizes[i] << " ";
+            }
+            cout << endl;
+            cout << "DEBUG CEGAR: Specifically, v66=" << numeric_domain_sizes[66] << ", v17=" << numeric_domain_sizes[17] 
+                 << ", v2=" << numeric_domain_sizes[2] << endl;
         }
-        cout << endl;
-        cout << "DEBUG CEGAR: Specifically, v66=" << numeric_domain_sizes[66] << ", v17=" << numeric_domain_sizes[17] 
-             << ", v2=" << numeric_domain_sizes[2] << endl;
         
         DomainAbstractionFactory new_factory(
             task_proxy, domain_mapping, abstract_domain_sizes,
@@ -1563,12 +1608,7 @@ DomainAbstraction CEGAR::build_abstraction(
         abstraction = new_factory.generate();
         ++iteration;
         
-        // DEBUG: Print state 126 after iteration 2
-        if (iteration == 3) {  // iteration was just incremented, so iteration 2 just finished
-            // Check if state 126 exists in the abstraction
-            int total_states = abstraction.size();
-          
-        }
+        // (trimmed legacy debug)
     }
 
     if (utils::extra_memory_padding_is_reserved()) {
