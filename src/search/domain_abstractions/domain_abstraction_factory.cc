@@ -681,15 +681,31 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         non_trivial_count++;
         
         int multiplier = hash_multipliers[prop_var_id];
-        
-        // Extract current value of this comparison axiom from base_state_index
-        // Comparison axioms have domain size 3: true (0), false (1), unknown (2)
-        int current_value = (base_state_index / multiplier) % 3;
-        
-        // UNKNOWN is value 2 (from output file: index 0 = true, 1 = false, 2 = <none of those>)
-        // We need to reset from current_value to UNKNOWN (2)
-        // Delta = (2 - current_value) * multiplier
+
+        // Determine the abstract domain size for this variable. The domain_mapping
+        // stores a mapping from original values -> abstract values. The abstract
+        // domain size is therefore 1 + max(mapped_value).
+        int abstract_domain_size = 0;
+        if (!domain_mapping[prop_var_id].empty()) {
+            for (int mapped : domain_mapping[prop_var_id]) {
+                if (mapped > abstract_domain_size) {
+                    abstract_domain_size = mapped;
+                }
+            }
+            abstract_domain_size += 1;
+        } else {
+            // Should not happen for non-trivial variables, but guard anyway.
+            abstract_domain_size = 1;
+        }
+
+        // Extract the current abstract value of this comparison axiom from base_state_index
+        int current_value = (base_state_index / multiplier) % abstract_domain_size;
+
+        // UNKNOWN corresponds to original value index 2; look up its abstract value.
+        // domain_mapping[prop_var_id] uses original-domain indexing, so index 2 must exist.
         int unknown_value = domain_mapping[prop_var_id][2];
+
+        // Reset delta: move the current abstract value to the UNKNOWN abstract value
         int delta_to_unknown = (unknown_value - current_value) * multiplier;
         reset_to_unknown_adjustment += delta_to_unknown;
     }
@@ -782,7 +798,8 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     enumerate_combinations(0, 0);
     
     if (debug_enum && affected_comparisons.size() > 0) {
-        cout << "  RESULT: Generated " << result.size() << " states from base_state=" << base_state_index << endl;
+        cout << "  RESULT: Generated " << result.size() << " states from base_state=" << base_state_index
+             << " (after reset=" << state_with_unknowns << ")" << endl;
         if (result.size() <= 10) {
             cout << "  States: ";
             for (size_t i = 0; i < result.size(); ++i) {
