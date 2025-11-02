@@ -2,9 +2,11 @@
 #define DOMAIN_ABSTRACTIONS_TYPES_H
 
 #include "../globals.h"
+#include "../utils/system.h"
 #include <vector>
 #include <limits>
 #include <memory>
+#include <iostream>
 
 namespace domain_abstractions {
 class DomainAbstraction;
@@ -115,7 +117,7 @@ public:
     }
     
     // Validate internal consistency
-    bool is_valid() const {
+    virtual bool is_valid() const {
         if (ranges.empty()) return false;
         
         // Check that ranges are sorted and contiguous
@@ -205,6 +207,48 @@ public:
         ap_float left_lower, ap_float left_upper,
         ap_float right_lower, ap_float right_upper,
         cal_operator op);
+};
+
+// Constant mapping: represents a constant numeric variable with a single partition
+// Constants never change value, so they always map to partition 0
+class ConstantMapping : public NumericDomainMapping {
+private:
+    ap_float constant_value;
+public:
+    explicit ConstantMapping(ap_float value) : constant_value(value) {
+        // Constants don't change - everything maps to partition 0
+        // The parent constructor already added the full range (-inf, inf) with partition 0
+        // So we don't need to modify it!
+    }
+    
+    // Constants cannot be split - just return current number of partitions (1)
+    // This indicates no split occurred
+    int split_at(ap_float n) override {
+        std::cout << "WARNING: Attempted to split constant variable with value " 
+                  << constant_value << " at " << n 
+                  << " - ignoring (constants have fixed value)" << std::endl;
+        return 1; // No new partition created
+    }
+    
+    // Clone method for polymorphic copying
+    std::unique_ptr<NumericDomainMapping> clone() const override {
+        return std::make_unique<ConstantMapping>(*this);
+    }
+    
+    ap_float get_constant_value() const {
+        return constant_value;
+    }
+    
+    // Override validation - constants have a single range covering everything with partition 0
+    bool is_valid() const override {
+        if (ranges.size() != 1) {
+            return false;
+        }
+        // Check it's the full range (-inf, inf) with partition 0
+        return ranges[0].lower == -std::numeric_limits<ap_float>::infinity() &&
+               ranges[0].upper == std::numeric_limits<ap_float>::infinity() &&
+               ranges[0].partition_index == 0;
+    }
 };
 
 // Standard splitting strategy: splits (-inf, inf) into [(-inf, x), [x, inf)]

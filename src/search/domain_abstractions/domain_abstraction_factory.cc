@@ -2127,10 +2127,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 }
             }
             
-            // Debug: print operators found
-            cout << "DEBUG PLAN: Found " << cheapest_operators.size() 
-                 << " equivalent operators for transition from state " << current_state 
-                 << " to " << successor_state << endl;
+           
             if (cheapest_operators.empty()) {
                 cout << "DEBUG PLAN: WARNING - No operators found! This will cause an empty plan." << endl;
             }

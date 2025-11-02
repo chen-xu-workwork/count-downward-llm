@@ -120,7 +120,7 @@ private:
                                 int abstraction_size);
 
     bool can_refine_variable(int old_abstraction_size, int var_id);
-    bool can_refine_numeric_variable(int old_abstraction_size, int numeric_var_id);
+    bool can_refine_numeric_variable(int old_abstraction_size, int numeric_var_id, const TaskProxy &task_proxy);
 
     void add_variable_to_abstraction_if_necessary(
         int var, DomainMapping &abstraction);
@@ -1032,19 +1032,62 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
     // Get number of numeric variables
     int num_numeric_variables = task_proxy.get_numeric_variables().size();
     
-    // Initialize numeric domain mapping with full range (-inf, inf) for all numeric variables
+    // Initialize numeric domain mapping with full range (-inf, inf) for regular/derived variables
+    // Constants should have a single partition at their exact value
     // Choose strategy based on configuration
     std::cout << "DEBUG: NumericSplitStrategy = " 
               << (numeric_split_strategy == NumericSplitStrategy::EXCLUSION ? "EXCLUSION" : "STANDARD") 
               << std::endl;
     NumericDomainMappingType numeric_domain_mapping;
     numeric_domain_mapping.reserve(num_numeric_variables);
+    
+    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
     for (int i = 0; i < num_numeric_variables; ++i) {
-        if (numeric_split_strategy == NumericSplitStrategy::EXCLUSION) {
-            numeric_domain_mapping.push_back(std::make_unique<ExclusionSplitMapping>());
+        NumericVariableProxy num_var = num_vars[i];
+        numType var_type = num_var.get_var_type();
+        
+        if (var_type == numType::constant) {
+            // Constants should have a single partition at their exact value
+            // Use ConstantMapping which prevents splitting
+            ap_float const_value = num_var.get_initial_state_value();
+            std::cout << "  num_" << i << " (" << num_var.get_name() 
+                     << ") is CONSTANT with value " << const_value 
+                     << " - creating ConstantMapping" << std::endl;
+            
+            numeric_domain_mapping.push_back(std::make_unique<ConstantMapping>(const_value));
+        } else if (var_type == numType::derived) {
+            // Derived variables are computed from other variables via assignment axioms
+            // They should be implicitly abstracted based on their source variables
+            // Don't create a refinable mapping - use ConstantMapping as placeholder
+            // (the actual partitioning happens implicitly during axiom evaluation)
+            std::cout << "  num_" << i << " (" << num_var.get_name() 
+                     << ") is DERIVED - skipping explicit mapping (implicitly abstracted)" << std::endl;
+            
+            // Use a placeholder ConstantMapping with value 0
+            // The actual value doesn't matter since derived variables are computed
+            numeric_domain_mapping.push_back(std::make_unique<ConstantMapping>(0));
+        } else if (var_type == numType::regular) {
+            // Regular variables: create refinable mapping
+            std::cout << "  num_" << i << " (" << num_var.get_name() 
+                     << ") is REGULAR - creating refinable mapping" << std::endl;
+            
+            if (numeric_split_strategy == NumericSplitStrategy::EXCLUSION) {
+                numeric_domain_mapping.push_back(std::make_unique<ExclusionSplitMapping>());
+            } else {
+                // Default: StandardSplitMapping
+                numeric_domain_mapping.push_back(std::make_unique<StandardSplitMapping>());
+            }
         } else {
-            // Default: StandardSplitMapping
-            numeric_domain_mapping.push_back(std::make_unique<StandardSplitMapping>());
+            // Unknown or instrumentation type - treat as refinable for now
+            std::cout << "  num_" << i << " (" << num_var.get_name() 
+                     << ") is OTHER/UNKNOWN (type=" << static_cast<int>(var_type)
+                     << ") - creating refinable mapping" << std::endl;
+            
+            if (numeric_split_strategy == NumericSplitStrategy::EXCLUSION) {
+                numeric_domain_mapping.push_back(std::make_unique<ExclusionSplitMapping>());
+            } else {
+                numeric_domain_mapping.push_back(std::make_unique<StandardSplitMapping>());
+            }
         }
     }
     
@@ -1482,13 +1525,17 @@ DomainAbstraction CEGAR::build_abstraction(
             int actual_partitions = numeric_domain_mapping[i]->get_num_partitions();
             int expected_partitions = numeric_domain_sizes[i];
             if (actual_partitions != expected_partitions) {
+                cout << "ERROR: num_" << i << " has " << actual_partitions 
+                     << " partitions but expected " << expected_partitions << endl;
                 all_valid = false;
             }
             if (!numeric_domain_mapping[i]->is_valid()) {
+                cout << "ERROR: num_" << i << " has invalid mapping" << endl;
                 all_valid = false;
             }
         }
         if (!all_valid) {
+            cout << "CRITICAL ERROR: Numeric domain mapping validation failed!" << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
 
@@ -1566,9 +1613,32 @@ bool CEGAR::can_refine_variable(
 }
 
 bool CEGAR::can_refine_numeric_variable(
-    int old_abstraction_size, int numeric_var_id) {
+    int old_abstraction_size, int numeric_var_id, const TaskProxy &task_proxy) {
     if (blacklisted_numeric_variables.count(numeric_var_id)) {
         return false;
+    }
+    
+    // CRITICAL: Don't refine constants or derived variables!
+    // Constants should always have exactly 1 partition at their value
+    // Derived variables are implicitly abstracted based on their source variables
+    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+    if (numeric_var_id >= 0 && numeric_var_id < num_vars.size()) {
+        NumericVariableProxy num_var = num_vars[numeric_var_id];
+        numType var_type = num_var.get_var_type();
+        
+        cout << "DEBUG can_refine: num_" << numeric_var_id 
+             << " has type=" << static_cast<int>(var_type) 
+             << " (1=constant, 2=derived, 4=regular)" << endl;
+        
+        if (var_type == numType::constant) {
+            cout << "Cannot refine num_" << numeric_var_id << " (CONSTANT); ignoring" << endl;
+            return false;
+        }
+        
+        if (var_type == numType::derived) {
+            cout << "Cannot refine num_" << numeric_var_id << " (DERIVED); ignoring" << endl;
+            return false;
+        }
     }
     
     // Check if this numeric variable is in the abstraction
@@ -1676,7 +1746,7 @@ bool CEGAR::fix_numeric_flaws(
              << endl;
         
         // Check if we can refine this variable
-        if (can_refine_numeric_variable(abstraction_size, numeric_var_id)) {
+        if (can_refine_numeric_variable(abstraction_size, numeric_var_id, task_proxy)) {
             // Bounds check
             if (numeric_var_id < 0 || numeric_var_id >= (int)numeric_domain_mapping.size()) {
                 cout << "ERROR: numeric_var_id " << numeric_var_id 
