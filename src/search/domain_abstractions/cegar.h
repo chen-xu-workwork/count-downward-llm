@@ -38,6 +38,11 @@ enum class InitSplitMethod{
     IDENTITY,
 };
 
+enum class NumericSplitStrategy {
+    STANDARD,   // Standard split: [lower, x) and [x, upper) with different partitions
+    EXCLUSION,  // Exclusion split: R\{x} and {x} as separate partitions
+};
+
 /*
   This function implements the CEGAR algorithm for computing a domain
   abstraction.
@@ -50,6 +55,7 @@ extern DomainAbstraction generate_domain_abstraction_with_cegar(
             bool use_wildcard_plans,
             FlawTreatment flaw_treatment,
             InitSplitMethod init_split_method,
+            NumericSplitStrategy numeric_split_strategy,
             const std::shared_ptr <utils::RandomNumberGenerator> &rng,
             const TaskProxy &task_proxy,
             std::unordered_set<int> &&init_split_var_ids = std::unordered_set<int>(),

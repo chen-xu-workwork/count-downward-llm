@@ -12,6 +12,7 @@ class RandomNumberGenerator;
 namespace domain_abstractions {
 enum class FlawTreatment;
 enum class InitSplitMethod;
+enum class NumericSplitStrategy;
 
 enum class InitSplitOptions {
     NONE,
@@ -30,6 +31,7 @@ private:
     const bool use_wildcard_plans;
     const FlawTreatment flaw_treatment;
     const InitSplitMethod init_split_method;
+    const NumericSplitStrategy numeric_split_strategy;
     const InitSplitOptions init_split_option;
 
     std::unordered_set<int> get_init_split_var_ids(const TaskProxy &task_proxy);

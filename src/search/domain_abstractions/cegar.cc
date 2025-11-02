@@ -46,6 +46,7 @@ private:
     const bool use_wildcard_plans;
     const FlawTreatment flaw_treatment;
     const InitSplitMethod init_split_method;
+    const NumericSplitStrategy numeric_split_strategy;
     const shared_ptr<utils::RandomNumberGenerator> &rng;
     const std::unordered_set<int> init_split_var_ids;
     std::unordered_set<int> blacklisted_variables;
@@ -148,6 +149,7 @@ public:
           bool use_wildcard_plans,
           FlawTreatment flaw_treatment,
           InitSplitMethod init_split_method,
+          NumericSplitStrategy numeric_split_strategy,
           const shared_ptr<utils::RandomNumberGenerator> &rng,
           unordered_set<int> &&init_split_var_ids,
           unordered_set<int> &&blacklisted_variables);
@@ -161,6 +163,7 @@ CEGAR::CEGAR(
         bool use_wildcard_plans,
         FlawTreatment flaw_treatment,
         InitSplitMethod init_split_method,
+        NumericSplitStrategy numeric_split_strategy,
         const shared_ptr<utils::RandomNumberGenerator> &rng,
         unordered_set<int> &&init_split_var_ids,
         unordered_set<int> &&blacklisted_variables)
@@ -169,6 +172,7 @@ CEGAR::CEGAR(
       use_wildcard_plans(use_wildcard_plans),
       flaw_treatment(flaw_treatment),
       init_split_method(init_split_method),
+      numeric_split_strategy(numeric_split_strategy),
       rng(rng),
       init_split_var_ids(move(init_split_var_ids)),
       blacklisted_variables(move(blacklisted_variables)) {
@@ -1025,11 +1029,16 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
     int num_numeric_variables = task_proxy.get_numeric_variables().size();
     
     // Initialize numeric domain mapping with full range (-inf, inf) for all numeric variables
-    // Use StandardSplitMapping as default (standard behavior: [lower,x), [x,upper))
+    // Choose strategy based on configuration
     NumericDomainMappingType numeric_domain_mapping;
     numeric_domain_mapping.reserve(num_numeric_variables);
     for (int i = 0; i < num_numeric_variables; ++i) {
-        numeric_domain_mapping.push_back(std::make_unique<StandardSplitMapping>());
+        if (numeric_split_strategy == NumericSplitStrategy::EXCLUSION) {
+            numeric_domain_mapping.push_back(std::make_unique<ExclusionSplitMapping>());
+        } else {
+            // Default: StandardSplitMapping
+            numeric_domain_mapping.push_back(std::make_unique<StandardSplitMapping>());
+        }
     }
     
     return numeric_domain_mapping;
@@ -1739,6 +1748,7 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         bool use_wildcard_plans,
         FlawTreatment flaw_treatment,
         InitSplitMethod init_split_method,
+        NumericSplitStrategy numeric_split_strategy,
         const shared_ptr<utils::RandomNumberGenerator> &rng,
         const TaskProxy &task_proxy,
         unordered_set<int> &&init_split_var_ids,
@@ -1749,6 +1759,7 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         use_wildcard_plans,
         flaw_treatment,
         init_split_method,
+        numeric_split_strategy,
         rng,
         move(init_split_var_ids),
         move(blacklisted_variables));
@@ -1849,6 +1860,16 @@ void add_domain_abstraction_cegar_options_to_parser(
         flaw_treatment,
         "Flaws are found in collections and can be treated in different ways. "
         "This option allows to switch between them.");
+    vector<string> numeric_split_strategy;
+    numeric_split_strategy.emplace_back("standard");
+    numeric_split_strategy.emplace_back("exclusion");
+    parser.add_enum_option(
+        "numeric_split_strategy",
+        numeric_split_strategy,
+        "Strategy for splitting numeric variable domains: "
+        "'standard' creates [lower, x) and [x, upper) with different partitions, "
+        "'exclusion' creates R\\{x} (two disjoint ranges) and {x} as separate partitions.",
+        "standard");
 }
 }
 
@@ -1861,5 +1882,10 @@ std::string TypeNamer<domain_abstractions::FlawTreatment>::name() {
 template <>
 std::string TypeNamer<domain_abstractions::InitSplitMethod>::name() {
     return "InitSplitMethod";
+}
+
+template <>
+std::string TypeNamer<domain_abstractions::NumericSplitStrategy>::name() {
+    return "NumericSplitStrategy";
 }
 }

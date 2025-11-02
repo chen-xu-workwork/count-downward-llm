@@ -15,7 +15,8 @@ DomainAbstractionCollectionGeneratorMultipleCegar::DomainAbstractionCollectionGe
     : DomainAbstractionCollectionGeneratorMultiple(opts),
       use_wildcard_plans(opts.get<bool>("use_wildcard_plans")),
       flaw_treatment(FlawTreatment(opts.get_enum("flaw_treatment"))),
-      init_split_method(InitSplitMethod(opts.get_enum("init_split_method"))) {
+      init_split_method(InitSplitMethod(opts.get_enum("init_split_method"))),
+      numeric_split_strategy(NumericSplitStrategy(opts.get_enum("numeric_split_strategy"))) {
     if (init_split_method == InitSplitMethod::GOAL_VALUE
         && init_split_variables != VariableSubset::GOALS) {
         cerr << "CEGAR domain abstraction generator was called with "
@@ -44,6 +45,7 @@ DomainAbstraction DomainAbstractionCollectionGeneratorMultipleCegar::compute_abs
         use_wildcard_plans,
         flaw_treatment,
         init_split_method,
+        numeric_split_strategy,
         rng,
         task_proxy,
         move(init_split_var_ids),
