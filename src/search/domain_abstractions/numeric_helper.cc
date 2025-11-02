@@ -467,10 +467,9 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
             // Create one abstract operator per transition
             for (const TransitionInfo &trans : transitions) {
                 // Add partition facts to pre_pairs and eff_pairs (for regression)
-                // In regression:
-                //   - pre_pairs + eff_pairs = preconditions (things that must be true)
-                //   - target_partition_facts go in pre_pairs (current state partition)
-                //   - source_partition_facts go in eff_pairs (predecessor state partition)
+                // In regression the match tree enforces CURRENT state conditions via regression_preconditions.
+                // We therefore put TARGET partition facts into eff_pairs so they become regression preconditions,
+                // while SOURCE partition facts remain in pre_pairs for predecessor-side checks during enumeration.
                 vector<Fact> extended_pre_pairs = pre_pairs;
                 vector<Fact> extended_eff_pairs = eff_pairs;
                 
@@ -752,15 +751,6 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
         base_hash_effect += effect;
     }
     
-    // If no numeric effects, just return single transition with no numeric preconditions
-    if (ass_effects.empty()) {
-        TransitionInfo trans;
-        trans.hash_effect = base_hash_effect;
-        // No numeric preconditions needed
-        transitions.push_back(trans);
-        return transitions;
-    }
-    
     // Identify which numeric variables are affected
     vector<bool> affected_numeric_vars(numeric_domain_mapping.size(), false);
     for (const NumAssProxy &ass_eff : ass_effects) {
@@ -921,9 +911,24 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 }
             }
         } else {
-            // Not affected: no contribution from this variable
-            enumerate_targets(var_idx + 1, current_effect, source_facts, target_facts,
-                            changed_vars, old_parts, new_parts);
+            // Unaffected variable: if refined (>1 partition), enforce frame-like identity
+            int num_partitions = numeric_domain_sizes[var_idx];
+            if (num_partitions > 1) {
+                int abstract_num_var_id = domain_sizes.size() + var_idx;
+                for (int p = 0; p < num_partitions; ++p) {
+                    // Add identity partition facts (P -> P) with zero hash contribution
+                    source_facts.emplace_back(abstract_num_var_id, p);
+                    target_facts.emplace_back(abstract_num_var_id, p);
+                    enumerate_targets(var_idx + 1, current_effect, source_facts, target_facts,
+                                      changed_vars, old_parts, new_parts);
+                    source_facts.pop_back();
+                    target_facts.pop_back();
+                }
+            } else {
+                // Trivial numeric variable: nothing to add
+                enumerate_targets(var_idx + 1, current_effect, source_facts, target_facts,
+                                  changed_vars, old_parts, new_parts);
+            }
         }
     };
     

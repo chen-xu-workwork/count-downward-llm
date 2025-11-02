@@ -43,9 +43,9 @@ struct ResNumericVariable {
  * Each transition corresponds to a valid (source_partition -> target_partition)
  * combination for numeric variables. 
  * 
- * In regression:
- * - source_partition_facts: where predecessor was (goes in eff_pairs)
- * - target_partition_facts: where current state is (goes in pre_pairs)
+ * In regression (as constructed by the helper + factory):
+ * - source_partition_facts: partitions of the PREDECESSOR state (kept separate; used for predecessor checks/enumeration)
+ * - target_partition_facts: partitions of the CURRENT state (inserted into eff_pairs so they become regression preconditions)
  */
 struct TransitionInfo {
     int hash_effect;

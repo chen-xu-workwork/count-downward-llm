@@ -137,20 +137,24 @@ AbstractOperator::AbstractOperator(
       source_partitions(source_partitions),
       target_partitions(target_partitions) {
     
-    // Build regression preconditions from progression effects, prevail, AND preconditions
-    // In regression: 
+    // Build regression preconditions from progression effects and prevails
+    // In regression:
     //   - prev_pairs: things that don't change (prevail in both directions)
-    //   - eff_pairs: forward effects = regression preconditions (current state)
-    //   - pre_pairs: forward preconditions = regression preconditions (for numeric partitions)
-    // Note: For propositional variables, pre_pairs are regression *effects* (they were required before, become true after regression)
-    // But for numeric partition facts in pre_pairs (target_partition_facts), they represent the CURRENT partition
-    // and thus are regression PRECONDITIONS!
+    //   - eff_pairs: forward effects become regression preconditions that must hold in the CURRENT state
+    // For numeric partitions, target-partition facts are intentionally placed in eff_pairs
+    // upstream so they are enforced on the current state by the match tree.
     regression_preconditions.reserve(prev_pairs.size() + pre_pairs.size() + eff_pairs.size());
     for (const Fact &prev : prev_pairs) {
         regression_preconditions.push_back(prev);
     }
     for (const Fact &eff : eff_pairs) {
         regression_preconditions.push_back(eff);
+    }
+
+    // Ensure deterministic MatchTree structure: sort by var id and validate uniqueness
+    sort(regression_preconditions.begin(), regression_preconditions.end());
+    for (size_t i = 1; i < regression_preconditions.size(); ++i) {
+        assert(regression_preconditions[i].var != regression_preconditions[i - 1].var);
     }
 
 }
@@ -309,78 +313,69 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     const TaskProxy &task_proxy) const {
     
     vector<int> result;
-    
-    // DEBUG: Check comparison axiom refinement status (every time to track iterations)
-    static int call_count = 0;
-    call_count++;
-    if (call_count == 1 || call_count % 100 == 0) {
-        ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-        int total_comp_axioms = 0;
-        int trivial_comp_axioms = 0;
-        int refined_comp_axioms = 0;
-        for (ComparisonAxiomProxy axiom : comparison_axioms) {
-            int prop_var_id = axiom.get_true_fact().get_variable().get_id();
-            total_comp_axioms++;
-            bool is_trivial = variable_is_trivial(prop_var_id);
-            if (is_trivial) {
-                trivial_comp_axioms++;
-            } else {
-                refined_comp_axioms++;
+
+    // Build the set of numeric variables that ACTUALLY change partitions.
+    // Identity transitions (source == target) should NOT be treated as
+    // affecting comparisons. Comparisons should only branch when their
+    // numeric inputs truly change across the transition.
+    vector<int> actually_changed_vars;
+    actually_changed_vars.reserve(changed_numeric_vars.size());
+    for (size_t i = 0; i < changed_numeric_vars.size(); ++i) {
+        if (i < source_partitions.size() && i < target_partitions.size()) {
+            if (source_partitions[i] != target_partitions[i]) {
+                actually_changed_vars.push_back(changed_numeric_vars[i]);
             }
         }
     }
-    
-    // BUG FIX: Even if no numeric variables changed partitions, we still need to
-    // evaluate comparison axioms if any are refined (non-trivial)!
-    //
-    // The bug was: propositional-only operators or operators where numeric variables
-    // stay in the same partition would skip comparison axiom evaluation entirely.
-    // This caused states differing only in comparison axiom values to be unreachable.
-    //
-    // Example: State 14 (var24=0) was unreachable from State 13 (var24=1) even though
-    // operators with hash_effect=0 should bridge them via comparison axiom enumeration.
-    //
-    // The fix: Check if there are any refined comparison axioms. If so, we need to
-    // enumerate their possible truth values even when numeric variables don't change.
-    
-    if (changed_numeric_vars.empty()) {
-        // Check if there are any refined (non-trivial) comparison axioms
-        bool has_refined_comparisons = false;
-        ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-        for (ComparisonAxiomProxy axiom : comparison_axioms) {
-            int prop_var_id = axiom.get_true_fact().get_variable().get_id();
-            if (!variable_is_trivial(prop_var_id)) {
-                has_refined_comparisons = true;
-                break;
-            }
+
+    // If no numeric variables change partitions, don't branch on comparison
+    // axioms: their values are functions of numeric inputs. Without numeric
+    // changes, the predecessor set is just the base state.
+    if (actually_changed_vars.empty()) {
+        // Identity-only case: no numeric partition changes, so comparison
+        // axioms cannot change. Do not branch; predecessor set is the base state.
+        static int no_change_log_count = 0;
+        if (no_change_log_count++ < 3) {
+            cout << "DEBUG ENUM_COMP: no numeric partition change; returning base_state "
+                 << base_state_index << endl;
         }
-        
-        if (!has_refined_comparisons) {
-            // No refined comparison axioms - early return is safe
-            result.push_back(base_state_index);
-            return result;
-        }
-        
-        // We have refined comparison axioms but no numeric changes.
-        // We still need to enumerate comparison axiom truth values!
-        // Fall through to the full enumeration logic below.
+        result.push_back(base_state_index);
+        return result;
     }
     
+    // Decode the CURRENT state's numeric partitions from base_state_index. We use these
+    // as precise ranges for non-changing regular variables (instead of conservative unions).
+    vector<int> cur_num_partitions;
+    cur_num_partitions.reserve(numeric_domain_mapping.size());
+    for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+        int numeric_offset = static_cast<int>(hash_multipliers.size()) - static_cast<int>(numeric_domain_mapping.size());
+        int multiplier_idx = numeric_offset + static_cast<int>(num_var_id);
+        int multiplier = hash_multipliers[multiplier_idx];
+        int num_parts = numeric_domain_mapping[num_var_id]->get_num_partitions();
+        int part = (base_state_index / multiplier) % num_parts;
+        cur_num_partitions.push_back(part);
+    }
+
     // Step 0: Compute transitive closure of affected numeric variables through assignment axioms
     // Start with the directly changed variables, then add derived variables that depend on them
     //
     // SPECIAL CASE: If changed_numeric_vars is empty but we have refined comparison axioms,
     // we still need to enumerate those comparison axiom values. In this case, affected_numeric_vars
     // will be empty, and we'll mark all refined comparison axioms as UNKNOWN (ambiguous).
-    unordered_set<int> affected_numeric_vars(changed_numeric_vars.begin(), changed_numeric_vars.end());
+    unordered_set<int> affected_numeric_vars(actually_changed_vars.begin(), actually_changed_vars.end());
     unordered_map<int, pair<ap_float, ap_float>> computed_ranges;  // var_id -> (lower, upper)
     //cout << "DEBUG FACTORY: Directly changed numeric vars:";
     //for (int var_id : changed_numeric_vars) {
     //    cout << " " << var_id;
     //}
     //cout << endl;
-    // Store the ranges of directly changed variables
-    for (size_t i = 0; i < changed_numeric_vars.size(); ++i) {
+    // Store the ranges of directly changed variables (using SOURCE partitions for regression)
+    for (size_t i = 0, j = 0; i < changed_numeric_vars.size(); ++i) {
+        // Only seed ranges for variables that actually change.
+        if (j >= actually_changed_vars.size())
+            break;
+        if (changed_numeric_vars[i] != actually_changed_vars[j])
+            continue;
         int var_id = changed_numeric_vars[i];
         int partition = source_partitions[i];
         
@@ -408,6 +403,22 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
                 //     << " not found in ranges!" << endl;
             }
         }
+        // advance j only when we consumed a matching actually-changed var
+        ++j;
+    }
+
+    // Seed ranges for all other regular numeric variables from the CURRENT state's partitions.
+    // This provides precise input ranges for derived computations even if those variables didn't change.
+    for (size_t var_id = 0; var_id < numeric_domain_mapping.size(); ++var_id) {
+        // Don't overwrite already-seeded entries (changed vars use source partitions above).
+        if (computed_ranges.count(static_cast<int>(var_id)) > 0)
+            continue;
+        const NumericDomainMapping &mapping = *numeric_domain_mapping[var_id];
+        int part = cur_num_partitions[var_id];
+        const NumericRange *rng = mapping.get_range_for_partition(part);
+        if (rng) {
+            computed_ranges[static_cast<int>(var_id)] = {rng->lower, rng->upper};
+        }
     }
     
     // Iteratively compute derived variable ranges from assignment axioms
@@ -416,7 +427,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     while (added_new) {
         added_new = false;
         
-        AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+    AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
         for (AssignmentAxiomProxy axiom : assignment_axioms) {
             //cout << "DEBUG FACTORY: Considering assignment axiom for derived var "
             //     << axiom.get_assignment_variable().get_id() << endl;
@@ -438,21 +449,23 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
             //     << ", right_var=" << right_var_id 
             //     << " (type=" << (int)right_var.get_var_type() << ")" << endl;
 
-            // A variable is "known" if:
-            // 1. It's in affected_numeric_vars AND computed_ranges (changed by operator or derived)
-            // 2. It's a constant (always known)
-            bool left_known = (affected_numeric_vars.count(left_var_id) > 0 && 
-                              computed_ranges.count(left_var_id) > 0) ||
-                             (left_var.get_var_type() == numType::constant);
-            bool right_known = (affected_numeric_vars.count(right_var_id) > 0 && 
-                               computed_ranges.count(right_var_id) > 0) ||
-                              (right_var.get_var_type() == numType::constant);
+            // A variable has a known range if either we seeded it (from source/current partition)
+            // or it is a constant (single-point range). We compute a derived variable only if
+            // BOTH operands have known ranges AND at least one operand is affected (changed directly
+            // or derived from a change). This preserves the notion of "affected" comparisons.
+            bool left_has_range = (computed_ranges.count(left_var_id) > 0) ||
+                                  (left_var.get_var_type() == numType::constant);
+            bool right_has_range = (computed_ranges.count(right_var_id) > 0) ||
+                                   (right_var.get_var_type() == numType::constant);
+
+            bool left_dep_affected = (affected_numeric_vars.count(left_var_id) > 0);
+            bool right_dep_affected = (affected_numeric_vars.count(right_var_id) > 0);
             
             //cout << "DEBUG FACTORY:   left_known=" << left_known 
             //     << ", right_known=" << right_known << endl;
             //
             // We need BOTH operands to be known to compute the derived variable
-            if (!left_known || !right_known) {
+            if (!(left_has_range && right_has_range && (left_dep_affected || right_dep_affected))) {
                 continue;
             }
             
@@ -540,87 +553,15 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     // Scan all comparison axioms
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
     
-    // SPECIAL CASE: If affected_numeric_vars is empty (no numeric changes),
-    // but we have refined comparison axioms, we need to enumerate them directly!
-    // For refined comparisons, we can't evaluate based on ranges - we just enumerate
-    // all possible abstract values.
-    bool enumerate_all_refined_comparisons = affected_numeric_vars.empty() && changed_numeric_vars.empty();
-    
-    // DEBUG: Log when enumerating all refined comparisons
-    if (enumerate_all_refined_comparisons) {
-        static int enum_all_call_count = 0;
-        enum_all_call_count++;
-        if (enum_all_call_count <= 3) {
-            cout << "DEBUG ENUM_ALL [call " << enum_all_call_count << "]: base_state=" << base_state_index 
-                 << ", enumerating ALL refined comparison axioms" << endl;
-        }
-    }
-    
-    // For refined comparisons without numeric changes, enumerate directly over abstract values
-    if (enumerate_all_refined_comparisons) {
-        // Find all refined (non-trivial) comparison axioms
-        vector<int> refined_comparison_vars;
-        for (ComparisonAxiomProxy axiom : comparison_axioms) {
-            int prop_var_id = axiom.get_true_fact().get_variable().get_id();
-            if (!variable_is_trivial(prop_var_id)) {
-                refined_comparison_vars.push_back(prop_var_id);
-            }
-        }
-        
-        if (refined_comparison_vars.empty()) {
-            // No refined comparisons - just return base state
-            result.push_back(base_state_index);
-            return result;
-        }
-        
-        // Enumerate all combinations of abstract values for refined comparisons
-        // For simplicity, we enumerate all possible states by varying each comparison's abstract value
-        function<void(size_t, int)> enumerate_abstract_values =
-            [&](size_t var_idx, int current_state_index) {
-            
-            if (var_idx == refined_comparison_vars.size()) {
-                // Base case: we've set all comparison values
-                result.push_back(current_state_index);
-                return;
-            }
-            
-            int prop_var_id = refined_comparison_vars[var_idx];
-            if (prop_var_id >= static_cast<int>(hash_multipliers.size())) {
-                // Variable not in hash function - skip
-                enumerate_abstract_values(var_idx + 1, current_state_index);
-                return;
-            }
-            
-            int multiplier = hash_multipliers[prop_var_id];
-            
-            // Get current abstract value
-            int abstract_domain_size = *max_element(domain_mapping[prop_var_id].begin(), 
-                                                   domain_mapping[prop_var_id].end()) + 1;
-            int current_value = (current_state_index / multiplier) % abstract_domain_size;
-            
-            // Enumerate all possible abstract values
-            for (int abstract_value = 0; abstract_value < abstract_domain_size; ++abstract_value) {
-                int delta = (abstract_value - current_value) * multiplier;
-                enumerate_abstract_values(var_idx + 1, current_state_index + delta);
-            }
-        };
-        
-        enumerate_abstract_values(0, base_state_index);
-        
-        static int call_count = 0;
-        call_count++;
-        if (call_count <= 3) {
-            cout << "DEBUG ENUM_ABSTRACT: Generated " << result.size() << " states from base_state=" 
-                 << base_state_index << " by enumerating abstract values" << endl;
-        }
-        
-        return result;
-    }
+    // No special-case enumeration for refined comparisons. We only branch when
+    // numeric inputs (directly or via assignment cascades) are provided.
     
     //
     // Below is the normal path for operators WITH numeric effects
     //
     
+    // cur_num_partitions already computed above; reuse it below when needed.
+
     for (ComparisonAxiomProxy axiom : comparison_axioms) {
         int left_var_id = axiom.get_left_variable().get_id();
         int right_var_id = axiom.get_right_variable().get_id();
@@ -669,24 +610,28 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
             found_right = true;
         }
         
-        // If not found yet and variables are not derived, they might be constants or in the base state
-        // For constants (numeric variables with fixed values), we need to get them from the domain mapping
-        if (!found_left && left_var_id < static_cast<int>(numeric_domain_mapping.size())) {
+        // If not found yet and variables are in the numeric mapping, use the CURRENT state's partition
+        // decoded from base_state_index instead of the full union, for sharper evaluation.
+        if (!found_left && left_var_id >= 0 && left_var_id < static_cast<int>(numeric_domain_mapping.size())) {
             const NumericDomainMapping &left_mapping = *numeric_domain_mapping[left_var_id];
-            // For variables not in changed_numeric_vars, we don't know the partition - assume the whole range
-            auto range_union = left_mapping.get_range_union();
-            left_lower = range_union.first;
-            left_upper = range_union.second;
-            found_left = true;
+            int part = cur_num_partitions[left_var_id];
+            const NumericRange *rng = left_mapping.get_range_for_partition(part);
+            if (rng) {
+                left_lower = rng->lower;
+                left_upper = rng->upper;
+                found_left = true;
+            }
         }
-        
-        if (!found_right && right_var_id < static_cast<int>(numeric_domain_mapping.size())) {
+
+        if (!found_right && right_var_id >= 0 && right_var_id < static_cast<int>(numeric_domain_mapping.size())) {
             const NumericDomainMapping &right_mapping = *numeric_domain_mapping[right_var_id];
-            // For variables not in changed_numeric_vars, we don't know the partition - assume the whole range
-            auto range_union = right_mapping.get_range_union();
-            right_lower = range_union.first;
-            right_upper = range_union.second;
-            found_right = true;
+            int part = cur_num_partitions[right_var_id];
+            const NumericRange *rng = right_mapping.get_range_for_partition(part);
+            if (rng) {
+                right_lower = rng->lower;
+                right_upper = rng->upper;
+                found_right = true;
+            }
         }
         
         if (!found_left || !found_right) {
@@ -695,14 +640,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
             affected_comparisons.push_back(affected);
             
             // DEBUG: Log when adding comparison to affected list without ranges
-            if (enumerate_all_refined_comparisons) {
-                static int no_range_count = 0;
-                no_range_count++;
-                if (no_range_count <= 3) {
-                    cout << "DEBUG ENUM_ALL: Added comp axiom fdr_" << prop_var_id 
-                         << " to affected_comparisons (no ranges, marked UNKNOWN)" << endl;
-                }
-            }
+            // No special-case debug for ENUM_ALL anymore.
             continue;
         }
         
@@ -721,14 +659,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         affected_comparisons.push_back(affected);
         
         // DEBUG: Log when adding comparison to affected list with ranges
-        if (enumerate_all_refined_comparisons) {
-            static int with_range_count = 0;
-            with_range_count++;
-            if (with_range_count <= 3) {
-                cout << "DEBUG ENUM_ALL: Added comp axiom fdr_" << prop_var_id 
-                     << " to affected_comparisons (with ranges, eval_result=" << (int)affected.eval_result << ")" << endl;
-            }
-        }
+        // No special-case debug for ENUM_ALL anymore.
     }
 
     // Step 2: Reset all affected comparison axioms to UNKNOWN in the base state
@@ -975,6 +906,33 @@ string decode_abstract_state(int state_index, const vector<int> &domain_sizes,
     
     ss << "]";
     return ss.str();
+}
+
+// Helper to decode into vectors for programmatic checks
+static void decode_state_to_vectors(int state_index,
+                                    const vector<int> &domain_sizes,
+                                    const NumericDomainMappingType &numeric_domain_mapping,
+                                    const vector<int> &hash_multipliers,
+                                    vector<int> &prop_values_out,
+                                    vector<int> &num_partitions_out) {
+    prop_values_out.clear();
+    num_partitions_out.clear();
+
+    int remaining = state_index;
+    // Propositional variables
+    for (size_t var_id = 0; var_id < domain_sizes.size(); ++var_id) {
+        int multiplier = hash_multipliers[var_id];
+        int value = (remaining / multiplier) % domain_sizes[var_id];
+        prop_values_out.push_back(value);
+    }
+    // Numeric partitions
+    for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+        int multiplier_idx = domain_sizes.size() + num_var_id;
+        int multiplier = hash_multipliers[multiplier_idx];
+        int num_partitions = numeric_domain_mapping[num_var_id]->get_num_partitions();
+        int partition = (remaining / multiplier) % num_partitions;
+        num_partitions_out.push_back(partition);
+    }
 }
 
 //Regression search to get lookup value for all abstract states, similar to PDBs.
@@ -1434,6 +1392,16 @@ void DomainAbstractionFactory::compute_distances(
         // DEBUG: Show applicable operators for first goal
         if (is_first_goal_expansion) {
             cout << "DEBUG EXPAND: " << applicable_operator_ids.size() << " operators applicable" << endl;
+            // List all applicable operator names for positive confirmation (kept small: typically ~10-15)
+            OperatorsProxy concrete_ops = task_proxy.get_operators();
+            for (int op_id : applicable_operator_ids) {
+                const AbstractOperator &aop = operators[op_id];
+                int concrete_id = aop.get_concrete_op_id();
+                string name = (concrete_id >= 0 && concrete_id < (int)concrete_ops.size())
+                                  ? concrete_ops[concrete_id].get_name()
+                                  : string("<unknown> (id=") + to_string(concrete_id) + ")";
+                cout << "DEBUG EXPAND:   applicable=\"" << name << "\" (op_id=" << op_id << ")" << endl;
+            }
         }
         
         // DEBUG: Show info for state 15
@@ -1466,12 +1434,37 @@ void DomainAbstractionFactory::compute_distances(
                 }
             }
             
-            if (is_first_goal_expansion && (operators_checked < 3 || affects_refined_vars)) {
+            // Always print detailed info for the first few ops OR when they affect key refined vars
+            // Additionally, ALWAYS print for the concrete op named "pour agent1 plant1" to aid debugging.
+            bool is_pour = false;
+            string op_name_for_debug;
+            {
+                OperatorsProxy concrete_ops = task_proxy.get_operators();
+                int concrete_id = op.get_concrete_op_id();
+                if (concrete_id >= 0 && concrete_id < (int)concrete_ops.size()) {
+                    op_name_for_debug = concrete_ops[concrete_id].get_name();
+                    if (op_name_for_debug == "pour agent1 plant1") {
+                        is_pour = true;
+                    }
+                }
+            }
+
+            if (is_first_goal_expansion && (operators_checked < 3 || affects_refined_vars || is_pour)) {
                 if (affects_refined_vars) {
                     cout << "DEBUG EXPAND: *** FOUND OPERATOR AFFECTING REFINED VARS ***" << endl;
                 }
                 cout << "DEBUG EXPAND: Operator " << op_id << ", cost=" << op.get_cost() 
                      << ", hash_effects=" << op.get_hash_effects().size() << endl;
+                // Also print the concrete operator name for clarity (e.g., "pour agent1 plant1")
+                {
+                    OperatorsProxy concrete_ops = task_proxy.get_operators();
+                    int concrete_id = op.get_concrete_op_id();
+                    if (concrete_id >= 0 && concrete_id < (int)concrete_ops.size()) {
+                        cout << "DEBUG EXPAND:   name=\"" << concrete_ops[concrete_id].get_name() << "\"" << endl;
+                    } else {
+                        cout << "DEBUG EXPAND:   name=\"<unknown> (id=" << concrete_id << ")\"" << endl;
+                    }
+                }
                 cout << "DEBUG EXPAND:   changed_numeric_vars=" << op.get_changed_numeric_vars().size() << ": ";
                 for (size_t i = 0; i < min(op.get_changed_numeric_vars().size(), size_t(10)); ++i) {
                     cout << op.get_changed_numeric_vars()[i];
@@ -1493,6 +1486,18 @@ void DomainAbstractionFactory::compute_distances(
                 }
                 if (op.get_target_partitions().size() > 10) cout << "...";
                 cout << endl;
+
+                // If this is pour, print per-variable partition transitions for clarity
+                if (is_pour) {
+                    cout << "DEBUG POUR: partition transitions (var: src->tgt)" << endl;
+                    size_t n = min(op.get_changed_numeric_vars().size(),
+                                   min(op.get_source_partitions().size(), op.get_target_partitions().size()));
+                    for (size_t i = 0; i < n; ++i) {
+                        cout << "  num" << op.get_changed_numeric_vars()[i]
+                             << ": " << op.get_source_partitions()[i]
+                             << " -> " << op.get_target_partitions()[i] << endl;
+                    }
+                }
             }
             
             // Iterate over all possible hash effects (predecessors)
@@ -1517,8 +1522,63 @@ void DomainAbstractionFactory::compute_distances(
                     op.get_target_partitions(),
                     task_proxy);
                 
-                // DEBUG: Show predecessors for first goal  
-                if (is_first_goal_expansion && operators_checked < 3 && possible_predecessors.size() > 0) {
+                // DEBUG CHECK 1: Verify base hash effect decoding matches expected numeric partition transitions
+                if (is_first_goal_expansion) {
+                    int base_state_index = state_index + base_hash_effect;
+                    if (base_state_index >= 0 && base_state_index < num_states) {
+                        vector<int> cur_props, cur_nums;
+                        vector<int> base_props, base_nums;
+                        decode_state_to_vectors(state_index, domain_sizes, numeric_domain_mapping, hash_multipliers, cur_props, cur_nums);
+                        decode_state_to_vectors(base_state_index, domain_sizes, numeric_domain_mapping, hash_multipliers, base_props, base_nums);
+
+                        bool all_ok = true;
+                        // Check numeric partitions for changed vars: current should be target, base should be source
+                        for (size_t i = 0; i < op.get_changed_numeric_vars().size(); ++i) {
+                            int var = op.get_changed_numeric_vars()[i];
+                            int src = op.get_source_partitions()[i];
+                            int tgt = op.get_target_partitions()[i];
+                            int cur_part = (var >= 0 && var < (int)cur_nums.size()) ? cur_nums[var] : -999;
+                            int base_part = (var >= 0 && var < (int)base_nums.size()) ? base_nums[var] : -999;
+                            bool ok_var = (cur_part == tgt) && (base_part == src);
+                            all_ok = all_ok && ok_var;
+                            cout << "DEBUG HASH-EFFECT CHECK: var=num" << var
+                                 << " cur(tgt?)=" << cur_part << "~=" << tgt
+                                 << " base(src?)=" << base_part << "~=" << src
+                                 << " -> " << (ok_var ? "OK" : "MISMATCH") << endl;
+                        }
+                        // Check regression preconditions:
+                        // - Propositional facts (prev/eff on props) must hold in the BASE (predecessor) state.
+                        // - Numeric partition facts inside regression_preconditions represent TARGET partitions
+                        //   (they were added to eff_pairs). Those must hold in the CURRENT state, not the base state.
+                        const vector<Fact> &reg_pre = op.get_regression_preconditions();
+                        for (const Fact &f : reg_pre) {
+                            int v = f.var;
+                            int expected = f.value;
+                            int actual;
+                            if (v >= 0 && v < (int)base_props.size()) {
+                                // Propositional preconditions: check against predecessor (base) state
+                                actual = base_props[v];
+                            } else {
+                                // Numeric partition preconditions (stored after propositional vars):
+                                // these are TARGET partition facts and must hold in the CURRENT state.
+                                int num_idx = v - (int)base_props.size();
+                                actual = (num_idx >= 0 && num_idx < (int)cur_nums.size()) ? cur_nums[num_idx] : -999;
+                            }
+                            bool ok = (actual == expected);
+                            all_ok = all_ok && ok;
+                            cout << "DEBUG HASH-EFFECT CHECK: precond v" << v
+                                 << " base_val=" << actual << " expected=" << expected
+                                 << " -> " << (ok ? "OK" : "MISMATCH") << endl;
+                        }
+                        cout << "DEBUG HASH-EFFECT CHECK: base_state=" << base_state_index
+                             << " effect=" << base_hash_effect << " RESULT=" << (all_ok ? "OK" : "MISMATCH") << endl;
+                    } else {
+                        cout << "DEBUG HASH-EFFECT CHECK: base_state out of bounds (" << base_state_index << ")" << endl;
+                    }
+                }
+
+                // DEBUG: Show predecessors for first goal or for pour operators specifically
+                if (is_first_goal_expansion && (operators_checked < 3 || is_pour) && possible_predecessors.size() > 0) {
                     cout << "DEBUG EXPAND:   base_hash_effect=" << base_hash_effect 
                          << " → " << possible_predecessors.size() << " predecessors: ";
                     for (size_t i = 0; i < min(possible_predecessors.size(), size_t(5)); ++i) {
@@ -1527,6 +1587,66 @@ void DomainAbstractionFactory::compute_distances(
                     }
                     if (possible_predecessors.size() > 5) cout << "...";
                     cout << endl;
+                    if (is_pour) {
+                        // For pour, also list all predecessors explicitly (no truncation)
+                        cout << "DEBUG POUR:   ALL predecessors (state indices): ";
+                        for (size_t i = 0; i < possible_predecessors.size(); ++i) {
+                            if (i) cout << ", ";
+                            cout << possible_predecessors[i];
+                        }
+                        cout << endl;
+                    }
+                }
+                // DEBUG CHECK 2: Validate a few enumerated predecessors
+                if (is_first_goal_expansion && !possible_predecessors.empty()) {
+                    size_t check_limit = min<size_t>(possible_predecessors.size(), 5);
+                    for (size_t pi = 0; pi < check_limit; ++pi) {
+                        int pred = possible_predecessors[pi];
+                        if (pred < 0 || pred >= num_states) {
+                            cout << "DEBUG ENUM CHECK: predecessor " << pred << " out of bounds" << endl;
+                            continue;
+                        }
+                        vector<int> cur_props, cur_nums;
+                        vector<int> pred_props, pred_nums;
+                        decode_state_to_vectors(state_index, domain_sizes, numeric_domain_mapping, hash_multipliers, cur_props, cur_nums);
+                        decode_state_to_vectors(pred, domain_sizes, numeric_domain_mapping, hash_multipliers, pred_props, pred_nums);
+
+                        bool ok_pred = true;
+                        // Numeric source partitions must hold in predecessor
+                        for (size_t i = 0; i < op.get_changed_numeric_vars().size(); ++i) {
+                            int var = op.get_changed_numeric_vars()[i];
+                            int src = op.get_source_partitions()[i];
+                            int pred_part = (var >= 0 && var < (int)pred_nums.size()) ? pred_nums[var] : -999;
+                            bool ok_var = (pred_part == src);
+                            ok_pred = ok_pred && ok_var;
+                            cout << "DEBUG ENUM CHECK: pred=" << pred << " var=num" << var
+                                 << " src?=" << pred_part << "~=" << src
+                                 << " -> " << (ok_var ? "OK" : "MISMATCH") << endl;
+                        }
+                        // Regression preconditions for enumerated predecessors:
+                        // - Propositional facts must hold in the PREDECESSOR (pred_* vectors).
+                        // - Numeric partition preconditions (target partitions) must hold in the CURRENT state.
+                        const vector<Fact> &reg_pre2 = op.get_regression_preconditions();
+                        for (const Fact &f : reg_pre2) {
+                            int v = f.var;
+                            int expected = f.value;
+                            int actual;
+                            if (v >= 0 && v < (int)pred_props.size()) {
+                                // Propositional preconditions on predecessor
+                                actual = pred_props[v];
+                            } else {
+                                // Numeric partition preconditions (target partitions) on CURRENT state
+                                int num_idx = v - (int)pred_props.size();
+                                actual = (num_idx >= 0 && num_idx < (int)cur_nums.size()) ? cur_nums[num_idx] : -999;
+                            }
+                            bool ok = (actual == expected);
+                            ok_pred = ok_pred && ok;
+                            cout << "DEBUG ENUM CHECK: precond v" << v
+                                 << " pred_val=" << actual << " expected=" << expected
+                                 << " -> " << (ok ? "OK" : "MISMATCH") << endl;
+                        }
+                        cout << "DEBUG ENUM CHECK: predecessor " << pred << " RESULT=" << (ok_pred ? "OK" : "MISMATCH") << endl;
+                    }
                 }
                 
                 for (int predecessor : possible_predecessors) {
