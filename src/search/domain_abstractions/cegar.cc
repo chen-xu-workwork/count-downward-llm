@@ -716,14 +716,22 @@ vector<Fact> CEGAR::get_flaws(
         auto it = comparison_axiom_dependencies.find(flaw.var);
         if (it != comparison_axiom_dependencies.end()) {
             cout << "    -> This is a comparison axiom variable (numeric goal)" << endl;
+            cout << "    -> Flaw is on fdr_" << flaw.var << endl;
+            
             // Numeric goal flaw - trace to regular numeric variables that this comparison depends on
             const unordered_set<int> &dep_vars = it->second;
+            
+            cout << "    -> Will add numeric flaws for the following regular variables:" << endl;
+            for (int numeric_var_id : dep_vars) {
+                cout << "       num_" << numeric_var_id << endl;
+            }
+            
             bool added_any_numeric_flaw = false;
             for (int numeric_var_id : dep_vars) {
                 // Get current concrete value
                 ap_float concrete_value = numeric_state[numeric_var_id];
-                cout << "       Depends on num_" << numeric_var_id 
-                     << " with value " << concrete_value << endl;
+                cout << "       Adding numeric flaw: num_" << numeric_var_id 
+                     << " with concrete value " << concrete_value << endl;
                 
                 // Add this as a numeric flaw to refine
                 detected_numeric_flaws.emplace_back(
@@ -1206,21 +1214,20 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
             regular_vars.insert(right_deps.begin(), right_deps.end());
         }
         
-        if (prop_var_id == 24) {
-            cout << "DEBUG AXIOM MAP:   fdr_24 (goal comparison axiom):" << endl;
-            cout << "DEBUG AXIOM MAP:     left_var=num_" << left_var_id 
-                 << " (derived=" << (left_var_id >= 0 && is_derived[left_var_id] ? "yes" : "no") << ")" << endl;
-            cout << "DEBUG AXIOM MAP:     right_var=num_" << right_var_id 
-                 << " (derived=" << (right_var_id >= 0 && is_derived[right_var_id] ? "yes" : "no") << ")" << endl;
-            cout << "DEBUG AXIOM MAP:     Regular dependencies: ";
-            for (int reg_var : regular_vars) {
-                cout << "num_" << reg_var << " ";
-            }
-            cout << endl;
-        }
-        
         // Store the mapping
         comparison_axiom_dependencies[prop_var_id] = regular_vars;
+        
+        // Debug output for ALL comparison axioms
+        cout << "  fdr_" << prop_var_id << " depends on:" << endl;
+        cout << "    left_var=num_" << left_var_id 
+             << (left_var_id >= 0 && is_derived[left_var_id] ? " (DERIVED)" : " (regular)") << endl;
+        cout << "    right_var=num_" << right_var_id 
+             << (right_var_id >= 0 && is_derived[right_var_id] ? " (DERIVED)" : " (regular)") << endl;
+        cout << "    Regular dependencies: {";
+        for (int reg_var : regular_vars) {
+            cout << "num_" << reg_var << " ";
+        }
+        cout << "}" << endl;
         
         // Store comparison info (operator and variable IDs for threshold extraction)
         ComparisonInfo info;
