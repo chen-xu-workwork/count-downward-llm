@@ -24,12 +24,19 @@ DomainAbstractionGeneratorCEGAR::DomainAbstractionGeneratorCEGAR(
       init_split_method(InitSplitMethod(opts.get_enum("init_split_method"))),
       numeric_split_strategy(NumericSplitStrategy(opts.get_enum("numeric_split_strategy"))),
       init_split_option(InitSplitOptions(opts.get_enum("init_split_option"))) {
+    std::cout << "DEBUG GENERATOR: Unparsed config string = '" << opts.get_unparsed_config() << "'" << std::endl;
+    std::cout << "DEBUG GENERATOR: flaw_treatment enum value = " 
+              << opts.get_enum("flaw_treatment") << std::endl;
+    std::cout << "DEBUG GENERATOR: init_split_method enum value = " 
+              << opts.get_enum("init_split_method") << std::endl;
     std::cout << "DEBUG GENERATOR: numeric_split_strategy enum value = " 
               << opts.get_enum("numeric_split_strategy") 
               << " (0=STANDARD, 1=EXCLUSION)" << std::endl;
     std::cout << "DEBUG GENERATOR: numeric_split_strategy = " 
               << (numeric_split_strategy == NumericSplitStrategy::EXCLUSION ? "EXCLUSION" : "STANDARD") 
               << std::endl;
+    std::cout << "DEBUG GENERATOR: Has 'numeric_split_strategy' key? " 
+              << (opts.contains("numeric_split_strategy") ? "YES" : "NO") << std::endl;
     if (init_split_method == InitSplitMethod::GOAL_VALUE
         && !(init_split_option == InitSplitOptions::RANDOM_GOAL
              || init_split_option == InitSplitOptions::ALL_GOALS)) {

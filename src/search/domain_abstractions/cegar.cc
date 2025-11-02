@@ -995,19 +995,23 @@ void CEGAR::print_statistics(
             // Print the ranges for this variable
             const vector<NumericRange> &ranges = numeric_domain_mapping[i]->get_ranges();
             for (size_t j = 0; j < ranges.size(); ++j) {
-                cout << "      partition " << ranges[j].partition_index << ": [";
+                cout << "      partition " << ranges[j].partition_index << ": ";
+                // Print lower bound with correct bracket
+                cout << (ranges[j].lower_inclusive ? "[" : "(");
                 if (ranges[j].lower == -numeric_limits<ap_float>::infinity()) {
                     cout << "-inf";
                 } else {
                     cout << ranges[j].lower;
                 }
                 cout << ", ";
+                // Print upper bound
                 if (ranges[j].upper == numeric_limits<ap_float>::infinity()) {
                     cout << "inf";
                 } else {
                     cout << ranges[j].upper;
                 }
-                cout << ")" << endl;
+                // Print upper bracket
+                cout << (ranges[j].upper_inclusive ? "]" : ")") << endl;
             }
         }
     }
@@ -1866,13 +1870,15 @@ void add_domain_abstraction_cegar_options_to_parser(
     vector<string> numeric_split_strategy;
     numeric_split_strategy.emplace_back("standard");
     numeric_split_strategy.emplace_back("exclusion");
+    std::cout << "DEBUG PARSER: Registering numeric_split_strategy option with values: standard, exclusion, default=standard" << std::endl;
     parser.add_enum_option(
         "numeric_split_strategy",
         numeric_split_strategy,
         "Strategy for splitting numeric variable domains: "
         "'standard' creates [lower, x) and [x, upper) with different partitions, "
         "'exclusion' creates R\\{x} (two disjoint ranges) and {x} as separate partitions.",
-        "standard");
+        "standard", {});
+    std::cout << "DEBUG PARSER: numeric_split_strategy option registered successfully" << std::endl;
 }
 }
 
