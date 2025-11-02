@@ -1030,6 +1030,9 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
     
     // Initialize numeric domain mapping with full range (-inf, inf) for all numeric variables
     // Choose strategy based on configuration
+    std::cout << "DEBUG: NumericSplitStrategy = " 
+              << (numeric_split_strategy == NumericSplitStrategy::EXCLUSION ? "EXCLUSION" : "STANDARD") 
+              << std::endl;
     NumericDomainMappingType numeric_domain_mapping;
     numeric_domain_mapping.reserve(num_numeric_variables);
     for (int i = 0; i < num_numeric_variables; ++i) {

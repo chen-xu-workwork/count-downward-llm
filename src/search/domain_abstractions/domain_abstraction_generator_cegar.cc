@@ -24,6 +24,12 @@ DomainAbstractionGeneratorCEGAR::DomainAbstractionGeneratorCEGAR(
       init_split_method(InitSplitMethod(opts.get_enum("init_split_method"))),
       numeric_split_strategy(NumericSplitStrategy(opts.get_enum("numeric_split_strategy"))),
       init_split_option(InitSplitOptions(opts.get_enum("init_split_option"))) {
+    std::cout << "DEBUG GENERATOR: numeric_split_strategy enum value = " 
+              << opts.get_enum("numeric_split_strategy") 
+              << " (0=STANDARD, 1=EXCLUSION)" << std::endl;
+    std::cout << "DEBUG GENERATOR: numeric_split_strategy = " 
+              << (numeric_split_strategy == NumericSplitStrategy::EXCLUSION ? "EXCLUSION" : "STANDARD") 
+              << std::endl;
     if (init_split_method == InitSplitMethod::GOAL_VALUE
         && !(init_split_option == InitSplitOptions::RANDOM_GOAL
              || init_split_option == InitSplitOptions::ALL_GOALS)) {
