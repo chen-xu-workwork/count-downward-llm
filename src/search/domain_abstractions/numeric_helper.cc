@@ -424,6 +424,7 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                 // while SOURCE partition facts remain in pre_pairs for predecessor-side checks during enumeration.
                 vector<Fact> extended_pre_pairs = pre_pairs;
                 vector<Fact> extended_eff_pairs = eff_pairs;
+                vector<Fact> extended_prev_pairs = prev_pairs;
                 
                 // Sanity check: source and target facts must have same size
                 if (trans.source_partition_facts.size() != trans.target_partition_facts.size()) {
@@ -438,7 +439,10 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                 extended_eff_pairs.insert(extended_eff_pairs.end(),
                                          trans.target_partition_facts.begin(),
                                          trans.target_partition_facts.end());
-                
+                extended_prev_pairs.insert(extended_prev_pairs.end(),
+                                         trans.prevail_facts.begin(),
+                                         trans.prevail_facts.end());
+
                 // Extract numeric transition information for cascade enumeration
                 vector<int> changed_numeric_vars;
                 vector<int> source_partitions_list;
@@ -461,29 +465,30 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                 // of the concrete operator. These must hold in the predecessor, but should
                 // not affect hash effects or MatchTree applicability on the current state.
                 vector<Fact> predecessor_only_pres;
-                {
-                    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-                    vector<int> comparison_axiom_var_ids;
-                    comparison_axiom_var_ids.reserve(comparison_axioms.size());
-                    for (ComparisonAxiomProxy ax : comparison_axioms) {
-                        comparison_axiom_var_ids.push_back(ax.get_true_fact().get_variable().get_id());
-                    }
-                    for (FactProxy pre : op.get_preconditions()) {
-                        int var_id = pre.get_variable().get_id();
-                        // Only collect comparison axiom preconditions (skip trivial variables)
-                        if (variable_is_trivial(var_id))
-                            continue;
-                        if (find(comparison_axiom_var_ids.begin(), comparison_axiom_var_ids.end(), var_id)
-                            != comparison_axiom_var_ids.end()) {
-                            int abstract_val = domain_mapping[var_id][pre.get_value()];
-                            predecessor_only_pres.emplace_back(var_id, abstract_val);
-                        }
-                    }
-                }
+                // We don't need that
+                //{
+                //    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+                //    vector<int> comparison_axiom_var_ids;
+                //    comparison_axiom_var_ids.reserve(comparison_axioms.size());
+                //    for (ComparisonAxiomProxy ax : comparison_axioms) {
+                //        comparison_axiom_var_ids.push_back(ax.get_true_fact().get_variable().get_id());
+                //    }
+                //    for (FactProxy pre : op.get_preconditions()) {
+                //        int var_id = pre.get_variable().get_id();
+                //        // Only collect comparison axiom preconditions (skip trivial variables)
+                //        if (variable_is_trivial(var_id))
+                //            continue;
+                //        if (find(comparison_axiom_var_ids.begin(), comparison_axiom_var_ids.end(), var_id)
+                //            != comparison_axiom_var_ids.end()) {
+                //            int abstract_val = domain_mapping[var_id][pre.get_value()];
+                //            predecessor_only_pres.emplace_back(var_id, abstract_val);
+                //        }
+                //    }
+                //}
 
                 vector<int> single_hash_effect = {trans.hash_effect};
                 operators.emplace_back(
-                    prev_pairs,                 // prevail conditions (propositional only)
+                    extended_prev_pairs,        // prevail conditions (propositional only)
                     extended_pre_pairs,         // preconditions (propositional + source partitions)
                     extended_eff_pairs,         // effects (propositional + target partitions)
                     ass_effects,                // numeric assignment effects
