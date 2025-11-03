@@ -1352,6 +1352,11 @@ void DomainAbstractionFactory::compute_distances(
                     pq.push(alternative_cost, predecessor);
                     if (compute_plan) {
                         generating_op_ids[predecessor] = op_id;
+                        if (predecessor == 2) {
+                            cout << "DEBUG: Setting generating op for state 2 to op_id " << op_id << endl;
+                            cout << "DEBUG:   which has hash effect: " << op.get_hash_effect() << endl;
+                            cout << "DEBUG:    and successor state is: " << state_index << endl;
+                        }
                     }
                 }
             }
@@ -1796,20 +1801,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
         string decoded = decode_abstract_state(current_state, domain_sizes, 
                                               numeric_domain_mapping, hash_multipliers);
         cout << decoded << endl;
-    }
-    
-    // Also decode some reachable states for comparison
-    // Suppress random sample of reachable states unless verbose
-    if (VERBOSE_DEBUG) {
-        cout << "DEBUG PLAN: Decoding some reachable states:" << endl;
-        for (int i : {0, 1, 4, 6}) {
-            if (i < num_states) {
-                cout << "State " << i << ":" << endl;
-                string decoded = decode_abstract_state(i, domain_sizes, 
-                                                      numeric_domain_mapping, hash_multipliers);
-                cout << decoded << endl;
-            }
-        }
     }
 
 
