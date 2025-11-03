@@ -267,12 +267,86 @@ static bool is_state_goal_feasible(
         if (it == comp_map.end())
             continue; // not a comparison goal
         const Eval &e = it->second;
-        // If the goal selects TRUE explicitly but eval says FALSE, infeasible
-        if (g.value == e.abs_true && e.eval == 0)
-            return false;
-        // If the goal selects FALSE explicitly but eval says TRUE, infeasible
-        if (g.value == e.abs_false && e.eval == 1)
-            return false;
+        // Only treat as contradiction if the abstract mapping distinguishes TRUE and FALSE.
+        // If abs_true == abs_false (merged), the goal doesn't select a specific branch → don't reject.
+        bool distinguishes = (e.abs_true != e.abs_false);
+        if (distinguishes) {
+            // Optimism for coarse partitions: if operands aren't singletons (point ranges),
+            // treat even a definitive eval (0/1) as potentially relaxable at this abstraction
+            // level and do not reject. Only reject if both operands are point ranges that
+            // make the comparison deterministically contradict the chosen branch.
+
+            // Find the comparison axiom for this goal variable to extract operand ranges.
+            ap_float l_lo = -numeric_limits<ap_float>::infinity();
+            ap_float l_hi = numeric_limits<ap_float>::infinity();
+            ap_float r_lo = -numeric_limits<ap_float>::infinity();
+            ap_float r_hi = numeric_limits<ap_float>::infinity();
+            bool left_known = false;
+            bool right_known = false;
+
+            for (ComparisonAxiomProxy axiom : task_proxy.get_comparison_axioms()) {
+                if (axiom.get_true_fact().get_variable().get_id() != g.var)
+                    continue;
+                int left_id = axiom.get_left_variable().get_id();
+                int right_id = axiom.get_right_variable().get_id();
+
+                // Left range
+                if (axiom.get_left_variable().get_var_type() == numType::constant) {
+                    ap_float val = axiom.get_left_variable().get_initial_state_value();
+                    l_lo = l_hi = val;
+                    left_known = true;
+                } else if (ranges.count(left_id)) {
+                    l_lo = ranges[left_id].first;
+                    l_hi = ranges[left_id].second;
+                    left_known = true;
+                } else if (left_id >= 0 && left_id < static_cast<int>(numeric_domain_mapping.size())) {
+                    const NumericDomainMapping &m = *numeric_domain_mapping[left_id];
+                    int part = cur_parts[left_id];
+                    const NumericRange *rng = m.get_range_for_partition(part);
+                    if (rng) { l_lo = rng->lower; l_hi = rng->upper; left_known = true; }
+                }
+
+                // Right range
+                if (axiom.get_right_variable().get_var_type() == numType::constant) {
+                    ap_float val = axiom.get_right_variable().get_initial_state_value();
+                    r_lo = r_hi = val;
+                    right_known = true;
+                } else if (ranges.count(right_id)) {
+                    r_lo = ranges[right_id].first;
+                    r_hi = ranges[right_id].second;
+                    right_known = true;
+                } else if (right_id >= 0 && right_id < static_cast<int>(numeric_domain_mapping.size())) {
+                    const NumericDomainMapping &m = *numeric_domain_mapping[right_id];
+                    int part = cur_parts[right_id];
+                    const NumericRange *rng = m.get_range_for_partition(part);
+                    if (rng) { r_lo = rng->lower; r_hi = rng->upper; right_known = true; }
+                }
+                break; // Found the matching axiom
+            }
+
+            bool operands_singletons = false;
+            if (left_known && right_known) {
+                bool left_point = (l_lo == l_hi);
+                bool right_point = (r_lo == r_hi);
+                operands_singletons = left_point && right_point;
+            }
+
+            // If definitive contradiction but operands are not both singletons, be optimistic and accept.
+            if (g.value == e.abs_true && e.eval == 0) {
+                if (!operands_singletons) {
+                    continue; // accept optimistically at this abstraction level
+                } else {
+                    return false; // hard contradiction on point ranges
+                }
+            }
+            if (g.value == e.abs_false && e.eval == 1) {
+                if (!operands_singletons) {
+                    continue; // accept optimistically
+                } else {
+                    return false; // hard contradiction on point ranges
+                }
+            }
+        }
         // If the goal maps to a merged/other abstract value, we can't conclude contradiction → accept
         // If eval is UNKNOWN, still potentially feasible → accept
     }
@@ -1066,7 +1140,34 @@ void DomainAbstractionFactory::compute_distances(
             } else {
                 if (VERBOSE_DEBUG && state_index < 50) {
                     cout << "DEBUG DIJKSTRA: dropping infeasible goal state "
-                         << state_index << " (comparison goals contradict numeric partitions)" << endl;
+                         << state_index << " (comparison-goal contradiction)\n";
+                    // Provide more context to understand why
+                    string decoded = decode_abstract_state(state_index, domain_sizes,
+                                                          numeric_domain_mapping, hash_multipliers);
+                    cout << "  " << decoded << "\n";
+                    // Compute and show per-comparison evaluation for goal vars
+                    unordered_map<int, pair<ap_float, ap_float>> dbg_ranges;
+                    vector<int> dbg_parts;
+                    compute_numeric_context(state_index, domain_mapping, numeric_domain_mapping,
+                                            hash_multipliers, task_proxy, dbg_ranges, dbg_parts);
+                    auto dbg_comps = evaluate_all_comparisons(dbg_ranges, dbg_parts, numeric_domain_mapping, task_proxy);
+                    unordered_map<int, tuple<int,int,int>> dbg_map; // var -> (abs_true, abs_false, eval)
+                    for (const auto &c : dbg_comps) {
+                        int v = c.prop_var_id;
+                        int abs_t = (v < (int)domain_mapping.size() && !domain_mapping[v].empty()) ? domain_mapping[v][c.true_val] : c.true_val;
+                        int abs_f = (v < (int)domain_mapping.size() && !domain_mapping[v].empty()) ? domain_mapping[v][c.false_val] : c.false_val;
+                        dbg_map[v] = make_tuple(abs_t, abs_f, c.eval);
+                    }
+                    cout << "  Goal facts:" << endl;
+                    for (const Fact &gfact : abstract_goals) {
+                        cout << "    var" << gfact.var << " = " << gfact.value;
+                        auto itg = dbg_map.find(gfact.var);
+                        if (itg != dbg_map.end()) {
+                            auto [abs_t, abs_f, ev] = itg->second;
+                            cout << "  [comp: abs_true=" << abs_t << ", abs_false=" << abs_f << ", eval=" << ev << "]";
+                        }
+                        cout << "\n";
+                    }
                 }
                 distances.push_back(numeric_limits<int>::max());
             }
@@ -1923,9 +2024,13 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 cout << "DEBUG Candidate Successor: " << candidate_successor 
                      << " distance=" << distances[candidate_successor] << endl;
             }
-            
-            if (successor_state != -1) {
-                break;  // Found a valid successor
+
+            // If we couldn't find any valid successor with a lower distance,
+            // abort plan extraction to avoid getting stuck in a loop.
+            if (successor_state == -1) {
+                cout << "PLAN: No valid successor from state " << current_state
+                     << " with lower distance; aborting plan extraction." << endl;
+                break;
             }
 
             // Report this plan step: operator and abstract effects
@@ -2016,6 +2121,12 @@ void DomainAbstractionFactory::compute_abstract_plan(
 
             current_state = successor_state;
             plan_step++;
+
+            // Safety guard: avoid infinite loops in case of unforeseen cycles
+            if (plan_step > 10000) {
+                cout << "PLAN: Aborting plan extraction after 10000 steps (safety guard)." << endl;
+                break;
+            }
         }
         
         cout << "PLAN: Wildcard plan construction complete with " 
