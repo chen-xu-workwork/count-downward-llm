@@ -233,9 +233,6 @@ public:
     */
     std::vector<int> enumerate_states_with_evaluated_comparisons(
         int base_state_index,
-        const std::vector<int> &changed_numeric_vars,
-        const std::vector<int> &source_partitions,
-        const std::vector<int> &target_partitions,
         const TaskProxy &task_proxy) const;
 };
 }

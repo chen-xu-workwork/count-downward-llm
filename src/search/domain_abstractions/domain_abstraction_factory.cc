@@ -216,512 +216,255 @@ MatchTree DomainAbstractionFactory::build_match_tree(
 
 vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparisons(
     int base_state_index,
-    const vector<int> &changed_numeric_vars,
-    const vector<int> &source_partitions,
-    const vector<int> &target_partitions,
     const TaskProxy &task_proxy) const {
     
     vector<int> result;
 
-    // Build the set of numeric variables that ACTUALLY change partitions.
-    // Identity transitions (source == target) should NOT be treated as
-    // affecting comparisons. Comparisons should only branch when their
-    // numeric inputs truly change across the transition.
-    vector<int> actually_changed_vars;
-    actually_changed_vars.reserve(changed_numeric_vars.size());
-    for (size_t i = 0; i < changed_numeric_vars.size(); ++i) {
-        if (i < source_partitions.size() && i < target_partitions.size()) {
-            if (source_partitions[i] != target_partitions[i]) {
-                actually_changed_vars.push_back(changed_numeric_vars[i]);
-            }
-        }
-    }
-
-    // If no numeric variables change partitions, don't branch on comparison
-    // axioms: their values are functions of numeric inputs. Without numeric
-    // changes, the predecessor set is just the base state.
-    if (actually_changed_vars.empty()) {
-        // Identity-only case: no numeric partition changes, so comparison
-        // axioms cannot change. Do not branch; predecessor set is the base state.
-        static int no_change_log_count = 0;
-        if (false && VERBOSE_DEBUG && no_change_log_count++ < 3) {
-            cout << "DEBUG ENUM_COMP: no numeric partition change; returning base_state "
-                 << base_state_index << endl;
-        }
-        result.push_back(base_state_index);
-        return result;
-    }
-    
-    // Decode the CURRENT state's numeric partitions from base_state_index. We use these
-    // as precise ranges for non-changing regular variables (instead of conservative unions).
+    // Decode the CURRENT state's numeric partitions from base_state_index.
+    // We'll use these as the basis for computing ranges of ALL numeric variables.
     vector<int> cur_num_partitions;
     cur_num_partitions.reserve(numeric_domain_mapping.size());
     for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
-        int numeric_offset = static_cast<int>(hash_multipliers.size()) - static_cast<int>(numeric_domain_mapping.size());
-        int multiplier_idx = numeric_offset + static_cast<int>(num_var_id);
-        int multiplier = hash_multipliers[multiplier_idx];
+        int abstract_var_id = static_cast<int>(domain_mapping.size()) + static_cast<int>(num_var_id);
+        int multiplier = hash_multipliers[abstract_var_id];
         int num_parts = numeric_domain_mapping[num_var_id]->get_num_partitions();
         int part = (base_state_index / multiplier) % num_parts;
         cur_num_partitions.push_back(part);
     }
 
-    // Step 0: Compute transitive closure of affected numeric variables through assignment axioms
-    // Start with the directly changed variables, then add derived variables that depend on them
-    //
-    // SPECIAL CASE: If changed_numeric_vars is empty but we have refined comparison axioms,
-    // we still need to enumerate those comparison axiom values. In this case, affected_numeric_vars
-    // will be empty, and we'll mark all refined comparison axioms as UNKNOWN (ambiguous).
-    unordered_set<int> affected_numeric_vars(actually_changed_vars.begin(), actually_changed_vars.end());
-    unordered_map<int, pair<ap_float, ap_float>> computed_ranges;  // var_id -> (lower, upper)
-    //cout << "DEBUG FACTORY: Directly changed numeric vars:";
-    //for (int var_id : changed_numeric_vars) {
-    //    cout << " " << var_id;
-    //}
-    //cout << endl;
-    // Store the ranges of directly changed variables (using SOURCE partitions for regression)
-    for (size_t i = 0, j = 0; i < changed_numeric_vars.size(); ++i) {
-        // Only seed ranges for variables that actually change.
-        if (j >= actually_changed_vars.size())
-            break;
-        if (changed_numeric_vars[i] != actually_changed_vars[j])
-            continue;
-        int var_id = changed_numeric_vars[i];
-        int partition = source_partitions[i];
-        
-        //cout << "DEBUG FACTORY:   Looking up range for var" << var_id 
-        //     << " partition=" << partition << endl;
-        
-        if (var_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const NumericDomainMapping &mapping = *numeric_domain_mapping[var_id];
-            const vector<NumericRange> &ranges = mapping.get_ranges();
-            
-            //cout << "DEBUG FACTORY:     Found " << ranges.size() << " ranges" << endl;
-            
-            bool found = false;
-            for (const NumericRange &range : ranges) {
-                if (range.partition_index == partition) {
-                    computed_ranges[var_id] = {range.lower, range.upper};
-                    //cout << "DEBUG FACTORY:     -> Stored range [" << range.lower 
-                    //     << ", " << range.upper << "]" << endl;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                //cout << "DEBUG FACTORY:     -> WARNING: Partition " << partition 
-                //     << " not found in ranges!" << endl;
+    // Build ranges for ALL numeric variables: regular, constant, and derived.
+    // Start with regular and constant variables, then propagate through assignment axioms.
+    unordered_map<int, pair<ap_float, ap_float>> ranges;  // num_var_id -> (lower, upper)
+
+    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+    for (size_t num_var_id = 0; num_var_id < num_vars.size(); ++num_var_id) {
+        NumericVariableProxy var = num_vars[num_var_id];
+        if (var.get_var_type() == numType::constant) {
+            // Constants have single-point ranges
+            ap_float val = var.get_initial_state_value();
+            ranges[num_var_id] = make_pair(val, val);
+        } else if (var.get_var_type() == numType::regular && num_var_id < numeric_domain_mapping.size()) {
+            // Regular variables: get range from current partition
+            const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
+            int part = cur_num_partitions[num_var_id];
+            const NumericRange *rng = mapping.get_range_for_partition(part);
+            if (rng) {
+                ranges[num_var_id] = make_pair(rng->lower, rng->upper);
             }
         }
-        // advance j only when we consumed a matching actually-changed var
-        ++j;
+        // Derived variables will be computed below via assignment axioms
     }
 
-    // Seed ranges for all other regular numeric variables from the CURRENT state's partitions.
-    // This provides precise input ranges for derived computations even if those variables didn't change.
-    for (size_t var_id = 0; var_id < numeric_domain_mapping.size(); ++var_id) {
-        // Don't overwrite already-seeded entries (changed vars use source partitions above).
-        if (computed_ranges.count(static_cast<int>(var_id)) > 0)
-            continue;
-        const NumericDomainMapping &mapping = *numeric_domain_mapping[var_id];
-        int part = cur_num_partitions[var_id];
-        const NumericRange *rng = mapping.get_range_for_partition(part);
-        if (rng) {
-            computed_ranges[static_cast<int>(var_id)] = {rng->lower, rng->upper};
-        }
-    }
-    
-    // Iteratively compute derived variable ranges from assignment axioms
-    // Keep going until no new derived variables are added
-    bool added_new = true;
-    while (added_new) {
-        added_new = false;
-        
+    // Propagate ranges through assignment axioms to compute derived variable ranges.
+    // Keep iterating until no new derived variables can be computed (fixpoint).
     AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+    bool changed = true;
+    int iterations = 0;
+    while (changed && iterations < 1000) {  // Safety limit against cycles
+        changed = false;
+        ++iterations;
+        
         for (AssignmentAxiomProxy axiom : assignment_axioms) {
-            //cout << "DEBUG FACTORY: Considering assignment axiom for derived var "
-            //     << axiom.get_assignment_variable().get_id() << endl;
-            int derived_var_id = axiom.get_assignment_variable().get_id();
-            
-            // Skip if we've already computed this derived variable
-            if (affected_numeric_vars.count(derived_var_id) > 0) {
-                continue;
+            int derived_id = axiom.get_assignment_variable().get_id();
+            int left_id = axiom.get_left_variable().get_id();
+            int right_id = axiom.get_right_variable().get_id();
+
+            // Get left operand range
+            bool left_known = false;
+            ap_float l_lo = -numeric_limits<ap_float>::infinity();
+            ap_float l_hi = numeric_limits<ap_float>::infinity();
+            if (axiom.get_left_variable().get_var_type() == numType::constant) {
+                ap_float val = axiom.get_left_variable().get_initial_state_value();
+                l_lo = l_hi = val;
+                left_known = true;
+            } else if (ranges.count(left_id)) {
+                l_lo = ranges[left_id].first;
+                l_hi = ranges[left_id].second;
+                left_known = true;
             }
-            
-            // Check if this axiom depends on variables we know
-            NumericVariableProxy left_var = axiom.get_left_variable();
-            NumericVariableProxy right_var = axiom.get_right_variable();
-            int left_var_id = left_var.get_id();
-            int right_var_id = right_var.get_id();
 
-            //cout << "DEBUG FACTORY:   left_var=" << left_var_id 
-            //     << " (type=" << (int)left_var.get_var_type() << ")"
-            //     << ", right_var=" << right_var_id 
-            //     << " (type=" << (int)right_var.get_var_type() << ")" << endl;
-
-            // A variable has a known range if either we seeded it (from source/current partition)
-            // or it is a constant (single-point range). We compute a derived variable only if
-            // BOTH operands have known ranges AND at least one operand is affected (changed directly
-            // or derived from a change). This preserves the notion of "affected" comparisons.
-            bool left_has_range = (computed_ranges.count(left_var_id) > 0) ||
-                                  (left_var.get_var_type() == numType::constant);
-            bool right_has_range = (computed_ranges.count(right_var_id) > 0) ||
-                                   (right_var.get_var_type() == numType::constant);
-
-            bool left_dep_affected = (affected_numeric_vars.count(left_var_id) > 0);
-            bool right_dep_affected = (affected_numeric_vars.count(right_var_id) > 0);
-            
-            //cout << "DEBUG FACTORY:   left_known=" << left_known 
-            //     << ", right_known=" << right_known << endl;
-            //
-            // We need BOTH operands to be known to compute the derived variable
-            if (!(left_has_range && right_has_range && (left_dep_affected || right_dep_affected))) {
-                continue;
+            // Get right operand range
+            bool right_known = false;
+            ap_float r_lo = -numeric_limits<ap_float>::infinity();
+            ap_float r_hi = numeric_limits<ap_float>::infinity();
+            if (axiom.get_right_variable().get_var_type() == numType::constant) {
+                ap_float val = axiom.get_right_variable().get_initial_state_value();
+                r_lo = r_hi = val;
+                right_known = true;
+            } else if (ranges.count(right_id)) {
+                r_lo = ranges[right_id].first;
+                r_hi = ranges[right_id].second;
+                right_known = true;
             }
-            
-            // Get ranges for left and right variables
-            ap_float left_lower, left_upper, right_lower, right_upper;
-            
-            if (left_var.get_var_type() == numType::constant) {
-                // Constant: range is a single value
-                ap_float const_val = left_var.get_initial_state_value();
-                left_lower = const_val;
-                left_upper = const_val;
-            } else {
-                // Regular or derived variable: use computed range
-                left_lower = computed_ranges[left_var_id].first;
-                left_upper = computed_ranges[left_var_id].second;
-            }
-            
-            if (right_var.get_var_type() == numType::constant) {
-                // Constant: range is a single value
-                ap_float const_val = right_var.get_initial_state_value();
-                right_lower = const_val;
-                right_upper = const_val;
-            } else {
-                // Regular or derived variable: use computed range
-                right_lower = computed_ranges[right_var_id].first;
-                right_upper = computed_ranges[right_var_id].second;
-            }
-            
-            ap_float derived_lower, derived_upper;
-            
-            switch (axiom.get_arithmetic_operator_type()) {
-                case cal_operator::sum:
-                    derived_lower = left_lower + right_lower;
-                    derived_upper = left_upper + right_upper;
-                    break;
-                case cal_operator::diff:
-                    derived_lower = left_lower - right_upper;
-                    derived_upper = left_upper - right_lower;
-                    break;
-                case cal_operator::mult:
-                    // Multiplication is more complex - need to consider all combinations
-                    {
-                        ap_float vals[4] = {
-                            left_lower * right_lower,
-                            left_lower * right_upper,
-                            left_upper * right_lower,
-                            left_upper * right_upper
-                        };
-                        derived_lower = *min_element(vals, vals + 4);
-                        derived_upper = *max_element(vals, vals + 4);
-                    }
-                    break;
-                case cal_operator::divi:
-                    // Division is tricky - skip for now (would need to handle division by zero)
-                    continue;
-                default:
-                    // Unknown operator - skip
-                    continue;
-            }
-            
-            computed_ranges[derived_var_id] = {derived_lower, derived_upper};
-            affected_numeric_vars.insert(derived_var_id);
-            added_new = true;
-        }
-    }
-    
-    // Step 1: Identify affected comparison axioms
-    // A comparison axiom is affected if it depends on any affected numeric variable (including derived)
-    struct AffectedComparison {
-        int prop_var_id;           // Propositional variable ID for the comparison result
-        int true_value;            // Value when comparison is true
-        int false_value;           // Value when comparison is false
-        int left_var_id;           // Left operand numeric variable ID
-        int right_var_id;          // Right operand numeric variable ID
-        comp_operator op;          // Comparison operator
-        
-        // Evaluation result for this specific transition
-        enum EvalResult { DEFINITELY_TRUE, DEFINITELY_FALSE, UNKNOWN };
-        EvalResult eval_result;
-    };
 
-    
-    vector<AffectedComparison> affected_comparisons;
-    
-    // Scan all comparison axioms
-    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-    
-    // No special-case enumeration for refined comparisons. We only branch when
-    // numeric inputs (directly or via assignment cascades) are provided.
-    
-    //
-    // Below is the normal path for operators WITH numeric effects
-    //
-    
-    // cur_num_partitions already computed above; reuse it below when needed.
-
-    for (ComparisonAxiomProxy axiom : comparison_axioms) {
-        int left_var_id = axiom.get_left_variable().get_id();
-        int right_var_id = axiom.get_right_variable().get_id();
-        int prop_var_id = axiom.get_true_fact().get_variable().get_id();
-        
-        // Check if this comparison depends on any affected variable (including derived)
-        bool depends_on_affected = (affected_numeric_vars.count(left_var_id) > 0 || 
-                                    affected_numeric_vars.count(right_var_id) > 0);
-        
-        if (!depends_on_affected) {
-            continue;  // This comparison is not affected by the operator
-        }
-        
-        //cout << "DEBUG FACTORY:     -> This comparison IS affected!" << endl;
-        
-        // This comparison is affected - evaluate it
-        AffectedComparison affected;
-        affected.prop_var_id = axiom.get_true_fact().get_variable().get_id();
-        affected.true_value = axiom.get_true_fact().get_value();
-        affected.false_value = axiom.get_false_fact().get_value();
-        affected.left_var_id = left_var_id;
-        affected.right_var_id = right_var_id;
-        affected.op = axiom.get_comparison_operator_type();
-        
-        // Get ranges for left and right variables
-        // If a variable is in computed_ranges (regular or derived), use that
-        // Otherwise, look it up in the domain mapping
-        ap_float left_lower = -numeric_limits<ap_float>::infinity();
-        ap_float left_upper = numeric_limits<ap_float>::infinity();
-        ap_float right_lower = -numeric_limits<ap_float>::infinity();
-        ap_float right_upper = numeric_limits<ap_float>::infinity();
-        
-        bool found_left = false, found_right = false;
-        
-        // Try to get left variable range from computed_ranges or domain mapping
-        if (computed_ranges.count(left_var_id) > 0) {
-            left_lower = computed_ranges[left_var_id].first;
-            left_upper = computed_ranges[left_var_id].second;
-            found_left = true;
-        }
-        
-        // Try to get right variable range from computed_ranges or domain mapping
-        if (computed_ranges.count(right_var_id) > 0) {
-            right_lower = computed_ranges[right_var_id].first;
-            right_upper = computed_ranges[right_var_id].second;
-            found_right = true;
-        }
-        
-        // If not found yet and variables are in the numeric mapping, use the CURRENT state's partition
-        // decoded from base_state_index instead of the full union, for sharper evaluation.
-        if (!found_left && left_var_id >= 0 && left_var_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const NumericDomainMapping &left_mapping = *numeric_domain_mapping[left_var_id];
-            int part = cur_num_partitions[left_var_id];
-            const NumericRange *rng = left_mapping.get_range_for_partition(part);
-            if (rng) {
-                left_lower = rng->lower;
-                left_upper = rng->upper;
-                found_left = true;
-            }
-        }
-
-        if (!found_right && right_var_id >= 0 && right_var_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const NumericDomainMapping &right_mapping = *numeric_domain_mapping[right_var_id];
-            int part = cur_num_partitions[right_var_id];
-            const NumericRange *rng = right_mapping.get_range_for_partition(part);
-            if (rng) {
-                right_lower = rng->lower;
-                right_upper = rng->upper;
-                found_right = true;
-            }
-        }
-        
-        if (!found_left || !found_right) {
-            // If we can't determine ranges, mark as UNKNOWN (optimistically assume both true/false possible)
-            affected.eval_result = AffectedComparison::UNKNOWN;
-            affected_comparisons.push_back(affected);
-            
-            // DEBUG: Log when adding comparison to affected list without ranges
-            // No special-case debug for ENUM_ALL anymore.
-            continue;
-        }
-        
-        // Now evaluate the comparison using NumericDomainMapping's static method
-        int eval_result = NumericDomainMapping::evaluate_comparison(
-            affected.op, left_lower, left_upper, right_lower, right_upper);
-        
-        if (eval_result == 1) {
-            affected.eval_result = AffectedComparison::DEFINITELY_TRUE;
-        } else if (eval_result == 0) {
-            affected.eval_result = AffectedComparison::DEFINITELY_FALSE;
-        } else {
-            affected.eval_result = AffectedComparison::UNKNOWN;
-        }
-        
-        affected_comparisons.push_back(affected);
-        
-        // DEBUG: Log when adding comparison to affected list with ranges
-        // No special-case debug for ENUM_ALL anymore.
-    }
-
-    // Step 2: Reset all affected comparison axioms to UNKNOWN in the base state
-    // This ensures we compute deltas from a consistent baseline
-    int reset_to_unknown_adjustment = 0;
-    int trivial_count = 0;
-    int non_trivial_count = 0;
-    for (const AffectedComparison &comp : affected_comparisons) {
-        int prop_var_id = comp.prop_var_id;
-        if (prop_var_id >= static_cast<int>(hash_multipliers.size())) {
-            continue;  // Variable not in hash function - skip
-        }
-        
-        // Skip trivial variables (those with empty domain_mapping)
-        if (variable_is_trivial(prop_var_id)) {
-            trivial_count++;
-            continue;
-        }
-        non_trivial_count++;
-        
-        int multiplier = hash_multipliers[prop_var_id];
-
-        // Determine the abstract domain size for this variable. The domain_mapping
-        // stores a mapping from original values -> abstract values. The abstract
-        // domain size is therefore 1 + max(mapped_value).
-        int abstract_domain_size = 0;
-        if (!domain_mapping[prop_var_id].empty()) {
-            for (int mapped : domain_mapping[prop_var_id]) {
-                if (mapped > abstract_domain_size) {
-                    abstract_domain_size = mapped;
+            // If both operands are known, compute the derived variable's range
+            if (left_known && right_known) {
+                pair<ap_float, ap_float> result_range = 
+                    NumericDomainMapping::apply_range_operation(
+                        l_lo, l_hi, r_lo, r_hi, axiom.get_arithmetic_operator_type());
+                
+                // Update the range if it's new or changed
+                auto it = ranges.find(derived_id);
+                if (it == ranges.end() || 
+                    it->second.first != result_range.first || 
+                    it->second.second != result_range.second) {
+                    ranges[derived_id] = result_range;
+                    changed = true;
                 }
+            }
+        }
+    }
+
+    // Evaluate ALL comparison axioms using the computed ranges.
+    // Structure to hold comparison evaluation results
+    struct CompEval {
+        int prop_var_id;
+        int true_val;
+        int false_val;
+        int eval;  // 0=false, 1=true, 2=unknown
+    };
+    vector<CompEval> comparisons;
+    
+    ComparisonAxiomsProxy comp_axioms = task_proxy.get_comparison_axioms();
+    comparisons.reserve(comp_axioms.size());
+    
+    for (ComparisonAxiomProxy axiom : comp_axioms) {
+        int left_id = axiom.get_left_variable().get_id();
+        int right_id = axiom.get_right_variable().get_id();
+        
+        // Get left operand range
+        ap_float l_lo = -numeric_limits<ap_float>::infinity();
+        ap_float l_hi = numeric_limits<ap_float>::infinity();
+        bool left_known = false;
+        if (axiom.get_left_variable().get_var_type() == numType::constant) {
+            ap_float val = axiom.get_left_variable().get_initial_state_value();
+            l_lo = l_hi = val;
+            left_known = true;
+        } else if (ranges.count(left_id)) {
+            l_lo = ranges[left_id].first;
+            l_hi = ranges[left_id].second;
+            left_known = true;
+        } else if (left_id >= 0 && left_id < static_cast<int>(numeric_domain_mapping.size())) {
+            // Fallback: get from partition if not in ranges map
+            const NumericDomainMapping &m = *numeric_domain_mapping[left_id];
+            int part = cur_num_partitions[left_id];
+            const NumericRange *rng = m.get_range_for_partition(part);
+            if (rng) {
+                l_lo = rng->lower;
+                l_hi = rng->upper;
+                left_known = true;
+            }
+        }
+        
+        // Get right operand range
+        ap_float r_lo = -numeric_limits<ap_float>::infinity();
+        ap_float r_hi = numeric_limits<ap_float>::infinity();
+        bool right_known = false;
+        if (axiom.get_right_variable().get_var_type() == numType::constant) {
+            ap_float val = axiom.get_right_variable().get_initial_state_value();
+            r_lo = r_hi = val;
+            right_known = true;
+        } else if (ranges.count(right_id)) {
+            r_lo = ranges[right_id].first;
+            r_hi = ranges[right_id].second;
+            right_known = true;
+        } else if (right_id >= 0 && right_id < static_cast<int>(numeric_domain_mapping.size())) {
+            // Fallback: get from partition if not in ranges map
+            const NumericDomainMapping &m = *numeric_domain_mapping[right_id];
+            int part = cur_num_partitions[right_id];
+            const NumericRange *rng = m.get_range_for_partition(part);
+            if (rng) {
+                r_lo = rng->lower;
+                r_hi = rng->upper;
+                right_known = true;
+            }
+        }
+
+        // Evaluate the comparison
+        int eval = 2;  // Default to UNKNOWN
+        if (left_known && right_known) {
+            eval = NumericDomainMapping::evaluate_comparison(
+                axiom.get_comparison_operator_type(), l_lo, l_hi, r_lo, r_hi);
+        }
+        
+        comparisons.push_back(CompEval{
+            axiom.get_true_fact().get_variable().get_id(),
+            axiom.get_true_fact().get_value(),
+            axiom.get_false_fact().get_value(),
+            eval
+        });
+    }
+
+    // Reset ALL comparison axiom variables in the base state to UNKNOWN.
+    int reset_delta = 0;
+    for (const CompEval &comp : comparisons) {
+        int var_id = comp.prop_var_id;
+        if (var_id >= static_cast<int>(hash_multipliers.size())) continue;
+        if (variable_is_trivial(var_id)) continue;
+
+        int multiplier = hash_multipliers[var_id];
+        
+        // Compute abstract domain size for this variable
+        int abstract_domain_size = 0;
+        if (!domain_mapping[var_id].empty()) {
+            for (int mapped : domain_mapping[var_id]) {
+                abstract_domain_size = max(abstract_domain_size, mapped);
             }
             abstract_domain_size += 1;
         } else {
-            // Should not happen for non-trivial variables, but guard anyway.
             abstract_domain_size = 1;
         }
-
-        // Extract the current abstract value of this comparison axiom from base_state_index
+        
         int current_value = (base_state_index / multiplier) % abstract_domain_size;
-
-        // UNKNOWN corresponds to original value index 2; look up its abstract value.
-        // domain_mapping[prop_var_id] uses original-domain indexing, so index 2 must exist.
-        int unknown_value = domain_mapping[prop_var_id][2];
-
-        // Reset delta: move the current abstract value to the UNKNOWN abstract value
-        int delta_to_unknown = (unknown_value - current_value) * multiplier;
-        reset_to_unknown_adjustment += delta_to_unknown;
+        int unknown_value = domain_mapping[var_id][2];  // UNKNOWN is at index 2
+        reset_delta += (unknown_value - current_value) * multiplier;
     }
-    
-    // Apply the reset: now all affected comparisons are UNKNOWN
-    int state_with_unknowns = base_state_index + reset_to_unknown_adjustment;
-    
-    // Step 3: Enumerate all combinations of comparison axiom truth values
-    // For DEFINITELY_TRUE/FALSE, we use the fixed value
-    // For UNKNOWN, we enumerate both true and false (optimistic branching)
-    // All deltas are now computed from UNKNOWN (value 0) to the target value
-    
-    static int enum_call_count = 0;
-    enum_call_count++;
-    bool debug_enum = false; // hard-disable noisy ENUM_COMP logs by default
-    if (debug_enum && affected_comparisons.size() > 0) {
-        cout << "DEBUG ENUM_COMP [call " << enum_call_count << "]: " << affected_comparisons.size() << " affected comparisons" << endl;
-        for (size_t i = 0; i < affected_comparisons.size(); ++i) {
-            const AffectedComparison &comp = affected_comparisons[i];
-            cout << "  Comp " << i << ": fdr_" << comp.prop_var_id << ", eval_result=" << (int)comp.eval_result
-                 << ", trivial=" << variable_is_trivial(comp.prop_var_id) << endl;
-        }
-    }
-    
-    function<void(size_t, int)> enumerate_combinations =
-        [&](size_t comparison_idx, int current_hash_adjustment) {
-        
-        if (comparison_idx == affected_comparisons.size()) {
-            // Base case: we've fixed all comparison axiom values
-            result.push_back(state_with_unknowns + current_hash_adjustment);
+    int state_with_unknowns = base_state_index + reset_delta;
+
+    // Enumerate all possible combinations of comparison results.
+    // For deterministic evaluations (TRUE/FALSE), fix the value.
+    // For UNKNOWN evaluations, branch on both TRUE and FALSE.
+    function<void(size_t, int)> enumerate_combinations = 
+        [&](size_t idx, int delta_from_unknown) {
+        if (idx == comparisons.size()) {
+            result.push_back(state_with_unknowns + delta_from_unknown);
             return;
         }
         
-        const AffectedComparison &comp = affected_comparisons[comparison_idx];
-        int prop_var_id = comp.prop_var_id;
+        const CompEval &comp = comparisons[idx];
+        int var_id = comp.prop_var_id;
         
-        // Get the hash multiplier for this propositional variable
-        if (prop_var_id >= static_cast<int>(hash_multipliers.size())) {
-            // Variable not in hash function - skip
-            enumerate_combinations(comparison_idx + 1, current_hash_adjustment);
+        if (var_id >= static_cast<int>(hash_multipliers.size()) || variable_is_trivial(var_id)) {
+            enumerate_combinations(idx + 1, delta_from_unknown);
             return;
         }
         
-        // Skip trivial variables (those with empty domain_mapping)
-        if (variable_is_trivial(prop_var_id)) {
-            enumerate_combinations(comparison_idx + 1, current_hash_adjustment);
-            return;
-        }
+        int multiplier = hash_multipliers[var_id];
+        int unknown_value = domain_mapping[var_id][2];
         
-        int multiplier = hash_multipliers[prop_var_id];
-        
-        // All comparisons are now at UNKNOWN (value 2) in state_with_unknowns
-        // Compute delta from UNKNOWN (2) to target value
-        int unknown_value = domain_mapping[prop_var_id][2];
-        
-        if (comp.eval_result == AffectedComparison::DEFINITELY_TRUE) {
-            // Comparison must be true in the predecessor
-            // Delta from UNKNOWN to true_value
-            int delta_from_unknown = (domain_mapping[comp.prop_var_id][comp.true_value] - unknown_value) * multiplier;
-            enumerate_combinations(comparison_idx + 1, 
-                                 current_hash_adjustment + delta_from_unknown);
-        } else if (comp.eval_result == AffectedComparison::DEFINITELY_FALSE) {
-            // Comparison must be false in the predecessor
-            // Delta from UNKNOWN to false_value
-            
-            int delta_from_unknown = (domain_mapping[comp.prop_var_id][comp.false_value] - unknown_value) * multiplier;
-            enumerate_combinations(comparison_idx + 1,
-                                 current_hash_adjustment + delta_from_unknown);
+        if (comp.eval == 1) {
+            // Definitely TRUE
+            int delta = (domain_mapping[var_id][comp.true_val] - unknown_value) * multiplier;
+            enumerate_combinations(idx + 1, delta_from_unknown + delta);
+        } else if (comp.eval == 0) {
+            // Definitely FALSE
+            int delta = (domain_mapping[var_id][comp.false_val] - unknown_value) * multiplier;
+            enumerate_combinations(idx + 1, delta_from_unknown + delta);
         } else {
-            // UNKNOWN - enumerate true and false possibilities (optimistic branching)
-            
-            if (debug_enum && comparison_idx < 5) {
-                cout << "  BRANCHING on var" << prop_var_id << " (UNKNOWN): generating 2 states\n";
-                cout << "    TRUE path: adjustment += " << ((domain_mapping[comp.prop_var_id][comp.true_value] - unknown_value) * multiplier) << "\n";
-                cout << "    FALSE path: adjustment += " << ((domain_mapping[comp.prop_var_id][comp.false_value] - unknown_value) * multiplier) << "\n";
-            }
-            
-            // Try TRUE: delta from UNKNOWN to true_value
-            int true_delta = (domain_mapping[comp.prop_var_id][comp.true_value] - unknown_value) * multiplier;
-            enumerate_combinations(comparison_idx + 1,
-                                 current_hash_adjustment + true_delta);
-
-            // Try FALSE: delta from UNKNOWN to false_value
-            int false_delta = (domain_mapping[comp.prop_var_id][comp.false_value] - unknown_value) * multiplier;
-            enumerate_combinations(comparison_idx + 1,
-                                 current_hash_adjustment + false_delta);
+            // UNKNOWN: branch on both possibilities
+            int delta_true = (domain_mapping[var_id][comp.true_val] - unknown_value) * multiplier;
+            int delta_false = (domain_mapping[var_id][comp.false_val] - unknown_value) * multiplier;
+            enumerate_combinations(idx + 1, delta_from_unknown + delta_true);
+            enumerate_combinations(idx + 1, delta_from_unknown + delta_false);
         }
     };
-    
+
     enumerate_combinations(0, 0);
     
-    if (debug_enum && affected_comparisons.size() > 0) {
-        cout << "  RESULT: Generated " << result.size() << " states from base_state=" << base_state_index
-             << " (after reset=" << state_with_unknowns << ")" << endl;
-        if (result.size() <= 10) {
-            cout << "  States: ";
-            for (size_t i = 0; i < result.size(); ++i) {
-                if (i > 0) cout << ", ";
-                cout << result[i];
-            }
-            cout << endl;
-        }
+    // Ensure we return at least one state
+    if (result.empty()) {
+        result.push_back(state_with_unknowns);
     }
-    
-    // TODO: Handle assignment axiom cascades (derived numeric variables)
-    // This would require computing derived variable ranges and recursively
-    // checking comparison axioms that depend on them
     
     return result;
 }
@@ -1418,9 +1161,6 @@ void DomainAbstractionFactory::compute_distances(
             // Enumerate all possible predecessors considering comparison axiom cascades
             vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                 state_index + base_hash_effect,
-                op.get_changed_numeric_vars(),
-                op.get_source_partitions(),
-                op.get_target_partitions(),
                 task_proxy);
             
             // DEBUG CHECK 1: Verify base hash effect decoding matches expected numeric partition transitions
@@ -1864,9 +1604,6 @@ void DomainAbstractionFactory::compute_distances(
         
         vector<int> enumerated_states = enumerate_states_with_evaluated_comparisons(
             init_hash,
-            test_changed_vars,
-            test_source_partitions,
-            test_target_partitions,
             task_proxy);
         
         cout << "\nGenerated " << enumerated_states.size() << " states:\n";
@@ -2101,9 +1838,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
             // In progression: source=current partitions, target=successor partitions
             vector<int> possible_successors = enumerate_states_with_evaluated_comparisons(
                 base_successor,
-                op.get_changed_numeric_vars(),
-                op.get_target_partitions(),  // In progression: target becomes source
-                op.get_source_partitions(),  // In progression: source becomes target
                 task_proxy);
             
             // Find a valid successor with lower distance
@@ -2176,9 +1910,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 // to current_state leads to successor_state
                 vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                     base_predecessor,
-                    applicable_op.get_changed_numeric_vars(),
-                    applicable_op.get_source_partitions(),  // In regression: source = predecessor
-                    applicable_op.get_target_partitions(),  // In regression: target = current (successor)
                     task_proxy);
                 
                 // Check if current_state is among the possible predecessors
