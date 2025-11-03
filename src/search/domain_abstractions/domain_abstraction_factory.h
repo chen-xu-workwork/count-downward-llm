@@ -33,6 +33,13 @@ class AbstractOperator {
     std::vector<Fact> regression_preconditions;
     std::vector<NumAssProxy> regression_numeric_preconditions;
 
+  // Forward (progression) preconditions that must hold in the PREDECESSOR
+  // state during regression. We keep these separate because the MatchTree
+  // checks only CURRENT-state conditions (prevails, effects, and target
+  // numeric partitions), while predecessor preconditions must be enforced
+  // when enumerating predecessors in Dijkstra.
+  std::vector<Fact> predecessor_preconditions;
+
     /*
       Effects of the operator during regression search on a given
       abstract state number.
@@ -62,11 +69,11 @@ public:
       meaning prevail, preconditions and effects are all related to
       progression search.
     */
-    AbstractOperator(const std::vector<Fact> &prevail,
-                     const std::vector<Fact> &preconditions,
-                     const std::vector<Fact> &effects,
-                     const std::vector<NumAssProxy> &ass_effects,
-                     int cost,
+  AbstractOperator(const std::vector<Fact> &prevail,
+           const std::vector<Fact> &preconditions,
+           const std::vector<Fact> &effects,
+           const std::vector<NumAssProxy> &ass_effects,
+           int cost,
                      const std::vector<int> &hash_multipliers,
                      const NumericDomainMappingType &numeric_domain_mapping,
                      const std::vector<int> &numeric_domain_sizes,
@@ -80,16 +87,17 @@ public:
       
       Parameters include numeric transition information for cascade enumeration.
     */
-    AbstractOperator(const std::vector<Fact> &prevail,
-                     const std::vector<Fact> &preconditions,
-                     const std::vector<Fact> &effects,
-                     const std::vector<NumAssProxy> &ass_effects,
-                     int cost,
-                     const std::vector<int> &pre_computed_hash_effects,
-                     int concrete_op_id,
-                     const std::vector<int> &changed_numeric_vars,
-                     const std::vector<int> &source_partitions,
-                     const std::vector<int> &target_partitions);
+  AbstractOperator(const std::vector<Fact> &prevail,
+           const std::vector<Fact> &preconditions,
+           const std::vector<Fact> &effects,
+           const std::vector<NumAssProxy> &ass_effects,
+           int cost,
+           const std::vector<int> &pre_computed_hash_effects,
+           int concrete_op_id,
+           const std::vector<int> &changed_numeric_vars,
+           const std::vector<int> &source_partitions,
+           const std::vector<int> &target_partitions,
+           const std::vector<Fact> &predecessor_only_preconditions);
     ~AbstractOperator() = default;
 
     /*
@@ -126,6 +134,10 @@ public:
     const std::vector<int> &get_changed_numeric_vars() const {return changed_numeric_vars;}
     const std::vector<int> &get_source_partitions() const {return source_partitions;}
     const std::vector<int> &get_target_partitions() const {return target_partitions;}
+
+  // Preconditions that must hold in the predecessor state (progression preconditions
+  // and numeric source-partition facts).
+  const std::vector<Fact> &get_predecessor_preconditions() const { return predecessor_preconditions; }
     
     void dump(const VariablesProxy &variables,
               utils::LogProxy &log) const;

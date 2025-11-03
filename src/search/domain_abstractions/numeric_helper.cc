@@ -435,7 +435,7 @@ void DomainAbstractionNumericHelper::enumerate_abstract_transitions(
     
     multiply_out_propositional(
         0, op.get_cost(), prev_pairs, pre_pairs, eff_pairs,
-        effects_without_pre, ass_effects, concrete_op_id, operators);
+        effects_without_pre, ass_effects, concrete_op_id, operators, op);
 }
 
 void DomainAbstractionNumericHelper::multiply_out_propositional(
@@ -445,7 +445,8 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
     const vector<Fact> &effects_without_pre,
     const vector<NumAssProxy> &ass_effects,
     int concrete_op_id,
-    vector<AbstractOperator> &operators) {
+    vector<AbstractOperator> &operators,
+    const OperatorProxy &op) {
     
     if (pos == static_cast<int>(effects_without_pre.size())) {
         // All effects without precondition have been checked.
@@ -505,6 +506,30 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                     target_partitions_list.push_back(trans.target_partition_facts[i].value);
                 }
                 
+                // Build predecessor-only preconditions from comparison axiom preconditions
+                // of the concrete operator. These must hold in the predecessor, but should
+                // not affect hash effects or MatchTree applicability on the current state.
+                vector<Fact> predecessor_only_pres;
+                {
+                    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+                    vector<int> comparison_axiom_var_ids;
+                    comparison_axiom_var_ids.reserve(comparison_axioms.size());
+                    for (ComparisonAxiomProxy ax : comparison_axioms) {
+                        comparison_axiom_var_ids.push_back(ax.get_true_fact().get_variable().get_id());
+                    }
+                    for (FactProxy pre : op.get_preconditions()) {
+                        int var_id = pre.get_variable().get_id();
+                        // Only collect comparison axiom preconditions (skip trivial variables)
+                        if (variable_is_trivial(var_id))
+                            continue;
+                        if (find(comparison_axiom_var_ids.begin(), comparison_axiom_var_ids.end(), var_id)
+                            != comparison_axiom_var_ids.end()) {
+                            int abstract_val = domain_mapping[var_id][pre.get_value()];
+                            predecessor_only_pres.emplace_back(var_id, abstract_val);
+                        }
+                    }
+                }
+
                 // Create abstract operator with single hash effect (NO cascades)
                 vector<int> single_hash_effect = {trans.hash_effect};
                 operators.emplace_back(
@@ -517,7 +542,8 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                     concrete_op_id,             // concrete operator ID
                     changed_numeric_vars,       // numeric variables modified by this operator
                     source_partitions_list,     // source partitions for changed variables
-                    target_partitions_list);    // target partitions for changed variables
+                    target_partitions_list,     // target partitions for changed variables
+                    predecessor_only_pres);     // predecessor-only (comparison) preconditions
             }
         }
     } else {
@@ -536,7 +562,7 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
             }
             multiply_out_propositional(
                 pos + 1, cost, prev_pairs, pre_pairs, eff_pairs,
-                effects_without_pre, ass_effects, concrete_op_id, operators);
+                effects_without_pre, ass_effects, concrete_op_id, operators, op);
             if (i != eff) {
                 pre_pairs.pop_back();
                 eff_pairs.pop_back();

@@ -131,11 +131,13 @@ AbstractOperator::AbstractOperator(
     int concrete_op_id,
     const vector<int> &changed_numeric_vars,
     const vector<int> &source_partitions,
-    const vector<int> &target_partitions)
+        const vector<int> &target_partitions,
+        const vector<Fact> &predecessor_only_preconditions)
     : concrete_op_id(concrete_op_id),
       cost(cost),
       hash_effects(pre_computed_hash_effects),
       regression_numeric_preconditions(ass_effects),
+            predecessor_preconditions(pre_pairs),
       changed_numeric_vars(changed_numeric_vars),
       source_partitions(source_partitions),
       target_partitions(target_partitions) {
@@ -152,6 +154,15 @@ AbstractOperator::AbstractOperator(
     }
     for (const Fact &eff : eff_pairs) {
         regression_preconditions.push_back(eff);
+    }
+
+    // Also append any predecessor-only preconditions (e.g., comparison axiom
+    // preconditions) that must hold in the predecessor state but should not
+    // influence hash effects or MatchTree applicability.
+    if (!predecessor_only_preconditions.empty()) {
+        predecessor_preconditions.insert(predecessor_preconditions.end(),
+                                         predecessor_only_preconditions.begin(),
+                                         predecessor_only_preconditions.end());
     }
 
     // Ensure deterministic MatchTree structure: sort by var id and validate uniqueness
@@ -1685,6 +1696,42 @@ void DomainAbstractionFactory::compute_distances(
                         continue;
                     }
                     
+                    // Enforce predecessor-side preconditions (forward preconditions and
+                    // numeric source partitions) for this operator.
+                    bool predecessor_ok = true;
+                    {
+                        const vector<Fact> &pred_pre = op.get_predecessor_preconditions();
+                        if (!pred_pre.empty()) {
+                            vector<int> pred_props, pred_nums;
+                            vector<int> cur_props_dummy, cur_nums_dummy;
+                            decode_state_to_vectors(predecessor, domain_sizes, numeric_domain_mapping, hash_multipliers,
+                                                    pred_props, pred_nums);
+                            for (const Fact &f : pred_pre) {
+                                int v = f.var;
+                                int expected = f.value;
+                                if (v < static_cast<int>(domain_sizes.size())) {
+                                    // Propositional var must hold in predecessor
+                                    int actual = (v >= 0 && v < static_cast<int>(pred_props.size())) ? pred_props[v] : -999;
+                                    if (actual != expected) {
+                                        predecessor_ok = false;
+                                        break;
+                                    }
+                                } else {
+                                    // Numeric partition var (abstract var after propositional vars)
+                                    int num_idx = v - static_cast<int>(domain_sizes.size());
+                                    int actual = (num_idx >= 0 && num_idx < static_cast<int>(pred_nums.size())) ? pred_nums[num_idx] : -999;
+                                    if (actual != expected) {
+                                        predecessor_ok = false;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (!predecessor_ok) {
+                        continue; // Skip predecessors that don't satisfy predecessor preconditions
+                    }
+
                     valid_predecessors_this_state++;
                     predecessors_this_op++;
                     

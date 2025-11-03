@@ -280,7 +280,8 @@ private:
         const std::vector<Fact> &effects_without_pre,
         const std::vector<NumAssProxy> &ass_effects,
         int concrete_op_id,
-        std::vector<AbstractOperator> &operators);
+        std::vector<AbstractOperator> &operators,
+        const OperatorProxy &op);
     
     /**
      * Compute all hash effects for an operator, including cascading effects
