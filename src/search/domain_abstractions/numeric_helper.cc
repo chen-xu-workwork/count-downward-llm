@@ -308,13 +308,15 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
         // Skip trivial variables - they're completely abstracted away
         if (variable_is_trivial(var_id)) {
             continue;
+            has_precondition_on_var[var_id] = 0; // No meaning in original code?
         }
         
+        // WTF was I thinking?
         // Skip comparison axiom variables - they're handled via cascades, not preconditions
-        if (find(comparison_axiom_var_ids.begin(), comparison_axiom_var_ids.end(), var_id) 
-            != comparison_axiom_var_ids.end()) {
-            continue;
-        }
+        //if (find(comparison_axiom_var_ids.begin(), comparison_axiom_var_ids.end(), var_id) 
+        //    != comparison_axiom_var_ids.end()) {
+        //    continue;
+        //}
         
         // Map concrete value to abstract value
         int abstract_val = domain_mapping[var_id][pre.get_value()];
