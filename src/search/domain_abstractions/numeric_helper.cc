@@ -413,14 +413,6 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
         if (!eff_pairs.empty() || !ass_effects.empty()) {
             size_t ops_before = operators.size();
             
-            // NEW APPROACH: Instead of enumerating all partition pairs and checking
-            // boundaries later, we enumerate only VALID transitions and add
-            // explicit numeric preconditions (source partitions) to each operator.
-            //
-            // For each target partition combination, we determine which source
-            // partitions can reach it, and create one operator per valid
-            // (source -> target) transition with the source partition as a precondition.
-            
             vector<TransitionInfo> transitions = 
                 compute_hash_effects_with_preconditions(pre_pairs, eff_pairs, ass_effects);
             
@@ -690,36 +682,10 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
     return hash_effects;
 }
 
-// NEW APPROACH: Compute transitions with explicit numeric preconditions
-// Instead of enumerating all (source, target) pairs and checking boundaries,
-// this inverts the logic: for each target partition, determine which source
-// partitions can reach it, and create transitions with source preconditions.
 vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with_preconditions(
     const vector<Fact> &pre_pairs,
     const vector<Fact> &eff_pairs,
     const vector<NumAssProxy> &ass_effects) {
-    
-    static int call_count = 0;
-    int local_call = call_count++;
-    
-    // Check if any of the ass_effects affects var 66 (the refined variable we're interested in)
-    bool affects_var66 = false;
-    for (const NumAssProxy &ass_eff : ass_effects) {
-        if (ass_eff.get_affected_variable().get_id() == 66) {
-            affects_var66 = true;
-            break;
-        }
-    }
-    bool debug_this_call = affects_var66;
-    
-    if (debug_this_call) {
-        cout << "DEBUG TRANSITIONS: Computing transitions for call " << local_call 
-             << " (affects num_66)" << endl;
-        cout << "  ass_effects.size()=" << ass_effects.size() << endl;
-        for (size_t i = 0; i < ass_effects.size(); ++i) {
-            cout << "  ass_effect[" << i << "]: num_" << ass_effects[i].get_affected_variable().get_id() << endl;
-        }
-    }
     
     vector<TransitionInfo> transitions;
     
@@ -740,20 +706,13 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
     vector<bool> affected_numeric_vars(numeric_domain_mapping.size(), false);
     for (const NumAssProxy &ass_eff : ass_effects) {
         int num_var_id = ass_eff.get_affected_variable().get_id();
-        if (num_var_id >= 0 && num_var_id < static_cast<int>(numeric_domain_mapping.size())) {
-            // Only enumerate partitions for REFINED numeric variables (> 1 partition)
-            if (numeric_domain_sizes[num_var_id] > 1) {
-                affected_numeric_vars[num_var_id] = true;
-                if (debug_this_call) {
-                    cout << "  Affected refined num_" << num_var_id << ", num_partitions=" 
-                         << numeric_domain_sizes[num_var_id] << endl;
-                }
-            } else if (debug_this_call) {
-                cout << "  Skipping trivial num_" << num_var_id << " (only 1 partition)" << endl;
-            }
-        } else {
-            exit(1);
-        }
+        assert(num_var_id >= 0 && num_var_id < static_cast<int>(numeric_domain_mapping.size()));
+       
+        // Only enumerate partitions for REFINED numeric variables (> 1 partition)
+        if (numeric_domain_sizes[num_var_id] > 1) {
+            affected_numeric_vars[num_var_id] = true;
+
+        } 
     }
     
     // PARTITION TRANSITION ENUMERATION:
@@ -793,14 +752,6 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
             trans.target_partition_facts = target_facts;
             transitions.push_back(trans);
             
-            if (debug_this_call) {
-                cout << "  Transition: hash_effect=" << total_effect << ", source_parts=";
-                for (const Fact &f : source_facts) cout << f.value << ",";
-                cout << " target_parts=";
-                for (const Fact &f : target_facts) cout << f.value << ",";
-                cout << endl;
-            }
-            
             return;
         }
         
@@ -830,11 +781,6 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                     reachable_targets = compute_reachable_partitions(
                         var_idx, source_partition, *ass_eff_for_var);
                     
-                    if (debug_this_call && static_cast<int>(var_idx) == 66) {
-                        cout << "  num_66 source=" << source_partition << " can reach (progression): ";
-                        for (int r : reachable_targets) cout << r << " ";
-                        cout << endl;
-                    }
                 } else {
                     // No effect found - shouldn't happen, but be conservative
                     // Assume all partitions are reachable
@@ -845,9 +791,7 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 
                 // For each reachable target partition, create a transition
                 for (int target_partition : reachable_targets) {
-                    if (debug_this_call && static_cast<int>(var_idx) == 66) {
-                        cout << "  num_66: creating transition " << source_partition << " -> " << target_partition << endl;
-                    }
+
                     // Add both source and target partition facts
                     // The variable ID in the abstract state is: domain_sizes.size() + var_idx
                     int abstract_num_var_id = domain_sizes.size() + var_idx;
@@ -872,12 +816,7 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                     int effect_contribution = 
                         (source_partition - target_partition) * hash_multiplier;
                     
-                    if (debug_this_call) {
-                        cout << "  DEBUG HASH CALC: num_" << var_idx 
-                             << " progression: " << source_partition << "->" << target_partition
-                             << " regression_effect=(" << source_partition << "-" << target_partition << ")*" << hash_multiplier
-                             << " = " << effect_contribution << endl;
-                    }
+    
                     
                     // Track this change for cascades
                     changed_vars.push_back(var_idx);
@@ -921,9 +860,7 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
     vector<int> changed_vars, old_parts, new_parts;
     enumerate_targets(0, 0, source_facts, target_facts, changed_vars, old_parts, new_parts);
     
-    if (debug_this_call) {
-        cout << "DEBUG TRANSITIONS: Generated " << transitions.size() << " transitions total" << endl;
-    }
+
     
     return transitions;
 }
