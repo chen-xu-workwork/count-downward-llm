@@ -55,6 +55,14 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
         int new_val = pre_pairs[i].value;
         assert(new_val != -1);
         int effect = (new_val - old_val) * hash_multipliers[var];
+        if (effect != 0) {
+            assert(var < hash_multipliers.size());
+            cout << "DEBUG AbstractOperator: size hash mult: " << hash_multipliers[var] << endl;
+            cout << "DEBUG AbstractOperator: var" << var 
+                 << " eff=" << old_val << " pre=" << new_val 
+                 << " delta=" << effect << endl;
+
+        }
         hash_effect += effect;
     }
     cout << "hash_effect: " << hash_effect << endl;
@@ -1279,7 +1287,6 @@ void DomainAbstractionFactory::compute_distances(
         // DEBUG: Log ALL state expansions in iteration 2
         static int factory_call = 0;
         if (dijkstra_iterations == 1) factory_call++;
-        bool debug_state_15 = (factory_call == 2 && state_index == 15);
         if (false && VERBOSE_DEBUG && factory_call == 2) {
             cout << "DEBUG DIJKSTRA_EXPAND: Expanding state " << state_index 
                  << " at distance " << distance << endl;
@@ -1403,12 +1410,6 @@ void DomainAbstractionFactory::compute_distances(
             
             int predecessors_this_op = 0;
             int out_of_bounds_this_op = 0;
-            // DEBUG: Log calls from state 15
-            if (VERBOSE_DEBUG && debug_state_15 && base_hash_effect == 0 && operators_checked < 3) {
-                cout << "DEBUG STATE_15: Calling enumerate_states with base_state=" 
-                        << (state_index + base_hash_effect) << ", changed_numeric_vars.size()=" 
-                        << op.get_changed_numeric_vars().size() << endl;
-            }
             
             // Enumerate all possible predecessors considering comparison axiom cascades
             vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
@@ -1639,7 +1640,7 @@ void DomainAbstractionFactory::compute_distances(
     iteration_count++;
     
     // DEBUG: Print table of core variables for all states
-    if (VERBOSE_DEBUG && iteration_count == 2) {
+    if (VERBOSE_DEBUG || true) {
         cout << "\n=== TABLE OF CORE VARIABLES FOR ALL " << num_states << " STATES ===\n";
         
         // First, identify which propositional variables are derived from axioms
