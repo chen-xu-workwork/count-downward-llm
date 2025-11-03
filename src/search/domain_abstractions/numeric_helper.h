@@ -51,6 +51,7 @@ struct TransitionInfo {
     int hash_effect;
     std::vector<Fact> source_partition_facts;  // Source partitions (predecessor state)
     std::vector<Fact> target_partition_facts;  // Target partitions (current state)
+    std::vector<Fact> prevail_facts;
 };
 
 // Forward declaration - AbstractOperator is defined in domain_abstraction_factory.h

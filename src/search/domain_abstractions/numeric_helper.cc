@@ -481,12 +481,11 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                     }
                 }
 
-                // Create abstract operator with single hash effect (NO cascades)
                 vector<int> single_hash_effect = {trans.hash_effect};
                 operators.emplace_back(
                     prev_pairs,                 // prevail conditions (propositional only)
-                    extended_pre_pairs,         // preconditions (propositional + target partitions)
-                    extended_eff_pairs,         // effects (propositional + source partitions)
+                    extended_pre_pairs,         // preconditions (propositional + source partitions)
+                    extended_eff_pairs,         // effects (propositional + target partitions)
                     ass_effects,                // numeric assignment effects
                     cost,                       // operator cost
                     single_hash_effect,         // single hash effect (in vector for compatibility)
