@@ -23,7 +23,7 @@ class AbstractOperator {
       implies on a given abstract state.
     */
     int concrete_op_id;
-
+    int hash_effect;
     int cost;
 
     /*
@@ -40,15 +40,6 @@ class AbstractOperator {
   // when enumerating predecessors in Dijkstra.
   std::vector<Fact> predecessor_preconditions;
 
-    /*
-      Effects of the operator during regression search on a given
-      abstract state number.
-      
-      For propositional-only operators: single hash effect
-      For operators with numeric effects: ONE hash effect per numeric partition transition
-      (comparison axiom cascades are handled on-the-fly in Dijkstra, not pre-computed)
-    */
-    std::vector<int> hash_effects;
     
     /*
       Information about numeric variable transitions for cascade enumeration.
@@ -69,35 +60,14 @@ public:
       meaning prevail, preconditions and effects are all related to
       progression search.
     */
-  AbstractOperator(const std::vector<Fact> &prevail,
-           const std::vector<Fact> &preconditions,
-           const std::vector<Fact> &effects,
-           const std::vector<NumAssProxy> &ass_effects,
-           int cost,
-                     const std::vector<int> &hash_multipliers,
-                     const NumericDomainMappingType &numeric_domain_mapping,
-                     const std::vector<int> &numeric_domain_sizes,
-                     int concrete_op_id);
+  AbstractOperator(const std::vector<Fact> &prev_pairs,
+                    const std::vector<Fact> &pre_pairs,
+                    const std::vector<Fact> &eff_pairs,
+                    int cost,
+                    const std::vector<int> &hash_multipliers,
+                    int concrete_op_id);
     
-    /*
-      Constructor that accepts pre-computed hash effects WITHOUT cascades.
-      This is used by the numeric helper which computes hash effects for
-      numeric partition transitions only. Comparison axiom cascades are
-      handled on-the-fly during Dijkstra search.
-      
-      Parameters include numeric transition information for cascade enumeration.
-    */
-  AbstractOperator(const std::vector<Fact> &prevail,
-           const std::vector<Fact> &preconditions,
-           const std::vector<Fact> &effects,
-           const std::vector<NumAssProxy> &ass_effects,
-           int cost,
-           const std::vector<int> &pre_computed_hash_effects,
-           int concrete_op_id,
-           const std::vector<int> &changed_numeric_vars,
-           const std::vector<int> &source_partitions,
-           const std::vector<int> &target_partitions,
-           const std::vector<Fact> &predecessor_only_preconditions);
+
     ~AbstractOperator() = default;
 
     /*
@@ -115,7 +85,7 @@ public:
       For propositional-only: returns vector with single hash effect
       For numeric operators: returns vector with multiple hash effects
     */
-    const std::vector<int> &get_hash_effects() const {return hash_effects;}
+    const int &get_hash_effect() const {return hash_effect;}
 
     int get_concrete_op_id() const {
         return concrete_op_id;

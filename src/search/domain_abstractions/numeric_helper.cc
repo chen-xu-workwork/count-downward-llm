@@ -486,19 +486,15 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                 //    }
                 //}
 
-                vector<int> single_hash_effect = {trans.hash_effect};
+                std::vector<int> single_hash_effect = {};
                 operators.emplace_back(
                     extended_prev_pairs,        // prevail conditions (propositional only)
                     extended_pre_pairs,         // preconditions (propositional + source partitions)
                     extended_eff_pairs,         // effects (propositional + target partitions)
-                    ass_effects,                // numeric assignment effects
                     cost,                       // operator cost
-                    single_hash_effect,         // single hash effect (in vector for compatibility)
-                    concrete_op_id,             // concrete operator ID
-                    changed_numeric_vars,       // numeric variables modified by this operator
-                    source_partitions_list,     // source partitions for changed variables
-                    target_partitions_list,     // target partitions for changed variables
-                    predecessor_only_pres);     // predecessor-only (comparison) preconditions
+                    hash_multipliers,           // hash multipliers
+                    concrete_op_id              // concrete operator ID
+                );                            
             }
         }
     } else {
@@ -693,18 +689,7 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
     
     vector<TransitionInfo> transitions;
     
-    // Compute base hash effect from propositional effects
-    int base_hash_effect = 0;
     assert(pre_pairs.size() == eff_pairs.size());
-    
-    for (size_t i = 0; i < pre_pairs.size(); ++i) {
-        int var_id = pre_pairs[i].var;
-        assert(var_id == eff_pairs[i].var);
-        int old_val = eff_pairs[i].value;
-        int new_val = pre_pairs[i].value;
-        int effect = (new_val - old_val) * hash_multipliers[var_id];
-        base_hash_effect += effect;
-    }
     
     // Identify which numeric variables are affected
     vector<bool> affected_numeric_vars(numeric_domain_mapping.size(), false);
@@ -734,15 +719,14 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
     //   Transition 0->1: source=0 (PRE: v<9), target=1 (POST: v>=9)
     //   In regression: current has v in partition 1, predecessor has v in partition 0
     //   Hash effect = (0 - 1) * multiplier = -multiplier
-    function<void(size_t, int, vector<Fact>&, vector<Fact>&, vector<int>&, vector<int>&, vector<int>&)> enumerate_targets =
-        [&](size_t var_idx, int current_effect, 
+    function<void(size_t, vector<Fact>&, vector<Fact>&, vector<int>&, vector<int>&, vector<int>&)> enumerate_targets =
+        [&](size_t var_idx, 
             vector<Fact> &source_facts, vector<Fact> &target_facts,
             vector<int> &changed_vars, vector<int> &old_parts, vector<int> &new_parts) {
         
         if (var_idx == numeric_domain_mapping.size()) {
             // Base case: we've fixed a combination of target partitions
             // Now add the transition with hash effect and partition facts
-            int total_effect = base_hash_effect + current_effect;
             
             // NOTE: We do NOT compute cascading effects here anymore!
             // Comparison axiom cascades (propositional variables derived from comparisons)
@@ -751,7 +735,6 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
             // This prevents operator explosion and allows more accurate evaluation.
             
             TransitionInfo trans;
-            trans.hash_effect = total_effect;
             trans.source_partition_facts = source_facts;
             trans.target_partition_facts = target_facts;
             transitions.push_back(trans);
@@ -762,7 +745,6 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
         if (affected_numeric_vars[var_idx]) {
             // This variable is affected - enumerate target partitions
             int num_partitions = numeric_domain_sizes[var_idx];
-            int hash_multiplier = hash_multipliers[domain_sizes.size() + var_idx];
             
             // Find the assignment effect for this variable
             const NumAssProxy *ass_eff_for_var = nullptr;
@@ -786,11 +768,8 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                         var_idx, source_partition, *ass_eff_for_var);
                     
                 } else {
-                    // No effect found - shouldn't happen, but be conservative
-                    // Assume all partitions are reachable
-                    for (int i = 0; i < num_partitions; ++i) {
-                        reachable_targets.push_back(i);
-                    }
+                    cout << "CRITICAL ERROR: Ass eff var not present" << endl;
+                    utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
                 }
                 
                 // For each reachable target partition, create a transition
@@ -802,32 +781,13 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                     source_facts.emplace_back(abstract_num_var_id, source_partition);
                     target_facts.emplace_back(abstract_num_var_id, target_partition);
                     
-                    // Compute hash contribution for this transition using REGRESSION formula:
-                    // Following the original propositional-only constructor pattern:
-                    //   int effect = (new_val - old_val) * hash_multipliers[var];
-                    // Where:
-                    //   old_val = eff_pairs[i].value  (forward POST state = current in regression)
-                    //   new_val = pre_pairs[i].value  (forward PRE state = predecessor in regression)
-                    // 
-                    // For numeric partitions in progression semantics:
-                    //   source_partition = forward PRE (where operator starts)
-                    //   target_partition = forward POST (where operator ends)
-                    // 
-                    // In regression:
-                    //   old_val = target_partition (current state)
-                    //   new_val = source_partition (predecessor state)
-                    //   effect = (source - target) * multiplier
-                    int effect_contribution = 
-                        (source_partition - target_partition) * hash_multiplier;
-                    
-    
                     
                     // Track this change for cascades
                     changed_vars.push_back(var_idx);
                     old_parts.push_back(source_partition);
                     new_parts.push_back(target_partition);
                     
-                    enumerate_targets(var_idx + 1, current_effect + effect_contribution,
+                    enumerate_targets(var_idx + 1,
                                     source_facts, target_facts, changed_vars, old_parts, new_parts);
                     
                     // Backtrack
@@ -847,14 +807,14 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                     // Add identity partition facts (P -> P) with zero hash contribution
                     source_facts.emplace_back(abstract_num_var_id, p);
                     target_facts.emplace_back(abstract_num_var_id, p);
-                    enumerate_targets(var_idx + 1, current_effect, source_facts, target_facts,
+                    enumerate_targets(var_idx + 1, source_facts, target_facts,
                                       changed_vars, old_parts, new_parts);
                     source_facts.pop_back();
                     target_facts.pop_back();
                 }
             } else {
                 // Trivial numeric variable: nothing to add
-                enumerate_targets(var_idx + 1, current_effect, source_facts, target_facts,
+                enumerate_targets(var_idx + 1, source_facts, target_facts,
                                   changed_vars, old_parts, new_parts);
             }
         }
@@ -862,7 +822,7 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
     
     vector<Fact> source_facts, target_facts;
     vector<int> changed_vars, old_parts, new_parts;
-    enumerate_targets(0, 0, source_facts, target_facts, changed_vars, old_parts, new_parts);
+    enumerate_targets(0, source_facts, target_facts, changed_vars, old_parts, new_parts);
     
 
     
@@ -1184,7 +1144,10 @@ vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
     f_operator op_type = ass_effect.get_assigment_operator_type();
     NumericVariableProxy assigned_var = ass_effect.get_assigned_variable();
     ap_float operand_value = assigned_var.get_initial_state_value();
-    
+    //assert that assigned var is always constant!
+
+    assert(assigned_var.get_var_type() == numType::constant);
+
     // IMPORTANT: This function computes partition transitions using PROGRESSION semantics.
     // Even though we're building operators for REGRESSION search, we enumerate transitions
     // in the forward/progression direction because it's easier to reason about:

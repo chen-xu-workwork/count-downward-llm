@@ -48,7 +48,6 @@ struct ResNumericVariable {
  * - target_partition_facts: partitions of the CURRENT state (inserted into eff_pairs so they become regression preconditions)
  */
 struct TransitionInfo {
-    int hash_effect;
     std::vector<Fact> source_partition_facts;  // Source partitions (predecessor state)
     std::vector<Fact> target_partition_facts;  // Target partitions (current state)
     std::vector<Fact> prevail_facts;        // source = target partitions (for prevail conditions)

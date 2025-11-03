@@ -32,11 +32,8 @@ static const bool VERBOSE_DEBUG = false;      // gate noisy, step-by-step diagno
 AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
                                    const vector<Fact> &pre_pairs,
                                    const vector<Fact> &eff_pairs,
-                                   const std::vector<NumAssProxy> &ass_effects,
                                    int cost,
                                    const vector<int> &hash_multipliers,
-                                   const NumericDomainMappingType &numeric_domain_mapping,
-                                   const vector<int> &numeric_domain_sizes,
                                    int concrete_op_id)
     : concrete_op_id(concrete_op_id),
       cost(cost),
@@ -49,9 +46,7 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
         assert(regression_preconditions[i].var !=
                regression_preconditions[i - 1].var);
     }
-    
-    // Compute base hash effect for propositional variables
-    int base_hash_effect = 0;
+    hash_effect = 0;
     assert(pre_pairs.size() == eff_pairs.size());
     for (size_t i = 0; i < pre_pairs.size(); ++i) {
         int var = pre_pairs[i].var;
@@ -60,117 +55,9 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
         int new_val = pre_pairs[i].value;
         assert(new_val != -1);
         int effect = (new_val - old_val) * hash_multipliers[var];
-        base_hash_effect += effect;
+        hash_effect += effect;
     }
-    
-    // Check if this operator has numeric effects
-    bool has_numeric_effects = !ass_effects.empty();
-    
-    if (!has_numeric_effects || numeric_domain_mapping.empty()) {
-        // Propositional-only operator: single hash effect
-        hash_effects.push_back(base_hash_effect);
-    } else {
-        // Operator with numeric effects: compute all possible hash effects
-        // corresponding to all possible partition transitions
-        
-        // Identify which numeric variables are affected
-        vector<bool> affected_numeric_vars(numeric_domain_mapping.size(), false);
-        for (const auto &ass_eff : ass_effects) {
-            int num_var_id = ass_eff.get_affected_variable().get_id();
-            if (num_var_id < static_cast<int>(numeric_domain_mapping.size())) {
-                affected_numeric_vars[num_var_id] = true;
-            }
-        }
-        
-        // Enumerate all possible combinations of partition transitions
-        // For each affected variable, we consider all possible target partitions
-        function<void(size_t, int)> enumerate_effects = [&](size_t var_idx, int current_effect) {
-            if (var_idx == numeric_domain_mapping.size()) {
-                hash_effects.push_back(current_effect);
-                return;
-            }
-            
-            if (affected_numeric_vars[var_idx]) {
-                    // Try all possible source and target partitions for this affected variable
-                    // and compute the hash contribution as (target - source) * multiplier.
-                    // This yields correct regression offsets: predecessor = state + (target - source)*multiplier
-                    int num_partitions = numeric_domain_sizes[var_idx];
-                    // Numeric hash multipliers are stored after all propositional
-                    // variable multipliers in the hash_multipliers vector. Using
-                    // pre_pairs.size() here is incorrect (that is the number of
-                    // precondition facts) and can lead to picking the wrong
-                    // multiplier index. Compute the correct offset into
-                    // hash_multipliers for numeric variables.
-                    int numeric_offset = static_cast<int>(hash_multipliers.size()) - static_cast<int>(numeric_domain_mapping.size());
-                    int hash_multiplier = hash_multipliers[numeric_offset + var_idx];
-
-                    for (int source_partition = 0; source_partition < num_partitions; ++source_partition) {
-                        for (int target_partition = 0; target_partition < num_partitions; ++target_partition) {
-                            int effect_contribution = (target_partition - source_partition) * hash_multiplier;
-                            enumerate_effects(var_idx + 1, current_effect + effect_contribution);
-                        }
-                    }
-                } else {
-                // Not affected: no contribution to hash effect from this variable
-                enumerate_effects(var_idx + 1, current_effect);
-            }
-        };
-        
-        enumerate_effects(0, base_hash_effect);
-    }
-}
-
-// Constructor with pre-computed hash effects (used by numeric helper)
-AbstractOperator::AbstractOperator(
-    const vector<Fact> &prev_pairs,
-    const vector<Fact> &pre_pairs,
-    const vector<Fact> &eff_pairs,
-    const vector<NumAssProxy> &ass_effects,
-    int cost,
-    const vector<int> &pre_computed_hash_effects,
-    int concrete_op_id,
-    const vector<int> &changed_numeric_vars,
-    const vector<int> &source_partitions,
-        const vector<int> &target_partitions,
-        const vector<Fact> &predecessor_only_preconditions)
-    : concrete_op_id(concrete_op_id),
-      cost(cost),
-      hash_effects(pre_computed_hash_effects),
-      regression_numeric_preconditions(ass_effects),
-            predecessor_preconditions(pre_pairs),
-      changed_numeric_vars(changed_numeric_vars),
-      source_partitions(source_partitions),
-      target_partitions(target_partitions) {
-    
-    // Build regression preconditions from progression effects and prevails
-    // In regression:
-    //   - prev_pairs: things that don't change (prevail in both directions)
-    //   - eff_pairs: forward effects become regression preconditions that must hold in the CURRENT state
-    // For numeric partitions, target-partition facts are intentionally placed in eff_pairs
-    // upstream so they are enforced on the current state by the match tree.
-    regression_preconditions.reserve(prev_pairs.size() + pre_pairs.size() + eff_pairs.size());
-    for (const Fact &prev : prev_pairs) {
-        regression_preconditions.push_back(prev);
-    }
-    for (const Fact &eff : eff_pairs) {
-        regression_preconditions.push_back(eff);
-    }
-
-    // Also append any predecessor-only preconditions (e.g., comparison axiom
-    // preconditions) that must hold in the predecessor state but should not
-    // influence hash effects or MatchTree applicability.
-    if (!predecessor_only_preconditions.empty()) {
-        predecessor_preconditions.insert(predecessor_preconditions.end(),
-                                         predecessor_only_preconditions.begin(),
-                                         predecessor_only_preconditions.end());
-    }
-
-    // Ensure deterministic MatchTree structure: sort by var id and validate uniqueness
-    sort(regression_preconditions.begin(), regression_preconditions.end());
-    for (size_t i = 1; i < regression_preconditions.size(); ++i) {
-        assert(regression_preconditions[i].var != regression_preconditions[i - 1].var);
-    }
-
+    cout << "hash_effect: " << hash_effect << endl;
 }
 
 DomainAbstractionFactory::DomainAbstractionFactory (
@@ -1272,13 +1159,6 @@ void DomainAbstractionFactory::compute_distances(
                 debug_file << "    var" << pre.var << " = " << pre.value << "\n";
             }
             
-            debug_file << "  Hash effects:\n";
-            const vector<int> &hash_effects = op.get_hash_effects();
-            for (size_t i = 0; i < hash_effects.size(); ++i) {
-                int target = init_hash + hash_effects[i];
-                debug_file << "    effect[" << i << "] = " << hash_effects[i] 
-                          << " (leads to state " << target << ")\n";
-            }
             
             debug_file << "  Numeric variable transitions:\n";
             const vector<int> &changed_vars = op.get_changed_numeric_vars();
@@ -1435,19 +1315,6 @@ void DomainAbstractionFactory::compute_distances(
             }
         }
         
-        // DEBUG: Show info for state 15
-        if (debug_state_15) {
-            cout << "DEBUG STATE_15: " << applicable_operator_ids.size() << " operators applicable to state 15" << endl;
-            int count_hash_effect_zero = 0;
-            for (int op_id : applicable_operator_ids) {
-                const AbstractOperator &op = operators[op_id];
-                if (op.get_hash_effects().size() == 1 && op.get_hash_effects()[0] == 0) {
-                    count_hash_effect_zero++;
-                }
-            }
-            cout << "DEBUG STATE_15: " << count_hash_effect_zero << " operators with hash_effect=0" << endl;
-        }
-        
         int valid_predecessors_this_state = 0;
         int out_of_bounds_predecessors = 0;
         int operators_checked = 0;
@@ -1484,8 +1351,7 @@ void DomainAbstractionFactory::compute_distances(
                 if (affects_refined_vars) {
                     cout << "DEBUG EXPAND: *** FOUND OPERATOR AFFECTING REFINED VARS ***" << endl;
                 }
-                cout << "DEBUG EXPAND: Operator " << op_id << ", cost=" << op.get_cost() 
-                     << ", hash_effects=" << op.get_hash_effects().size() << endl;
+                cout << "DEBUG EXPAND: Operator " << op_id << ", cost=" << op.get_cost()  << endl;
                 // Also print the concrete operator name for clarity (e.g., "pour agent1 plant1")
                 {
                     OperatorsProxy concrete_ops = task_proxy.get_operators();
@@ -1533,216 +1399,214 @@ void DomainAbstractionFactory::compute_distances(
             
             // Iterate over all possible hash effects (predecessors)
             // Propositional operators have 1 effect, numeric operators have multiple
-            const vector<int> &hash_effects_vec = op.get_hash_effects();
+            const int base_hash_effect = op.get_hash_effect();
             
             int predecessors_this_op = 0;
             int out_of_bounds_this_op = 0;
-            for (int base_hash_effect : hash_effects_vec) {
-                // DEBUG: Log calls from state 15
-                if (VERBOSE_DEBUG && debug_state_15 && base_hash_effect == 0 && operators_checked < 3) {
-                    cout << "DEBUG STATE_15: Calling enumerate_states with base_state=" 
-                         << (state_index + base_hash_effect) << ", changed_numeric_vars.size()=" 
-                         << op.get_changed_numeric_vars().size() << endl;
-                }
-                
-                // Enumerate all possible predecessors considering comparison axiom cascades
-                vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
-                    state_index + base_hash_effect,
-                    op.get_changed_numeric_vars(),
-                    op.get_source_partitions(),
-                    op.get_target_partitions(),
-                    task_proxy);
-                
-                // DEBUG CHECK 1: Verify base hash effect decoding matches expected numeric partition transitions
-                if (VERBOSE_DEBUG && is_first_goal_expansion) {
-                    int base_state_index = state_index + base_hash_effect;
-                    if (base_state_index >= 0 && base_state_index < num_states) {
-                        vector<int> cur_props, cur_nums;
-                        vector<int> base_props, base_nums;
-                        decode_state_to_vectors(state_index, domain_sizes, numeric_domain_mapping, hash_multipliers, cur_props, cur_nums);
-                        decode_state_to_vectors(base_state_index, domain_sizes, numeric_domain_mapping, hash_multipliers, base_props, base_nums);
+            // DEBUG: Log calls from state 15
+            if (VERBOSE_DEBUG && debug_state_15 && base_hash_effect == 0 && operators_checked < 3) {
+                cout << "DEBUG STATE_15: Calling enumerate_states with base_state=" 
+                        << (state_index + base_hash_effect) << ", changed_numeric_vars.size()=" 
+                        << op.get_changed_numeric_vars().size() << endl;
+            }
+            
+            // Enumerate all possible predecessors considering comparison axiom cascades
+            vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
+                state_index + base_hash_effect,
+                op.get_changed_numeric_vars(),
+                op.get_source_partitions(),
+                op.get_target_partitions(),
+                task_proxy);
+            
+            // DEBUG CHECK 1: Verify base hash effect decoding matches expected numeric partition transitions
+            if (VERBOSE_DEBUG && is_first_goal_expansion) {
+                int base_state_index = state_index + base_hash_effect;
+                if (base_state_index >= 0 && base_state_index < num_states) {
+                    vector<int> cur_props, cur_nums;
+                    vector<int> base_props, base_nums;
+                    decode_state_to_vectors(state_index, domain_sizes, numeric_domain_mapping, hash_multipliers, cur_props, cur_nums);
+                    decode_state_to_vectors(base_state_index, domain_sizes, numeric_domain_mapping, hash_multipliers, base_props, base_nums);
 
-                        bool all_ok = true;
-                        // Check numeric partitions for changed vars: current should be target, base should be source
-                        for (size_t i = 0; i < op.get_changed_numeric_vars().size(); ++i) {
-                            int var = op.get_changed_numeric_vars()[i];
-                            int src = op.get_source_partitions()[i];
-                            int tgt = op.get_target_partitions()[i];
-                            int cur_part = (var >= 0 && var < (int)cur_nums.size()) ? cur_nums[var] : -999;
-                            int base_part = (var >= 0 && var < (int)base_nums.size()) ? base_nums[var] : -999;
-                            bool ok_var = (cur_part == tgt) && (base_part == src);
-                            all_ok = all_ok && ok_var;
-                            cout << "DEBUG HASH-EFFECT CHECK: var=num" << var
-                                 << " cur(tgt?)=" << cur_part << "~=" << tgt
-                                 << " base(src?)=" << base_part << "~=" << src
-                                 << " -> " << (ok_var ? "OK" : "MISMATCH") << endl;
-                        }
-                        // Check regression preconditions:
-                        // - Propositional facts (prev/eff on props) must hold in the BASE (predecessor) state.
-                        // - Numeric partition facts inside regression_preconditions represent TARGET partitions
-                        //   (they were added to eff_pairs). Those must hold in the CURRENT state, not the base state.
-                        const vector<Fact> &reg_pre = op.get_regression_preconditions();
-                        for (const Fact &f : reg_pre) {
-                            int v = f.var;
-                            int expected = f.value;
-                            int actual;
-                            if (v >= 0 && v < (int)base_props.size()) {
-                                // Propositional preconditions: check against predecessor (base) state
-                                actual = base_props[v];
-                            } else {
-                                // Numeric partition preconditions (stored after propositional vars):
-                                // these are TARGET partition facts and must hold in the CURRENT state.
-                                int num_idx = v - (int)base_props.size();
-                                actual = (num_idx >= 0 && num_idx < (int)cur_nums.size()) ? cur_nums[num_idx] : -999;
-                            }
-                            bool ok = (actual == expected);
-                            all_ok = all_ok && ok;
-                            cout << "DEBUG HASH-EFFECT CHECK: precond v" << v
-                                 << " base_val=" << actual << " expected=" << expected
-                                 << " -> " << (ok ? "OK" : "MISMATCH") << endl;
-                        }
-                        cout << "DEBUG HASH-EFFECT CHECK: base_state=" << base_state_index
-                             << " effect=" << base_hash_effect << " RESULT=" << (all_ok ? "OK" : "MISMATCH") << endl;
-                    } else {
-                        cout << "DEBUG HASH-EFFECT CHECK: base_state out of bounds (" << base_state_index << ")" << endl;
+                    bool all_ok = true;
+                    // Check numeric partitions for changed vars: current should be target, base should be source
+                    for (size_t i = 0; i < op.get_changed_numeric_vars().size(); ++i) {
+                        int var = op.get_changed_numeric_vars()[i];
+                        int src = op.get_source_partitions()[i];
+                        int tgt = op.get_target_partitions()[i];
+                        int cur_part = (var >= 0 && var < (int)cur_nums.size()) ? cur_nums[var] : -999;
+                        int base_part = (var >= 0 && var < (int)base_nums.size()) ? base_nums[var] : -999;
+                        bool ok_var = (cur_part == tgt) && (base_part == src);
+                        all_ok = all_ok && ok_var;
+                        cout << "DEBUG HASH-EFFECT CHECK: var=num" << var
+                                << " cur(tgt?)=" << cur_part << "~=" << tgt
+                                << " base(src?)=" << base_part << "~=" << src
+                                << " -> " << (ok_var ? "OK" : "MISMATCH") << endl;
                     }
+                    // Check regression preconditions:
+                    // - Propositional facts (prev/eff on props) must hold in the BASE (predecessor) state.
+                    // - Numeric partition facts inside regression_preconditions represent TARGET partitions
+                    //   (they were added to eff_pairs). Those must hold in the CURRENT state, not the base state.
+                    const vector<Fact> &reg_pre = op.get_regression_preconditions();
+                    for (const Fact &f : reg_pre) {
+                        int v = f.var;
+                        int expected = f.value;
+                        int actual;
+                        if (v >= 0 && v < (int)base_props.size()) {
+                            // Propositional preconditions: check against predecessor (base) state
+                            actual = base_props[v];
+                        } else {
+                            // Numeric partition preconditions (stored after propositional vars):
+                            // these are TARGET partition facts and must hold in the CURRENT state.
+                            int num_idx = v - (int)base_props.size();
+                            actual = (num_idx >= 0 && num_idx < (int)cur_nums.size()) ? cur_nums[num_idx] : -999;
+                        }
+                        bool ok = (actual == expected);
+                        all_ok = all_ok && ok;
+                        cout << "DEBUG HASH-EFFECT CHECK: precond v" << v
+                                << " base_val=" << actual << " expected=" << expected
+                                << " -> " << (ok ? "OK" : "MISMATCH") << endl;
+                    }
+                    cout << "DEBUG HASH-EFFECT CHECK: base_state=" << base_state_index
+                            << " effect=" << base_hash_effect << " RESULT=" << (all_ok ? "OK" : "MISMATCH") << endl;
+                } else {
+                    cout << "DEBUG HASH-EFFECT CHECK: base_state out of bounds (" << base_state_index << ")" << endl;
                 }
+            }
 
-                // DEBUG: Show predecessors for first goal or for pour operators specifically
-                if (VERBOSE_DEBUG && is_first_goal_expansion && (operators_checked < 3 || is_pour) && possible_predecessors.size() > 0) {
-                    cout << "DEBUG EXPAND:   base_hash_effect=" << base_hash_effect 
-                         << " → " << possible_predecessors.size() << " predecessors: ";
-                    for (size_t i = 0; i < min(possible_predecessors.size(), size_t(5)); ++i) {
+            // DEBUG: Show predecessors for first goal or for pour operators specifically
+            if (VERBOSE_DEBUG && is_first_goal_expansion && (operators_checked < 3 || is_pour) && possible_predecessors.size() > 0) {
+                cout << "DEBUG EXPAND:   base_hash_effect=" << base_hash_effect 
+                        << " → " << possible_predecessors.size() << " predecessors: ";
+                for (size_t i = 0; i < min(possible_predecessors.size(), size_t(5)); ++i) {
+                    cout << possible_predecessors[i];
+                    if (i < possible_predecessors.size() - 1 && i < 4) cout << ",";
+                }
+                if (possible_predecessors.size() > 5) cout << "...";
+                cout << endl;
+                if (is_pour) {
+                    // For pour, also list all predecessors explicitly (no truncation)
+                    cout << "DEBUG POUR:   ALL predecessors (state indices): ";
+                    for (size_t i = 0; i < possible_predecessors.size(); ++i) {
+                        if (i) cout << ", ";
                         cout << possible_predecessors[i];
-                        if (i < possible_predecessors.size() - 1 && i < 4) cout << ",";
                     }
-                    if (possible_predecessors.size() > 5) cout << "...";
                     cout << endl;
-                    if (is_pour) {
-                        // For pour, also list all predecessors explicitly (no truncation)
-                        cout << "DEBUG POUR:   ALL predecessors (state indices): ";
-                        for (size_t i = 0; i < possible_predecessors.size(); ++i) {
-                            if (i) cout << ", ";
-                            cout << possible_predecessors[i];
-                        }
-                        cout << endl;
-                    }
                 }
-                // DEBUG CHECK 2: Validate a few enumerated predecessors
-                if (VERBOSE_DEBUG && is_first_goal_expansion && !possible_predecessors.empty()) {
-                    size_t check_limit = min<size_t>(possible_predecessors.size(), 5);
-                    for (size_t pi = 0; pi < check_limit; ++pi) {
-                        int pred = possible_predecessors[pi];
-                        if (pred < 0 || pred >= num_states) {
-                            cout << "DEBUG ENUM CHECK: predecessor " << pred << " out of bounds" << endl;
-                            continue;
-                        }
-                        vector<int> cur_props, cur_nums;
-                        vector<int> pred_props, pred_nums;
-                        decode_state_to_vectors(state_index, domain_sizes, numeric_domain_mapping, hash_multipliers, cur_props, cur_nums);
-                        decode_state_to_vectors(pred, domain_sizes, numeric_domain_mapping, hash_multipliers, pred_props, pred_nums);
-
-                        bool ok_pred = true;
-                        // Numeric source partitions must hold in predecessor
-                        for (size_t i = 0; i < op.get_changed_numeric_vars().size(); ++i) {
-                            int var = op.get_changed_numeric_vars()[i];
-                            int src = op.get_source_partitions()[i];
-                            int pred_part = (var >= 0 && var < (int)pred_nums.size()) ? pred_nums[var] : -999;
-                            bool ok_var = (pred_part == src);
-                            ok_pred = ok_pred && ok_var;
-                            cout << "DEBUG ENUM CHECK: pred=" << pred << " var=num" << var
-                                 << " src?=" << pred_part << "~=" << src
-                                 << " -> " << (ok_var ? "OK" : "MISMATCH") << endl;
-                        }
-                        // Regression preconditions for enumerated predecessors:
-                        // - Propositional facts must hold in the PREDECESSOR (pred_* vectors).
-                        // - Numeric partition preconditions (target partitions) must hold in the CURRENT state.
-                        const vector<Fact> &reg_pre2 = op.get_regression_preconditions();
-                        for (const Fact &f : reg_pre2) {
-                            int v = f.var;
-                            int expected = f.value;
-                            int actual;
-                            if (v >= 0 && v < (int)pred_props.size()) {
-                                // Propositional preconditions on predecessor
-                                actual = pred_props[v];
-                            } else {
-                                // Numeric partition preconditions (target partitions) on CURRENT state
-                                int num_idx = v - (int)pred_props.size();
-                                actual = (num_idx >= 0 && num_idx < (int)cur_nums.size()) ? cur_nums[num_idx] : -999;
-                            }
-                            bool ok = (actual == expected);
-                            ok_pred = ok_pred && ok;
-                            cout << "DEBUG ENUM CHECK: precond v" << v
-                                 << " pred_val=" << actual << " expected=" << expected
-                                 << " -> " << (ok ? "OK" : "MISMATCH") << endl;
-                        }
-                        cout << "DEBUG ENUM CHECK: predecessor " << pred << " RESULT=" << (ok_pred ? "OK" : "MISMATCH") << endl;
-                    }
-                }
-                
-                for (int predecessor : possible_predecessors) {
-                    // Skip predecessors that are out of bounds. This can legitimately
-                    // happen because we enumerate many numeric partition transitions
-                    // conservatively; some of those transitions do not correspond to
-                    // valid abstract predecessors for the current propositional part.
-                    if (predecessor < 0 || predecessor >= num_states) {
-                        if (dijkstra_iterations == 1) {
-                            out_of_bounds_predecessors++;
-                        }
-                       
-                        // Continue without asserting to allow the search to proceed
-                        // while we gather diagnostics. Invalid predecessors are
-                        // expected in conservative enumerations and should be skipped.
+            }
+            // DEBUG CHECK 2: Validate a few enumerated predecessors
+            if (VERBOSE_DEBUG && is_first_goal_expansion && !possible_predecessors.empty()) {
+                size_t check_limit = min<size_t>(possible_predecessors.size(), 5);
+                for (size_t pi = 0; pi < check_limit; ++pi) {
+                    int pred = possible_predecessors[pi];
+                    if (pred < 0 || pred >= num_states) {
+                        cout << "DEBUG ENUM CHECK: predecessor " << pred << " out of bounds" << endl;
                         continue;
                     }
+                    vector<int> cur_props, cur_nums;
+                    vector<int> pred_props, pred_nums;
+                    decode_state_to_vectors(state_index, domain_sizes, numeric_domain_mapping, hash_multipliers, cur_props, cur_nums);
+                    decode_state_to_vectors(pred, domain_sizes, numeric_domain_mapping, hash_multipliers, pred_props, pred_nums);
+
+                    bool ok_pred = true;
+                    // Numeric source partitions must hold in predecessor
+                    for (size_t i = 0; i < op.get_changed_numeric_vars().size(); ++i) {
+                        int var = op.get_changed_numeric_vars()[i];
+                        int src = op.get_source_partitions()[i];
+                        int pred_part = (var >= 0 && var < (int)pred_nums.size()) ? pred_nums[var] : -999;
+                        bool ok_var = (pred_part == src);
+                        ok_pred = ok_pred && ok_var;
+                        cout << "DEBUG ENUM CHECK: pred=" << pred << " var=num" << var
+                                << " src?=" << pred_part << "~=" << src
+                                << " -> " << (ok_var ? "OK" : "MISMATCH") << endl;
+                    }
+                    // Regression preconditions for enumerated predecessors:
+                    // - Propositional facts must hold in the PREDECESSOR (pred_* vectors).
+                    // - Numeric partition preconditions (target partitions) must hold in the CURRENT state.
+                    const vector<Fact> &reg_pre2 = op.get_regression_preconditions();
+                    for (const Fact &f : reg_pre2) {
+                        int v = f.var;
+                        int expected = f.value;
+                        int actual;
+                        if (v >= 0 && v < (int)pred_props.size()) {
+                            // Propositional preconditions on predecessor
+                            actual = pred_props[v];
+                        } else {
+                            // Numeric partition preconditions (target partitions) on CURRENT state
+                            int num_idx = v - (int)pred_props.size();
+                            actual = (num_idx >= 0 && num_idx < (int)cur_nums.size()) ? cur_nums[num_idx] : -999;
+                        }
+                        bool ok = (actual == expected);
+                        ok_pred = ok_pred && ok;
+                        cout << "DEBUG ENUM CHECK: precond v" << v
+                                << " pred_val=" << actual << " expected=" << expected
+                                << " -> " << (ok ? "OK" : "MISMATCH") << endl;
+                    }
+                    cout << "DEBUG ENUM CHECK: predecessor " << pred << " RESULT=" << (ok_pred ? "OK" : "MISMATCH") << endl;
+                }
+            }
+            
+            for (int predecessor : possible_predecessors) {
+                // Skip predecessors that are out of bounds. This can legitimately
+                // happen because we enumerate many numeric partition transitions
+                // conservatively; some of those transitions do not correspond to
+                // valid abstract predecessors for the current propositional part.
+                if (predecessor < 0 || predecessor >= num_states) {
+                    if (dijkstra_iterations == 1) {
+                        out_of_bounds_predecessors++;
+                    }
                     
-                    // Enforce predecessor-side preconditions (forward preconditions and
-                    // numeric source partitions) for this operator.
-                    bool predecessor_ok = true;
-                    {
-                        const vector<Fact> &pred_pre = op.get_predecessor_preconditions();
-                        if (!pred_pre.empty()) {
-                            vector<int> pred_props, pred_nums;
-                            vector<int> cur_props_dummy, cur_nums_dummy;
-                            decode_state_to_vectors(predecessor, domain_sizes, numeric_domain_mapping, hash_multipliers,
-                                                    pred_props, pred_nums);
-                            for (const Fact &f : pred_pre) {
-                                int v = f.var;
-                                int expected = f.value;
-                                if (v < static_cast<int>(domain_sizes.size())) {
-                                    // Propositional var must hold in predecessor
-                                    int actual = (v >= 0 && v < static_cast<int>(pred_props.size())) ? pred_props[v] : -999;
-                                    if (actual != expected) {
-                                        predecessor_ok = false;
-                                        break;
-                                    }
-                                } else {
-                                    // Numeric partition var (abstract var after propositional vars)
-                                    int num_idx = v - static_cast<int>(domain_sizes.size());
-                                    int actual = (num_idx >= 0 && num_idx < static_cast<int>(pred_nums.size())) ? pred_nums[num_idx] : -999;
-                                    if (actual != expected) {
-                                        predecessor_ok = false;
-                                        break;
-                                    }
+                    // Continue without asserting to allow the search to proceed
+                    // while we gather diagnostics. Invalid predecessors are
+                    // expected in conservative enumerations and should be skipped.
+                    continue;
+                }
+                
+                // Enforce predecessor-side preconditions (forward preconditions and
+                // numeric source partitions) for this operator.
+                bool predecessor_ok = true;
+                {
+                    const vector<Fact> &pred_pre = op.get_predecessor_preconditions();
+                    if (!pred_pre.empty()) {
+                        vector<int> pred_props, pred_nums;
+                        vector<int> cur_props_dummy, cur_nums_dummy;
+                        decode_state_to_vectors(predecessor, domain_sizes, numeric_domain_mapping, hash_multipliers,
+                                                pred_props, pred_nums);
+                        for (const Fact &f : pred_pre) {
+                            int v = f.var;
+                            int expected = f.value;
+                            if (v < static_cast<int>(domain_sizes.size())) {
+                                // Propositional var must hold in predecessor
+                                int actual = (v >= 0 && v < static_cast<int>(pred_props.size())) ? pred_props[v] : -999;
+                                if (actual != expected) {
+                                    predecessor_ok = false;
+                                    break;
+                                }
+                            } else {
+                                // Numeric partition var (abstract var after propositional vars)
+                                int num_idx = v - static_cast<int>(domain_sizes.size());
+                                int actual = (num_idx >= 0 && num_idx < static_cast<int>(pred_nums.size())) ? pred_nums[num_idx] : -999;
+                                if (actual != expected) {
+                                    predecessor_ok = false;
+                                    break;
                                 }
                             }
                         }
                     }
-                    if (!predecessor_ok) {
-                        continue; // Skip predecessors that don't satisfy predecessor preconditions
-                    }
+                }
+                if (!predecessor_ok) {
+                    continue; // Skip predecessors that don't satisfy predecessor preconditions
+                }
 
-                    valid_predecessors_this_state++;
-                    predecessors_this_op++;
+                valid_predecessors_this_state++;
+                predecessors_this_op++;
+                
+                if (alternative_cost < distances[predecessor]) {
+                    total_expansions++;
                     
-                    if (alternative_cost < distances[predecessor]) {
-                        total_expansions++;
-                        
-                        distances[predecessor] = alternative_cost;
-                        pq.push(alternative_cost, predecessor);
-                        if (compute_plan) {
-                            generating_op_ids[predecessor] = op_id;
-                        }
+                    distances[predecessor] = alternative_cost;
+                    pq.push(alternative_cost, predecessor);
+                    if (compute_plan) {
+                        generating_op_ids[predecessor] = op_id;
                     }
                 }
             }
@@ -2085,17 +1949,8 @@ void DomainAbstractionFactory::compute_distances(
             int op_idx = applicable_ops[i];
             const AbstractOperator &op = operators[op_idx];
             cout << "  Operator " << op_idx << ": cost=" << op.get_cost() 
-                 << ", concrete_op=" << op.get_concrete_op_id()
-                 << ", transitions=" << op.get_hash_effects().size() << endl;
-            
-            // Print the first few hash effects (transitions)
-            const vector<int> &hash_effects = op.get_hash_effects();
-            for (size_t j = 0; j < min(hash_effects.size(), static_cast<size_t>(3)); ++j) {
-                int target = init_hash + hash_effects[j];
-                cout << "    Transition " << j << ": effect=" << hash_effects[j] 
-                     << ", target=" << target 
-                     << ", target_distance=" << (target < num_states ? distances[target] : -1) << endl;
-            }
+                 << ", concrete_op=" << op.get_concrete_op_id() << endl;
+
         }
         
         // Also print info about operators affecting var66
@@ -2113,26 +1968,7 @@ void DomainAbstractionFactory::compute_distances(
             if (!source_parts.empty() && !target_parts.empty()) {
                 if (source_parts[0] != target_parts[0]) {
                     var66_operators_count++;
-                    if (var66_operators_count <= 5) {
-                        const vector<int> &hash_effects = op.get_hash_effects();
-                        cout << "    Op " << op_idx << ": var66 transition " << source_parts[0] 
-                             << "->" << target_parts[0] << ", concrete_op=" << op.get_concrete_op_id()
-                             << ", hash_effects=[";
-                        for (size_t j = 0; j < hash_effects.size(); ++j) {
-                            if (j > 0) cout << ", ";
-                            cout << hash_effects[j];
-                        }
-                        cout << "], target_state=" << (init_hash + (hash_effects.empty() ? 0 : hash_effects[0])) << endl;
-                        
-                        // Print regression preconditions
-                        const vector<Fact> &regr_pre = op.get_regression_preconditions();
-                        cout << "      Regression preconditions: [";
-                        for (size_t j = 0; j < regr_pre.size(); ++j) {
-                            if (j > 0) cout << ", ";
-                            cout << "var" << regr_pre[j].var << "=" << regr_pre[j].value;
-                        }
-                        cout << "]" << endl;
-                    }
+                   
                 }
             }
         }
@@ -2249,43 +2085,37 @@ void DomainAbstractionFactory::compute_abstract_plan(
             // we do for predecessors in Dijkstra!
             int hash_effect = -1;
             int successor_state = -1;
+
+            int candidate_hash_effect = op.get_hash_effect();
             
-            for (int candidate_hash_effect : op.get_hash_effects()) {
-                // Compute base successor (without comparison axiom evaluation)
-                int base_successor = current_state - candidate_hash_effect;
-                
-                // Enumerate all possible successors with evaluated comparison axioms
-                // For progression: we swap source/target partitions (opposite of regression)
-                // In progression: source=current partitions, target=successor partitions
-                vector<int> possible_successors = enumerate_states_with_evaluated_comparisons(
-                    base_successor,
-                    op.get_changed_numeric_vars(),
-                    op.get_target_partitions(),  // In progression: target becomes source
-                    op.get_source_partitions(),  // In progression: source becomes target
-                    task_proxy);
-                
-                // Find a valid successor with lower distance
-                for (int candidate_successor : possible_successors) {
-                    // Check if this successor is valid (was reached during Dijkstra)
-                    if (candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()) &&
-                        distances[candidate_successor] != numeric_limits<int>::max() &&
-                        distances[candidate_successor] < distances[current_state]) {
-                        // Valid successor with lower distance - use it!
-                        hash_effect = candidate_hash_effect;
-                        successor_state = candidate_successor;
-                        break;
-                    }
-                }
-                
-                if (successor_state != -1) {
-                    break;  // Found a valid successor
+            // Compute base successor (without comparison axiom evaluation)
+            int base_successor = current_state - candidate_hash_effect;
+            
+            // Enumerate all possible successors with evaluated comparison axioms
+            // For progression: we swap source/target partitions (opposite of regression)
+            // In progression: source=current partitions, target=successor partitions
+            vector<int> possible_successors = enumerate_states_with_evaluated_comparisons(
+                base_successor,
+                op.get_changed_numeric_vars(),
+                op.get_target_partitions(),  // In progression: target becomes source
+                op.get_source_partitions(),  // In progression: source becomes target
+                task_proxy);
+            
+            // Find a valid successor with lower distance
+            for (int candidate_successor : possible_successors) {
+                // Check if this successor is valid (was reached during Dijkstra)
+                if (candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()) &&
+                    distances[candidate_successor] != numeric_limits<int>::max() &&
+                    distances[candidate_successor] < distances[current_state]) {
+                    // Valid successor with lower distance - use it!
+                    hash_effect = candidate_hash_effect;
+                    successor_state = candidate_successor;
+                    break;
                 }
             }
             
-            // If no valid successor found, use the first hash effect as fallback
-            if (hash_effect == -1) {
-                hash_effect = op.get_hash_effects()[0];
-                successor_state = current_state - hash_effect;
+            if (successor_state != -1) {
+                break;  // Found a valid successor
             }
 
             // Report this plan step: operator and abstract effects
@@ -2299,23 +2129,22 @@ void DomainAbstractionFactory::compute_abstract_plan(
                      << " via op=\"" << op_name << "\" (concrete_id=" << concrete_id << ")" << endl;
                 // List all abstract effects for this operator
                 cout << "  Abstract effects (hash_effect -> numeric transitions):" << endl;
-                for (int he : op.get_hash_effects()) {
-                    cout << "    effect=" << he << ":";
-                    size_t n = min(op.get_changed_numeric_vars().size(),
-                                   min(op.get_source_partitions().size(), op.get_target_partitions().size()));
-                    if (n == 0) {
-                        cout << " (no numeric changes)";
-                    } else {
-                        cout << " ";
-                        for (size_t i = 0; i < n; ++i) {
-                            if (i) cout << ", ";
-                            cout << "num" << op.get_changed_numeric_vars()[i]
-                                 << ": " << op.get_source_partitions()[i]
-                                 << "->" << op.get_target_partitions()[i];
-                        }
+                int he = op.get_hash_effect();
+                cout << "    effect=" << he << ":";
+                size_t n = min(op.get_changed_numeric_vars().size(),
+                                min(op.get_source_partitions().size(), op.get_target_partitions().size()));
+                if (n == 0) {
+                    cout << " (no numeric changes)";
+                } else {
+                    cout << " ";
+                    for (size_t i = 0; i < n; ++i) {
+                        if (i) cout << ", ";
+                        cout << "num" << op.get_changed_numeric_vars()[i]
+                                << ": " << op.get_source_partitions()[i]
+                                << "->" << op.get_target_partitions()[i];
                     }
-                    cout << endl;
                 }
+                cout << endl;
             }
 
             // Compute equivalent ops
@@ -2333,27 +2162,26 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 }
                 
                 // Check all hash effects of the applicable operator
-                for (int applicable_hash_effect : applicable_op.get_hash_effects()) {
-                    // Compute base predecessor (without comparison axiom evaluation)
-                    int base_predecessor = successor_state + applicable_hash_effect;
-                    
-                    // Enumerate all possible predecessors with evaluated comparison axioms
-                    // This is the REVERSE of progression: we're checking if applying this operator
-                    // to current_state leads to successor_state
-                    vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
-                        base_predecessor,
-                        applicable_op.get_changed_numeric_vars(),
-                        applicable_op.get_source_partitions(),  // In regression: source = predecessor
-                        applicable_op.get_target_partitions(),  // In regression: target = current (successor)
-                        task_proxy);
-                    
-                    // Check if current_state is among the possible predecessors
-                    if (find(possible_predecessors.begin(), possible_predecessors.end(), current_state) 
-                        != possible_predecessors.end()) {
-                        // This operator can take us from current_state to successor_state!
-                        cheapest_operators.emplace_back(applicable_op.get_concrete_op_id());
-                        break; // Only add once per operator
-                    }
+                int applicable_hash_effect = applicable_op.get_hash_effect();
+                // Compute base predecessor (without comparison axiom evaluation)
+                int base_predecessor = successor_state + applicable_hash_effect;
+                
+                // Enumerate all possible predecessors with evaluated comparison axioms
+                // This is the REVERSE of progression: we're checking if applying this operator
+                // to current_state leads to successor_state
+                vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
+                    base_predecessor,
+                    applicable_op.get_changed_numeric_vars(),
+                    applicable_op.get_source_partitions(),  // In regression: source = predecessor
+                    applicable_op.get_target_partitions(),  // In regression: target = current (successor)
+                    task_proxy);
+                
+                // Check if current_state is among the possible predecessors
+                if (find(possible_predecessors.begin(), possible_predecessors.end(), current_state) 
+                    != possible_predecessors.end()) {
+                    // This operator can take us from current_state to successor_state!
+                    cheapest_operators.emplace_back(applicable_op.get_concrete_op_id());
+                    break; // Only add once per operator
                 }
             }
             
