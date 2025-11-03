@@ -133,10 +133,6 @@ public:
         return numeric_goals;
     }
     
-    // Get propositional goals
-    const std::vector<FactProxy> &get_propositional_goals() const {
-        return propositional_goals;
-    }
     
     // Get initial numeric values
     const std::vector<ap_float> &get_initial_numeric_values() const {
@@ -178,10 +174,7 @@ public:
     int get_regular_var_id(int global_num_var_id) const {
         return glob_var_id_to_reg_num_var_id[global_num_var_id];
     }
-    
-    int get_global_var_id(int regular_num_var_id) const {
-        return reg_num_var_id_to_glob_var_id[regular_num_var_id];
-    }
+
     
     const TaskProxy &get_task_proxy() const {
         return task_proxy;
@@ -219,7 +212,6 @@ private:
     
     // Goals
     std::vector<numeric_condition::RegularNumericCondition> numeric_goals;
-    std::vector<FactProxy> propositional_goals;
     
     // Initial state
     std::vector<ap_float> initial_numeric_values;

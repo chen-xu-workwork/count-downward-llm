@@ -39,8 +39,6 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
     n_propositional_variables = task_proxy.get_variables().size();
     
     // Initialize ID mappings and derived variable tracking
-    reg_num_var_id_to_glob_var_id.resize(n_numeric_variables);
-    glob_var_id_to_reg_num_var_id.resize(n_numeric_variables);
     is_derived_num_var.resize(n_numeric_variables, false);
     is_derived_prop_var.resize(n_propositional_variables, false);
     
@@ -49,30 +47,11 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
     reverse_axiom_dependencies.resize(n_numeric_variables);
     
     // Build internal data structures
-    build_numeric_variables();
     find_derived_variables();
     build_axiom_dependencies();
     print_axiom_dependency_trees();  // DEBUG: Print dependency trees
-    build_goals();
 }
 
-void DomainAbstractionNumericHelper::build_numeric_variables() {
-    // Get initial values
-    initial_numeric_values = task->get_initial_state_numeric_values();
-    
-    // Build mappings between regular and global IDs
-    // TODO: Why do I need that mapping? That is not a PDB, 
-    // meaning all variables are considered.
-    // Can remove later, I suppose.
-    int regular_id = 0;
-    for (int i = 0; i < n_numeric_variables; ++i) {
-        if (!is_derived_num_var[i]) {
-            reg_num_var_id_to_glob_var_id[regular_id] = i;
-            glob_var_id_to_reg_num_var_id[i] = regular_id;
-            ++regular_id;
-        }
-    }
-}
 
 void DomainAbstractionNumericHelper::find_derived_variables() {
     // Analyze task axioms to identify derived variables
@@ -126,7 +105,9 @@ void DomainAbstractionNumericHelper::build_axiom_dependencies() {
         int left_id = axiom.get_left_variable().get_id();
         int right_id = axiom.get_right_variable().get_id();
         
+        // TODO: are axioms sorted?
         // Forward dependencies: derived variable depends on left and right
+        assert(derived_id >= 0 && derived_id < static_cast<int>(axiom_dependencies.size()));
         if (derived_id >= 0 && derived_id < static_cast<int>(axiom_dependencies.size())) {
             if (left_id >= 0) {
                 // Check if not already in dependencies
@@ -146,6 +127,7 @@ void DomainAbstractionNumericHelper::build_axiom_dependencies() {
         }
         
         // Reverse dependencies: left and right variables affect derived variable
+        assert(derived_id >= 0 && derived_id < static_cast<int>(reverse_axiom_dependencies.size()));
         if (left_id >= 0 && left_id < static_cast<int>(reverse_axiom_dependencies.size())) {
             if (std::find(reverse_axiom_dependencies[left_id].begin(),
                          reverse_axiom_dependencies[left_id].end(),
@@ -153,6 +135,7 @@ void DomainAbstractionNumericHelper::build_axiom_dependencies() {
                 reverse_axiom_dependencies[left_id].push_back(derived_id);
             }
         }
+        assert(derived_id >= 0 && derived_id < static_cast<int>(reverse_axiom_dependencies.size()));
         if (right_id >= 0 && right_id < static_cast<int>(reverse_axiom_dependencies.size()) 
             && right_id != left_id) {
             if (std::find(reverse_axiom_dependencies[right_id].begin(),
@@ -217,18 +200,6 @@ void DomainAbstractionNumericHelper::print_axiom_dependency_trees() {
         }
     }
     
-}
-
-void DomainAbstractionNumericHelper::build_goals() {
-    // Collect propositional goals
-    for (FactProxy goal : task_proxy.get_goals()) {
-        propositional_goals.push_back(goal);
-    }
-    
-    // TODO: Collect numeric goals
-    // This requires parsing numeric goal conditions
-    // Markus: Don't think such thing exists. Comparison axioms produce propositional goals.
-    // Question is if they are stored as "numeric goals" or "propositional goals".
 }
 
 vector<int> DomainAbstractionNumericHelper::get_affected_variables(int var_id) const {
