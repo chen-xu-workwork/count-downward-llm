@@ -259,10 +259,8 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     // Keep iterating until no new derived variables can be computed (fixpoint).
     AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
     bool changed = true;
-    int iterations = 0;
-    while (changed && iterations < 1000) {  // Safety limit against cycles
+    while (changed) {
         changed = false;
-        ++iterations;
         
         for (AssignmentAxiomProxy axiom : assignment_axioms) {
             int derived_id = axiom.get_assignment_variable().get_id();
@@ -1843,14 +1841,16 @@ void DomainAbstractionFactory::compute_abstract_plan(
             // Find a valid successor with lower distance
             for (int candidate_successor : possible_successors) {
                 // Check if this successor is valid (was reached during Dijkstra)
-                if (candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()) &&
-                    distances[candidate_successor] != numeric_limits<int>::max() &&
+                assert(candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()));
+                if (distances[candidate_successor] != numeric_limits<int>::max() &&
                     distances[candidate_successor] < distances[current_state]) {
                     // Valid successor with lower distance - use it!
                     hash_effect = candidate_hash_effect;
                     successor_state = candidate_successor;
                     break;
                 }
+                cout << "DEBUG Candidate Successor: " << candidate_successor 
+                     << " distance=" << distances[candidate_successor] << endl;
             }
             
             if (successor_state != -1) {
@@ -1911,6 +1911,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                     base_predecessor,
                     task_proxy);
+                
                 
                 // Check if current_state is among the possible predecessors
                 if (find(possible_predecessors.begin(), possible_predecessors.end(), current_state) 
