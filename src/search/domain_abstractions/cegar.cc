@@ -1945,7 +1945,7 @@ bool CEGAR::fix_numeric_flaws(
              << " (variable refinement count: " << attempt_count << ")"
              << endl;
         
-        // Check if we can refine this variable
+    // Check if we can refine this variable
         if (can_refine_numeric_variable(abstraction_size, numeric_var_id, task_proxy)) {
             // Bounds check
             if (numeric_var_id < 0 || numeric_var_id >= (int)numeric_domain_mapping.size()) {
@@ -1955,32 +1955,12 @@ bool CEGAR::fix_numeric_flaws(
                 continue;
             }
             
-            // OPTION A: Split at both current value AND goal threshold
-            // This prevents duplicate flaws while promoting progress toward the goal
+            // Split only at the current concrete value that triggered the flaw
             int old_num_partitions = numeric_domain_mapping[numeric_var_id]->get_num_partitions();
             
-            // First split: at the concrete value
+            // Split at the concrete value only
             int after_concrete_split = numeric_domain_mapping[numeric_var_id]->split_at(concrete_value);
-            bool concrete_split_created_partition = (after_concrete_split > old_num_partitions);
-            
-            // Second split: at the goal threshold (if this is a comparison axiom flaw)
-            ap_float threshold = extract_threshold_from_comparison(prop_var_id, task_proxy);
-            int after_threshold_split = after_concrete_split;
-            bool threshold_split_created_partition = false;
-            
-            // Only split at threshold if it's different from concrete_value
-            // (to avoid splitting at the same point twice)
-            if (threshold != concrete_value) {
-                after_threshold_split = numeric_domain_mapping[numeric_var_id]->split_at(threshold);
-                threshold_split_created_partition = (after_threshold_split > after_concrete_split);
-                
-                if (threshold_split_created_partition) {
-                if (VERBOSE_DEBUG) cout << "DEBUG: Also split num_" << numeric_var_id 
-                         << " at goal threshold " << threshold << endl;
-                }
-            }
-            
-            int new_num_partitions = after_threshold_split;
+            int new_num_partitions = after_concrete_split;
             
             if (new_num_partitions > old_num_partitions) {
                 // Successfully split - created at least one new partition
@@ -1990,19 +1970,15 @@ bool CEGAR::fix_numeric_flaws(
                 // Increment refinement counter for this variable
                 numeric_var_refinement_count[numeric_var_id]++;
                 
-                cout << "Refined num_" << numeric_var_id 
-                     << " at value " << concrete_value;
-                if (threshold != concrete_value) {
-                    cout << " and threshold " << threshold;
-                }
-                cout << " (partitions: " << old_num_partitions << " -> " << new_num_partitions << ")"
+             cout << "Refined num_" << numeric_var_id 
+                 << " at value " << concrete_value
+                 << " (partitions: " << old_num_partitions << " -> " << new_num_partitions << ")"
                      << endl;
             } else {
                 // No new partitions created - splits already exist
-                cout << "DEBUG: Flaw for num_" << numeric_var_id 
-                     << " at value " << concrete_value 
-                     << " (threshold=" << threshold << ")"
-                     << " - splits already exist (no refinement needed)" << endl;
+             cout << "DEBUG: Flaw for num_" << numeric_var_id 
+                 << " at value " << concrete_value 
+                 << " - splits already exist (no refinement needed)" << endl;
             } 
         } else {
             cout << "DEBUG: Cannot refine num_" << numeric_var_id 
