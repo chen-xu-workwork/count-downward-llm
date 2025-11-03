@@ -65,6 +65,10 @@ private:
     // (mutable because get_flaws is const but needs to store flaws)
     mutable std::vector<NumericFlaw> detected_numeric_flaws;
     
+    // Track which propositional flaws we actually chose/refined in this iteration.
+    // Used to restrict numeric refinements to only those caused by the selected propositional flaws.
+    mutable std::unordered_set<int> last_selected_prop_flaw_vars;
+    
     // Mapping from propositional variables (derived from comparison axioms)
     // to the numeric variables they depend on.
     // This allows us to trace back from propositional flaws to numeric refinements.
@@ -926,6 +930,9 @@ bool CEGAR::fix_single_random_flaw(
             }
             
             abstract_domain_sizes[fact.var] += 1;
+            // Record the chosen propositional flaw variable
+            last_selected_prop_flaw_vars.clear();
+            last_selected_prop_flaw_vars.insert(fact.var);
             if (VERBOSE_DEBUG) {
                 cout << "    New abstract_domain_size[" << fact.var << "] = "
                      << abstract_domain_sizes[fact.var] << endl;
@@ -968,6 +975,9 @@ bool CEGAR::fix_single_flaw_max_refined(
         add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
         domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
         abstract_domain_sizes[fact.var] += 1;
+        // Record the chosen propositional flaw variable
+        last_selected_prop_flaw_vars.clear();
+        last_selected_prop_flaw_vars.insert(fact.var);
         return true;
     }
     return false;
@@ -989,6 +999,8 @@ bool CEGAR::fix_flaws_per_atom(
             domain_mapping[flaw.var][flaw.value] =
                 abstract_domain_sizes[flaw.var];
             abstract_domain_sizes[flaw.var] += 1;
+            // Track all propositional flaws we refine
+            last_selected_prop_flaw_vars.insert(flaw.var);
             last_flaw = flaw;
         }
     }
@@ -1008,6 +1020,8 @@ bool CEGAR::fix_flaws_per_variable(
                opposed to for every atom as in *fix_flaws_per_atom* above. */
             add_variable_to_abstraction_if_necessary(flaw.var, domain_mapping);
             abstract_domain_sizes[flaw.var] += 1;
+            // Track each variable we refine
+            last_selected_prop_flaw_vars.insert(flaw.var);
         } else if (flaw.var != last_flaw.var || flaw.value == last_flaw.value) {
             // Duplicate or does not fit size limit.
             continue;
@@ -1606,6 +1620,8 @@ DomainAbstraction CEGAR::build_abstraction(
 
         vector<Fact> flaws =
             get_flaws(task_proxy, concrete_init, abstraction);
+        // Reset the set of selected propositional flaws for this refinement step
+        last_selected_prop_flaw_vars.clear();
 
         // SUMMARY: Final flaws and dependencies for this iteration
         if (!flaws.empty() || !detected_numeric_flaws.empty()) {
@@ -1672,7 +1688,20 @@ DomainAbstraction CEGAR::build_abstraction(
         // Then try to fix numeric flaws (if any)
         bool numeric_flaws_fixed = true;
         if (!detected_numeric_flaws.empty()) {
-            numeric_flaws_fixed = fix_numeric_flaws(detected_numeric_flaws, abstraction.size(), task_proxy);
+            // Filter numeric flaws to only those originating from the propositional flaws
+            // we actually selected/refined above. If none were selected (e.g., no propositional
+            // refinement possible), fall back to all numeric flaws.
+            std::vector<NumericFlaw> filtered_numeric_flaws;
+            if (!last_selected_prop_flaw_vars.empty()) {
+                for (const auto &nf : detected_numeric_flaws) {
+                    if (last_selected_prop_flaw_vars.count(nf.prop_var_id)) {
+                        filtered_numeric_flaws.push_back(nf);
+                    }
+                }
+            } else {
+                filtered_numeric_flaws = detected_numeric_flaws;
+            }
+            numeric_flaws_fixed = fix_numeric_flaws(filtered_numeric_flaws, abstraction.size(), task_proxy);
         }
         
         if (!flaws_fixed || !numeric_flaws_fixed) {
