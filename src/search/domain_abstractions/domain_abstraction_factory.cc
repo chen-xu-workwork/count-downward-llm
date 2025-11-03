@@ -27,7 +27,7 @@ using namespace std;
 
 namespace domain_abstractions {
 // Logging controls: keep concise iteration/plan summaries by default
-static const bool VERBOSE_DEBUG = false;      // gate noisy, step-by-step diagnostics
+static const bool VERBOSE_DEBUG = true;      // gate noisy, step-by-step diagnostics
 
 AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
                                    const vector<Fact> &pre_pairs,
@@ -1028,7 +1028,7 @@ void DomainAbstractionFactory::compute_distances(
         // DEBUG: Log ALL state expansions in iteration 2
         static int factory_call = 0;
         if (dijkstra_iterations == 1) factory_call++;
-        if (false && VERBOSE_DEBUG && factory_call == 2) {
+        if (VERBOSE_DEBUG && factory_call == 2) {
             cout << "DEBUG DIJKSTRA_EXPAND: Expanding state " << state_index 
                  << " at distance " << distance << endl;
         }
@@ -1037,7 +1037,7 @@ void DomainAbstractionFactory::compute_distances(
         bool is_first_goal_expansion = (state_index == first_goal_state && !first_goal_expanded);
         
         // DEBUG: Log when expanding the first goal state
-        if (false && VERBOSE_DEBUG && is_first_goal_expansion) {
+        if (VERBOSE_DEBUG && is_first_goal_expansion) {
             cout << "DEBUG EXPAND: Expanding first goal state " << state_index << endl;
             string decoded = decode_abstract_state(state_index, domain_sizes, numeric_domain_mapping, hash_multipliers);
             cout << "  " << decoded << endl;
@@ -1054,7 +1054,7 @@ void DomainAbstractionFactory::compute_distances(
         }
         
         // DEBUG: Show applicable operators for first goal
-        if (false && VERBOSE_DEBUG && is_first_goal_expansion) {
+        if (VERBOSE_DEBUG && is_first_goal_expansion) {
             cout << "DEBUG EXPAND: " << applicable_operator_ids.size() << " operators applicable" << endl;
             // List all applicable operator names for positive confirmation (kept small: typically ~10-15)
             OperatorsProxy concrete_ops = task_proxy.get_operators();
@@ -1153,6 +1153,7 @@ void DomainAbstractionFactory::compute_distances(
             // Iterate over all possible hash effects (predecessors)
             // Propositional operators have 1 effect, numeric operators have multiple
             const int base_hash_effect = op.get_hash_effect();
+            assert(state_index + base_hash_effect < num_states && 0 <= state_index + base_hash_effect);
             
             int predecessors_this_op = 0;
             
@@ -1293,6 +1294,7 @@ void DomainAbstractionFactory::compute_distances(
                 // happen because we enumerate many numeric partition transitions
                 // conservatively; some of those transitions do not correspond to
                 // valid abstract predecessors for the current propositional part.
+                assert(0 <= predecessor && predecessor < num_states);
                 if (predecessor < 0 || predecessor >= num_states) {
                     if (dijkstra_iterations == 1) {
                         out_of_bounds_predecessors++;
