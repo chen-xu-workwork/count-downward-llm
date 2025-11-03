@@ -578,7 +578,39 @@ vector<Fact> CEGAR::get_flaws(
     vector<vector<int>> wildcard_plan = abstraction.get_plan();
     vector<Fact> flaws;
 
+    // Helper: decode current abstract state (propositional + numeric partitions)
+    auto decode_abstract_state_compact = [&](const vector<int> &prop_state,
+                                             const vector<ap_float> &num_state) -> string {
+        const DomainMapping &dm = abstraction.get_domain_mapping();
+        const NumericDomainMappingType &ndm = abstraction.get_numeric_domain_mapping();
+        stringstream ss;
+        ss << "[";
+        // Propositional variables in abstraction
+        bool first = true;
+        for (size_t i = 0; i < dm.size(); ++i) {
+            if (!dm[i].empty()) {
+                if (!first) ss << ", ";
+                first = false;
+                int concrete_val = prop_state[i];
+                int abs_val = dm[i][concrete_val];
+                ss << "v" << i << "=" << abs_val;
+            }
+        }
+        // Numeric partitions
+        for (size_t i = 0; i < ndm.size(); ++i) {
+            int part = ndm[i]->get_partition_index(num_state[i]);
+            if (!first) ss << ", ";
+            first = false;
+            ss << "num" << i << "=p" << part;
+        }
+        ss << "]";
+        return ss.str();
+    };
+
     if (VERBOSE_DEBUG) cout << "DEBUG: Validating wildcard plan with " << wildcard_plan.size() << " steps" << endl;
+    // Always print a concise abstract plan trace with state transitions
+    cout << "PLAN: Validating abstract plan (" << wildcard_plan.size() << " steps)" << endl;
+    cout << "PLAN: State 0 (start): " << decode_abstract_state_compact(current_state, numeric_state) << endl;
     int step_num = 0;
     for (vector<int> &equivalent_ops : wildcard_plan) {
         assert(flaws.empty());
@@ -599,6 +631,50 @@ vector<Fact> CEGAR::get_flaws(
                 
                 // DEBUG: Print operator being executed
                 if (VERBOSE_DEBUG) cout << "  Executing operator: " << op.get_name() << endl;
+
+                // Concise plan trace: print chosen operator and numeric partition transitions
+                {
+                    cout << "PLAN: Step " << step_num << " | op=\"" << op.get_name() << "\" (chosen among "
+                         << equivalent_ops.size() << ")" << endl;
+                    // Compute numeric partition transitions for affected variables
+                    const NumericDomainMappingType &ndm = abstraction.get_numeric_domain_mapping();
+                    vector<pair<int, pair<int, int>>> part_changes; // (var_id, (from,to))
+                    for (auto ass_eff_proxy : op.get_ass_effects()) {
+                        NumAssProxy effect = ass_eff_proxy.get_assignment();
+                        int var_id = effect.get_affected_variable().get_id();
+                        if (var_id >= 0 && var_id < static_cast<int>(ndm.size())) {
+                            int from_p = ndm[var_id]->get_partition_index(numeric_state[var_id]);
+                            // Simulate numeric change to compute partition after (without mutating yet)
+                            ap_float old_val = numeric_state[var_id];
+                            NumericVariableProxy assigned_var = effect.get_assigned_variable();
+                            ap_float operand = numeric_state[assigned_var.get_id()];
+                            ap_float new_val = old_val;
+                            switch (effect.get_assigment_operator_type()) {
+                                case assign: new_val = operand; break;
+                                case increase: new_val = old_val + operand; break;
+                                case decrease: new_val = old_val - operand; break;
+                                case scale_up: new_val = old_val * operand; break;
+                                case scale_down: new_val = (operand != 0) ? old_val / operand : old_val; break;
+                            }
+                            int to_p = ndm[var_id]->get_partition_index(new_val);
+                            part_changes.push_back({var_id, {from_p, to_p}});
+                        }
+                    }
+                    if (!part_changes.empty()) {
+                        cout << "  Numeric partitions:";
+                        bool first = true;
+                        for (const auto &pc : part_changes) {
+                            if (!first) cout << ",";
+                            first = false;
+                            cout << " num" << pc.first << ": " << pc.second.first << "->" << pc.second.second;
+                        }
+                        cout << endl;
+                    } else {
+                        cout << "  Numeric partitions: (no numeric changes)" << endl;
+                    }
+                    // Print state before applying op (compact)
+                    cout << "  State before: " << decode_abstract_state_compact(current_state, numeric_state) << endl;
+                }
                 
                 // DEBUG: Print propositional effects
                 if (VERBOSE_DEBUG) {
@@ -646,6 +722,9 @@ vector<Fact> CEGAR::get_flaws(
                 apply_numeric_effects(numeric_state, op);
                 g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_state);
                 g_axiom_evaluator->evaluate(current_state, numeric_state);
+
+                // Print state after applying op (compact)
+                cout << "  State after:  " << decode_abstract_state_compact(current_state, numeric_state) << endl;
                 break;
             } else {
                 // We have precondition flaws
@@ -657,7 +736,13 @@ vector<Fact> CEGAR::get_flaws(
                     if (it != comparison_axiom_dependencies.end()) {
                         // This is a comparison axiom variable - trace to regular numeric variables it depends on
                         const unordered_set<int> &dep_vars = it->second;
+                        NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
                         for (int numeric_var_id : dep_vars) {
+                            if (numeric_var_id < 0 || numeric_var_id >= (int)num_vars.size())
+                                continue;
+                            // Only collect flaws for REGULAR numeric variables (skip CONSTANT/DERIVED)
+                            if (num_vars[numeric_var_id].get_var_type() != numType::regular)
+                                continue;
                             // Split at current concrete value
                             ap_float concrete_value = numeric_state[numeric_var_id];
                             detected_numeric_flaws.emplace_back(
@@ -674,9 +759,11 @@ vector<Fact> CEGAR::get_flaws(
         }
         
         if (!flaws.empty() || !detected_numeric_flaws.empty()) {
-            cout << "DEBUG: Flaw found at step " << step_num << endl;
-            cout << "DEBUG: Propositional flaws: " << flaws.size() 
-                 << ", Numeric flaws: " << detected_numeric_flaws.size() << endl;
+            if (VERBOSE_DEBUG) {
+                cout << "DEBUG: Flaw found at step " << step_num << endl;
+                cout << "DEBUG: Propositional flaws: " << flaws.size()
+                     << ", Numeric flaws: " << detected_numeric_flaws.size() << endl;
+            }
             return flaws;
         }
         step_num++;
@@ -734,14 +821,18 @@ vector<Fact> CEGAR::get_flaws(
             }
             
             bool added_any_numeric_flaw = false;
+            NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
             for (int numeric_var_id : dep_vars) {
+                if (numeric_var_id < 0 || numeric_var_id >= (int)num_vars.size())
+                    continue;
+                if (num_vars[numeric_var_id].get_var_type() != numType::regular)
+                    continue; // Skip CONSTANT/DERIVED in flaw collection
                 // Get current concrete value
                 ap_float concrete_value = numeric_state[numeric_var_id];
-             if (VERBOSE_DEBUG) {
-                cout << "       Adding numeric flaw: num_" << numeric_var_id 
-                    << " with concrete value " << concrete_value << endl;
-             }
-                
+                if (VERBOSE_DEBUG) {
+                    cout << "       Adding numeric flaw: num_" << numeric_var_id 
+                         << " with concrete value " << concrete_value << endl;
+                }
                 // Add this as a numeric flaw to refine
                 detected_numeric_flaws.emplace_back(
                     numeric_var_id, concrete_value, flaw.var);
@@ -772,16 +863,13 @@ vector<Fact> CEGAR::get_flaws(
 bool CEGAR::fix_flaws(
     vector<Fact> &&flaws, DomainMapping &domain_mapping,
     int abstraction_size) {
-    switch(flaw_treatment) {
+    switch (flaw_treatment) {
         case FlawTreatment::RANDOM_SINGLE_ATOM:
-            return fix_single_random_flaw(
-                move(flaws), domain_mapping, abstraction_size);
+            return fix_single_random_flaw(move(flaws), domain_mapping, abstraction_size);
         case FlawTreatment::ONE_SPLIT_PER_ATOM:
-            return fix_flaws_per_atom(
-                move(flaws), domain_mapping, abstraction_size);
+            return fix_flaws_per_atom(move(flaws), domain_mapping, abstraction_size);
         case FlawTreatment::ONE_SPLIT_PER_VARIABLE:
-            return fix_flaws_per_variable(
-                move(flaws), domain_mapping, abstraction_size);
+            return fix_flaws_per_variable(move(flaws), domain_mapping, abstraction_size);
         case FlawTreatment::MAX_REFINED_SINGLE_ATOM:
             return fix_single_flaw_max_refined(move(flaws), domain_mapping, abstraction_size);
     }
@@ -794,46 +882,58 @@ bool CEGAR::fix_single_random_flaw(
     int abstraction_size) {
     // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
     int repetitions = ceil(1 + std::log(flaws.size()));
-    cout << "DEBUG fix_single_random_flaw: Processing " << flaws.size() << " flaws, "
-         << repetitions << " repetitions" << endl;
+    if (VERBOSE_DEBUG) {
+        cout << "DEBUG fix_single_random_flaw: Processing " << flaws.size() << " flaws, "
+             << repetitions << " repetitions" << endl;
+    }
     for (int i = 0; i < repetitions; ++i) {
         Fact fact(*rng->choose(flaws));
-        cout << "  Attempt " << (i+1) << ": chosen flaw fdr_" << fact.var << "=" << fact.value << endl;
-        cout << "    Current abstract_domain_size[" << fact.var << "] = " 
-             << abstract_domain_sizes[fact.var] << endl;
-        cout << "    Real domain size = " << real_domain_sizes[fact.var] << endl;
+        if (VERBOSE_DEBUG) {
+            cout << "  Attempt " << (i+1) << ": chosen flaw fdr_" << fact.var << "=" << fact.value << endl;
+            cout << "    Current abstract_domain_size[" << fact.var << "] = "
+                 << abstract_domain_sizes[fact.var] << endl;
+            cout << "    Real domain size = " << real_domain_sizes[fact.var] << endl;
+        }
         
         if (can_refine_variable(abstraction_size, fact.var)) {
-            cout << "    Can refine - adding to abstraction" << endl;
+            if (VERBOSE_DEBUG) cout << "    Can refine - adding to abstraction" << endl;
             add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
             
             // Show domain mapping before modification
-            cout << "    Domain mapping before: [";
-            for (size_t j = 0; j < domain_mapping[fact.var].size(); ++j) {
-                if (j > 0) cout << ", ";
-                cout << domain_mapping[fact.var][j];
+            if (VERBOSE_DEBUG) {
+                cout << "    Domain mapping before: [";
+                for (size_t j = 0; j < domain_mapping[fact.var].size(); ++j) {
+                    if (j > 0) cout << ", ";
+                    cout << domain_mapping[fact.var][j];
+                }
+                cout << "]" << endl;
             }
-            cout << "]" << endl;
             
-            cout << "    Setting domain_mapping[" << fact.var << "][" << fact.value 
-                 << "] = " << abstract_domain_sizes[fact.var] << endl;
-            domain_mapping[fact.var][fact.value] =
-                abstract_domain_sizes[fact.var];
+            if (VERBOSE_DEBUG) {
+                cout << "    Setting domain_mapping[" << fact.var << "][" << fact.value
+                     << "] = " << abstract_domain_sizes[fact.var] << endl;
+            }
+            domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
             
             // Show domain mapping after modification
-            cout << "    Domain mapping after: [";
-            for (size_t j = 0; j < domain_mapping[fact.var].size(); ++j) {
-                if (j > 0) cout << ", ";
-                cout << domain_mapping[fact.var][j];
+            if (VERBOSE_DEBUG) {
+                cout << "    Domain mapping after: [";
+                for (size_t j = 0; j < domain_mapping[fact.var].size(); ++j) {
+                    if (j > 0) cout << ", ";
+                    cout << domain_mapping[fact.var][j];
+                }
+                cout << "]" << endl;
             }
-            cout << "]" << endl;
             
             abstract_domain_sizes[fact.var] += 1;
-            cout << "    New abstract_domain_size[" << fact.var << "] = " 
-                 << abstract_domain_sizes[fact.var] << endl;
+            if (VERBOSE_DEBUG) {
+                cout << "    New abstract_domain_size[" << fact.var << "] = "
+                     << abstract_domain_sizes[fact.var] << endl;
+            }
             return true;
         } else {
-            cout << "    Cannot refine (blacklisted or size limit)" << endl;
+            cout << "Variable " << fact.var
+                 << " cannot be refined (domain size exceeds limit or blacklisted)." << endl;
         }
     }
     return false;
@@ -1512,14 +1612,26 @@ DomainAbstraction CEGAR::build_abstraction(
             cout << "SUMMARY: Flaws after plan validation" << endl;
             if (!flaws.empty()) {
                 cout << "  Propositional flaws:" << endl;
+                // Access variable and numeric proxies for names
+                VariablesProxy vars = task_proxy.get_variables();
+                NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
                 for (const Fact &f : flaws) {
                     bool is_comp = (comparison_axiom_dependencies.find(f.var) != comparison_axiom_dependencies.end());
-                    cout << "    fdr_" << f.var << "=" << f.value << (is_comp ? " (comparison)" : "") << endl;
+                    // Print propositional variable with its human-readable name
+                    string prop_name = vars[f.var].get_name();
+                    cout << "    fdr_" << f.var << " (" << prop_name << ")=" << f.value
+                         << (is_comp ? " (comparison)" : "") << endl;
                     if (is_comp) {
                         const auto &deps = comparison_axiom_dependencies.at(f.var);
                         cout << "      depends on numeric: ";
                         bool first = true;
-                        for (int nv : deps) { if (!first) cout << ", "; cout << "num_" << nv; first = false; }
+                        for (int nv : deps) {
+                            if (!first) cout << ", ";
+                            // Include numeric variable name
+                            string num_name = num_vars[nv].get_name();
+                            cout << "num_" << nv << " (" << num_name << ")";
+                            first = false;
+                        }
                         cout << endl;
                     }
                 }
@@ -1528,9 +1640,15 @@ DomainAbstraction CEGAR::build_abstraction(
             }
             if (!detected_numeric_flaws.empty()) {
                 cout << "  Numeric flaws:" << endl;
+                // Access proxies (reuse if already declared above not available in this scope)
+                VariablesProxy vars = task_proxy.get_variables();
+                NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
                 for (const auto &nf : detected_numeric_flaws) {
-                    cout << "    num_" << nf.numeric_var_id << " at value " << nf.concrete_value
-                         << " (from axiom fdr_" << nf.prop_var_id << ")" << endl;
+                    string num_name = num_vars[nf.numeric_var_id].get_name();
+                    string prop_name = vars[nf.prop_var_id].get_name();
+                    cout << "    num_" << nf.numeric_var_id << " (" << num_name << ")"
+                         << " at value " << nf.concrete_value
+                         << " (from axiom fdr_" << nf.prop_var_id << " (" << prop_name << "))" << endl;
                 }
             } else {
                 cout << "  Numeric flaws: none" << endl;
@@ -1647,14 +1765,16 @@ bool CEGAR::can_refine_variable(
     }
     
     int domain_size = abstract_domain_sizes[var_id];
-    cout << "Domain size of var" << var_id << " is " << domain_size << endl;
-    cout << "Old abstraction size: " << old_abstraction_size << endl;
+    if (VERBOSE_DEBUG) {
+        cout << "Domain size of var" << var_id << " is " << domain_size << endl;
+        cout << "Old abstraction size: " << old_abstraction_size << endl;
+    }
     int abs_size_without_var = old_abstraction_size / domain_size;
     if (utils::is_product_within_limit(abs_size_without_var, domain_size + 1,
                                        max_abstraction_size)) {
         return true;
     }
-    cout << "Cannot refine var" << var_id << " (size limit); blacklisting" << endl;
+    if (VERBOSE_DEBUG) cout << "Cannot refine var" << var_id << " (size limit); blacklisting" << endl;
     blacklisted_variables.insert(var_id);
     return false;
 }
@@ -1673,17 +1793,19 @@ bool CEGAR::can_refine_numeric_variable(
         NumericVariableProxy num_var = num_vars[numeric_var_id];
         numType var_type = num_var.get_var_type();
         
-        cout << "DEBUG can_refine: num_" << numeric_var_id 
-             << " has type=" << static_cast<int>(var_type) 
-             << " (1=constant, 2=derived, 4=regular)" << endl;
+       if (VERBOSE_DEBUG) {
+          cout << "DEBUG can_refine: num_" << numeric_var_id 
+              << " has type=" << static_cast<int>(var_type) 
+              << " (1=constant, 2=derived, 4=regular)" << endl;
+       }
         
         if (var_type == numType::constant) {
-            cout << "Cannot refine num_" << numeric_var_id << " (CONSTANT); ignoring" << endl;
+            if (VERBOSE_DEBUG) cout << "Cannot refine num_" << numeric_var_id << " (CONSTANT); ignoring" << endl;
             return false;
         }
         
         if (var_type == numType::derived) {
-            cout << "Cannot refine num_" << numeric_var_id << " (DERIVED); ignoring" << endl;
+            if (VERBOSE_DEBUG) cout << "Cannot refine num_" << numeric_var_id << " (DERIVED); ignoring" << endl;
             return false;
         }
     }
@@ -1696,11 +1818,13 @@ bool CEGAR::can_refine_numeric_variable(
     int current_partitions = numeric_domain_mapping[numeric_var_id]->get_num_partitions();
     int abs_size_without_var = old_abstraction_size / current_partitions;
 
-    cout << "Numeric variable " << numeric_var_id 
-         << " has " << current_partitions << " partitions." << endl;
-    cout << "Old abstraction size: " << old_abstraction_size << endl;
-    cout << "Abstraction size without this variable: " << abs_size_without_var << endl;
-    cout << "Max abstraction size: " << max_abstraction_size << endl;
+    if (VERBOSE_DEBUG) {
+       cout << "Numeric variable " << numeric_var_id 
+           << " has " << current_partitions << " partitions." << endl;
+       cout << "Old abstraction size: " << old_abstraction_size << endl;
+       cout << "Abstraction size without this variable: " << abs_size_without_var << endl;
+       cout << "Max abstraction size: " << max_abstraction_size << endl;
+    }
     
     // Splitting will create one more partition
     if (utils::is_product_within_limit(abs_size_without_var, current_partitions + 1,
@@ -1708,7 +1832,7 @@ bool CEGAR::can_refine_numeric_variable(
         return true;
     }
     
-    cout << "Cannot refine numeric variable " << numeric_var_id << "; blacklisting" << endl;
+    if (VERBOSE_DEBUG) cout << "Cannot refine numeric variable " << numeric_var_id << "; blacklisting" << endl;
     blacklisted_numeric_variables.insert(numeric_var_id);
     return false;
 }
@@ -1780,14 +1904,14 @@ bool CEGAR::fix_numeric_flaws(
         int attempt_count = numeric_var_refinement_count[numeric_var_id];
         
         if (attempt_count >= 10) {
-            cout << "DEBUG: Skipping flaw for num_" << numeric_var_id 
+            if (VERBOSE_DEBUG) cout << "DEBUG: Skipping flaw for num_" << numeric_var_id 
                  << " at value " << concrete_value
                  << " (variable refined " << attempt_count << " times already - may be stuck)"
                  << endl;
             continue;  // Skip this flaw to avoid infinite loop
         }
         
-        cout << "DEBUG: Processing numeric flaw for num_" << numeric_var_id 
+        if (VERBOSE_DEBUG) cout << "DEBUG: Processing numeric flaw for num_" << numeric_var_id 
              << " at value " << concrete_value
              << " (variable refinement count: " << attempt_count << ")"
              << endl;
@@ -1822,7 +1946,7 @@ bool CEGAR::fix_numeric_flaws(
                 threshold_split_created_partition = (after_threshold_split > after_concrete_split);
                 
                 if (threshold_split_created_partition) {
-                    cout << "DEBUG: Also split num_" << numeric_var_id 
+                if (VERBOSE_DEBUG) cout << "DEBUG: Also split num_" << numeric_var_id 
                          << " at goal threshold " << threshold << endl;
                 }
             }

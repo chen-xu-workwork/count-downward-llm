@@ -338,7 +338,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         // Identity-only case: no numeric partition changes, so comparison
         // axioms cannot change. Do not branch; predecessor set is the base state.
         static int no_change_log_count = 0;
-        if (no_change_log_count++ < 3) {
+        if (false && VERBOSE_DEBUG && no_change_log_count++ < 3) {
             cout << "DEBUG ENUM_COMP: no numeric partition change; returning base_state "
                  << base_state_index << endl;
         }
@@ -723,7 +723,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     
     static int enum_call_count = 0;
     enum_call_count++;
-    bool debug_enum = (enum_call_count <= 3 || enum_call_count % 100 == 0);
+    bool debug_enum = false; // hard-disable noisy ENUM_COMP logs by default
     if (debug_enum && affected_comparisons.size() > 0) {
         cout << "DEBUG ENUM_COMP [call " << enum_call_count << "]: " << affected_comparisons.size() << " affected comparisons" << endl;
         for (size_t i = 0; i < affected_comparisons.size(); ++i) {
@@ -1389,7 +1389,7 @@ void DomainAbstractionFactory::compute_distances(
         static int factory_call = 0;
         if (dijkstra_iterations == 1) factory_call++;
         bool debug_state_15 = (factory_call == 2 && state_index == 15);
-        if (factory_call == 2) {
+        if (false && VERBOSE_DEBUG && factory_call == 2) {
             cout << "DEBUG DIJKSTRA_EXPAND: Expanding state " << state_index 
                  << " at distance " << distance << endl;
         }
@@ -1398,7 +1398,7 @@ void DomainAbstractionFactory::compute_distances(
         bool is_first_goal_expansion = (state_index == first_goal_state && !first_goal_expanded);
         
         // DEBUG: Log when expanding the first goal state
-        if (is_first_goal_expansion) {
+        if (false && VERBOSE_DEBUG && is_first_goal_expansion) {
             cout << "DEBUG EXPAND: Expanding first goal state " << state_index << endl;
             string decoded = decode_abstract_state(state_index, domain_sizes, numeric_domain_mapping, hash_multipliers);
             cout << "  " << decoded << endl;
@@ -1410,7 +1410,7 @@ void DomainAbstractionFactory::compute_distances(
         match_tree.get_applicable_operator_ids(state_index, applicable_operator_ids);
         
         // DEBUG: Show applicable operators for first goal
-        if (is_first_goal_expansion) {
+        if (false && VERBOSE_DEBUG && is_first_goal_expansion) {
             cout << "DEBUG EXPAND: " << applicable_operator_ids.size() << " operators applicable" << endl;
             // List all applicable operator names for positive confirmation (kept small: typically ~10-15)
             OperatorsProxy concrete_ops = task_proxy.get_operators();
