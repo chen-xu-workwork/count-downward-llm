@@ -1306,6 +1306,11 @@ void DomainAbstractionFactory::compute_distances(
         // These handle both propositional-only and numeric operators
         vector<int> applicable_operator_ids;
         match_tree.get_applicable_operator_ids(state_index, applicable_operator_ids);
+        static int first_call = true; 
+        if (first_call && distance == 0) {
+            first_call = false;
+            cout << "DEBUG: Initial state has " << applicable_operator_ids.size() << " applicable operators." << endl;
+        }
         
         // DEBUG: Show applicable operators for first goal
         if (false && VERBOSE_DEBUG && is_first_goal_expansion) {
@@ -1409,7 +1414,6 @@ void DomainAbstractionFactory::compute_distances(
             const int base_hash_effect = op.get_hash_effect();
             
             int predecessors_this_op = 0;
-            int out_of_bounds_this_op = 0;
             
             // Enumerate all possible predecessors considering comparison axiom cascades
             vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
