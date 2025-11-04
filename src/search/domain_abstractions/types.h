@@ -307,6 +307,36 @@ public:
         ap_float left_lower, ap_float left_upper,
         ap_float right_lower, ap_float right_upper,
         cal_operator op);
+    
+    // ========================================================================
+    // Partition Integration Methods
+    // ========================================================================
+    
+    // Get a Partition object representing all ranges for a given partition index
+    // Returns: Partition containing all ranges that map to the given partition index
+    Partition get_partition(int partition_index) const;
+    
+    // Get bounding box for a partition index (conservative bounds)
+    // Returns: pair<lower, upper> representing the smallest interval containing the partition
+    std::pair<ap_float, ap_float> get_partition_bounding_box(int partition_index) const;
+    
+    // Check if a value belongs to a specific partition
+    bool value_in_partition(ap_float value, int partition_index) const {
+        return get_partition_index(value) == partition_index;
+    }
+    
+    // Get all partition indices (sorted, unique)
+    std::vector<int> get_all_partition_indices() const;
+    
+    // Evaluate comparison between two partitions from different mappings
+    // Returns: 0=TRUE, 1=FALSE, 2=UNKNOWN
+    static int evaluate_partition_comparison(
+        const Partition &left, const Partition &right, comp_operator op);
+    
+    // Apply an effect operation to a partition and determine resulting partition indices
+    // Returns: vector of partition indices that the result could map to
+    std::vector<int> apply_effect_to_partition(
+        int source_partition_index, f_operator op, ap_float operand) const;
 };
 
 // Constant mapping: represents a constant numeric variable with a single partition

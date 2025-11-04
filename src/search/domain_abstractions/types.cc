@@ -793,5 +793,126 @@ bool Partition::is_valid() const {
     return true;
 }
 
+// ============================================================================
+// NumericDomainMapping - Partition Integration
+// ============================================================================
+
+Partition NumericDomainMapping::get_partition(int partition_index) const {
+    std::vector<NumericRange> partition_ranges;
+    
+    // Collect all ranges that belong to this partition
+    for (const auto &range : ranges) {
+        if (range.partition_index == partition_index) {
+            partition_ranges.push_back(range);
+        }
+    }
+    
+    if (partition_ranges.empty()) {
+        // No ranges found for this partition - return empty partition
+        return Partition();
+    }
+    
+    return Partition(partition_ranges);
+}
+
+std::pair<ap_float, ap_float> NumericDomainMapping::get_partition_bounding_box(int partition_index) const {
+    Partition p = get_partition(partition_index);
+    return p.get_bounding_box();
+}
+
+std::vector<int> NumericDomainMapping::get_all_partition_indices() const {
+    std::vector<int> indices;
+    
+    // Collect unique partition indices
+    for (const auto &range : ranges) {
+        if (std::find(indices.begin(), indices.end(), range.partition_index) == indices.end()) {
+            indices.push_back(range.partition_index);
+        }
+    }
+    
+    // Sort for consistency
+    std::sort(indices.begin(), indices.end());
+    
+    return indices;
+}
+
+int NumericDomainMapping::evaluate_partition_comparison(
+    const Partition &left, const Partition &right, comp_operator op) {
+    return left.evaluate_comparison(right, op);
+}
+
+std::vector<int> NumericDomainMapping::apply_effect_to_partition(
+    int source_partition_index, f_operator op, ap_float operand) const {
+    
+    // Get the source partition
+    Partition source = get_partition(source_partition_index);
+    
+    if (source.is_empty()) {
+        return {};  // Empty source -> no results
+    }
+    
+    // Apply the operation to get result partition
+    Partition result = source.apply_operation(op, operand);
+    
+    // Determine which partition indices the result could map to
+    std::vector<int> reachable_partitions;
+    
+    // For each range in the result, check which partitions it overlaps with
+    for (const auto &result_range : result.get_ranges()) {
+        // Sample points in the result range to determine partition membership
+        // Use lower bound, upper bound, and midpoint
+        std::vector<ap_float> sample_points;
+        
+        if (result_range.lower != -std::numeric_limits<ap_float>::infinity()) {
+            ap_float sample = result_range.lower;
+            if (!result_range.lower_inclusive && result_range.lower < result_range.upper) {
+                // If lower is exclusive, sample slightly above it
+                sample += 0.0001;  // Small epsilon
+            }
+            sample_points.push_back(sample);
+        }
+        
+        if (result_range.upper != std::numeric_limits<ap_float>::infinity()) {
+            ap_float sample = result_range.upper;
+            if (!result_range.upper_inclusive && result_range.lower < result_range.upper) {
+                // If upper is exclusive, sample slightly below it
+                sample -= 0.0001;  // Small epsilon
+            }
+            sample_points.push_back(sample);
+        }
+        
+        // Add midpoint if range is finite
+        if (result_range.lower != -std::numeric_limits<ap_float>::infinity() &&
+            result_range.upper != std::numeric_limits<ap_float>::infinity()) {
+            sample_points.push_back((result_range.lower + result_range.upper) / 2.0);
+        }
+        
+        // If range extends to infinity, sample some representative points
+        if (result_range.lower == -std::numeric_limits<ap_float>::infinity()) {
+            sample_points.push_back(-1000000.0);
+        }
+        if (result_range.upper == std::numeric_limits<ap_float>::infinity()) {
+            sample_points.push_back(1000000.0);
+        }
+        
+        // Check partition membership for all sample points
+        for (ap_float sample : sample_points) {
+            int partition_idx = get_partition_index(sample);
+            if (partition_idx >= 0) {
+                // Add to reachable if not already present
+                if (std::find(reachable_partitions.begin(), reachable_partitions.end(), 
+                            partition_idx) == reachable_partitions.end()) {
+                    reachable_partitions.push_back(partition_idx);
+                }
+            }
+        }
+    }
+    
+    // Sort for consistency
+    std::sort(reachable_partitions.begin(), reachable_partitions.end());
+    
+    return reachable_partitions;
+}
+
 }
 
