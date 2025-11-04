@@ -202,9 +202,9 @@ int NumericDomainMapping::evaluate_comparison(
             // Definitely true if: max(left) < min(right), i.e., left_upper <= right_lower
             // Definitely false if: min(left) >= max(right), i.e., left_lower >= right_upper
             if (left_upper <= right_lower) {
-                return 1; // definitely true
+                return 0; // definitely true
             } else if (left_lower >= right_upper) {
-                return 0; // definitely false
+                return 1; // definitely false
             } else {
                 return 2; // unknown
             }
@@ -213,9 +213,9 @@ int NumericDomainMapping::evaluate_comparison(
             // Definitely true if: max(left) <= min(right)
             // Definitely false if: min(left) > max(right)
             if (left_upper <= right_lower) {
-                return 1; // definitely true
+                return 0; // definitely true
             } else if (left_lower > right_upper) {
-                return 0; // definitely false
+                return 1; // definitely false
             } else {
                 return 2; // unknown
             }
@@ -224,11 +224,11 @@ int NumericDomainMapping::evaluate_comparison(
             // Definitely true only if both ranges are the same single point
             if (left_lower == left_upper && right_lower == right_upper && 
                 left_lower == right_lower) {
-                return 1; // definitely true (both are same point)
+                return 0; // definitely true (both are same point)
             }
             // Definitely false if ranges don't overlap
             else if (left_upper <= right_lower || right_upper <= left_lower) {
-                return 0; // definitely false (no overlap)
+                return 1; // definitely false (no overlap)
             } else {
                 return 2; // unknown
             }
@@ -237,9 +237,9 @@ int NumericDomainMapping::evaluate_comparison(
             // Definitely true if: min(left) >= max(right)
             // Definitely false if: max(left) < min(right)
             if (left_lower >= right_upper) {
-                return 1; // definitely true
+                return 0; // definitely true
             } else if (left_upper < right_lower) {
-                return 0; // definitely false
+                return 1; // definitely false
             } else {
                 return 2; // unknown
             }
@@ -248,9 +248,9 @@ int NumericDomainMapping::evaluate_comparison(
             // Definitely true if: min(left) >= max(right), i.e., left_lower >= right_upper
             // Definitely false if: max(left) <= min(right), i.e., left_upper <= right_lower
             if (left_lower >= right_upper) {
-                return 1; // definitely true
+                return 0; // definitely true
             } else if (left_upper <= right_lower) {
-                return 0; // definitely false
+                return 1; // definitely false
             } else {
                 return 2; // unknown
             }

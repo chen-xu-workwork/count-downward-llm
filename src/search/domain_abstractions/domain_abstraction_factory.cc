@@ -34,7 +34,7 @@ struct CompEvalHelper {
     int prop_var_id;   // propositional var id of the comparison axiom
     int true_val;      // concrete value index for TRUE branch
     int false_val;     // concrete value index for FALSE branch
-    int eval;          // 0=false, 1=true, 2=unknown
+    int eval;          // COMPARISON AXIOM EVAL (normalized): 0=true, 1=false, 2=unknown
 };
 
 // Compute numeric operand context (ranges for all numeric variables and the
@@ -81,8 +81,7 @@ static void compute_numeric_context(
     // Propagate through assignment axioms (fixpoint with safety cap)
     AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
     bool changed = true;
-    int iter_cap = 0;
-    while (changed && iter_cap++ < 1000) {
+    while (changed) {
         changed = false;
         for (AssignmentAxiomProxy axiom : assignment_axioms) {
             int derived_id = axiom.get_assignment_variable().get_id();
@@ -103,6 +102,7 @@ static void compute_numeric_context(
                 left_known = true;
             }
 
+
             // Right operand range
             bool right_known = false;
             ap_float r_lo = -numeric_limits<ap_float>::infinity();
@@ -116,6 +116,8 @@ static void compute_numeric_context(
                 r_hi = ranges_out[right_id].second;
                 right_known = true;
             }
+            assert(left_known && right_known);
+
 
             if (left_known && right_known) {
                 pair<ap_float, ap_float> res = NumericDomainMapping::apply_range_operation(
@@ -184,8 +186,17 @@ static vector<CompEvalHelper> evaluate_all_comparisons(
 
         int eval = 2;
         if (left_known && right_known) {
-            eval = NumericDomainMapping::evaluate_comparison(
+            // Raw evaluation from NumericDomainMapping uses: 0=false, 1=true, 2=unknown.
+            // Normalize here to the comparison-axiom convention: 0=true, 1=false, 2=unknown.
+            int raw = NumericDomainMapping::evaluate_comparison(
                 axiom.get_comparison_operator_type(), l_lo, l_hi, r_lo, r_hi);
+            if (raw == 2) {
+                eval = 2;
+            } else if (raw == 0) {
+                eval = 0; // true -> 0
+            } else {
+                eval = 1; // false -> 1
+            }
         }
 
         out.push_back(CompEvalHelper{
@@ -332,14 +343,17 @@ static bool is_state_goal_feasible(
             }
 
             // If definitive contradiction but operands are not both singletons, be optimistic and accept.
-            if (g.value == e.abs_true && e.eval == 0) {
+            // Note: normalized mapping (0=true, 1=false):
+            //  - Goal wants TRUE (g == abs_true) but eval says FALSE (1)  => contradiction
+            //  - Goal wants FALSE (g == abs_false) but eval says TRUE (0) => contradiction
+            if (g.value == e.abs_true && e.eval == 1) {
                 if (!operands_singletons) {
                     continue; // accept optimistically at this abstraction level
                 } else {
                     return false; // hard contradiction on point ranges
                 }
             }
-            if (g.value == e.abs_false && e.eval == 1) {
+            if (g.value == e.abs_false && e.eval == 0) {
                 if (!operands_singletons) {
                     continue; // accept optimistically
                 } else {
@@ -576,12 +590,12 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         int multiplier = hash_multipliers[var_id];
         int unknown_value = domain_mapping[var_id][2];
         
-        if (comp.eval == 1) {
-            // Definitely TRUE
+        if (comp.eval == 0) {
+            // Definitely TRUE (normalized mapping)
             int delta = (domain_mapping[var_id][comp.true_val] - unknown_value) * multiplier;
             enumerate_combinations(idx + 1, delta_from_unknown + delta);
-        } else if (comp.eval == 0) {
-            // Definitely FALSE
+        } else if (comp.eval == 1) {
+            // Definitely FALSE (normalized mapping)
             int delta = (domain_mapping[var_id][comp.false_val] - unknown_value) * multiplier;
             enumerate_combinations(idx + 1, delta_from_unknown + delta);
         } else {
@@ -1114,17 +1128,9 @@ void DomainAbstractionFactory::compute_distances(
     AdaptiveQueue<int> pq;
 
     // initialize queue
-    cout << "DEBUG DIJKSTRA: Checking which abstract states are goals (total states: " << num_states << ")" << endl;
     int first_goal_state = -1;
     for (int state_index = 0; state_index < num_states; ++state_index) {
         bool is_goal = is_goal_state(state_index, abstract_goals, domain_sizes);
-        if (state_index < 20 || is_goal) {  // Print first 20 states or any goal states
-            string decoded = decode_abstract_state(state_index, domain_sizes, 
-                                                  numeric_domain_mapping, hash_multipliers);
-            if (is_goal && first_goal_state == -1) {
-                first_goal_state = state_index;
-            }
-        }
         if (is_goal) {
             // Filter out impossible goal states whose comparison-axiom goals
             // contradict the numeric partitions of this state.
@@ -1138,37 +1144,6 @@ void DomainAbstractionFactory::compute_distances(
                 pq.push(0, state_index);
                 distances.push_back(0);
             } else {
-                if (VERBOSE_DEBUG && state_index < 50) {
-                    cout << "DEBUG DIJKSTRA: dropping infeasible goal state "
-                         << state_index << " (comparison-goal contradiction)\n";
-                    // Provide more context to understand why
-                    string decoded = decode_abstract_state(state_index, domain_sizes,
-                                                          numeric_domain_mapping, hash_multipliers);
-                    cout << "  " << decoded << "\n";
-                    // Compute and show per-comparison evaluation for goal vars
-                    unordered_map<int, pair<ap_float, ap_float>> dbg_ranges;
-                    vector<int> dbg_parts;
-                    compute_numeric_context(state_index, domain_mapping, numeric_domain_mapping,
-                                            hash_multipliers, task_proxy, dbg_ranges, dbg_parts);
-                    auto dbg_comps = evaluate_all_comparisons(dbg_ranges, dbg_parts, numeric_domain_mapping, task_proxy);
-                    unordered_map<int, tuple<int,int,int>> dbg_map; // var -> (abs_true, abs_false, eval)
-                    for (const auto &c : dbg_comps) {
-                        int v = c.prop_var_id;
-                        int abs_t = (v < (int)domain_mapping.size() && !domain_mapping[v].empty()) ? domain_mapping[v][c.true_val] : c.true_val;
-                        int abs_f = (v < (int)domain_mapping.size() && !domain_mapping[v].empty()) ? domain_mapping[v][c.false_val] : c.false_val;
-                        dbg_map[v] = make_tuple(abs_t, abs_f, c.eval);
-                    }
-                    cout << "  Goal facts:" << endl;
-                    for (const Fact &gfact : abstract_goals) {
-                        cout << "    var" << gfact.var << " = " << gfact.value;
-                        auto itg = dbg_map.find(gfact.var);
-                        if (itg != dbg_map.end()) {
-                            auto [abs_t, abs_f, ev] = itg->second;
-                            cout << "  [comp: abs_true=" << abs_t << ", abs_false=" << abs_f << ", eval=" << ev << "]";
-                        }
-                        cout << "\n";
-                    }
-                }
                 distances.push_back(numeric_limits<int>::max());
             }
         } else {
@@ -1203,49 +1178,20 @@ void DomainAbstractionFactory::compute_distances(
         if (distance > distances[state_index]) {
             continue;
         }
-        
-        // DEBUG: Log ALL state expansions in iteration 2
-        static int factory_call = 0;
-        if (dijkstra_iterations == 1) factory_call++;
-        if (VERBOSE_DEBUG && factory_call == 2) {
-            cout << "DEBUG DIJKSTRA_EXPAND: Expanding state " << state_index 
-                 << " at distance " << distance << endl;
-        }
-        
-        // Special detailed debugging for first goal state expansion
-        bool is_first_goal_expansion = (state_index == first_goal_state && !first_goal_expanded);
-        
-        // DEBUG: Log when expanding the first goal state
-        if (VERBOSE_DEBUG && is_first_goal_expansion) {
-            cout << "DEBUG EXPAND: Expanding first goal state " << state_index << endl;
-            string decoded = decode_abstract_state(state_index, domain_sizes, numeric_domain_mapping, hash_multipliers);
-            cout << "  " << decoded << endl;
-        }
+
+        vector<int> comparison_alternative_states = 
+            enumerate_states_with_evaluated_comparisons(
+                state_index,
+                task_proxy);
+
+        assert(find(comparison_alternative_states.begin(),
+                    comparison_alternative_states.end(),
+                    state_index) != comparison_alternative_states.end());
  
         // Regress using abstract operators (from match tree)
         // These handle both propositional-only and numeric operators
         vector<int> applicable_operator_ids;
         match_tree.get_applicable_operator_ids(state_index, applicable_operator_ids);
-        static int first_call = true; 
-        if (first_call && distance == 0) {
-            first_call = false;
-            cout << "DEBUG: Initial state has " << applicable_operator_ids.size() << " applicable operators." << endl;
-        }
-        
-        // DEBUG: Show applicable operators for first goal
-        if (VERBOSE_DEBUG && is_first_goal_expansion) {
-            cout << "DEBUG EXPAND: " << applicable_operator_ids.size() << " operators applicable" << endl;
-            // List all applicable operator names for positive confirmation (kept small: typically ~10-15)
-            OperatorsProxy concrete_ops = task_proxy.get_operators();
-            for (int op_id : applicable_operator_ids) {
-                const AbstractOperator &aop = operators[op_id];
-                int concrete_id = aop.get_concrete_op_id();
-                string name = (concrete_id >= 0 && concrete_id < (int)concrete_ops.size())
-                                  ? concrete_ops[concrete_id].get_name()
-                                  : string("<unknown> (id=") + to_string(concrete_id) + ")";
-                cout << "DEBUG EXPAND:   applicable=\"" << name << "\" (op_id=" << op_id << ")" << endl;
-            }
-        }
         
         int valid_predecessors_this_state = 0;
         int out_of_bounds_predecessors = 0;
@@ -1253,16 +1199,6 @@ void DomainAbstractionFactory::compute_distances(
         for (int op_id : applicable_operator_ids) {
             const AbstractOperator &op = operators[op_id];
             int alternative_cost = distances[state_index] + op.get_cost();
-        
-            // DEBUG: Show details for first goal expansion
-            // DEBUG: Look for operators that affect the refined numeric variables (num_17, num_66, num_2)
-            bool affects_refined_vars = false;
-            for (int var : op.get_changed_numeric_vars()) {
-                if (var == 17 || var == 66 || var == 2) {
-                    affects_refined_vars = true;
-                    break;
-                }
-            }
             
             // Always print detailed info for the first few ops OR when they affect key refined vars
             // Additionally, ALWAYS print for the concrete op named "pour agent1 plant1" to aid debugging.
@@ -1278,201 +1214,40 @@ void DomainAbstractionFactory::compute_distances(
                     }
                 }
             }
-
-            if (VERBOSE_DEBUG && is_first_goal_expansion && (operators_checked < 3 || affects_refined_vars || is_pour)) {
-                if (affects_refined_vars) {
-                    cout << "DEBUG EXPAND: *** FOUND OPERATOR AFFECTING REFINED VARS ***" << endl;
-                }
-                cout << "DEBUG EXPAND: Operator " << op_id << ", cost=" << op.get_cost()  << endl;
-                // Also print the concrete operator name for clarity (e.g., "pour agent1 plant1")
-                {
-                    OperatorsProxy concrete_ops = task_proxy.get_operators();
-                    int concrete_id = op.get_concrete_op_id();
-                    if (concrete_id >= 0 && concrete_id < (int)concrete_ops.size()) {
-                        cout << "DEBUG EXPAND:   name=\"" << concrete_ops[concrete_id].get_name() << "\"" << endl;
-                    } else {
-                        cout << "DEBUG EXPAND:   name=\"<unknown> (id=" << concrete_id << ")\"" << endl;
-                    }
-                }
-                cout << "DEBUG EXPAND:   changed_numeric_vars=" << op.get_changed_numeric_vars().size() << ": ";
-                for (size_t i = 0; i < min(op.get_changed_numeric_vars().size(), size_t(10)); ++i) {
-                    cout << op.get_changed_numeric_vars()[i];
-                    if (i < op.get_changed_numeric_vars().size() - 1 && i < 9) cout << ",";
-                }
-                if (op.get_changed_numeric_vars().size() > 10) cout << "...";
-                cout << endl;
-                cout << "DEBUG EXPAND:   source_partitions=" << op.get_source_partitions().size() << ": ";
-                for (size_t i = 0; i < min(op.get_source_partitions().size(), size_t(10)); ++i) {
-                    cout << op.get_source_partitions()[i];
-                    if (i < op.get_source_partitions().size() - 1 && i < 9) cout << ",";
-                }
-                if (op.get_source_partitions().size() > 10) cout << "...";
-                cout << endl;
-                cout << "DEBUG EXPAND:   target_partitions=" << op.get_target_partitions().size() << ": ";
-                for (size_t i = 0; i < min(op.get_target_partitions().size(), size_t(10)); ++i) {
-                    cout << op.get_target_partitions()[i];
-                    if (i < op.get_target_partitions().size() - 1 && i < 9) cout << ",";
-                }
-                if (op.get_target_partitions().size() > 10) cout << "...";
-                cout << endl;
-
-                // If this is pour, print per-variable partition transitions for clarity
-                if (is_pour) {
-                    cout << "DEBUG POUR: partition transitions (var: src->tgt)" << endl;
-                    size_t n = min(op.get_changed_numeric_vars().size(),
-                                   min(op.get_source_partitions().size(), op.get_target_partitions().size()));
-                    for (size_t i = 0; i < n; ++i) {
-                        cout << "  num" << op.get_changed_numeric_vars()[i]
-                             << ": " << op.get_source_partitions()[i]
-                             << " -> " << op.get_target_partitions()[i] << endl;
-                    }
-                }
-            }
             
             // Iterate over all possible hash effects (predecessors)
             // Propositional operators have 1 effect, numeric operators have multiple
             const int base_hash_effect = op.get_hash_effect();
-            assert(state_index + base_hash_effect < num_states && 0 <= state_index + base_hash_effect);
-            
+            int predecessor_base = state_index + base_hash_effect;
+            assert(predecessor_base < num_states && 0 <= predecessor_base);
+
             int predecessors_this_op = 0;
             
             // Enumerate all possible predecessors considering comparison axiom cascades
             vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
-                state_index + base_hash_effect,
+                predecessor_base,
                 task_proxy);
-            
-            // DEBUG CHECK 1: Verify base hash effect decoding matches expected numeric partition transitions
-            if (VERBOSE_DEBUG && is_first_goal_expansion) {
-                int base_state_index = state_index + base_hash_effect;
-                if (base_state_index >= 0 && base_state_index < num_states) {
-                    vector<int> cur_props, cur_nums;
-                    vector<int> base_props, base_nums;
-                    decode_state_to_vectors(state_index, domain_sizes, numeric_domain_mapping, hash_multipliers, cur_props, cur_nums);
-                    decode_state_to_vectors(base_state_index, domain_sizes, numeric_domain_mapping, hash_multipliers, base_props, base_nums);
 
-                    bool all_ok = true;
-                    // Check numeric partitions for changed vars: current should be target, base should be source
-                    for (size_t i = 0; i < op.get_changed_numeric_vars().size(); ++i) {
-                        int var = op.get_changed_numeric_vars()[i];
-                        int src = op.get_source_partitions()[i];
-                        int tgt = op.get_target_partitions()[i];
-                        int cur_part = (var >= 0 && var < (int)cur_nums.size()) ? cur_nums[var] : -999;
-                        int base_part = (var >= 0 && var < (int)base_nums.size()) ? base_nums[var] : -999;
-                        bool ok_var = (cur_part == tgt) && (base_part == src);
-                        all_ok = all_ok && ok_var;
-                        cout << "DEBUG HASH-EFFECT CHECK: var=num" << var
-                                << " cur(tgt?)=" << cur_part << "~=" << tgt
-                                << " base(src?)=" << base_part << "~=" << src
-                                << " -> " << (ok_var ? "OK" : "MISMATCH") << endl;
-                    }
-                    // Check regression preconditions:
-                    // - Propositional facts (prev/eff on props) must hold in the BASE (predecessor) state.
-                    // - Numeric partition facts inside regression_preconditions represent TARGET partitions
-                    //   (they were added to eff_pairs). Those must hold in the CURRENT state, not the base state.
-                    const vector<Fact> &reg_pre = op.get_regression_preconditions();
-                    for (const Fact &f : reg_pre) {
-                        int v = f.var;
-                        int expected = f.value;
-                        int actual;
-                        if (v >= 0 && v < (int)base_props.size()) {
-                            // Propositional preconditions: check against predecessor (base) state
-                            actual = base_props[v];
-                        } else {
-                            // Numeric partition preconditions (stored after propositional vars):
-                            // these are TARGET partition facts and must hold in the CURRENT state.
-                            int num_idx = v - (int)base_props.size();
-                            actual = (num_idx >= 0 && num_idx < (int)cur_nums.size()) ? cur_nums[num_idx] : -999;
-                        }
-                        bool ok = (actual == expected);
-                        all_ok = all_ok && ok;
-                        cout << "DEBUG HASH-EFFECT CHECK: precond v" << v
-                                << " base_val=" << actual << " expected=" << expected
-                                << " -> " << (ok ? "OK" : "MISMATCH") << endl;
-                    }
-                    cout << "DEBUG HASH-EFFECT CHECK: base_state=" << base_state_index
-                            << " effect=" << base_hash_effect << " RESULT=" << (all_ok ? "OK" : "MISMATCH") << endl;
-                } else {
-                    cout << "DEBUG HASH-EFFECT CHECK: base_state out of bounds (" << base_state_index << ")" << endl;
+            if (state_index == 1 and is_pour) {
+                cout << "DEBUG: Dijkstra iteration " << dijkstra_iterations 
+                     << ", state_index " << state_index 
+                     << ", op_id " << op_id 
+                     << " (pour agent1 plant1)" << endl;
+                cout << "  base_hash_effect: " << base_hash_effect << endl;
+                cout << "  predecessor_base: " << predecessor_base << endl;
+                cout << "  possible_predecessors: ";
+                for (int pred : possible_predecessors) {
+                    cout << pred << " ";
                 }
-            }
-
-            // DEBUG: Show predecessors for first goal or for pour operators specifically
-            if (VERBOSE_DEBUG && is_first_goal_expansion && (operators_checked < 3 || is_pour) && possible_predecessors.size() > 0) {
-                cout << "DEBUG EXPAND:   base_hash_effect=" << base_hash_effect 
-                        << " → " << possible_predecessors.size() << " predecessors: ";
-                for (size_t i = 0; i < min(possible_predecessors.size(), size_t(5)); ++i) {
-                    cout << possible_predecessors[i];
-                    if (i < possible_predecessors.size() - 1 && i < 4) cout << ",";
-                }
-                if (possible_predecessors.size() > 5) cout << "...";
                 cout << endl;
-                if (is_pour) {
-                    // For pour, also list all predecessors explicitly (no truncation)
-                    cout << "DEBUG POUR:   ALL predecessors (state indices): ";
-                    for (size_t i = 0; i < possible_predecessors.size(); ++i) {
-                        if (i) cout << ", ";
-                        cout << possible_predecessors[i];
-                    }
-                    cout << endl;
-                }
-            }
-            // DEBUG CHECK 2: Validate a few enumerated predecessors
-            if (VERBOSE_DEBUG && is_first_goal_expansion && !possible_predecessors.empty()) {
-                size_t check_limit = min<size_t>(possible_predecessors.size(), 5);
-                for (size_t pi = 0; pi < check_limit; ++pi) {
-                    int pred = possible_predecessors[pi];
-                    if (pred < 0 || pred >= num_states) {
-                        cout << "DEBUG ENUM CHECK: predecessor " << pred << " out of bounds" << endl;
-                        continue;
-                    }
-                    vector<int> cur_props, cur_nums;
-                    vector<int> pred_props, pred_nums;
-                    decode_state_to_vectors(state_index, domain_sizes, numeric_domain_mapping, hash_multipliers, cur_props, cur_nums);
-                    decode_state_to_vectors(pred, domain_sizes, numeric_domain_mapping, hash_multipliers, pred_props, pred_nums);
 
-                    bool ok_pred = true;
-                    // Numeric source partitions must hold in predecessor
-                    for (size_t i = 0; i < op.get_changed_numeric_vars().size(); ++i) {
-                        int var = op.get_changed_numeric_vars()[i];
-                        int src = op.get_source_partitions()[i];
-                        int pred_part = (var >= 0 && var < (int)pred_nums.size()) ? pred_nums[var] : -999;
-                        bool ok_var = (pred_part == src);
-                        ok_pred = ok_pred && ok_var;
-                        cout << "DEBUG ENUM CHECK: pred=" << pred << " var=num" << var
-                                << " src?=" << pred_part << "~=" << src
-                                << " -> " << (ok_var ? "OK" : "MISMATCH") << endl;
-                    }
-                    // Regression preconditions for enumerated predecessors:
-                    // - Propositional facts must hold in the PREDECESSOR (pred_* vectors).
-                    // - Numeric partition preconditions (target partitions) must hold in the CURRENT state.
-                    const vector<Fact> &reg_pre2 = op.get_regression_preconditions();
-                    for (const Fact &f : reg_pre2) {
-                        int v = f.var;
-                        int expected = f.value;
-                        int actual;
-                        if (v >= 0 && v < (int)pred_props.size()) {
-                            // Propositional preconditions on predecessor
-                            actual = pred_props[v];
-                        } else {
-                            // Numeric partition preconditions (target partitions) on CURRENT state
-                            int num_idx = v - (int)pred_props.size();
-                            actual = (num_idx >= 0 && num_idx < (int)cur_nums.size()) ? cur_nums[num_idx] : -999;
-                        }
-                        bool ok = (actual == expected);
-                        ok_pred = ok_pred && ok;
-                        cout << "DEBUG ENUM CHECK: precond v" << v
-                                << " pred_val=" << actual << " expected=" << expected
-                                << " -> " << (ok ? "OK" : "MISMATCH") << endl;
-                    }
-                    cout << "DEBUG ENUM CHECK: predecessor " << pred << " RESULT=" << (ok_pred ? "OK" : "MISMATCH") << endl;
-                }
             }
+            
+
+            // DEBUG CHECK 2: Validate a few enumerated predecessors
             
             for (int predecessor : possible_predecessors) {
-                // Skip predecessors that are out of bounds. This can legitimately
-                // happen because we enumerate many numeric partition transitions
-                // conservatively; some of those transitions do not correspond to
-                // valid abstract predecessors for the current propositional part.
+                
                 assert(0 <= predecessor && predecessor < num_states);
                 if (predecessor < 0 || predecessor >= num_states) {
                     if (dijkstra_iterations == 1) {
@@ -1483,42 +1258,6 @@ void DomainAbstractionFactory::compute_distances(
                     // while we gather diagnostics. Invalid predecessors are
                     // expected in conservative enumerations and should be skipped.
                     continue;
-                }
-                
-                // Enforce predecessor-side preconditions (forward preconditions and
-                // numeric source partitions) for this operator.
-                bool predecessor_ok = true;
-                {
-                    const vector<Fact> &pred_pre = op.get_predecessor_preconditions();
-                    if (!pred_pre.empty()) {
-                        vector<int> pred_props, pred_nums;
-                        vector<int> cur_props_dummy, cur_nums_dummy;
-                        decode_state_to_vectors(predecessor, domain_sizes, numeric_domain_mapping, hash_multipliers,
-                                                pred_props, pred_nums);
-                        for (const Fact &f : pred_pre) {
-                            int v = f.var;
-                            int expected = f.value;
-                            if (v < static_cast<int>(domain_sizes.size())) {
-                                // Propositional var must hold in predecessor
-                                int actual = (v >= 0 && v < static_cast<int>(pred_props.size())) ? pred_props[v] : -999;
-                                if (actual != expected) {
-                                    predecessor_ok = false;
-                                    break;
-                                }
-                            } else {
-                                // Numeric partition var (abstract var after propositional vars)
-                                int num_idx = v - static_cast<int>(domain_sizes.size());
-                                int actual = (num_idx >= 0 && num_idx < static_cast<int>(pred_nums.size())) ? pred_nums[num_idx] : -999;
-                                if (actual != expected) {
-                                    predecessor_ok = false;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                if (!predecessor_ok) {
-                    continue; // Skip predecessors that don't satisfy predecessor preconditions
                 }
 
                 valid_predecessors_this_state++;
@@ -1542,16 +1281,7 @@ void DomainAbstractionFactory::compute_distances(
             operators_checked++;
             
         }
-        
-        if (VERBOSE_DEBUG && is_first_goal_expansion) {
-            first_goal_expanded = true;
-            cout << "DEBUG EXPAND: Total valid predecessors from goal: " << valid_predecessors_this_state << endl;
-        }
-    }
-    
-    if (VERBOSE_DEBUG) {
-        cout << "DEBUG DIJKSTRA: Completed " << dijkstra_iterations << " iterations, " 
-             << total_expansions << " distance updates" << endl;
+
     }
     
     // DEBUG: Print initial state distance
@@ -1649,257 +1379,10 @@ void DomainAbstractionFactory::compute_distances(
         }
         cout << "\n";
     }
-    
-    // DEBUG: Find states with same numeric partitions and non-axiom propositional variables
-    if (VERBOSE_DEBUG && distances[init_hash] == numeric_limits<int>::max() && iteration_count == 2) {
-        cout << "=== FINDING STATES WITH SAME CORE (numeric partitions + non-axiom vars) ===\n";
-        
-        // First, identify which propositional variables are derived from axioms
-        vector<bool> is_axiom_var(task_proxy.get_variables().size(), false);
-        for (OperatorProxy axiom : task_proxy.get_axioms()) {
-            if (axiom.get_effects().size() == 1) {
-                int effect_var = axiom.get_effects()[0].get_fact().get_variable().get_id();
-                is_axiom_var[effect_var] = true;
-            }
-        }
-        
-        // Extract initial state's numeric partitions (the "core" we're matching)
-        vector<int> init_numeric_partitions;
-        int num_prop_vars = domain_sizes.size();
-        for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
-            const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
-            if (mapping.get_num_partitions() > 1) {
-                // This numeric variable is refined - extract its partition from initial state
-                int abstract_var_id = num_prop_vars + num_var_id;
-                int partition = (init_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
-                init_numeric_partitions.push_back(partition);
-                cout << "  num_var" << num_var_id << ": partition " << partition << " (abstract var" << abstract_var_id << ")\n";
-            }
-        }
-        
-        // Extract initial state's non-axiom propositional values
-        vector<pair<int, int>> init_non_axiom_facts;
-        for (size_t var_id = 0; var_id < domain_sizes.size(); ++var_id) {
-            if (!variable_is_trivial(var_id) && !is_axiom_var[var_id]) {
-                int value = (init_hash / hash_multipliers[var_id]) % domain_sizes[var_id];
-                init_non_axiom_facts.push_back(make_pair(var_id, value));
-                cout << "  var" << var_id << " = " << value << " (non-axiom)\n";
-            }
-        }
-        
-        // Now scan all states to find matches
-        cout << "\nScanning " << num_states << " states for matches...\n";
-        vector<int> matching_states;
-        for (int state_hash = 0; state_hash < num_states; ++state_hash) {
-            bool matches = true;
-            
-            // Check numeric partitions
-            size_t partition_idx = 0;
-            for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
-                const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
-                if (mapping.get_num_partitions() > 1) {
-                    int abstract_var_id = num_prop_vars + num_var_id;
-                    int partition = (state_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
-                    if (partition != init_numeric_partitions[partition_idx]) {
-                        matches = false;
-                        break;
-                    }
-                    partition_idx++;
-                }
-            }
-            
-            if (!matches) continue;
-            
-            // Check non-axiom propositional variables
-            for (const auto &fact : init_non_axiom_facts) {
-                int var_id = fact.first;
-                int expected_value = fact.second;
-                int actual_value = (state_hash / hash_multipliers[var_id]) % domain_sizes[var_id];
-                if (actual_value != expected_value) {
-                    matches = false;
-                    break;
-                }
-            }
-            
-            if (matches) {
-                matching_states.push_back(state_hash);
-            }
-        }
-        
-        cout << "\nFound " << matching_states.size() << " states with same core:\n";
-        for (size_t i = 0; i < min(matching_states.size(), static_cast<size_t>(20)); ++i) {
-            int state_hash = matching_states[i];
-            int dist = distances[state_hash];
-            cout << "  State " << state_hash << ": distance = ";
-            if (dist == numeric_limits<int>::max()) {
-                cout << "INFINITE";
-            } else {
-                cout << dist;
-            }
-            
-            // Show the axiom variable values that differ
-            cout << " [";
-            bool first = true;
-            for (size_t var_id = 0; var_id < domain_sizes.size(); ++var_id) {
-                if (!variable_is_trivial(var_id) && is_axiom_var[var_id]) {
-                    int value = (state_hash / hash_multipliers[var_id]) % domain_sizes[var_id];
-                    if (!first) cout << ", ";
-                    cout << "var" << var_id << "=" << value;
-                    first = false;
-                }
-            }
-            cout << "]\n";
-        }
-        
-        if (matching_states.size() > 20) {
-            cout << "  ... and " << (matching_states.size() - 20) << " more\n";
-        }
-        cout << "\n";
-    }
-    
-    // DEBUG: Test enumerate_states_with_evaluated_comparisons on initial state
-    if (VERBOSE_DEBUG && distances[init_hash] == numeric_limits<int>::max() && iteration_count == 2) {
-        cout << "=== TESTING enumerate_states_with_evaluated_comparisons ON INITIAL STATE ===\n";
-        cout << "Initial state (state 14):\n";
-        cout << "  Hash: " << init_hash << "\n";
-        cout << "  Core: num11_p=1, num37_p=1, num66_p=1, var24=0\n";
-        
-        // To trigger comparison axiom evaluation, we need to pass refined numeric variables
-        // even if they don't change partitions (source == target)
-        vector<int> test_changed_vars;
-        vector<int> test_source_partitions;
-        vector<int> test_target_partitions;
-        
-        int num_prop_vars = domain_sizes.size();
-        
-        // Add the refined numeric variables with same source and target partition
-        for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
-            const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
-            if (mapping.get_num_partitions() > 1) {
-                int abstract_var_id = num_prop_vars + num_var_id;
-                int partition = (init_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
-                test_changed_vars.push_back(num_var_id);
-                test_source_partitions.push_back(partition);
-                test_target_partitions.push_back(partition);  // Same partition (no change)
-            }
-        }
-        
-        cout << "  Calling enumerate with " << test_changed_vars.size() << " refined numeric vars (no partition changes)\n";
-        
-        vector<int> enumerated_states = enumerate_states_with_evaluated_comparisons(
-            init_hash,
-            task_proxy);
-        
-        cout << "\nGenerated " << enumerated_states.size() << " states:\n";
-        
-        // For each enumerated state, decode it and count TRUE comparison axioms
-        int most_optimistic_state = -1;
-        int max_true_comparisons = -1;
-        
-        for (int state_hash : enumerated_states) {
-            cout << "\n  State " << state_hash << ":\n";
-            
-            // Decode ALL propositional variables (including comparison axioms)
-            cout << "    Propositional vars: [";
-            vector<bool> is_axiom_var(task_proxy.get_variables().size(), false);
-            for (OperatorProxy axiom : task_proxy.get_axioms()) {
-                if (axiom.get_effects().size() == 1) {
-                    int effect_var = axiom.get_effects()[0].get_fact().get_variable().get_id();
-                    is_axiom_var[effect_var] = true;
-                }
-            }
-            
-            int true_comparison_count = 0;
-            bool first = true;
-            for (size_t var_id = 0; var_id < domain_sizes.size(); ++var_id) {
-                if (!variable_is_trivial(var_id)) {
-                    int value = (state_hash / hash_multipliers[var_id]) % domain_sizes[var_id];
-                    if (!first) cout << ", ";
-                    cout << "var" << var_id << "=" << value;
-                    if (is_axiom_var[var_id] && value == 1) {
-                        true_comparison_count++;
-                        cout << "(T)";
-                    } else if (is_axiom_var[var_id]) {
-                        cout << "(F)";
-                    }
-                    first = false;
-                }
-            }
-            cout << "]\n";
-            
-            // Decode numeric partitions
-            cout << "    Numeric partitions: [";
-            first = true;
-            for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
-                const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
-                if (mapping.get_num_partitions() > 1) {
-                    int abstract_var_id = num_prop_vars + num_var_id;
-                    int partition = (state_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
-                    if (!first) cout << ", ";
-                    cout << "num" << num_var_id << "_p=" << partition;
-                    first = false;
-                }
-            }
-            cout << "]\n";
-            
-            cout << "    TRUE comparisons: " << true_comparison_count << "\n";
-            cout << "    Distance: " << (state_hash < num_states ? distances[state_hash] : -1) << "\n";
-            
-            if (true_comparison_count > max_true_comparisons) {
-                max_true_comparisons = true_comparison_count;
-                most_optimistic_state = state_hash;
-            }
-        }
-        
-        cout << "\n*** MOST OPTIMISTIC STATE: " << most_optimistic_state 
-             << " with " << max_true_comparisons << " TRUE comparison axioms ***\n";
-        
-        if (most_optimistic_state >= 0 && most_optimistic_state < num_states) {
-            cout << "Distance to goal: " << distances[most_optimistic_state] << "\n";
-        }
-        cout << "\n";
-    }
-    
-    // DEBUG: If initial state is unreachable, check which operators could apply to it
-    if (VERBOSE_DEBUG && distances[init_hash] == numeric_limits<int>::max() && iteration_count == 2) {
-        cout << "DEBUG INITIAL STATE: Checking applicable operators for unreachable initial state (iteration 2)" << endl;
-        cout << "  Initial state hash: " << init_hash << endl;
-        
-        // Check which operators match this state
-        vector<int> applicable_ops;
-        match_tree.get_applicable_operator_ids(init_hash, applicable_ops);
-        cout << "  Number of applicable operators: " << applicable_ops.size() << endl;
-        
-        // Print first 20 applicable operators with their details
-        for (size_t i = 0; i < min(applicable_ops.size(), static_cast<size_t>(20)); ++i) {
-            int op_idx = applicable_ops[i];
-            const AbstractOperator &op = operators[op_idx];
-            cout << "  Operator " << op_idx << ": cost=" << op.get_cost() 
-                 << ", concrete_op=" << op.get_concrete_op_id() << endl;
 
-        }
-        
-        // Also print info about operators affecting var66
-        cout << "  Checking operators that affect var66:" << endl;
-        int var66_operators_count = 0;
-        for (size_t i = 0; i < applicable_ops.size(); ++i) {
-            int op_idx = applicable_ops[i];
-            const AbstractOperator &op = operators[op_idx];
-            
-            // Check if this operator affects var66 by examining its source/target partitions
-            const vector<int> &source_parts = op.get_source_partitions();
-            const vector<int> &target_parts = op.get_target_partitions();
-            
-            // var66 is the first numeric variable (index 0 in numeric arrays)
-            if (!source_parts.empty() && !target_parts.empty()) {
-                if (source_parts[0] != target_parts[0]) {
-                    var66_operators_count++;
-                   
-                }
-            }
-        }
-        cout << "  Total operators affecting var66: " << var66_operators_count << endl;
-    }
+    
+    
+    
 }
 
 void DomainAbstractionFactory::compute_abstract_plan(
@@ -2012,6 +1495,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
             
             // Find a valid successor with lower distance
             for (int candidate_successor : possible_successors) {
+                cout << "CANDIDATE SUCCESSOR: " << candidate_successor << endl;
                 // Check if this successor is valid (was reached during Dijkstra)
                 assert(candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()));
                 if (distances[candidate_successor] != numeric_limits<int>::max() &&
