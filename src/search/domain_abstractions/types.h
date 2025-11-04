@@ -7,6 +7,7 @@
 #include <limits>
 #include <memory>
 #include <iostream>
+#include <algorithm>
 
 namespace domain_abstractions {
 class DomainAbstraction;
@@ -56,6 +57,105 @@ struct NumericRange {
         return lower == -std::numeric_limits<ap_float>::infinity() &&
                upper == std::numeric_limits<ap_float>::infinity();
     }
+    
+    // Check if this range is empty
+    bool is_empty() const {
+        if (lower > upper) return true;
+        if (lower == upper && (!lower_inclusive || !upper_inclusive)) return true;
+        return false;
+    }
+    
+    // Check if two ranges overlap
+    bool overlaps_with(const NumericRange &other) const;
+    
+    // Compute intersection of two ranges (may be empty)
+    NumericRange intersect(const NumericRange &other) const;
+};
+
+// Partition: represents a union of disjoint numeric ranges
+// Used when a single partition index corresponds to multiple non-contiguous ranges
+// Example: R\{0} = (-inf, 0) ∪ (0, inf) represents two disjoint ranges
+class Partition {
+private:
+    std::vector<NumericRange> ranges;  // Sorted by lower bound, disjoint
+    
+public:
+    // Construct empty partition
+    Partition() = default;
+    
+    // Construct from single range
+    explicit Partition(const NumericRange &range) {
+        ranges.push_back(range);
+    }
+    
+    // Construct from multiple ranges (will be sorted and validated)
+    explicit Partition(const std::vector<NumericRange> &input_ranges);
+    
+    // Add a range to this partition
+    void add_range(const NumericRange &range);
+    
+    // Check if a value is in this partition (in any of its ranges)
+    bool contains(ap_float value) const {
+        for (const auto &range : ranges) {
+            if (range.contains(value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    // Get all ranges
+    const std::vector<NumericRange> &get_ranges() const {
+        return ranges;
+    }
+    
+    // Get number of ranges (number of disjoint components)
+    size_t num_ranges() const {
+        return ranges.size();
+    }
+    
+    // Check if partition is empty
+    bool is_empty() const {
+        return ranges.empty() || std::all_of(ranges.begin(), ranges.end(),
+                                            [](const NumericRange &r) { return r.is_empty(); });
+    }
+    
+    // Get conservative bounding box [min_lower, max_upper]
+    // Returns the smallest closed interval that contains all ranges
+    std::pair<ap_float, ap_float> get_bounding_box() const;
+    
+    // Check if this partition covers the entire real line
+    bool is_full_range() const;
+    
+    // Compute union of this partition with another
+    Partition union_with(const Partition &other) const;
+    
+    // Compute intersection of this partition with another
+    Partition intersect_with(const Partition &other) const;
+    
+    // Compute complement of this partition (R \ this)
+    Partition complement() const;
+    
+    // Apply arithmetic operation to this partition with a constant value
+    // op: 0=assign, 1=increase, 2=decrease, 3=scale_up, 4=scale_down
+    // Returns: resulting partition after applying operation
+    Partition apply_operation(f_operator op, ap_float operand) const;
+    
+    // Apply arithmetic operation between two partitions
+    // op: 0=sum, 1=diff, 2=mult, 3=divi
+    // Returns: resulting partition from operation
+    static Partition apply_binary_operation(
+        const Partition &left, const Partition &right, cal_operator op);
+    
+    // Evaluate comparison between this partition and another
+    // Returns: 0=TRUE (comparison always holds), 1=FALSE (never holds), 2=UNKNOWN
+    int evaluate_comparison(const Partition &other, comp_operator op) const;
+    
+    // Debug output
+    void dump(std::ostream &out = std::cout) const;
+    
+    // Validate that ranges are sorted and disjoint
+    bool is_valid() const;
 };
 
 // For numeric variables: each variable has a list of ranges that partition (-inf, inf)

@@ -458,5 +458,340 @@ std::pair<ap_float, ap_float> NumericDomainMapping::apply_range_operation(
     return std::make_pair(result_lower, result_upper);
 }
 
+// ============================================================================
+// Partition class implementation
+// ============================================================================
+
+bool NumericRange::overlaps_with(const NumericRange &other) const {
+    return overlaps_with(other.lower, other.upper, other.lower_inclusive, other.upper_inclusive);
+}
+
+NumericRange NumericRange::intersect(const NumericRange &other) const {
+    // Compute intersection of two ranges
+    ap_float new_lower = std::max(lower, other.lower);
+    ap_float new_upper = std::min(upper, other.upper);
+    
+    // Determine inclusiveness of boundaries
+    bool new_lower_inclusive;
+    if (lower == other.lower) {
+        new_lower_inclusive = lower_inclusive && other.lower_inclusive;
+    } else if (lower > other.lower) {
+        new_lower_inclusive = lower_inclusive;
+    } else {
+        new_lower_inclusive = other.lower_inclusive;
+    }
+    
+    bool new_upper_inclusive;
+    if (upper == other.upper) {
+        new_upper_inclusive = upper_inclusive && other.upper_inclusive;
+    } else if (upper < other.upper) {
+        new_upper_inclusive = upper_inclusive;
+    } else {
+        new_upper_inclusive = other.upper_inclusive;
+    }
+    
+    // Check if result is empty
+    if (new_lower > new_upper) {
+        // Empty range - return an explicitly empty range
+        return NumericRange(0, 0, false, false, -1);
+    }
+    if (new_lower == new_upper && (!new_lower_inclusive || !new_upper_inclusive)) {
+        // Single point but not both inclusive - empty
+        return NumericRange(0, 0, false, false, -1);
+    }
+    
+    return NumericRange(new_lower, new_upper, new_lower_inclusive, new_upper_inclusive, partition_index);
+}
+
+Partition::Partition(const std::vector<NumericRange> &input_ranges) {
+    // Sort ranges by lower bound and merge overlapping/adjacent ranges
+    std::vector<NumericRange> sorted = input_ranges;
+    std::sort(sorted.begin(), sorted.end(), 
+              [](const NumericRange &a, const NumericRange &b) {
+                  return a.lower < b.lower || (a.lower == b.lower && a.lower_inclusive > b.lower_inclusive);
+              });
+    
+    // Add non-empty ranges
+    for (const auto &range : sorted) {
+        if (!range.is_empty()) {
+            add_range(range);
+        }
+    }
+}
+
+void Partition::add_range(const NumericRange &range) {
+    if (range.is_empty()) return;
+    
+    // Find insertion position (maintain sorted order)
+    auto it = std::lower_bound(ranges.begin(), ranges.end(), range,
+                               [](const NumericRange &a, const NumericRange &b) {
+                                   return a.lower < b.lower || 
+                                          (a.lower == b.lower && a.lower_inclusive > b.lower_inclusive);
+                               });
+    
+    ranges.insert(it, range);
+    
+    // TODO: Could merge overlapping/adjacent ranges here for optimization
+}
+
+std::pair<ap_float, ap_float> Partition::get_bounding_box() const {
+    if (ranges.empty()) {
+        return {0, 0};  // Empty partition
+    }
+    
+    ap_float min_lower = ranges.front().lower;
+    ap_float max_upper = ranges.back().upper;
+    
+    return {min_lower, max_upper};
+}
+
+bool Partition::is_full_range() const {
+    // Check if partition covers entire real line
+    // This requires checking if union of all ranges = (-inf, +inf)
+    if (ranges.empty()) return false;
+    
+    // Simple check: if there's a single range covering everything
+    if (ranges.size() == 1 && ranges[0].is_full_range()) {
+        return true;
+    }
+    
+    // More complex: check if ranges cover everything without gaps
+    // For now, conservative approach
+    return false;
+}
+
+Partition Partition::union_with(const Partition &other) const {
+    std::vector<NumericRange> combined = ranges;
+    combined.insert(combined.end(), other.ranges.begin(), other.ranges.end());
+    return Partition(combined);
+}
+
+Partition Partition::intersect_with(const Partition &other) const {
+    std::vector<NumericRange> result_ranges;
+    
+    // Compute intersection: for each range in this, intersect with each range in other
+    for (const auto &r1 : ranges) {
+        for (const auto &r2 : other.ranges) {
+            if (r1.overlaps_with(r2)) {
+                NumericRange intersection = r1.intersect(r2);
+                if (!intersection.is_empty()) {
+                    result_ranges.push_back(intersection);
+                }
+            }
+        }
+    }
+    
+    return Partition(result_ranges);
+}
+
+Partition Partition::complement() const {
+    if (ranges.empty()) {
+        // Empty partition - complement is full range
+        return Partition(NumericRange(-std::numeric_limits<ap_float>::infinity(),
+                                     std::numeric_limits<ap_float>::infinity(),
+                                     true, false, 0));
+    }
+    
+    std::vector<NumericRange> complement_ranges;
+    
+    // Add range before first range if it doesn't start at -inf
+    if (ranges.front().lower != -std::numeric_limits<ap_float>::infinity()) {
+        complement_ranges.emplace_back(
+            -std::numeric_limits<ap_float>::infinity(),
+            ranges.front().lower,
+            true,
+            !ranges.front().lower_inclusive,
+            0);
+    }
+    
+    // Add gaps between consecutive ranges
+    for (size_t i = 0; i + 1 < ranges.size(); ++i) {
+        ap_float gap_lower = ranges[i].upper;
+        ap_float gap_upper = ranges[i+1].lower;
+        bool gap_lower_inclusive = !ranges[i].upper_inclusive;
+        bool gap_upper_inclusive = !ranges[i+1].lower_inclusive;
+        
+        if (gap_lower < gap_upper || (gap_lower == gap_upper && gap_lower_inclusive && gap_upper_inclusive)) {
+            complement_ranges.emplace_back(gap_lower, gap_upper, 
+                                          gap_lower_inclusive, gap_upper_inclusive, 0);
+        }
+    }
+    
+    // Add range after last range if it doesn't end at +inf
+    if (ranges.back().upper != std::numeric_limits<ap_float>::infinity()) {
+        complement_ranges.emplace_back(
+            ranges.back().upper,
+            std::numeric_limits<ap_float>::infinity(),
+            !ranges.back().upper_inclusive,
+            false,
+            0);
+    }
+    
+    return Partition(complement_ranges);
+}
+
+Partition Partition::apply_operation(f_operator op, ap_float operand) const {
+    std::vector<NumericRange> result_ranges;
+    
+    for (const auto &range : ranges) {
+        ap_float new_lower, new_upper;
+        bool new_lower_inclusive = range.lower_inclusive;
+        bool new_upper_inclusive = range.upper_inclusive;
+        
+        switch (op) {
+            case f_operator::assign:
+                // Assignment: entire partition becomes single value
+                new_lower = new_upper = operand;
+                new_lower_inclusive = new_upper_inclusive = true;
+                break;
+                
+            case f_operator::increase:
+                // Add constant to range
+                new_lower = range.lower + operand;
+                new_upper = range.upper + operand;
+                break;
+                
+            case f_operator::decrease:
+                // Subtract constant from range
+                new_lower = range.lower - operand;
+                new_upper = range.upper - operand;
+                break;
+                
+            case f_operator::scale_up:
+                // Multiply by constant (positive)
+                if (operand >= 0) {
+                    new_lower = range.lower * operand;
+                    new_upper = range.upper * operand;
+                } else {
+                    // Negative multiplier flips the range
+                    new_lower = range.upper * operand;
+                    new_upper = range.lower * operand;
+                    std::swap(new_lower_inclusive, new_upper_inclusive);
+                }
+                break;
+                
+            case f_operator::scale_down:
+                // Divide by constant (avoid division by zero)
+                if (operand != 0) {
+                    if (operand > 0) {
+                        new_lower = range.lower / operand;
+                        new_upper = range.upper / operand;
+                    } else {
+                        // Negative divisor flips the range
+                        new_lower = range.upper / operand;
+                        new_upper = range.lower / operand;
+                        std::swap(new_lower_inclusive, new_upper_inclusive);
+                    }
+                } else {
+                    // Division by zero - undefined, return full range
+                    new_lower = -std::numeric_limits<ap_float>::infinity();
+                    new_upper = std::numeric_limits<ap_float>::infinity();
+                }
+                break;
+                
+            default:
+                // Unknown operation
+                new_lower = -std::numeric_limits<ap_float>::infinity();
+                new_upper = std::numeric_limits<ap_float>::infinity();
+                break;
+        }
+        
+        result_ranges.emplace_back(new_lower, new_upper, 
+                                  new_lower_inclusive, new_upper_inclusive, 0);
+    }
+    
+    return Partition(result_ranges);
+}
+
+Partition Partition::apply_binary_operation(
+    const Partition &left, const Partition &right, cal_operator op) {
+    
+    std::vector<NumericRange> result_ranges;
+    
+    // Apply operation to all combinations of ranges from left and right
+    for (const auto &l : left.ranges) {
+        for (const auto &r : right.ranges) {
+            auto result = NumericDomainMapping::apply_range_operation(
+                l.lower, l.upper, r.lower, r.upper, op);
+            
+            // For now, use conservative closed interval
+            result_ranges.emplace_back(result.first, result.second, true, true, 0);
+        }
+    }
+    
+    return Partition(result_ranges);
+}
+
+int Partition::evaluate_comparison(const Partition &other, comp_operator op) const {
+    // Evaluate comparison between two partitions
+    // Returns: 0=TRUE, 1=FALSE, 2=UNKNOWN
+    
+    if (ranges.empty() || other.ranges.empty()) {
+        return 2;  // UNKNOWN for empty partitions
+    }
+    
+    // For each combination of ranges, evaluate comparison
+    // If all combinations give same result, return that result
+    // Otherwise return UNKNOWN
+    
+    int first_result = -1;
+    for (const auto &l : ranges) {
+        for (const auto &r : other.ranges) {
+            int result = NumericDomainMapping::evaluate_comparison(
+                op, l.lower, l.upper, r.lower, r.upper);
+            
+            if (first_result == -1) {
+                first_result = result;
+            } else if (first_result != result) {
+                // Different results for different range combinations
+                return 2;  // UNKNOWN
+            }
+        }
+    }
+    
+    return first_result;
+}
+
+void Partition::dump(std::ostream &out) const {
+    out << "Partition with " << ranges.size() << " range(s): ";
+    for (size_t i = 0; i < ranges.size(); ++i) {
+        if (i > 0) out << " ∪ ";
+        out << (ranges[i].lower_inclusive ? "[" : "(");
+        if (ranges[i].lower == -std::numeric_limits<ap_float>::infinity()) {
+            out << "-∞";
+        } else {
+            out << ranges[i].lower;
+        }
+        out << ", ";
+        if (ranges[i].upper == std::numeric_limits<ap_float>::infinity()) {
+            out << "∞";
+        } else {
+            out << ranges[i].upper;
+        }
+        out << (ranges[i].upper_inclusive ? "]" : ")");
+    }
+}
+
+bool Partition::is_valid() const {
+    // Check ranges are sorted and non-overlapping
+    for (size_t i = 0; i + 1 < ranges.size(); ++i) {
+        if (ranges[i].is_empty()) return false;
+        
+        // Check sorted
+        if (ranges[i].lower > ranges[i+1].lower) return false;
+        
+        // Check non-overlapping
+        if (ranges[i].upper > ranges[i+1].lower) return false;
+        if (ranges[i].upper == ranges[i+1].lower) {
+            // Adjacent ranges - both can't include the boundary
+            if (ranges[i].upper_inclusive && ranges[i+1].lower_inclusive) {
+                return false;  // Overlap at boundary
+            }
+        }
+    }
+    
+    return true;
+}
+
 }
 
