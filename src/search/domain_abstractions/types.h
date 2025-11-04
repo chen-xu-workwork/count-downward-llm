@@ -24,20 +24,22 @@ using NumericDomainMappingType = std::vector<std::unique_ptr<NumericDomainMappin
 
 // For numeric variables: represents a range with configurable boundaries
 // Examples: [lower, upper), (lower, upper], [lower, upper], (lower, upper)
-// Note: partition_index removed - partitions are now indexed by their position in vector<Partition>
 struct NumericRange {
     ap_float lower;
     ap_float upper;
     bool lower_inclusive;  // true: [lower, ...  false: (lower, ...
     bool upper_inclusive;  // true: ..., upper]  false: ..., upper)
+    int partition_index;   // which partition this range belongs to
     
     NumericRange(ap_float lower = -std::numeric_limits<ap_float>::infinity(),
                  ap_float upper = std::numeric_limits<ap_float>::infinity(),
                  bool lower_inclusive = true,
-                 bool upper_inclusive = false)
+                 bool upper_inclusive = false,
+                 int partition_index = 0)
         : lower(lower), upper(upper), 
           lower_inclusive(lower_inclusive), 
-          upper_inclusive(upper_inclusive) {}
+          upper_inclusive(upper_inclusive),
+          partition_index(partition_index) {}
     
     // Check if a value is in this range
     bool contains(ap_float value) const {
@@ -149,13 +151,6 @@ public:
     // Returns: 0=TRUE (comparison always holds), 1=FALSE (never holds), 2=UNKNOWN
     int evaluate_comparison(const Partition &other, comp_operator op) const;
     
-    // Static helper: evaluate comparison between two single ranges
-    // Returns: 0=TRUE, 1=FALSE, 2=UNKNOWN
-    static int evaluate_range_comparison(
-        comp_operator op,
-        ap_float left_lower, ap_float left_upper,
-        ap_float right_lower, ap_float right_upper);
-    
     // Debug output
     void dump(std::ostream &out = std::cout) const;
     
@@ -163,20 +158,19 @@ public:
     bool is_valid() const;
 };
 
-// For numeric variables: each variable has a list of partitions
-// Each partition contains one or more disjoint ranges
-// The partitions together cover the entire real line (-inf, inf) without gaps
+// For numeric variables: each variable has a list of ranges that partition (-inf, inf)
+// The ranges must be sorted by lower bound and cover the entire real line without gaps
 // Abstract base class - use StandardSplitMapping or ExclusionSplitMapping
 class NumericDomainMapping {
 protected:
-    std::vector<Partition> partitions;
+    std::vector<NumericRange> ranges;
     
 public:
     NumericDomainMapping() {
-        // Start with a single partition covering everything (-inf, inf)
-        partitions.emplace_back(NumericRange(-std::numeric_limits<ap_float>::infinity(),
-                                            std::numeric_limits<ap_float>::infinity(),
-                                            true, false));
+        // Start with a single range covering everything, partition 0
+        ranges.emplace_back(-std::numeric_limits<ap_float>::infinity(),
+                           std::numeric_limits<ap_float>::infinity(),
+                           0);
     }
     
     // Virtual destructor for proper cleanup
@@ -187,12 +181,12 @@ public:
     
     // Get the partition index for a given value
     int get_partition_index(ap_float value) const {
-        for (size_t i = 0; i < partitions.size(); ++i) {
-            if (partitions[i].contains(value)) {
-                return static_cast<int>(i);
+        for (const auto &range : ranges) {
+            if (range.contains(value)) {
+                return range.partition_index;
             }
         }
-        // Should never happen if partitions properly cover (-inf, inf)
+        // Should never happen if ranges properly cover (-inf, inf)
         return -1;
     }
     
@@ -201,96 +195,97 @@ public:
     // Subclasses implement different splitting strategies
     virtual int split_at(ap_float n) = 0;
     
-    // Get the number of partitions
+    // Get the number of partitions (max partition index + 1)
     int get_num_partitions() const {
-        return static_cast<int>(partitions.size());
-    }
-    
-    // Get all partitions (for debugging/inspection)
-    const std::vector<Partition> &get_partitions() const {
-        return partitions;
-    }
-    
-    // Get a specific partition by index
-    const Partition &get_partition(int partition_index) const {
-        return partitions[partition_index];
-    }
-    
-    // Get the total number of ranges across all partitions
-    size_t get_total_num_ranges() const {
-        size_t total = 0;
-        for (const auto &partition : partitions) {
-            total += partition.num_ranges();
+        int max_partition = 0;
+        for (const auto &range : ranges) {
+            if (range.partition_index > max_partition) {
+                max_partition = range.partition_index;
+            }
         }
-        return total;
+        return max_partition + 1;
+    }
+    
+    // Get all ranges (for debugging/inspection)
+    const std::vector<NumericRange> &get_ranges() const {
+        return ranges;
+    }
+    
+    // Get the number of ranges
+    size_t get_num_ranges() const {
+        return ranges.size();
     }
     
     // Validate internal consistency
     virtual bool is_valid() const {
-        if (partitions.empty()) return false;
+        if (ranges.empty()) return false;
         
-        // Check that each partition is valid
-        for (const auto &partition : partitions) {
-            if (!partition.is_valid()) return false;
-        }
-        
-        // Check that all partitions together cover (-inf, inf) without gaps or overlaps
-        // This is a complex check - we need to ensure union of all partitions is full range
-        // and partitions don't overlap
-        
-        // Collect all ranges from all partitions
-        std::vector<NumericRange> all_ranges;
-        for (const auto &partition : partitions) {
-            for (const auto &range : partition.get_ranges()) {
-                all_ranges.push_back(range);
-            }
-        }
-        
-        // Sort ranges by lower bound (and inclusiveness if bounds are equal)
-        std::sort(all_ranges.begin(), all_ranges.end(),
-                 [](const NumericRange &a, const NumericRange &b) {
-                     if (a.lower < b.lower) return true;
-                     if (a.lower > b.lower) return false;
-                     // If lower bounds are equal, inclusive comes before exclusive
-                     return a.lower_inclusive && !b.lower_inclusive;
-                 });
-        
-        if (all_ranges.empty()) return false;
-        
-        // Check first range starts at -inf
-        if (all_ranges.front().lower != -std::numeric_limits<ap_float>::infinity()) {
-            return false;
-        }
-        
-        // Check last range ends at +inf
-        if (all_ranges.back().upper != std::numeric_limits<ap_float>::infinity()) {
-            return false;
-        }
-        
-        // Check ranges are contiguous and don't overlap
-        for (size_t i = 0; i + 1 < all_ranges.size(); ++i) {
+        // Check that ranges are sorted and contiguous
+        for (size_t i = 0; i + 1 < ranges.size(); ++i) {
             // Check bounds align
-            if (all_ranges[i].upper != all_ranges[i+1].lower) {
+            if (ranges[i].upper != ranges[i+1].lower) {
                 return false;  // Gap or overlap in bounds
             }
             
             // Check boundary consistency at meeting point
-            if (all_ranges[i].upper_inclusive == all_ranges[i+1].lower_inclusive) {
+            // Adjacent ranges must not both include the boundary point
+            // (would cause overlap) or both exclude it (would cause gap)
+            if (ranges[i].upper_inclusive == ranges[i+1].lower_inclusive) {
                 return false;  // Both include or both exclude the boundary
             }
+            
+            // Check range is not empty (lower < upper, or lower == upper with both inclusive)
+            if (ranges[i].lower > ranges[i].upper) {
+                return false;  // Invalid range
+            }
+            if (ranges[i].lower == ranges[i].upper) {
+                // Single point range - must have both boundaries inclusive
+                if (!ranges[i].lower_inclusive || !ranges[i].upper_inclusive) {
+                    return false;  // Empty range
+                }
+            }
+        }
+        
+        // Check last range validity
+        if (ranges.back().lower > ranges.back().upper) {
+            return false;
+        }
+        if (ranges.back().lower == ranges.back().upper) {
+            if (!ranges.back().lower_inclusive || !ranges.back().upper_inclusive) {
+                return false;
+            }
+        }
+        
+        // Check first range starts at -inf and last ends at +inf
+        if (ranges.front().lower != -std::numeric_limits<ap_float>::infinity()) {
+            return false;
+        }
+        if (ranges.back().upper != std::numeric_limits<ap_float>::infinity()) {
+            return false;
         }
         
         return true;
     }
     
-    // Debug method: print the partitions
+    // Debug method: print the ranges
     void dump() const;
     
-    // Get the bounding box of a partition (min lower, max upper)
-    std::pair<ap_float, ap_float> get_partition_bounding_box(int partition_index) const;
+    // Get the range associated with a given partition index
+    // Returns nullptr if no range exists for this partition
+    const NumericRange* get_range_for_partition(int partition_index) const;
+    
+    // Get the union of all ranges (returns min of all lowers, max of all uppers)
+    std::pair<ap_float, ap_float> get_range_union() const;
+    
+    // Static method to evaluate a comparison between two ranges
+    // Returns: 0 = definitely false, 1 = definitely true, 2 = unknown
+    static int evaluate_comparison(
+        comp_operator op,
+        ap_float left_lower, ap_float left_upper,
+        ap_float right_lower, ap_float right_upper);
     
     // Evaluate a comparison between a partition in this mapping and a partition in another
-    // Returns: 0 = TRUE, 1 = FALSE, 2 = UNKNOWN
+    // Returns: 0 = definitely false, 1 = definitely true, 2 = unknown
     int evaluate_comparison_with(
         const NumericDomainMapping &other,
         int my_partition,
@@ -305,18 +300,43 @@ public:
         f_operator effect_op,
         ap_float operand_value) const;
     
-    // Apply effect to a partition and return resulting partition indices
-    // Returns: vector of partition indices that overlap with the result
-    std::vector<int> apply_effect_to_partition(
-        int source_partition_index, f_operator op, ap_float operand) const;
-    
-    // Static utility method to apply a range operation (sum, diff, mult, divi) to two ranges
+    // Static method to apply a range operation (sum, diff, mult, divi) to two ranges
     // Used for computing derived variable ranges from base variable ranges
     // Returns: pair<lower, upper> representing the result range
     static std::pair<ap_float, ap_float> apply_range_operation(
         ap_float left_lower, ap_float left_upper,
         ap_float right_lower, ap_float right_upper,
         cal_operator op);
+    
+    // ========================================================================
+    // Partition Integration Methods
+    // ========================================================================
+    
+    // Get a Partition object representing all ranges for a given partition index
+    // Returns: Partition containing all ranges that map to the given partition index
+    Partition get_partition(int partition_index) const;
+    
+    // Get bounding box for a partition index (conservative bounds)
+    // Returns: pair<lower, upper> representing the smallest interval containing the partition
+    std::pair<ap_float, ap_float> get_partition_bounding_box(int partition_index) const;
+    
+    // Check if a value belongs to a specific partition
+    bool value_in_partition(ap_float value, int partition_index) const {
+        return get_partition_index(value) == partition_index;
+    }
+    
+    // Get all partition indices (sorted, unique)
+    std::vector<int> get_all_partition_indices() const;
+    
+    // Evaluate comparison between two partitions from different mappings
+    // Returns: 0=TRUE, 1=FALSE, 2=UNKNOWN
+    static int evaluate_partition_comparison(
+        const Partition &left, const Partition &right, comp_operator op);
+    
+    // Apply an effect operation to a partition and determine resulting partition indices
+    // Returns: vector of partition indices that the result could map to
+    std::vector<int> apply_effect_to_partition(
+        int source_partition_index, f_operator op, ap_float operand) const;
 };
 
 // Constant mapping: represents a constant numeric variable with a single partition
@@ -327,7 +347,8 @@ private:
 public:
     explicit ConstantMapping(ap_float value) : constant_value(value) {
         // Constants don't change - everything maps to partition 0
-        // The parent constructor already added a single partition covering (-inf, inf)
+        // The parent constructor already added the full range (-inf, inf) with partition 0
+        // So we don't need to modify it!
     }
     
     // Constants cannot be split - just return current number of partitions (1)
@@ -348,13 +369,15 @@ public:
         return constant_value;
     }
     
-    // Override validation - constants have a single partition covering everything
+    // Override validation - constants have a single range covering everything with partition 0
     bool is_valid() const override {
-        if (partitions.size() != 1) {
+        if (ranges.size() != 1) {
             return false;
         }
-        // Check it's the full range (-inf, inf)
-        return partitions[0].is_full_range();
+        // Check it's the full range (-inf, inf) with partition 0
+        return ranges[0].lower == -std::numeric_limits<ap_float>::infinity() &&
+               ranges[0].upper == std::numeric_limits<ap_float>::infinity() &&
+               ranges[0].partition_index == 0;
     }
 };
 

@@ -70,8 +70,9 @@ static void compute_numeric_context(
         } else if (var.get_var_type() == numType::regular && num_var_id < numeric_domain_mapping.size()) {
             const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
             int part = cur_num_partitions_out[num_var_id];
-            if (part >= 0 && part < mapping.get_num_partitions()) {
-                ranges_out[num_var_id] = mapping.get_partition_bounding_box(part);
+            const NumericRange *rng = mapping.get_range_for_partition(part);
+            if (rng) {
+                ranges_out[num_var_id] = make_pair(rng->lower, rng->upper);
             }
         }
         // Derived variables will be computed below
@@ -160,12 +161,8 @@ static vector<CompEvalHelper> evaluate_all_comparisons(
         } else if (left_id >= 0 && left_id < static_cast<int>(numeric_domain_mapping.size())) {
             const NumericDomainMapping &m = *numeric_domain_mapping[left_id];
             int part = cur_num_partitions[left_id];
-            if (part >= 0 && part < m.get_num_partitions()) {
-                auto bbox = m.get_partition_bounding_box(part);
-                l_lo = bbox.first;
-                l_hi = bbox.second;
-                left_known = true;
-            }
+            const NumericRange *rng = m.get_range_for_partition(part);
+            if (rng) { l_lo = rng->lower; l_hi = rng->upper; left_known = true; }
         }
 
         // Right range
@@ -183,23 +180,23 @@ static vector<CompEvalHelper> evaluate_all_comparisons(
         } else if (right_id >= 0 && right_id < static_cast<int>(numeric_domain_mapping.size())) {
             const NumericDomainMapping &m = *numeric_domain_mapping[right_id];
             int part = cur_num_partitions[right_id];
-            if (part >= 0 && part < m.get_num_partitions()) {
-                auto bbox = m.get_partition_bounding_box(part);
-                r_lo = bbox.first;
-                r_hi = bbox.second;
-                right_known = true;
-            }
+            const NumericRange *rng = m.get_range_for_partition(part);
+            if (rng) { r_lo = rng->lower; r_hi = rng->upper; right_known = true; }
         }
 
         int eval = 2;
         if (left_known && right_known) {
-            // Use Partition's evaluate_comparison method
-            // Create temporary partitions for the ranges
-            Partition left_part(NumericRange(l_lo, l_hi, true, true));
-            Partition right_part(NumericRange(r_lo, r_hi, true, true));
-            int raw = left_part.evaluate_comparison(right_part, axiom.get_comparison_operator_type());
-            // raw uses: 0=TRUE, 1=FALSE, 2=UNKNOWN
-            eval = raw;
+            // Raw evaluation from NumericDomainMapping uses: 0=false, 1=true, 2=unknown.
+            // Normalize here to the comparison-axiom convention: 0=true, 1=false, 2=unknown.
+            int raw = NumericDomainMapping::evaluate_comparison(
+                axiom.get_comparison_operator_type(), l_lo, l_hi, r_lo, r_hi);
+            if (raw == 2) {
+                eval = 2;
+            } else if (raw == 0) {
+                eval = 0; // true -> 0
+            } else {
+                eval = 1; // false -> 1
+            }
         }
 
         out.push_back(CompEvalHelper{
@@ -316,12 +313,8 @@ static bool is_state_goal_feasible(
                 } else if (left_id >= 0 && left_id < static_cast<int>(numeric_domain_mapping.size())) {
                     const NumericDomainMapping &m = *numeric_domain_mapping[left_id];
                     int part = cur_parts[left_id];
-                    if (part >= 0 && part < m.get_num_partitions()) {
-                        auto bbox = m.get_partition_bounding_box(part);
-                        l_lo = bbox.first;
-                        l_hi = bbox.second;
-                        left_known = true;
-                    }
+                    const NumericRange *rng = m.get_range_for_partition(part);
+                    if (rng) { l_lo = rng->lower; l_hi = rng->upper; left_known = true; }
                 }
 
                 // Right range
@@ -336,12 +329,8 @@ static bool is_state_goal_feasible(
                 } else if (right_id >= 0 && right_id < static_cast<int>(numeric_domain_mapping.size())) {
                     const NumericDomainMapping &m = *numeric_domain_mapping[right_id];
                     int part = cur_parts[right_id];
-                    if (part >= 0 && part < m.get_num_partitions()) {
-                        auto bbox = m.get_partition_bounding_box(part);
-                        r_lo = bbox.first;
-                        r_hi = bbox.second;
-                        right_known = true;
-                    }
+                    const NumericRange *rng = m.get_range_for_partition(part);
+                    if (rng) { r_lo = rng->lower; r_hi = rng->upper; right_known = true; }
                 }
                 break; // Found the matching axiom
             }
@@ -812,10 +801,13 @@ void DomainAbstractionFactory::compute_distances(
             if (num_var_id < numeric_domain_mapping.size()) {
                 const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
                 if (mapping.get_num_partitions() > 1) {
-                    int part_idx = mapping.get_partition_index(init_val);
-                    if (part_idx >= 0) {
-                        auto bbox = mapping.get_partition_bounding_box(part_idx);
-                        debug_file << " -> partition " << part_idx << " [" << bbox.first << ", " << bbox.second << "]";
+                    const vector<NumericRange> &ranges = mapping.get_ranges();
+                    for (size_t part = 0; part < ranges.size(); ++part) {
+                        const NumericRange &range = ranges[part];
+                        if (init_val >= range.lower && init_val < range.upper) {
+                            debug_file << " -> partition " << part << " [" << range.lower << ", " << range.upper << ")";
+                            break;
+                        }
                     }
                 }
             }
@@ -855,15 +847,11 @@ void DomainAbstractionFactory::compute_distances(
                 if (num_partitions <= 1) {
                     debug_file << "  [TRIVIAL - 1 partition covering all values]\n";
                 } else {
-                    const vector<Partition> &partitions = mapping.get_partitions();
+                    const vector<NumericRange> &ranges = mapping.get_ranges();
                     debug_file << "  Partitions: " << num_partitions << "\n";
-                    for (size_t part_idx = 0; part_idx < partitions.size(); ++part_idx) {
-                        auto bbox = partitions[part_idx].get_bounding_box();
-                        debug_file << "    partition " << part_idx << ": [" << bbox.first << ", " << bbox.second << "]\n";
-                        // If partition has multiple ranges, show them
-                        if (partitions[part_idx].num_ranges() > 1) {
-                            debug_file << "      (composed of " << partitions[part_idx].num_ranges() << " ranges)\n";
-                        }
+                    for (size_t part = 0; part < ranges.size(); ++part) {
+                        const NumericRange &range = ranges[part];
+                        debug_file << "    partition " << part << ": [" << range.lower << ", " << range.upper << ")\n";
                     }
                 }
             }
@@ -880,12 +868,12 @@ void DomainAbstractionFactory::compute_distances(
                 debug_file << "var" << abstract_var_id << " (partition of num_var" << num_var_id << "):\n";
                 debug_file << "  Domain size: " << num_partitions << " (values 0.." << (num_partitions-1) << ")\n";
                 debug_file << "  Meaning:\n";
-                const vector<Partition> &partitions = mapping.get_partitions();
-                for (size_t part_idx = 0; part_idx < partitions.size(); ++part_idx) {
-                    auto bbox = partitions[part_idx].get_bounding_box();
-                    debug_file << "    var" << abstract_var_id << " = " << part_idx 
-                              << "  means  num_var" << num_var_id << " in partition with bounds [" 
-                              << bbox.first << ", " << bbox.second << "]\n";
+                const vector<NumericRange> &ranges = mapping.get_ranges();
+                for (size_t part = 0; part < ranges.size(); ++part) {
+                    const NumericRange &range = ranges[part];
+                    debug_file << "    var" << abstract_var_id << " = " << part 
+                              << "  means  num_var" << num_var_id << " in [" 
+                              << range.lower << ", " << range.upper << ")\n";
                 }
             }
         }
@@ -960,9 +948,9 @@ void DomainAbstractionFactory::compute_distances(
                 // Show the range
                 if (num_var_idx < (int)numeric_domain_mapping.size()) {
                     const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_idx];
-                    if (goal.value < mapping.get_num_partitions()) {
-                        auto bbox = mapping.get_partition_bounding_box(goal.value);
-                        debug_file << " [" << bbox.first << ", " << bbox.second << "]";
+                    if (goal.value < (int)mapping.get_ranges().size()) {
+                        const NumericRange &range = mapping.get_ranges()[goal.value];
+                        debug_file << " [" << range.lower << ", " << range.upper << ")";
                     }
                 }
             }
@@ -1787,7 +1775,7 @@ DomainAbstraction DomainAbstractionFactory::generate() {
     // Check if we have any non-trivial numeric variables (with more than 1 partition)
     bool has_numeric_vars = false;
     for (const auto &num_mapping : numeric_domain_mapping) {
-        if (num_mapping->get_num_partitions() > 1) {
+        if (num_mapping->get_ranges().size() > 1) {
             has_numeric_vars = true;
             break;
         }

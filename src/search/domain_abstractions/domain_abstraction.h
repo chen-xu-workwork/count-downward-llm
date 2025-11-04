@@ -55,7 +55,7 @@ public:
           has_numeric_variables(false) {
         // Check if any numeric variable has non-trivial partitioning
         for (const auto &num_mapping : this->numeric_domain_mapping) {
-            if (num_mapping->get_num_partitions() > 1) {
+            if (num_mapping->get_ranges().size() > 1) {
                 has_numeric_variables = true;
                 break;
             }
