@@ -565,10 +565,10 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     vector<CompEvalHelper> comparisons = evaluate_all_comparisons(
         ranges, cur_num_partitions, numeric_domain_mapping, task_proxy);
 
-    for (const auto& r : ranges) {
-        cout << "DEBUG ENUM: var" << r.first 
-             << " range=[" << r.second.first << "," << r.second.second << "]" << endl;
-    }   
+    //for (const auto& r : ranges) {
+    //    cout << "DEBUG ENUM: var" << r.first 
+    //         << " range=[" << r.second.first << "," << r.second.second << "]" << endl;
+    //}   
 
     // Reset ALL comparison axiom variables to UNKNOWN using shared helper
     int state_with_unknowns = reset_all_comparison_vars_to_unknown(
@@ -1151,12 +1151,24 @@ void DomainAbstractionFactory::compute_distances(
         if (is_goal) {
             // Filter out impossible goal states whose comparison-axiom goals
             // contradict the numeric partitions of this state.
+            // THAT ONE IS APPARENTLY BROKEN!
             bool feasible = is_state_goal_feasible(state_index,
                                                    abstract_goals,
                                                    domain_mapping,
                                                    numeric_domain_mapping,
                                                    hash_multipliers,
                                                    task_proxy);
+            vector<int> possible_states = 
+                enumerate_states_with_evaluated_comparisons(
+                    state_index,
+                    task_proxy);
+            if (find(possible_states.begin(),
+                    possible_states.end(),
+                    state_index) != possible_states.end()) {
+                feasible = true;
+                        } else {    
+                feasible = false;
+            }
             if (feasible) {
                 cout << "DEBUG: Found feasible goal state: " << decode_abstract_state(state_index, domain_sizes,
                                           numeric_domain_mapping, hash_multipliers);
