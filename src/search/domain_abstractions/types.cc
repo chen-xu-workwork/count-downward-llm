@@ -113,8 +113,9 @@ int ExclusionSplitMapping::split_at(ap_float n) {
     }
     
     int num_partitions = get_num_partitions();
-    int old_partition = old_range.partition_index;  // Will be reused for R\{x}
+    int old_partition = old_range.partition_index;   // Reuse for one side (e.g., lower)
     int point_partition = num_partitions;            // New partition for {x}
+    int upper_partition = num_partitions + 1;        // New partition for (x, old_upper)
     
     ap_float old_lower = old_range.lower;
     ap_float old_upper = old_range.upper;
@@ -122,7 +123,7 @@ int ExclusionSplitMapping::split_at(ap_float n) {
     bool old_upper_inclusive = old_range.upper_inclusive;
     
     // Create three ranges:
-    // 1. Lower part: (-inf, n) with old partition (R\{x} lower part)
+    // 1. Lower part: (old_lower, n) with old partition
     //    Upper boundary is exclusive at n
     ranges[range_index] = NumericRange(old_lower, n, old_lower_inclusive, false, old_partition);
     
@@ -131,10 +132,10 @@ int ExclusionSplitMapping::split_at(ap_float n) {
     ranges.insert(ranges.begin() + range_index + 1,
                   NumericRange(n, n, true, true, point_partition));
     
-    // 3. Upper part: (n, inf) with old partition (R\{x} upper part)
+    // 3. Upper part: (n, old_upper) with a NEW partition (no longer share old partition)
     //    Lower boundary is exclusive at n
     ranges.insert(ranges.begin() + range_index + 2,
-                  NumericRange(n, old_upper, false, old_upper_inclusive, old_partition));
+                  NumericRange(n, old_upper, false, old_upper_inclusive, upper_partition));
     
     return get_num_partitions();
 }

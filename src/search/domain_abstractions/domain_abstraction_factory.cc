@@ -565,6 +565,11 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     vector<CompEvalHelper> comparisons = evaluate_all_comparisons(
         ranges, cur_num_partitions, numeric_domain_mapping, task_proxy);
 
+    for (const auto& r : ranges) {
+        cout << "DEBUG ENUM: var" << r.first 
+             << " range=[" << r.second.first << "," << r.second.second << "]" << endl;
+    }   
+
     // Reset ALL comparison axiom variables to UNKNOWN using shared helper
     int state_with_unknowns = reset_all_comparison_vars_to_unknown(
         base_state_index, domain_mapping, hash_multipliers, task_proxy);
@@ -579,8 +584,8 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
             return;
         }
         
-    const CompEvalHelper &comp = comparisons[idx];
-    int var_id = comp.prop_var_id;
+        const CompEvalHelper &comp = comparisons[idx];
+        int var_id = comp.prop_var_id;
         
         if (var_id >= static_cast<int>(hash_multipliers.size()) || variable_is_trivial(var_id)) {
             enumerate_combinations(idx + 1, delta_from_unknown);
@@ -700,6 +705,9 @@ string decode_abstract_state(int state_index, const vector<int> &domain_sizes,
     // Decode propositional variables
     int remaining = state_index;
     for (size_t var_id = 0; var_id < domain_sizes.size(); ++var_id) {
+        if (domain_sizes[var_id] == 1) {
+            continue;
+        }
         int multiplier = hash_multipliers[var_id];
         int value = (remaining / multiplier) % domain_sizes[var_id];
         ss << "v" << var_id << "=" << value;
@@ -710,10 +718,19 @@ string decode_abstract_state(int state_index, const vector<int> &domain_sizes,
     
     // Decode numeric variables (partitions)
     for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+        if (numeric_domain_mapping[num_var_id]->get_num_partitions() <= 1) {
+            continue;
+        }
         int multiplier_idx = domain_sizes.size() + num_var_id;
         int multiplier = hash_multipliers[multiplier_idx];
         int num_partitions = numeric_domain_mapping[num_var_id]->get_num_partitions();
         int partition = (remaining / multiplier) % num_partitions;
+        const NumericRange *rng = numeric_domain_mapping[num_var_id]->get_range_for_partition(partition);
+        if (rng) {
+            ss << "num" << num_var_id << "=[" << rng->lower << "," << rng->upper << ")";
+        } else {
+            ss << "num" << num_var_id << "=INVALID";
+        }
         
         ss << "num" << num_var_id << "=p" << partition;
         if (num_var_id < numeric_domain_mapping.size() - 1) {
@@ -1141,6 +1158,8 @@ void DomainAbstractionFactory::compute_distances(
                                                    hash_multipliers,
                                                    task_proxy);
             if (feasible) {
+                cout << "DEBUG: Found feasible goal state: " << decode_abstract_state(state_index, domain_sizes,
+                                          numeric_domain_mapping, hash_multipliers);
                 pq.push(0, state_index);
                 distances.push_back(0);
             } else {
@@ -1183,6 +1202,25 @@ void DomainAbstractionFactory::compute_distances(
             enumerate_states_with_evaluated_comparisons(
                 state_index,
                 task_proxy);
+
+        if (find(comparison_alternative_states.begin(),
+                    comparison_alternative_states.end(),
+                    state_index) == comparison_alternative_states.end()) {
+            cout << "DEBUG ERROR: State index " << state_index
+                    << " not found in its own enumerated comparison alternatives!" << endl;
+            cout << "  Enumerated alternatives: ";
+            for (int s : comparison_alternative_states) {
+                cout << s << " ";
+            }
+            cout << endl;
+            cout << "  Decoded state: " 
+                 << decode_abstract_state(state_index, domain_sizes, 
+                                          numeric_domain_mapping, hash_multipliers)
+                 << endl;
+            enumerate_states_with_evaluated_comparisons(
+                state_index,
+                task_proxy);
+        }
 
         assert(find(comparison_alternative_states.begin(),
                     comparison_alternative_states.end(),

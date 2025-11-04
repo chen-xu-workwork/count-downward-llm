@@ -1735,17 +1735,6 @@ DomainAbstraction CEGAR::build_abstraction(
             cout << "CRITICAL ERROR: Numeric domain mapping validation failed!" << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
-
-        // DEBUG: Print what we're passing to the factory
-        if (VERBOSE_DEBUG) {
-            cout << "DEBUG CEGAR: Creating factory for iteration " << iteration << " with numeric_domain_sizes: ";
-            for (size_t i = 0; i < min(numeric_domain_sizes.size(), size_t(10)); ++i) {
-                cout << "v" << i << "=" << numeric_domain_sizes[i] << " ";
-            }
-            cout << endl;
-            cout << "DEBUG CEGAR: Specifically, v66=" << numeric_domain_sizes[66] << ", v17=" << numeric_domain_sizes[17] 
-                 << ", v2=" << numeric_domain_sizes[2] << endl;
-        }
         
         DomainAbstractionFactory new_factory(
             task_proxy, domain_mapping, abstract_domain_sizes,
