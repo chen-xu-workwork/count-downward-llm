@@ -42,222 +42,180 @@ bool NumericRange::overlaps_with(ap_float other_lower, ap_float other_upper,
 
 // StandardSplitMapping implementation
 int StandardSplitMapping::split_at(ap_float n) {
-    // Find the range that contains n
-    int range_index = -1;
+    // Find which partition contains n
+    int partition_index = get_partition_index(n);
+    
+    if (partition_index == -1) {
+        // Value not in any partition (shouldn't happen)
+        return get_num_partitions();
+    }
+    
+    Partition &old_partition = partitions[partition_index];
+    
+    // Find which range within this partition contains n
+    const std::vector<NumericRange> &ranges = old_partition.get_ranges();
+    int range_idx = -1;
     for (size_t i = 0; i < ranges.size(); ++i) {
         if (ranges[i].contains(n)) {
-            range_index = i;
+            range_idx = static_cast<int>(i);
             break;
         }
     }
     
-    // If n is not in any range or is already at a boundary, do nothing
-    if (range_index == -1) {
+    if (range_idx == -1) {
+        // Value not found in partition ranges (shouldn't happen)
         return get_num_partitions();
     }
     
-    NumericRange &old_range = ranges[range_index];
+    const NumericRange &old_range = ranges[range_idx];
     
     // If n is already at the lower bound, no split needed
     if (old_range.lower == n) {
         return get_num_partitions();
     }
     
-    // Split the range into two parts:
-    // Keep the old partition index for the lower part [old_lower, n)
-    // Create a new partition index for the upper part [n, old_upper)
-    int num_partitions = get_num_partitions();
-    int old_partition = old_range.partition_index;  // Reuse for lower part
-    int new_partition = num_partitions;             // New index for upper part
+    // Create two new partitions from the split
+    // Lower partition: [old_lower, n)
+    // Upper partition: [n, old_upper)
     
     ap_float old_lower = old_range.lower;
     ap_float old_upper = old_range.upper;
     bool old_lower_inclusive = old_range.lower_inclusive;
     bool old_upper_inclusive = old_range.upper_inclusive;
     
-    // Replace the old range with the lower part [old_lower, n), keeping old partition index
-    // Lower boundary comes from original range, upper boundary is exclusive at n
-    ranges[range_index] = NumericRange(old_lower, n, old_lower_inclusive, false, old_partition);
+    // Build lower partition - contains all ranges from old partition up to n
+    Partition lower_partition;
+    for (int i = 0; i < range_idx; ++i) {
+        lower_partition.add_range(ranges[i]);
+    }
+    // Add the truncated range: [old_lower, n)
+    lower_partition.add_range(NumericRange(old_lower, n, old_lower_inclusive, false));
     
-    // Insert the upper part [n, old_upper) with new partition index
-    // Lower boundary is inclusive at n, upper boundary comes from original range
-    ranges.insert(ranges.begin() + range_index + 1,
-                  NumericRange(n, old_upper, true, old_upper_inclusive, new_partition));
+    // Build upper partition - contains the split range and all subsequent ranges
+    Partition upper_partition;
+    // Add the split range: [n, old_upper)
+    upper_partition.add_range(NumericRange(n, old_upper, true, old_upper_inclusive));
+    for (size_t i = range_idx + 1; i < ranges.size(); ++i) {
+        upper_partition.add_range(ranges[i]);
+    }
+    
+    // Replace old partition with lower partition, add upper partition
+    partitions[partition_index] = lower_partition;
+    partitions.push_back(upper_partition);
     
     return get_num_partitions();
 }
 
 // ExclusionSplitMapping implementation
 int ExclusionSplitMapping::split_at(ap_float n) {
-    // Find the range containing n
-    int range_index = -1;
+    // Find which partition contains n
+    int partition_index = get_partition_index(n);
+    
+    if (partition_index == -1) {
+        // Value not in any partition (shouldn't happen)
+        return get_num_partitions();
+    }
+    
+    Partition &old_partition = partitions[partition_index];
+    
+    // Find which range within this partition contains n
+    const std::vector<NumericRange> &ranges = old_partition.get_ranges();
+    int range_idx = -1;
     for (size_t i = 0; i < ranges.size(); ++i) {
         if (ranges[i].contains(n)) {
-            range_index = i;
+            range_idx = static_cast<int>(i);
             break;
         }
     }
     
-    // If n is not in any range, do nothing
-    if (range_index == -1) {
+    if (range_idx == -1) {
+        // Value not found in partition ranges (shouldn't happen)
         return get_num_partitions();
     }
     
-    NumericRange &old_range = ranges[range_index];
+    const NumericRange &old_range = ranges[range_idx];
     
-    // If n is already at a boundary, we need different logic
-    // For simplicity, assume n is strictly inside the range
+    // If n is already at a boundary, don't split
     if (old_range.lower == n || old_range.upper == n) {
-        // Could handle this, but for now just don't split
         return get_num_partitions();
     }
     
-    int num_partitions = get_num_partitions();
-    int old_partition = old_range.partition_index;  // Will be reused for R\{x}
-    int point_partition = num_partitions;            // New partition for {x}
+    // Create two new partitions:
+    // Exclusion partition: R\{n} (all ranges except the point)
+    // Point partition: {n} (single point)
     
     ap_float old_lower = old_range.lower;
     ap_float old_upper = old_range.upper;
     bool old_lower_inclusive = old_range.lower_inclusive;
     bool old_upper_inclusive = old_range.upper_inclusive;
     
-    // Create three ranges:
-    // 1. Lower part: (-inf, n) with old partition (R\{x} lower part)
-    //    Upper boundary is exclusive at n
-    ranges[range_index] = NumericRange(old_lower, n, old_lower_inclusive, false, old_partition);
+    // Build exclusion partition - contains all old ranges plus split ranges, minus the point
+    Partition exclusion_partition;
     
-    // 2. Point: [n, n] with new partition ({x})
-    //    Both boundaries inclusive for single point
-    ranges.insert(ranges.begin() + range_index + 1,
-                  NumericRange(n, n, true, true, point_partition));
+    // Add all ranges before the range containing n
+    for (int i = 0; i < range_idx; ++i) {
+        exclusion_partition.add_range(ranges[i]);
+    }
     
-    // 3. Upper part: (n, inf) with old partition (R\{x} upper part)
-    //    Lower boundary is exclusive at n
-    ranges.insert(ranges.begin() + range_index + 2,
-                  NumericRange(n, old_upper, false, old_upper_inclusive, old_partition));
+    // Add lower part of split range: [old_lower, n)
+    exclusion_partition.add_range(NumericRange(old_lower, n, old_lower_inclusive, false));
+    
+    // Add upper part of split range: (n, old_upper)
+    exclusion_partition.add_range(NumericRange(n, old_upper, false, old_upper_inclusive));
+    
+    // Add all ranges after the range containing n
+    for (size_t i = range_idx + 1; i < ranges.size(); ++i) {
+        exclusion_partition.add_range(ranges[i]);
+    }
+    
+    // Build point partition - contains only the single point [n, n]
+    Partition point_partition(NumericRange(n, n, true, true));
+    
+    // CRITICAL: Don't replace the old partition! That would invalidate existing state encodings.
+    // Instead, keep the old partition index pointing to the exclusion part,
+    // and append the point partition as a new index.
+    // This maintains semantic compatibility: values that were in partition_index before
+    // and are NOT the split point remain in partition_index.
+    partitions[partition_index] = exclusion_partition;
+    partitions.push_back(point_partition);
     
     return get_num_partitions();
 }
 
 void NumericDomainMapping::dump() const {
     std::cout << "NumericDomainMapping with " << get_num_partitions() 
-              << " partitions and " << get_num_ranges() << " ranges:" << std::endl;
-    for (size_t i = 0; i < ranges.size(); ++i) {
-        const auto &range = ranges[i];
-        // Print opening bracket/parenthesis
-        std::cout << "  Range " << i << ": " << (range.lower_inclusive ? "[" : "(");
-        if (range.lower == -std::numeric_limits<ap_float>::infinity()) {
-            std::cout << "-inf";
-        } else {
-            std::cout << range.lower;
+              << " partitions:" << std::endl;
+    for (size_t part_idx = 0; part_idx < partitions.size(); ++part_idx) {
+        std::cout << "  Partition " << part_idx << ":" << std::endl;
+        const Partition &partition = partitions[part_idx];
+        const std::vector<NumericRange> &ranges = partition.get_ranges();
+        for (const auto &range : ranges) {
+            // Print opening bracket/parenthesis
+            std::cout << "    " << (range.lower_inclusive ? "[" : "(");
+            if (range.lower == -std::numeric_limits<ap_float>::infinity()) {
+                std::cout << "-inf";
+            } else {
+                std::cout << range.lower;
+            }
+            std::cout << ", ";
+            if (range.upper == std::numeric_limits<ap_float>::infinity()) {
+                std::cout << "inf";
+            } else {
+                std::cout << range.upper;
+            }
+            // Print closing bracket/parenthesis
+            std::cout << (range.upper_inclusive ? "]" : ")") << std::endl;
         }
-        std::cout << ", ";
-        if (range.upper == std::numeric_limits<ap_float>::infinity()) {
-            std::cout << "inf";
-        } else {
-            std::cout << range.upper;
-        }
-        // Print closing bracket/parenthesis
-        std::cout << (range.upper_inclusive ? "]" : ")");
-        std::cout << " -> partition " << range.partition_index << std::endl;
     }
 }
 
-const NumericRange* NumericDomainMapping::get_range_for_partition(int partition_index) const {
-    for (const auto &range : ranges) {
-        if (range.partition_index == partition_index) {
-            return &range;
-        }
-    }
-    return nullptr;
-}
-
-std::pair<ap_float, ap_float> NumericDomainMapping::get_range_union() const {
-    if (ranges.empty()) {
+std::pair<ap_float, ap_float> NumericDomainMapping::get_partition_bounding_box(int partition_index) const {
+    if (partition_index < 0 || partition_index >= static_cast<int>(partitions.size())) {
         return {-std::numeric_limits<ap_float>::infinity(),
                 std::numeric_limits<ap_float>::infinity()};
     }
     
-    ap_float min_lower = std::numeric_limits<ap_float>::infinity();
-    ap_float max_upper = -std::numeric_limits<ap_float>::infinity();
-    
-    for (const auto &range : ranges) {
-        min_lower = std::min(min_lower, range.lower);
-        max_upper = std::max(max_upper, range.upper);
-    }
-    
-    return {min_lower, max_upper};
-}
-
-int NumericDomainMapping::evaluate_comparison(
-    comp_operator op,
-    ap_float left_lower, ap_float left_upper,
-    ap_float right_lower, ap_float right_upper) {
-    
-    // Evaluate based on comparison operator
-    // Returns: 0 = definitely false, 1 = definitely true, 2 = unknown
-    
-    switch (op) {
-        case comp_operator::lt: // left < right
-            // Definitely true if: max(left) < min(right), i.e., left_upper <= right_lower
-            // Definitely false if: min(left) >= max(right), i.e., left_lower >= right_upper
-            if (left_upper <= right_lower) {
-                return 0; // definitely true
-            } else if (left_lower >= right_upper) {
-                return 1; // definitely false
-            } else {
-                return 2; // unknown
-            }
-            
-        case comp_operator::le: // left <= right
-            // Definitely true if: max(left) <= min(right)
-            // Definitely false if: min(left) > max(right)
-            if (left_upper <= right_lower) {
-                return 0; // definitely true
-            } else if (left_lower > right_upper) {
-                return 1; // definitely false
-            } else {
-                return 2; // unknown
-            }
-            
-        case comp_operator::eq: // left == right
-            // Definitely true only if both ranges are the same single point
-            if (left_lower == left_upper && right_lower == right_upper && 
-                left_lower == right_lower) {
-                return 0; // definitely true (both are same point)
-            }
-            // Definitely false if ranges don't overlap
-            else if (left_upper <= right_lower || right_upper <= left_lower) {
-                return 1; // definitely false (no overlap)
-            } else {
-                return 2; // unknown
-            }
-            
-        case comp_operator::ge: // left >= right
-            // Definitely true if: min(left) >= max(right)
-            // Definitely false if: max(left) < min(right)
-            if (left_lower >= right_upper) {
-                return 0; // definitely true
-            } else if (left_upper < right_lower) {
-                return 1; // definitely false
-            } else {
-                return 2; // unknown
-            }
-            
-        case comp_operator::gt: // left > right
-            // Definitely true if: min(left) >= max(right), i.e., left_lower >= right_upper
-            // Definitely false if: max(left) <= min(right), i.e., left_upper <= right_lower
-            if (left_lower >= right_upper) {
-                return 0; // definitely true
-            } else if (left_upper <= right_lower) {
-                return 1; // definitely false
-            } else {
-                return 2; // unknown
-            }
-            
-        default:
-            return 2; // unknown for unrecognized operators
-    }
+    return partitions[partition_index].get_bounding_box();
 }
 
 int NumericDomainMapping::evaluate_comparison_with(
@@ -266,18 +224,14 @@ int NumericDomainMapping::evaluate_comparison_with(
     int other_partition,
     comp_operator op) const {
     
-    // Look up ranges for both partitions
-    const NumericRange *my_range = get_range_for_partition(my_partition);
-    const NumericRange *other_range = other.get_range_for_partition(other_partition);
-    
-    if (!my_range || !other_range) {
+    // Check partition indices are valid
+    if (my_partition < 0 || my_partition >= static_cast<int>(partitions.size()) ||
+        other_partition < 0 || other_partition >= static_cast<int>(other.partitions.size())) {
         return 2; // unknown if partition not found
     }
     
-    // Use the static evaluation method
-    return evaluate_comparison(op,
-                              my_range->lower, my_range->upper,
-                              other_range->lower, other_range->upper);
+    // Use the Partition class's evaluate_comparison method
+    return partitions[my_partition].evaluate_comparison(other.partitions[other_partition], op);
 }
 
 std::vector<int> NumericDomainMapping::compute_reachable_partitions(
@@ -287,106 +241,41 @@ std::vector<int> NumericDomainMapping::compute_reachable_partitions(
     
     std::vector<int> reachable_partitions;
     
-    // Get the source partition range
-    const NumericRange *source_range = get_range_for_partition(source_partition);
-    if (!source_range) {
+    // Check partition index is valid
+    if (source_partition < 0 || source_partition >= static_cast<int>(partitions.size())) {
         // Source partition not found - return empty vector
         return reachable_partitions;
     }
     
-    // Apply the effect to compute the result range using forward/progression semantics
-    // This computes where the variable can end up after applying the effect
-    ap_float result_lower, result_upper;
-    ap_float source_lower = source_range->lower;
-    ap_float source_upper = source_range->upper;
+    // Apply the effect to the source partition to get the result partition
+    const Partition &source_part = partitions[source_partition];
+    Partition result_partition = source_part.apply_operation(effect_op, operand_value);
     
-    switch (effect_op) {
-        case assign:
-            // x := c  -->  result is [c, c]
-            result_lower = operand_value;
-            result_upper = operand_value;
-            break;
-            
-        case increase:
-            // x += c  -->  [lower + c, upper + c)
-            result_lower = source_lower + operand_value;
-            result_upper = source_upper + operand_value;
-            break;
-            
-        case decrease:
-            // x -= c  -->  [lower - c, upper - c)
-            result_lower = source_lower - operand_value;
-            result_upper = source_upper - operand_value;
-            break;
-            
-        case scale_up:
-            // x *= c  -->  depends on sign of c and bounds
-            if (operand_value > 0) {
-                result_lower = source_lower * operand_value;
-                result_upper = source_upper * operand_value;
-            } else if (operand_value < 0) {
-                // Negative multiplier flips the order
-                result_lower = source_upper * operand_value;
-                result_upper = source_lower * operand_value;
-            } else {
-                // Multiply by zero
-                result_lower = 0;
-                result_upper = 0;
-            }
-            break;
-            
-        case scale_down:
-            // x /= c  -->  similar to scale_up but with division
-            if (operand_value > 0) {
-                result_lower = source_lower / operand_value;
-                result_upper = source_upper / operand_value;
-            } else if (operand_value < 0) {
-                // Negative divisor flips the order
-                result_lower = source_upper / operand_value;
-                result_upper = source_lower / operand_value;
-            } else {
-                // Division by zero - undefined, return all partitions
-                for (const auto &range : ranges) {
-                    reachable_partitions.push_back(range.partition_index);
-                }
-                return reachable_partitions;
-            }
-            break;
-            
-        default:
-            // Unknown operator, return all partitions conservatively
-            for (const auto &range : ranges) {
-                reachable_partitions.push_back(range.partition_index);
-            }
-            return reachable_partitions;
-    }
-    
-    // Determine boundary inclusivity for result range
-    // For assign (single point), use [c, c] (both inclusive)
-    // For other operations, use [lower, upper) (left-inclusive, right-exclusive)
-    bool result_lower_inclusive = true;
-    bool result_upper_inclusive = (effect_op == assign && result_lower == result_upper);
-    
-    // Find all partitions that overlap with the result range
-    for (const auto &range : ranges) {
-        // Use the overlaps_with method which handles boundary inclusivity
-        bool overlaps = range.overlaps_with(result_lower, result_upper, 
-                                           result_lower_inclusive, result_upper_inclusive);
-        
-        if (overlaps) {
-            reachable_partitions.push_back(range.partition_index);
+    // Find all partitions that overlap with the result partition
+    for (size_t i = 0; i < partitions.size(); ++i) {
+        // Check if partitions[i] intersects with result_partition
+        Partition intersection = partitions[i].intersect_with(result_partition);
+        if (!intersection.is_empty()) {
+            reachable_partitions.push_back(static_cast<int>(i));
         }
     }
     
     // If no partitions found (shouldn't happen with proper partitioning),
     // return all partitions conservatively
     if (reachable_partitions.empty()) {
-        for (const auto &range : ranges) {
-            reachable_partitions.push_back(range.partition_index);
+        for (size_t i = 0; i < partitions.size(); ++i) {
+            reachable_partitions.push_back(static_cast<int>(i));
         }
     }
     
     return reachable_partitions;
+}
+
+std::vector<int> NumericDomainMapping::apply_effect_to_partition(
+    int source_partition_index, f_operator op, ap_float operand) const {
+    
+    // This is just an alias for compute_reachable_partitions
+    return compute_reachable_partitions(source_partition_index, op, operand);
 }
 
 std::pair<ap_float, ap_float> NumericDomainMapping::apply_range_operation(
@@ -493,14 +382,14 @@ NumericRange NumericRange::intersect(const NumericRange &other) const {
     // Check if result is empty
     if (new_lower > new_upper) {
         // Empty range - return an explicitly empty range
-        return NumericRange(0, 0, false, false, -1);
+        return NumericRange(0, 0, false, false);
     }
     if (new_lower == new_upper && (!new_lower_inclusive || !new_upper_inclusive)) {
         // Single point but not both inclusive - empty
-        return NumericRange(0, 0, false, false, -1);
+        return NumericRange(0, 0, false, false);
     }
     
-    return NumericRange(new_lower, new_upper, new_lower_inclusive, new_upper_inclusive, partition_index);
+    return NumericRange(new_lower, new_upper, new_lower_inclusive, new_upper_inclusive);
 }
 
 Partition::Partition(const std::vector<NumericRange> &input_ranges) {
@@ -589,7 +478,7 @@ Partition Partition::complement() const {
         // Empty partition - complement is full range
         return Partition(NumericRange(-std::numeric_limits<ap_float>::infinity(),
                                      std::numeric_limits<ap_float>::infinity(),
-                                     true, false, 0));
+                                     true, false));
     }
     
     std::vector<NumericRange> complement_ranges;
@@ -600,8 +489,7 @@ Partition Partition::complement() const {
             -std::numeric_limits<ap_float>::infinity(),
             ranges.front().lower,
             true,
-            !ranges.front().lower_inclusive,
-            0);
+            !ranges.front().lower_inclusive);
     }
     
     // Add gaps between consecutive ranges
@@ -613,7 +501,7 @@ Partition Partition::complement() const {
         
         if (gap_lower < gap_upper || (gap_lower == gap_upper && gap_lower_inclusive && gap_upper_inclusive)) {
             complement_ranges.emplace_back(gap_lower, gap_upper, 
-                                          gap_lower_inclusive, gap_upper_inclusive, 0);
+                                          gap_lower_inclusive, gap_upper_inclusive);
         }
     }
     
@@ -623,8 +511,7 @@ Partition Partition::complement() const {
             ranges.back().upper,
             std::numeric_limits<ap_float>::infinity(),
             !ranges.back().upper_inclusive,
-            false,
-            0);
+            false);
     }
     
     return Partition(complement_ranges);
@@ -697,7 +584,7 @@ Partition Partition::apply_operation(f_operator op, ap_float operand) const {
         }
         
         result_ranges.emplace_back(new_lower, new_upper, 
-                                  new_lower_inclusive, new_upper_inclusive, 0);
+                                  new_lower_inclusive, new_upper_inclusive);
     }
     
     return Partition(result_ranges);
@@ -715,11 +602,71 @@ Partition Partition::apply_binary_operation(
                 l.lower, l.upper, r.lower, r.upper, op);
             
             // For now, use conservative closed interval
-            result_ranges.emplace_back(result.first, result.second, true, true, 0);
+            result_ranges.emplace_back(result.first, result.second, true, true);
         }
     }
     
     return Partition(result_ranges);
+}
+
+// Static helper for evaluating comparison between two ranges
+int Partition::evaluate_range_comparison(
+    comp_operator op,
+    ap_float left_lower, ap_float left_upper,
+    ap_float right_lower, ap_float right_upper) {
+    
+    // Returns: 0=TRUE, 1=FALSE, 2=UNKNOWN
+    switch (op) {
+        case comp_operator::lt: // left < right
+            if (left_upper <= right_lower) {
+                return 0; // TRUE
+            } else if (left_lower >= right_upper) {
+                return 1; // FALSE
+            } else {
+                return 2; // UNKNOWN
+            }
+            
+        case comp_operator::le: // left <= right
+            if (left_upper <= right_lower) {
+                return 0; // TRUE
+            } else if (left_lower > right_upper) {
+                return 1; // FALSE
+            } else {
+                return 2; // UNKNOWN
+            }
+            
+        case comp_operator::eq: // left == right
+            if (left_lower == left_upper && right_lower == right_upper && 
+                left_lower == right_lower) {
+                return 0; // TRUE (both are same point)
+            }
+            else if (left_upper <= right_lower || right_upper <= left_lower) {
+                return 1; // FALSE (no overlap)
+            } else {
+                return 2; // UNKNOWN
+            }
+            
+        case comp_operator::ge: // left >= right
+            if (left_lower >= right_upper) {
+                return 0; // TRUE
+            } else if (left_upper < right_lower) {
+                return 1; // FALSE
+            } else {
+                return 2; // UNKNOWN
+            }
+            
+        case comp_operator::gt: // left > right
+            if (left_lower >= right_upper) {
+                return 0; // TRUE
+            } else if (left_upper <= right_lower) {
+                return 1; // FALSE
+            } else {
+                return 2; // UNKNOWN
+            }
+            
+        default:
+            return 2; // UNKNOWN for unrecognized operators
+    }
 }
 
 int Partition::evaluate_comparison(const Partition &other, comp_operator op) const {
@@ -737,7 +684,7 @@ int Partition::evaluate_comparison(const Partition &other, comp_operator op) con
     int first_result = -1;
     for (const auto &l : ranges) {
         for (const auto &r : other.ranges) {
-            int result = NumericDomainMapping::evaluate_comparison(
+            int result = Partition::evaluate_range_comparison(
                 op, l.lower, l.upper, r.lower, r.upper);
             
             if (first_result == -1) {
@@ -749,7 +696,7 @@ int Partition::evaluate_comparison(const Partition &other, comp_operator op) con
         }
     }
     
-    return first_result;
+    return (first_result == -1) ? 2 : first_result;
 }
 
 void Partition::dump(std::ostream &out) const {
@@ -791,127 +738,6 @@ bool Partition::is_valid() const {
     }
     
     return true;
-}
-
-// ============================================================================
-// NumericDomainMapping - Partition Integration
-// ============================================================================
-
-Partition NumericDomainMapping::get_partition(int partition_index) const {
-    std::vector<NumericRange> partition_ranges;
-    
-    // Collect all ranges that belong to this partition
-    for (const auto &range : ranges) {
-        if (range.partition_index == partition_index) {
-            partition_ranges.push_back(range);
-        }
-    }
-    
-    if (partition_ranges.empty()) {
-        // No ranges found for this partition - return empty partition
-        return Partition();
-    }
-    
-    return Partition(partition_ranges);
-}
-
-std::pair<ap_float, ap_float> NumericDomainMapping::get_partition_bounding_box(int partition_index) const {
-    Partition p = get_partition(partition_index);
-    return p.get_bounding_box();
-}
-
-std::vector<int> NumericDomainMapping::get_all_partition_indices() const {
-    std::vector<int> indices;
-    
-    // Collect unique partition indices
-    for (const auto &range : ranges) {
-        if (std::find(indices.begin(), indices.end(), range.partition_index) == indices.end()) {
-            indices.push_back(range.partition_index);
-        }
-    }
-    
-    // Sort for consistency
-    std::sort(indices.begin(), indices.end());
-    
-    return indices;
-}
-
-int NumericDomainMapping::evaluate_partition_comparison(
-    const Partition &left, const Partition &right, comp_operator op) {
-    return left.evaluate_comparison(right, op);
-}
-
-std::vector<int> NumericDomainMapping::apply_effect_to_partition(
-    int source_partition_index, f_operator op, ap_float operand) const {
-    
-    // Get the source partition
-    Partition source = get_partition(source_partition_index);
-    
-    if (source.is_empty()) {
-        return {};  // Empty source -> no results
-    }
-    
-    // Apply the operation to get result partition
-    Partition result = source.apply_operation(op, operand);
-    
-    // Determine which partition indices the result could map to
-    std::vector<int> reachable_partitions;
-    
-    // For each range in the result, check which partitions it overlaps with
-    for (const auto &result_range : result.get_ranges()) {
-        // Sample points in the result range to determine partition membership
-        // Use lower bound, upper bound, and midpoint
-        std::vector<ap_float> sample_points;
-        
-        if (result_range.lower != -std::numeric_limits<ap_float>::infinity()) {
-            ap_float sample = result_range.lower;
-            if (!result_range.lower_inclusive && result_range.lower < result_range.upper) {
-                // If lower is exclusive, sample slightly above it
-                sample += 0.0001;  // Small epsilon
-            }
-            sample_points.push_back(sample);
-        }
-        
-        if (result_range.upper != std::numeric_limits<ap_float>::infinity()) {
-            ap_float sample = result_range.upper;
-            if (!result_range.upper_inclusive && result_range.lower < result_range.upper) {
-                // If upper is exclusive, sample slightly below it
-                sample -= 0.0001;  // Small epsilon
-            }
-            sample_points.push_back(sample);
-        }
-        
-        // Add midpoint if range is finite
-        if (result_range.lower != -std::numeric_limits<ap_float>::infinity() &&
-            result_range.upper != std::numeric_limits<ap_float>::infinity()) {
-            sample_points.push_back((result_range.lower + result_range.upper) / 2.0);
-        }
-        
-        // If range extends to infinity, sample some representative points
-        if (result_range.lower == -std::numeric_limits<ap_float>::infinity()) {
-            sample_points.push_back(-1000000.0);
-        }
-        if (result_range.upper == std::numeric_limits<ap_float>::infinity()) {
-            sample_points.push_back(1000000.0);
-        }
-        
-        // Check partition membership for all sample points
-        for (ap_float sample : sample_points) {
-            int partition_idx = get_partition_index(sample);
-            if (partition_idx >= 0) {
-                // Add to reachable if not already present
-                if (std::find(reachable_partitions.begin(), reachable_partitions.end(), 
-                            partition_idx) == reachable_partitions.end()) {
-                    reachable_partitions.push_back(partition_idx);
-                }
-            }
-        }
-    }
-    
-    // Sort for consistency
-    std::sort(reachable_partitions.begin(), reachable_partitions.end());
-    
-    return reachable_partitions;
 }
 
 }

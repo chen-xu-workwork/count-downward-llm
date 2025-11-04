@@ -902,31 +902,19 @@ vector<Fact> DomainAbstractionNumericHelper::compute_assignment_axiom_cascades(
         const NumericDomainMapping &left_mapping = *numeric_domain_mapping[left_var_id];
         const NumericDomainMapping &right_mapping = *numeric_domain_mapping[right_var_id];
         
-        const vector<NumericRange> &left_ranges = left_mapping.get_ranges();
-        const vector<NumericRange> &right_ranges = right_mapping.get_ranges();
-        
-        // Find old ranges
-        bool found_left_old = false, found_right_old = false;
-        for (const NumericRange &range : left_ranges) {
-            if (range.partition_index == left_partition_old) {
-                left_lower_old = range.lower;
-                left_upper_old = range.upper;
-                found_left_old = true;
-                break;
-            }
-        }
-        for (const NumericRange &range : right_ranges) {
-            if (range.partition_index == right_partition_old) {
-                right_lower_old = range.lower;
-                right_upper_old = range.upper;
-                found_right_old = true;
-                break;
-            }
+        // Get partition bounding boxes
+        if (left_partition_old < 0 || left_partition_old >= left_mapping.get_num_partitions() ||
+            right_partition_old < 0 || right_partition_old >= right_mapping.get_num_partitions()) {
+            continue; // Invalid partition indices
         }
         
-        if (!found_left_old || !found_right_old) {
-            continue; // Couldn't find ranges
-        }
+        auto left_bbox_old = left_mapping.get_partition_bounding_box(left_partition_old);
+        auto right_bbox_old = right_mapping.get_partition_bounding_box(right_partition_old);
+        
+        left_lower_old = left_bbox_old.first;
+        left_upper_old = left_bbox_old.second;
+        right_lower_old = right_bbox_old.first;
+        right_upper_old = right_bbox_old.second;
         
         // Compute old derived range
         pair<ap_float, ap_float> old_derived_range = 
@@ -953,28 +941,19 @@ vector<Fact> DomainAbstractionNumericHelper::compute_assignment_axiom_cascades(
             continue;
         }
         
-        // Find new ranges
-        bool found_left_new = false, found_right_new = false;
-        for (const NumericRange &range : left_ranges) {
-            if (range.partition_index == left_partition_new) {
-                left_lower_new = range.lower;
-                left_upper_new = range.upper;
-                found_left_new = true;
-                break;
-            }
-        }
-        for (const NumericRange &range : right_ranges) {
-            if (range.partition_index == right_partition_new) {
-                right_lower_new = range.lower;
-                right_upper_new = range.upper;
-                found_right_new = true;
-                break;
-            }
+        // Get new partition bounding boxes
+        if (left_partition_new < 0 || left_partition_new >= left_mapping.get_num_partitions() ||
+            right_partition_new < 0 || right_partition_new >= right_mapping.get_num_partitions()) {
+            continue; // Invalid partition indices
         }
         
-        if (!found_left_new || !found_right_new) {
-            continue;
-        }
+        auto left_bbox_new = left_mapping.get_partition_bounding_box(left_partition_new);
+        auto right_bbox_new = right_mapping.get_partition_bounding_box(right_partition_new);
+        
+        left_lower_new = left_bbox_new.first;
+        left_upper_new = left_bbox_new.second;
+        right_lower_new = right_bbox_new.first;
+        right_upper_new = right_bbox_new.second;
         
         // Compute new derived range
         pair<ap_float, ap_float> new_derived_range = 
@@ -987,29 +966,20 @@ vector<Fact> DomainAbstractionNumericHelper::compute_assignment_axiom_cascades(
         }
         
         const NumericDomainMapping &derived_mapping = *numeric_domain_mapping[derived_var_id];
-        const vector<NumericRange> &derived_ranges = derived_mapping.get_ranges();
         
         // Find which partition(s) the old and new ranges overlap with
-        // For simplicity, take the first overlapping partition
-        // Derived ranges use [lower, upper) convention (left-inclusive, right-exclusive)
+        // Use the partition's contains() method to check if the midpoint is in the partition
+        // For simplicity, sample the midpoint of each range
         int old_derived_partition = -1;
         int new_derived_partition = -1;
         
-        for (const NumericRange &range : derived_ranges) {
-            if (old_derived_partition == -1 &&
-                range.overlaps_with(old_derived_range.first, old_derived_range.second, 
-                                   true, false)) {
-                old_derived_partition = range.partition_index;
-            }
-            if (new_derived_partition == -1 &&
-                range.overlaps_with(new_derived_range.first, new_derived_range.second,
-                                   true, false)) {
-                new_derived_partition = range.partition_index;
-            }
-            if (old_derived_partition != -1 && new_derived_partition != -1) {
-                break;
-            }
-        }
+        // Sample old range midpoint
+        ap_float old_sample = (old_derived_range.first + old_derived_range.second) / 2.0;
+        old_derived_partition = derived_mapping.get_partition_index(old_sample);
+        
+        // Sample new range midpoint
+        ap_float new_sample = (new_derived_range.first + new_derived_range.second) / 2.0;
+        new_derived_partition = derived_mapping.get_partition_index(new_sample);
         
         // If the derived variable changed partition, track it
         if (old_derived_partition != -1 && new_derived_partition != -1 &&

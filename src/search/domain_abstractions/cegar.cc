@@ -1127,26 +1127,31 @@ void CEGAR::print_statistics(
             cout << "    var" << i << " (" << num_var.get_name() << "): "
                  << numeric_domain_sizes[i] << " partitions" << endl;
             
-            // Print the ranges for this variable
-            const vector<NumericRange> &ranges = numeric_domain_mapping[i]->get_ranges();
-            for (size_t j = 0; j < ranges.size(); ++j) {
-                cout << "      partition " << ranges[j].partition_index << ": ";
-                // Print lower bound with correct bracket
-                cout << (ranges[j].lower_inclusive ? "[" : "(");
-                if (ranges[j].lower == -numeric_limits<ap_float>::infinity()) {
-                    cout << "-inf";
-                } else {
-                    cout << ranges[j].lower;
+            // Print the partitions for this variable
+            const vector<Partition> &partitions = numeric_domain_mapping[i]->get_partitions();
+            for (size_t part_idx = 0; part_idx < partitions.size(); ++part_idx) {
+                cout << "      partition " << part_idx << ": ";
+                const vector<NumericRange> &ranges = partitions[part_idx].get_ranges();
+                for (size_t j = 0; j < ranges.size(); ++j) {
+                    if (j > 0) cout << " U ";
+                    // Print lower bound with correct bracket
+                    cout << (ranges[j].lower_inclusive ? "[" : "(");
+                    if (ranges[j].lower == -numeric_limits<ap_float>::infinity()) {
+                        cout << "-inf";
+                    } else {
+                        cout << ranges[j].lower;
+                    }
+                    cout << ", ";
+                    // Print upper bound
+                    if (ranges[j].upper == numeric_limits<ap_float>::infinity()) {
+                        cout << "inf";
+                    } else {
+                        cout << ranges[j].upper;
+                    }
+                    // Print upper bracket
+                    cout << (ranges[j].upper_inclusive ? "]" : ")");
                 }
-                cout << ", ";
-                // Print upper bound
-                if (ranges[j].upper == numeric_limits<ap_float>::infinity()) {
-                    cout << "inf";
-                } else {
-                    cout << ranges[j].upper;
-                }
-                // Print upper bracket
-                cout << (ranges[j].upper_inclusive ? "]" : ")") << endl;
+                cout << endl;
             }
         }
     }

@@ -304,15 +304,10 @@ size_t compute_abstract_state_hash_backup(
         ap_float value = state.nval(i);
         int partition = numeric_domain_mapping[i]->get_partition_index(value);
         
-        // Find the range for this partition
-        const vector<NumericRange> &ranges = numeric_domain_mapping[i]->get_ranges();
-        for (const NumericRange &range : ranges) {
-            if (range.partition_index == partition) {
-                computed_ranges[i] = {range.lower, range.upper};
-                affected_numeric_vars.insert(i);
-                break;
-            }
-        }
+        // Get the bounding box for this partition
+        pair<ap_float, ap_float> bbox = numeric_domain_mapping[i]->get_partition_bounding_box(partition);
+        computed_ranges[i] = bbox;
+        affected_numeric_vars.insert(i);
     }
     
     // Step 3b: Iteratively compute derived variable ranges from assignment axioms
@@ -439,26 +434,30 @@ size_t compute_abstract_state_hash_backup(
         
         // If not in computed_ranges, try domain mapping
         if (!found_left && left_var_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const vector<NumericRange> &left_ranges = numeric_domain_mapping[left_var_id]->get_ranges();
-            if (!left_ranges.empty()) {
+            const vector<Partition> &left_partitions = numeric_domain_mapping[left_var_id]->get_partitions();
+            if (!left_partitions.empty()) {
                 left_lower = numeric_limits<ap_float>::infinity();
                 left_upper = -numeric_limits<ap_float>::infinity();
-                for (const NumericRange &range : left_ranges) {
-                    left_lower = min(left_lower, range.lower);
-                    left_upper = max(left_upper, range.upper);
+                for (const Partition &partition : left_partitions) {
+                    for (const NumericRange &range : partition.get_ranges()) {
+                        left_lower = min(left_lower, range.lower);
+                        left_upper = max(left_upper, range.upper);
+                    }
                 }
                 found_left = true;
             }
         }
         
         if (!found_right && right_var_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const vector<NumericRange> &right_ranges = numeric_domain_mapping[right_var_id]->get_ranges();
-            if (!right_ranges.empty()) {
+            const vector<Partition> &right_partitions = numeric_domain_mapping[right_var_id]->get_partitions();
+            if (!right_partitions.empty()) {
                 right_lower = numeric_limits<ap_float>::infinity();
                 right_upper = -numeric_limits<ap_float>::infinity();
-                for (const NumericRange &range : right_ranges) {
-                    right_lower = min(right_lower, range.lower);
-                    right_upper = max(right_upper, range.upper);
+                for (const Partition &partition : right_partitions) {
+                    for (const NumericRange &range : partition.get_ranges()) {
+                        right_lower = min(right_lower, range.lower);
+                        right_upper = max(right_upper, range.upper);
+                    }
                 }
                 found_right = true;
             }
