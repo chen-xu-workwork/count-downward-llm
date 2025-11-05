@@ -727,12 +727,18 @@ string decode_abstract_state(int state_index, const vector<int> &domain_sizes,
         int partition = (remaining / multiplier) % num_partitions;
         const NumericRange *rng = numeric_domain_mapping[num_var_id]->get_range_for_partition(partition);
         if (rng) {
-            ss << "num" << num_var_id << "=[" << rng->lower << "," << rng->upper << ")";
+            ap_float lower = rng->lower;
+            ap_float upper = rng->upper;
+            bool lower_incl = rng->lower_inclusive;
+            bool upper_incl = rng->upper_inclusive;
+            string lower_str = lower_incl ? "[" : "(";
+            string upper_str = upper_incl ? "]" : ")";
+            ss << "num" << num_var_id << "=" << lower_str << lower << "," << upper << upper_str;
         } else {
             ss << "num" << num_var_id << "=INVALID";
         }
         
-        ss << "num" << num_var_id << "=p" << partition;
+        //ss << "num" << num_var_id << "=p" << partition;
         if (num_var_id < numeric_domain_mapping.size() - 1) {
             ss << ", ";
         }
@@ -1545,7 +1551,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
             
             // Find a valid successor with lower distance
             for (int candidate_successor : possible_successors) {
-                cout << "CANDIDATE SUCCESSOR: " << candidate_successor << endl;
                 // Check if this successor is valid (was reached during Dijkstra)
                 assert(candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()));
                 if (distances[candidate_successor] != numeric_limits<int>::max() &&
@@ -1555,15 +1560,12 @@ void DomainAbstractionFactory::compute_abstract_plan(
                     successor_state = candidate_successor;
                     break;
                 }
-                cout << "DEBUG Candidate Successor: " << candidate_successor 
-                     << " distance=" << distances[candidate_successor] << endl;
             }
 
-            // If we couldn't find any valid successor with a lower distance,
-            // abort plan extraction to avoid getting stuck in a loop.
             if (successor_state == -1) {
                 cout << "PLAN: No valid successor from state " << current_state
                      << " with lower distance; aborting plan extraction." << endl;
+                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
                 break;
             }
 
@@ -1573,9 +1575,12 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 int concrete_id = op.get_concrete_op_id();
                 string op_name = (concrete_id >= 0 && concrete_id < (int)concrete_ops.size()) ?
                                   concrete_ops[concrete_id].get_name() : ("<unknown>(" + to_string(concrete_id) + ")");
-                cout << "PLAN: Step " << plan_step << " | state=" << current_state
-                     << " -> successor=" << successor_state
-                     << " via op=\"" << op_name << "\" (concrete_id=" << concrete_id << ")" << endl;
+
+                string decoded_state = decode_abstract_state(current_state, domain_sizes,
+                                                      numeric_domain_mapping, hash_multipliers);
+                cout << "[ABSTRACT PLAN] " << decoded_state << ", " << op_name << endl;
+              
+                /*
                 // List all abstract effects for this operator
                 cout << "  Abstract effects (hash_effect -> numeric transitions):" << endl;
                 int he = op.get_hash_effect();
@@ -1594,6 +1599,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                     }
                 }
                 cout << endl;
+                */
             }
 
             // Compute equivalent ops
@@ -1634,7 +1640,9 @@ void DomainAbstractionFactory::compute_abstract_plan(
             
            
             if (cheapest_operators.empty()) {
-                cout << "DEBUG PLAN: WARNING - No operators found! This will cause an empty plan." << endl;
+                cout << "PLAN: No equivalent operators found from state " << current_state
+                     << " to " << successor_state << "; aborting plan extraction." << endl;
+                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
             }
             
             if (compute_wildcard_plan) {
@@ -1646,22 +1654,20 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 wildcard_plan.back().push_back(random_op_id);
             }
 
-            // Print decoded next state
-            if (successor_state >= 0 && successor_state < num_states) {
-                string decoded = decode_abstract_state(successor_state, domain_sizes,
+            string decoded = decode_abstract_state(successor_state, domain_sizes,
                                                       numeric_domain_mapping, hash_multipliers);
-                cout << "  State after step " << plan_step << ":\n" << decoded << endl;
-            }
+
+            //cout << "[ABSTRACT PLAN] " << decoded << endl;                              
+
+      
 
             current_state = successor_state;
             plan_step++;
 
-            // Safety guard: avoid infinite loops in case of unforeseen cycles
-            if (plan_step > 10000) {
-                cout << "PLAN: Aborting plan extraction after 10000 steps (safety guard)." << endl;
-                break;
-            }
         }
+        string decoded = decode_abstract_state(current_state, domain_sizes,
+                                              numeric_domain_mapping, hash_multipliers);
+        cout << "[ABSTRACT PLAN] " << decoded << endl;  
         
         cout << "PLAN: Wildcard plan construction complete with " 
              << wildcard_plan.size() << " steps" << endl;

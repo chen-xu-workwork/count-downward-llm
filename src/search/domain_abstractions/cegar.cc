@@ -602,6 +602,7 @@ vector<Fact> CEGAR::get_flaws(
         }
         // Numeric partitions
         for (size_t i = 0; i < ndm.size(); ++i) {
+            if (ndm[i]->get_num_partitions() == 1) continue; // Skip trivial numeric variables
             int part = ndm[i]->get_partition_index(num_state[i]);
             if (!first) ss << ", ";
             first = false;
@@ -618,10 +619,10 @@ vector<Fact> CEGAR::get_flaws(
     int step_num = 0;
     for (vector<int> &equivalent_ops : wildcard_plan) {
         assert(flaws.empty());
-        if (VERBOSE_DEBUG) cout << "DEBUG: Step " << step_num << " - " << equivalent_ops.size() << " equivalent operators" << endl;
         
         for (int op_id : equivalent_ops) {
             OperatorProxy op = task_proxy.get_operators()[op_id];
+            string op_name = op.get_name();
             
             // Check propositional preconditions
             vector<Fact> operator_flaws =
@@ -633,94 +634,7 @@ vector<Fact> CEGAR::get_flaws(
                 flaws.clear();
                 detected_numeric_flaws.clear();
                 
-                // DEBUG: Print operator being executed
-                if (VERBOSE_DEBUG) cout << "  Executing operator: " << op.get_name() << endl;
-
-                // Concise plan trace: print chosen operator and numeric partition transitions
-                {
-                    cout << "PLAN: Step " << step_num << " | op=\"" << op.get_name() << "\" (chosen among "
-                         << equivalent_ops.size() << ")" << endl;
-                    // Compute numeric partition transitions for affected variables
-                    const NumericDomainMappingType &ndm = abstraction.get_numeric_domain_mapping();
-                    vector<pair<int, pair<int, int>>> part_changes; // (var_id, (from,to))
-                    for (auto ass_eff_proxy : op.get_ass_effects()) {
-                        NumAssProxy effect = ass_eff_proxy.get_assignment();
-                        int var_id = effect.get_affected_variable().get_id();
-                        if (var_id >= 0 && var_id < static_cast<int>(ndm.size())) {
-                            int from_p = ndm[var_id]->get_partition_index(numeric_state[var_id]);
-                            // Simulate numeric change to compute partition after (without mutating yet)
-                            ap_float old_val = numeric_state[var_id];
-                            NumericVariableProxy assigned_var = effect.get_assigned_variable();
-                            ap_float operand = numeric_state[assigned_var.get_id()];
-                            ap_float new_val = old_val;
-                            switch (effect.get_assigment_operator_type()) {
-                                case assign: new_val = operand; break;
-                                case increase: new_val = old_val + operand; break;
-                                case decrease: new_val = old_val - operand; break;
-                                case scale_up: new_val = old_val * operand; break;
-                                case scale_down: new_val = (operand != 0) ? old_val / operand : old_val; break;
-                            }
-                            int to_p = ndm[var_id]->get_partition_index(new_val);
-                            part_changes.push_back({var_id, {from_p, to_p}});
-                        }
-                    }
-                    if (!part_changes.empty()) {
-                        cout << "  Numeric partitions:";
-                        bool first = true;
-                        for (const auto &pc : part_changes) {
-                            if (!first) cout << ",";
-                            first = false;
-                            cout << " num" << pc.first << ": " << pc.second.first << "->" << pc.second.second;
-                        }
-                        cout << endl;
-                    } else {
-                        cout << "  Numeric partitions: (no numeric changes)" << endl;
-                    }
-                    // Print state before applying op (compact)
-                    cout << "  State before: " << decode_abstract_state_compact(current_state, numeric_state) << endl;
-                }
-                
-                // DEBUG: Print propositional effects
-                if (VERBOSE_DEBUG) {
-                    cout << "    Propositional effects:" << endl;
-                    for (EffectProxy effect : op.get_effects()) {
-                        FactProxy effect_fact = effect.get_fact();
-                        int var_id = effect_fact.get_variable().get_id();
-                        int old_value = current_state[var_id];
-                        int new_value = effect_fact.get_value();
-                        cout << "      var" << var_id << ": " << old_value << " -> " << new_value << endl;
-                    }
-                }
-                
-                // DEBUG: Print numeric effects
-                if (VERBOSE_DEBUG && op.get_ass_effects().size() > 0) {
-                    cout << "    Numeric effects:" << endl;
-                    for (auto ass_eff_proxy : op.get_ass_effects()) {
-                        NumAssProxy effect = ass_eff_proxy.get_assignment();
-                        int affected_var_id = effect.get_affected_variable().get_id();
-                        ap_float old_value = numeric_state[affected_var_id];
-                        
-                        NumericVariableProxy assigned_var = effect.get_assigned_variable();
-                        ap_float operand = numeric_state[assigned_var.get_id()];
-                        
-                        f_operator op_type = effect.get_assigment_operator_type();
-                        string op_str;
-                        ap_float new_value = old_value;
-                        switch (op_type) {
-                            case assign: op_str = "="; new_value = operand; break;
-                            case increase: op_str = "+="; new_value = old_value + operand; break;
-                            case decrease: op_str = "-="; new_value = old_value - operand; break;
-                            case scale_up: op_str = "*="; new_value = old_value * operand; break;
-                            case scale_down: 
-                                op_str = "/="; 
-                                new_value = (operand != 0) ? old_value / operand : old_value; 
-                                break;
-                        }
-                        cout << "      num_var" << affected_var_id << " " << op_str << " num_var" 
-                             << assigned_var.get_id() << " (value=" << operand << "): " 
-                             << old_value << " -> " << new_value << endl;
-                    }
-                }
+ 
                 
                 apply_op_to_state(current_state, op);
                 apply_numeric_effects(numeric_state, op);
@@ -2077,7 +1991,7 @@ void add_domain_abstraction_cegar_options_to_parser(
     parser.add_option<bool>(
         "use_wildcard_plans",
         "Consider parallel transitions in abstraction.",
-        "true");
+        "false");
     vector<string> init_split_method;
     init_split_method.emplace_back("goal_value");
     init_split_method.emplace_back("goal_value_or_random_if_non_goal");
