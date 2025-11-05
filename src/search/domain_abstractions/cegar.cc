@@ -769,57 +769,19 @@ bool CEGAR::fix_single_random_flaw(
     int abstraction_size) {
     // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
     int repetitions = ceil(1 + std::log(flaws.size()));
-    if (VERBOSE_DEBUG) {
-        cout << "DEBUG fix_single_random_flaw: Processing " << flaws.size() << " flaws, "
-             << repetitions << " repetitions" << endl;
-    }
     for (int i = 0; i < repetitions; ++i) {
         Fact fact(*rng->choose(flaws));
-        if (VERBOSE_DEBUG) {
-            cout << "  Attempt " << (i+1) << ": chosen flaw fdr_" << fact.var << "=" << fact.value << endl;
-            cout << "    Current abstract_domain_size[" << fact.var << "] = "
-                 << abstract_domain_sizes[fact.var] << endl;
-            cout << "    Real domain size = " << real_domain_sizes[fact.var] << endl;
-        }
         
         if (can_refine_variable(abstraction_size, fact.var)) {
-            if (VERBOSE_DEBUG) cout << "    Can refine - adding to abstraction" << endl;
             add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
             
-            // Show domain mapping before modification
-            if (VERBOSE_DEBUG) {
-                cout << "    Domain mapping before: [";
-                for (size_t j = 0; j < domain_mapping[fact.var].size(); ++j) {
-                    if (j > 0) cout << ", ";
-                    cout << domain_mapping[fact.var][j];
-                }
-                cout << "]" << endl;
-            }
-            
-            if (VERBOSE_DEBUG) {
-                cout << "    Setting domain_mapping[" << fact.var << "][" << fact.value
-                     << "] = " << abstract_domain_sizes[fact.var] << endl;
-            }
             domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
-            
-            // Show domain mapping after modification
-            if (VERBOSE_DEBUG) {
-                cout << "    Domain mapping after: [";
-                for (size_t j = 0; j < domain_mapping[fact.var].size(); ++j) {
-                    if (j > 0) cout << ", ";
-                    cout << domain_mapping[fact.var][j];
-                }
-                cout << "]" << endl;
-            }
             
             abstract_domain_sizes[fact.var] += 1;
             // Record the chosen propositional flaw variable
             last_selected_prop_flaw_vars.clear();
             last_selected_prop_flaw_vars.insert(fact.var);
-            if (VERBOSE_DEBUG) {
-                cout << "    New abstract_domain_size[" << fact.var << "] = "
-                     << abstract_domain_sizes[fact.var] << endl;
-            }
+
             return true;
         } else {
             cout << "Variable " << fact.var
@@ -1666,16 +1628,12 @@ bool CEGAR::can_refine_variable(
     }
     
     int domain_size = abstract_domain_sizes[var_id];
-    if (VERBOSE_DEBUG) {
-        cout << "Domain size of var" << var_id << " is " << domain_size << endl;
-        cout << "Old abstraction size: " << old_abstraction_size << endl;
-    }
+
     int abs_size_without_var = old_abstraction_size / domain_size;
     if (utils::is_product_within_limit(abs_size_without_var, domain_size + 1,
                                        max_abstraction_size)) {
         return true;
     }
-    if (VERBOSE_DEBUG) cout << "Cannot refine var" << var_id << " (size limit); blacklisting" << endl;
     blacklisted_variables.insert(var_id);
     return false;
 }
