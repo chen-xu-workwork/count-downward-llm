@@ -393,17 +393,8 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
         int new_val = pre_pairs[i].value;
         assert(new_val != -1);
         int effect = (new_val - old_val) * hash_multipliers[var];
-        if (effect != 0) {
-            assert(var < hash_multipliers.size());
-            cout << "DEBUG AbstractOperator: size hash mult: " << hash_multipliers[var] << endl;
-            cout << "DEBUG AbstractOperator: var" << var 
-                 << " eff=" << old_val << " pre=" << new_val 
-                 << " delta=" << effect << endl;
-
-        }
         hash_effect += effect;
     }
-    cout << "hash_effect: " << hash_effect << endl;
 }
 
 DomainAbstractionFactory::DomainAbstractionFactory (
@@ -428,21 +419,6 @@ DomainAbstractionFactory::DomainAbstractionFactory (
         factory_construction_count++;
         if (factory_construction_count <= 2) {
             cout << "\n=== FACTORY CONSTRUCTION #" << factory_construction_count << " ===\n";
-            if (domain_mapping.size() > 24) {
-                cout << "var24 in domain_mapping:\n";
-                cout << "  domain_mapping[24].size() = " << domain_mapping[24].size() << "\n";
-                cout << "  domain_mapping[24].empty() = " << domain_mapping[24].empty() << "\n";
-                if (!domain_mapping[24].empty()) {
-                    cout << "  domain_mapping[24]: [";
-                    for (size_t i = 0; i < domain_mapping[24].size(); ++i) {
-                        if (i > 0) cout << ", ";
-                        cout << i << "->" << domain_mapping[24][i];
-                    }
-                    cout << "]\n";
-                }
-                cout << "  domain_sizes[24] = " << domain_sizes[24] << "\n";
-            }
-            cout << "================================\n\n";
         }
         
         verify_no_non_numeric_axioms(task_proxy);
@@ -816,8 +792,6 @@ void DomainAbstractionFactory::compute_distances(
                 feasible = false;
             }
             if (feasible) {
-                cout << "DEBUG: Found feasible goal state: " << decode_abstract_state(state_index, domain_sizes,
-                                          numeric_domain_mapping, hash_multipliers);
                 pq.push(0, state_index);
                 distances.push_back(0);
             } else {
@@ -860,25 +834,6 @@ void DomainAbstractionFactory::compute_distances(
             enumerate_states_with_evaluated_comparisons(
                 state_index,
                 task_proxy);
-
-        if (find(comparison_alternative_states.begin(),
-                    comparison_alternative_states.end(),
-                    state_index) == comparison_alternative_states.end()) {
-            cout << "DEBUG ERROR: State index " << state_index
-                    << " not found in its own enumerated comparison alternatives!" << endl;
-            cout << "  Enumerated alternatives: ";
-            for (int s : comparison_alternative_states) {
-                cout << s << " ";
-            }
-            cout << endl;
-            cout << "  Decoded state: " 
-                 << decode_abstract_state(state_index, domain_sizes, 
-                                          numeric_domain_mapping, hash_multipliers)
-                 << endl;
-            enumerate_states_with_evaluated_comparisons(
-                state_index,
-                task_proxy);
-        }
 
         assert(find(comparison_alternative_states.begin(),
                     comparison_alternative_states.end(),
@@ -923,21 +878,6 @@ void DomainAbstractionFactory::compute_distances(
             vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                 predecessor_base,
                 task_proxy);
-
-            if (state_index == 1 and is_pour) {
-                cout << "DEBUG: Dijkstra iteration " << dijkstra_iterations 
-                     << ", state_index " << state_index 
-                     << ", op_id " << op_id 
-                     << " (pour agent1 plant1)" << endl;
-                cout << "  base_hash_effect: " << base_hash_effect << endl;
-                cout << "  predecessor_base: " << predecessor_base << endl;
-                cout << "  possible_predecessors: ";
-                for (int pred : possible_predecessors) {
-                    cout << pred << " ";
-                }
-                cout << endl;
-
-            }
             
 
             // DEBUG CHECK 2: Validate a few enumerated predecessors
@@ -966,11 +906,7 @@ void DomainAbstractionFactory::compute_distances(
                     pq.push(alternative_cost, predecessor);
                     if (compute_plan) {
                         generating_op_ids[predecessor] = op_id;
-                        if (predecessor == 2) {
-                            cout << "DEBUG: Setting generating op for state 2 to op_id " << op_id << endl;
-                            cout << "DEBUG:   which has hash effect: " << op.get_hash_effect() << endl;
-                            cout << "DEBUG:    and successor state is: " << state_index << endl;
-                        }
+
                     }
                 }
             }
@@ -984,10 +920,6 @@ void DomainAbstractionFactory::compute_distances(
     State initial_state = task_proxy.get_initial_state();
     int init_hash = compute_abstract_state_hash(initial_state, task_proxy, domain_mapping, 
                                                   numeric_domain_mapping, hash_multipliers);
-    if (VERBOSE_DEBUG) {
-        cout << "DEBUG DIJKSTRA: Initial state hash = " << init_hash 
-             << ", distance = " << distances[init_hash] << endl;
-    }
     
     // Track which iteration this is for debug output
     static int iteration_count = 0;
@@ -1102,15 +1034,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
       from the given state.
     */
     State initial_state = task_proxy.get_initial_state();
-
-    // DEBUG: Check if initial state has evaluated axioms
-    // Initial state values (suppress full dump unless verbose)
-    if (VERBOSE_DEBUG) {
-        cout << "DEBUG PLAN: Initial state values:" << endl;
-        for (int var_id = 0; var_id < initial_state.size(); ++var_id) {
-            cout << "  var" << var_id << " = " << initial_state[var_id].get_value() << endl;
-        }
-    }
 
     // Compute the abstract state hash using the utility function that includes
     // full cascade evaluation of derived numeric variables and comparison axioms
