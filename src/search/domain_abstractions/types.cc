@@ -300,24 +300,37 @@ std::vector<int> NumericDomainMapping::compute_reachable_partitions(
     ap_float result_lower, result_upper;
     ap_float source_lower = source_range->lower;
     ap_float source_upper = source_range->upper;
+    bool source_lower_inclusive = source_range->lower_inclusive;
+    bool source_upper_inclusive = source_range->upper_inclusive;
     
+    // Track inclusivity for the computed result interval. These should be derived
+    // from the source interval and the operator semantics.
+    bool result_lower_inclusive = false;
+    bool result_upper_inclusive = false;
+
     switch (effect_op) {
         case assign:
             // x := c  -->  result is [c, c]
             result_lower = operand_value;
             result_upper = operand_value;
+            result_lower_inclusive = true;
+            result_upper_inclusive = true;
             break;
             
         case increase:
-            // x += c  -->  [lower + c, upper + c)
+            // x += c  -->  [lower + c, upper + c] (preserve inclusivity)
             result_lower = source_lower + operand_value;
             result_upper = source_upper + operand_value;
+            result_lower_inclusive = source_lower_inclusive;
+            result_upper_inclusive = source_upper_inclusive;
             break;
             
         case decrease:
-            // x -= c  -->  [lower - c, upper - c)
+            // x -= c  -->  [lower - c, upper - c] (preserve inclusivity)
             result_lower = source_lower - operand_value;
             result_upper = source_upper - operand_value;
+            result_lower_inclusive = source_lower_inclusive;
+            result_upper_inclusive = source_upper_inclusive;
             break;
             
         case scale_up:
@@ -325,14 +338,22 @@ std::vector<int> NumericDomainMapping::compute_reachable_partitions(
             if (operand_value > 0) {
                 result_lower = source_lower * operand_value;
                 result_upper = source_upper * operand_value;
+                // Positive scaling preserves order and inclusivity
+                result_lower_inclusive = source_lower_inclusive;
+                result_upper_inclusive = source_upper_inclusive;
             } else if (operand_value < 0) {
                 // Negative multiplier flips the order
                 result_lower = source_upper * operand_value;
                 result_upper = source_lower * operand_value;
+                // When order flips, the boundary inclusivity swaps as well
+                result_lower_inclusive = source_upper_inclusive;
+                result_upper_inclusive = source_lower_inclusive;
             } else {
                 // Multiply by zero
                 result_lower = 0;
                 result_upper = 0;
+                result_lower_inclusive = true;
+                result_upper_inclusive = true;
             }
             break;
             
@@ -341,10 +362,16 @@ std::vector<int> NumericDomainMapping::compute_reachable_partitions(
             if (operand_value > 0) {
                 result_lower = source_lower / operand_value;
                 result_upper = source_upper / operand_value;
+                // Positive division preserves order and inclusivity
+                result_lower_inclusive = source_lower_inclusive;
+                result_upper_inclusive = source_upper_inclusive;
             } else if (operand_value < 0) {
                 // Negative divisor flips the order
                 result_lower = source_upper / operand_value;
                 result_upper = source_lower / operand_value;
+                // When order flips, the boundary inclusivity swaps as well
+                result_lower_inclusive = source_upper_inclusive;
+                result_upper_inclusive = source_lower_inclusive;
             } else {
                 // Division by zero - undefined, return all partitions
                 for (const auto &range : ranges) {
@@ -361,12 +388,6 @@ std::vector<int> NumericDomainMapping::compute_reachable_partitions(
             }
             return reachable_partitions;
     }
-    
-    // Determine boundary inclusivity for result range
-    // For assign (single point), use [c, c] (both inclusive)
-    // For other operations, use [lower, upper) (left-inclusive, right-exclusive)
-    bool result_lower_inclusive = true;
-    bool result_upper_inclusive = (effect_op == assign && result_lower == result_upper);
     
     // Find all partitions that overlap with the result range
     for (const auto &range : ranges) {
