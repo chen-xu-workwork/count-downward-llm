@@ -529,11 +529,6 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
     const vector<Fact> &eff_pairs,
     const vector<NumAssProxy> &ass_effects) {
     
-    static int call_count = 0;
-    int local_call = call_count++;
-    bool debug_this_call = (local_call < 3) || (local_call >= 146 && local_call < 149);
-    
-    
     vector<int> hash_effects;
     
     // Compute base hash effect from propositional effects
