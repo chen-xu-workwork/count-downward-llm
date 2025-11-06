@@ -42,6 +42,9 @@ private:
     // Track how many times each numeric variable has been refined
     // to prevent infinite loops
     mutable std::unordered_map<int, int> numeric_var_refinement_count;
+
+    std::vector<int> regular_numeric_var_ids;
+    std::vector<std::vector<ap_float>> already_split;
     
     const int max_abstraction_size;
     const double max_time;
@@ -157,6 +160,7 @@ public:
           InitSplitMethod init_split_method,
           NumericSplitStrategy numeric_split_strategy,
           const shared_ptr<utils::RandomNumberGenerator> &rng,
+          const TaskProxy &task_proxy,
           unordered_set<int> &&init_split_var_ids,
           unordered_set<int> &&blacklisted_variables);
 
@@ -171,6 +175,7 @@ CEGAR::CEGAR(
         InitSplitMethod init_split_method,
         NumericSplitStrategy numeric_split_strategy,
         const shared_ptr<utils::RandomNumberGenerator> &rng,
+        const TaskProxy &task_proxy,
         unordered_set<int> &&init_split_var_ids,
         unordered_set<int> &&blacklisted_variables)
     : max_abstraction_size(max_abstraction_size),
@@ -184,6 +189,15 @@ CEGAR::CEGAR(
       blacklisted_variables(move(blacklisted_variables)) {
     /* TODO: Should we check somewhere that *init_split_var_ids* does not
         contain elements that are blacklisted? */
+
+    for (size_t i = 0; i < task_proxy.get_numeric_variables().size(); ++i) {
+        NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
+        if (num_var.get_var_type() == numType::regular) {
+            regular_numeric_var_ids.push_back(i);
+            vector<ap_float> empty_vector;
+            already_split.push_back(empty_vector);
+        }
+    }
 }
 
 DomainMapping CEGAR::compute_initial_domain_mapping(
@@ -610,15 +624,36 @@ vector<Fact> CEGAR::get_flaws(
         return ss.str();
     };
 
+    vector<set<ap_float>> regular_numeric_var_values;  
+
+    for (size_t i = 0; i < regular_numeric_var_ids.size(); ++i) {
+        int var_id = regular_numeric_var_ids[i];
+        NumericVariableProxy num_var = task_proxy.get_numeric_variables()[var_id];
+        if (num_var.get_var_type() == numType::regular) {
+            set<ap_float> values;
+            regular_numeric_var_values.push_back(values);
+        }
+    }
+
     cout << "PLAN: Validating abstract plan (" << wildcard_plan.size() << " steps)" << endl;
     cout << "PLAN: State 0 (start): " << decode_abstract_state_compact(current_state, numeric_state) << endl;
     int step_num = 0;
     for (vector<int> &equivalent_ops : wildcard_plan) {
         assert(flaws.empty());
+
+        for (size_t i = 0; i < regular_numeric_var_ids.size(); ++i) {
+            int var_id = regular_numeric_var_ids[i];
+            if (find(already_split[var_id].begin(), already_split[var_id].end(),
+                        numeric_state[var_id]) == already_split[var_id].end()) {
+                regular_numeric_var_values[i].insert(numeric_state[var_id]);
+            }
+        }
         
         for (int op_id : equivalent_ops) {
             OperatorProxy op = task_proxy.get_operators()[op_id];
             string op_name = op.get_name();
+
+            
             
             // Check propositional preconditions
             vector<Fact> operator_flaws =
@@ -689,6 +724,16 @@ vector<Fact> CEGAR::get_flaws(
                      << " (concrete value: " << num_flaw.concrete_value << ") ";
             }
             cout << endl;
+
+            // DEBUG regular_numeric_var_values
+            for (size_t i = 0; i < regular_numeric_var_values.size(); ++i) {
+                cout << "Numeric variable num_" << regular_numeric_var_ids[i]
+                    << " observed values during plan execution: ";
+                for (const ap_float &val : regular_numeric_var_values[i]) {
+                    cout << val << " ";
+                }
+                cout << endl;
+            }
            
             return flaws;
         }
@@ -698,6 +743,8 @@ vector<Fact> CEGAR::get_flaws(
 
     string decoded_state = decode_abstract_state_compact(current_state, numeric_state);
     cout << "[PLAN] " << decoded_state << endl;
+
+ 
 
     // Check goal flaws
     assert(flaws.empty());
@@ -732,18 +779,13 @@ vector<Fact> CEGAR::get_flaws(
                 added_any_numeric_flaw = true;
             }
             
-            // ALWAYS refine the comparison axiom variable itself (propositional)
-            // This is important even if we can't refine the numeric variables
-          if (VERBOSE_DEBUG) {
-             cout << "    -> Adding comparison axiom fdr_" << flaw.var 
-                 << " to propositional flaws for refinement" << endl;
-          }
             filtered_flaws.push_back(flaw);
         } else {
             // Regular propositional flaw - keep it
             filtered_flaws.push_back(flaw);
         }
     }
+
     return filtered_flaws;
 }
 
@@ -1844,8 +1886,10 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         init_split_method,
         numeric_split_strategy,
         rng,
+        task_proxy,
         move(init_split_var_ids),
-        move(blacklisted_variables));
+        move(blacklisted_variables));        
+
     return cegar.build_abstraction(task_proxy);
 }
 
