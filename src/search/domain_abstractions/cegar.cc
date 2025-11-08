@@ -149,6 +149,15 @@ private:
     // Numeric variable refinement
     ap_float extract_threshold_from_comparison(int prop_var_id, 
                                                const TaskProxy &task_proxy) const;
+    
+    // Backward solving: Given an equal comparison flaw on a derived variable,
+    // solve for what base variable value would make the comparison true
+    // Returns: (success, (base_var_id, solution_value))
+    std::pair<bool, std::pair<int, ap_float>> solve_backward_for_equal_flaw(
+        int derived_var_id,
+        ap_float target_value,
+        const TaskProxy &task_proxy) const;
+    
     bool fix_numeric_flaws(const std::vector<NumericFlaw> &numeric_flaws,
                           int abstraction_size,
                           const TaskProxy &task_proxy);
@@ -643,8 +652,10 @@ vector<Fact> CEGAR::get_flaws(
 
         for (size_t i = 0; i < regular_numeric_var_ids.size(); ++i) {
             int var_id = regular_numeric_var_ids[i];
-            if (find(already_split[var_id].begin(), already_split[var_id].end(),
-                        numeric_state[var_id]) == already_split[var_id].end()) {
+            // Use index i (not var_id) to access already_split since it's indexed by position in regular_numeric_var_ids
+            if (i < already_split.size() && 
+                find(already_split[i].begin(), already_split[i].end(),
+                        numeric_state[var_id]) == already_split[i].end()) {
                 regular_numeric_var_values[i].insert(numeric_state[var_id]);
             }
         }
@@ -685,6 +696,25 @@ vector<Fact> CEGAR::get_flaws(
                         // This is a comparison axiom variable - trace to regular numeric variables it depends on
                         const unordered_set<int> &dep_vars = it->second;
                         NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+                        
+                        // DEBUG: Print comparison axiom details
+                        auto comp_it = comparison_axiom_info.find(flaw.var);
+                        if (comp_it != comparison_axiom_info.end()) {
+                            const ComparisonInfo &comp_info = comp_it->second;
+                            ap_float left_val = numeric_state[comp_info.left_var_id];
+                            ap_float right_val = numeric_state[comp_info.right_var_id];
+                            cout << "  [DEBUG EQUAL FLAW] Comparison axiom flaw: var=" << flaw.var 
+                                 << " value=" << flaw.value 
+                                 << " op=" << comp_info.comp_op
+                                 << " left(num_" << comp_info.left_var_id << ")=" << left_val
+                                 << " right(num_" << comp_info.right_var_id << ")=" << right_val;
+                            if (comp_info.comp_op == 2) { // eq = 2
+                                cout << " [EQUAL COMPARISON: " << left_val << " == " << right_val 
+                                     << " ? " << (left_val == right_val ? "TRUE" : "FALSE") << "]";
+                            }
+                            cout << endl;
+                        }
+                        
                         for (int numeric_var_id : dep_vars) {
                             if (numeric_var_id < 0 || numeric_var_id >= (int)num_vars.size())
                                 continue;
@@ -760,6 +790,24 @@ vector<Fact> CEGAR::get_flaws(
         // Check if this goal flaw is on a comparison axiom variable
         auto it = comparison_axiom_dependencies.find(flaw.var);
         if (it != comparison_axiom_dependencies.end()) {
+            
+            // DEBUG: Print comparison axiom details for goal flaws
+            auto comp_it = comparison_axiom_info.find(flaw.var);
+            if (comp_it != comparison_axiom_info.end()) {
+                const ComparisonInfo &comp_info = comp_it->second;
+                ap_float left_val = numeric_state[comp_info.left_var_id];
+                ap_float right_val = numeric_state[comp_info.right_var_id];
+                cout << "  [DEBUG EQUAL FLAW GOAL] Comparison axiom flaw: var=" << flaw.var 
+                     << " value=" << flaw.value 
+                     << " op=" << comp_info.comp_op
+                     << " left(num_" << comp_info.left_var_id << ")=" << left_val
+                     << " right(num_" << comp_info.right_var_id << ")=" << right_val;
+                if (comp_info.comp_op == 2) { // eq = 2
+                    cout << " [EQUAL COMPARISON: " << left_val << " == " << right_val 
+                         << " ? " << (left_val == right_val ? "TRUE" : "FALSE") << "]";
+                }
+                cout << endl;
+            }
             
             // Numeric goal flaw - trace to regular numeric variables that this comparison depends on
             const unordered_set<int> &dep_vars = it->second;
@@ -1787,6 +1835,157 @@ ap_float CEGAR::extract_threshold_from_comparison(
     return threshold;
 }
 
+// Backward solving for equal comparisons on derived variables
+// Given: derived_var = f(base_var), and we want derived_var == target_value
+// Solve: f(base_var) = target_value for base_var
+// Returns: (success, (base_var_id, solution_value))
+std::pair<bool, std::pair<int, ap_float>> CEGAR::solve_backward_for_equal_flaw(
+    int derived_var_id,
+    ap_float target_value,
+    const TaskProxy &task_proxy) const {
+    
+    // Find the assignment axiom that computes derived_var
+    AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+    
+    for (AssignmentAxiomProxy axiom : assignment_axioms) {
+        int axiom_effect_var = axiom.get_assignment_variable().get_id();
+        
+        if (axiom_effect_var != derived_var_id) {
+            continue; // Not the axiom we're looking for
+        }
+        
+        // Found the axiom: derived_var = left_var op right_var
+        int left_var_id = axiom.get_left_variable().get_id();
+        int right_var_id = axiom.get_right_variable().get_id();
+        cal_operator op = axiom.get_arithmetic_operator_type();
+        
+        // We need to determine which side is a regular/refinable variable and which is constant
+        bool left_is_const = false;
+        bool right_is_const = false;
+        ap_float left_const_value = 0.0;
+        ap_float right_const_value = 0.0;
+        
+        if (left_var_id >= 0 && left_var_id < (int)num_vars.size()) {
+            NumericVariableProxy left_var = num_vars[left_var_id];
+            if (left_var.get_var_type() == numType::constant) {
+                left_is_const = true;
+                left_const_value = left_var.get_initial_state_value();
+            }
+        }
+        
+        if (right_var_id >= 0 && right_var_id < (int)num_vars.size()) {
+            NumericVariableProxy right_var = num_vars[right_var_id];
+            if (right_var.get_var_type() == numType::constant) {
+                right_is_const = true;
+                right_const_value = right_var.get_initial_state_value();
+            }
+        }
+        
+        // We can only solve if one side is constant and the other is a variable
+        if (left_is_const && right_is_const) {
+            cout << "  [BACKWARD SOLVE] Both operands are constants - nothing to solve" << endl;
+            return {false, {-1, 0.0}};
+        }
+        
+        if (!left_is_const && !right_is_const) {
+            cout << "  [BACKWARD SOLVE] Both operands are variables - need more complex solving" << endl;
+            return {false, {-1, 0.0}};
+        }
+        
+        // Now solve for the non-constant variable
+        int base_var_id = -1;
+        ap_float solution = 0.0;
+        
+        if (left_is_const) {
+            // constant op base_var = target
+            base_var_id = right_var_id;
+            ap_float constant_value = left_const_value;
+            
+            switch (op) {
+                case cal_operator::sum:
+                    // constant + base = target → base = target - constant
+                    solution = target_value - constant_value;
+                    break;
+                case cal_operator::diff:
+                    // constant - base = target → base = constant - target
+                    solution = constant_value - target_value;
+                    break;
+                case cal_operator::mult:
+                    // constant * base = target → base = target / constant
+                    if (std::abs(constant_value) < 1e-6) {
+                        cout << "  [BACKWARD SOLVE] Cannot divide by zero" << endl;
+                        return {false, {-1, 0.0}};
+                    }
+                    solution = target_value / constant_value;
+                    break;
+                case cal_operator::divi:
+                    // constant / base = target → base = constant / target
+                    if (std::abs(target_value) < 1e-6) {
+                        cout << "  [BACKWARD SOLVE] Cannot divide by zero (target)" << endl;
+                        return {false, {-1, 0.0}};
+                    }
+                    solution = constant_value / target_value;
+                    break;
+                default:
+                    cout << "  [BACKWARD SOLVE] Unsupported operator: " << static_cast<int>(op) << endl;
+                    return {false, {-1, 0.0}};
+            }
+        } else {
+            // base_var op constant = target
+            base_var_id = left_var_id;
+            ap_float constant_value = right_const_value;
+            
+            switch (op) {
+                case cal_operator::sum:
+                    // base + constant = target → base = target - constant
+                    solution = target_value - constant_value;
+                    break;
+                case cal_operator::diff:
+                    // base - constant = target → base = target + constant
+                    solution = target_value + constant_value;
+                    break;
+                case cal_operator::mult:
+                    // base * constant = target → base = target / constant
+                    if (std::abs(constant_value) < 1e-6) {
+                        cout << "  [BACKWARD SOLVE] Cannot divide by zero" << endl;
+                        return {false, {-1, 0.0}};
+                    }
+                    solution = target_value / constant_value;
+                    break;
+                case cal_operator::divi:
+                    // base / constant = target → base = target * constant
+                    solution = target_value * constant_value;
+                    break;
+                default:
+                    cout << "  [BACKWARD SOLVE] Unsupported operator: " << static_cast<int>(op) << endl;
+                    return {false, {-1, 0.0}};
+            }
+        }
+        
+        cout << "  [BACKWARD SOLVE] SUCCESS: num_" << base_var_id 
+             << " = " << solution << " would make num_" << derived_var_id 
+             << " = " << target_value << endl;
+        cout << "    Axiom: num_" << derived_var_id << " = num_" 
+             << left_var_id << " ";
+        switch (op) {
+            case cal_operator::sum: cout << "+"; break;
+            case cal_operator::diff: cout << "-"; break;
+            case cal_operator::mult: cout << "*"; break;
+            case cal_operator::divi: cout << "/"; break;
+            default: cout << "?"; break;
+        }
+        cout << " num_" << right_var_id << endl;
+        
+        return {true, {base_var_id, solution}};
+    }
+    
+    // No direct assignment axiom found
+    cout << "  [BACKWARD SOLVE] No assignment axiom found for derived var num_" 
+         << derived_var_id << endl;
+    return {false, {-1, 0.0}};
+}
+
 bool CEGAR::fix_numeric_flaws(
     const vector<NumericFlaw> &numeric_flaws, int abstraction_size, const TaskProxy &task_proxy) {
     
@@ -1817,43 +2016,130 @@ bool CEGAR::fix_numeric_flaws(
              << " (variable refinement count: " << attempt_count << ")"
              << endl;
         
+        // Try to use backward solving for equal comparison flaws on derived variables
+        ap_float split_value = concrete_value;  // Default: split at concrete value
+        int split_var_id = numeric_var_id;      // Default: split the original variable
+        bool used_backward_solve = false;
+        
+        // Check if this flaw came from an equality comparison
+        // Look up the comparison axiom info that we built during abstraction construction
+        auto comp_it = comparison_axiom_info.find(prop_var_id);
+        if (comp_it != comparison_axiom_info.end()) {
+            const ComparisonInfo &comp_info = comp_it->second;
+            
+            if (comp_info.comp_op == 2) {  // eq = 2
+                cout << "[EQUAL FLAW] Detected equal comparison flaw on num_" 
+                     << numeric_var_id << " at value " << concrete_value << endl;
+                cout << "  Comparison: num_" << comp_info.left_var_id 
+                     << " == num_" << comp_info.right_var_id << endl;
+                
+                // Check if LEFT or RIGHT of the comparison is a derived variable
+                NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+                int derived_var_id = -1;
+                int target_var_id = -1;  // The other side of the comparison
+                
+                // Check left side
+                if (comp_info.left_var_id >= 0 && comp_info.left_var_id < (int)num_vars.size()) {
+                    NumericVariableProxy left_var = num_vars[comp_info.left_var_id];
+                    if (left_var.get_var_type() == numType::derived) {
+                        derived_var_id = comp_info.left_var_id;
+                        target_var_id = comp_info.right_var_id;
+                        cout << "  Left variable num_" << derived_var_id << " is DERIVED" << endl;
+                    }
+                }
+                
+                // Check right side (if left wasn't derived)
+                if (derived_var_id == -1 && comp_info.right_var_id >= 0 && 
+                    comp_info.right_var_id < (int)num_vars.size()) {
+                    NumericVariableProxy right_var = num_vars[comp_info.right_var_id];
+                    if (right_var.get_var_type() == numType::derived) {
+                        derived_var_id = comp_info.right_var_id;
+                        target_var_id = comp_info.left_var_id;
+                        cout << "  Right variable num_" << derived_var_id << " is DERIVED" << endl;
+                    }
+                }
+                
+                // If we found a derived variable, try backward solving
+                if (derived_var_id >= 0) {
+                    // Get the target value (the value on the other side of the==)
+                    ap_float target_value = 0.0;
+                    if (target_var_id >= 0 && target_var_id < (int)num_vars.size()) {
+                        NumericVariableProxy target_var = num_vars[target_var_id];
+                        if (target_var.get_var_type() == numType::constant) {
+                            target_value = target_var.get_initial_state_value();
+                            cout << "  Target value (constant): " << target_value << endl;
+                        }
+                    }
+                    
+                    cout << "  Attempting backward solve for derived_var=num_" 
+                         << derived_var_id << " to equal " << target_value << endl;
+                    
+                    auto [success, result] = solve_backward_for_equal_flaw(
+                        derived_var_id, target_value, task_proxy);
+                    
+                    if (success) {
+                        auto [base_var_id, solution] = result;
+                        split_var_id = base_var_id;
+                        split_value = solution;
+                        used_backward_solve = true;
+                        cout << "  Using backward-solved value: split num_" << split_var_id 
+                             << " at " << split_value 
+                             << " (instead of num_" << numeric_var_id 
+                             << " at " << concrete_value << ")" << endl;
+                    } else {
+                        cout << "  Backward solve failed, using concrete value" << endl;
+                    }
+                }
+            }
+        }
+        
     // Check if we can refine this variable
-        if (can_refine_numeric_variable(abstraction_size, numeric_var_id, task_proxy)) {
+        if (can_refine_numeric_variable(abstraction_size, split_var_id, task_proxy)) {
             // Bounds check
-            if (numeric_var_id < 0 || numeric_var_id >= (int)numeric_domain_mapping.size()) {
-                cout << "ERROR: numeric_var_id " << numeric_var_id 
+            if (split_var_id < 0 || split_var_id >= (int)numeric_domain_mapping.size()) {
+                cout << "ERROR: split_var_id " << split_var_id 
                      << " is out of bounds! numeric_domain_mapping.size()=" 
                      << numeric_domain_mapping.size() << endl;
                 continue;
             }
             
-            // Split only at the current concrete value that triggered the flaw
-            int old_num_partitions = numeric_domain_mapping[numeric_var_id]->get_num_partitions();
+            // Split at the determined value (backward-solved or concrete)
+            int old_num_partitions = numeric_domain_mapping[split_var_id]->get_num_partitions();
             
-            // Split at the concrete value only
-            int after_concrete_split = numeric_domain_mapping[numeric_var_id]->split_at(concrete_value);
+            // Split at the value (backward-solved if available, otherwise concrete)
+            int after_concrete_split = numeric_domain_mapping[split_var_id]->split_at(split_value);
             int new_num_partitions = after_concrete_split;
             
             if (new_num_partitions > old_num_partitions) {
                 // Successfully split - created at least one new partition
-                numeric_domain_sizes[numeric_var_id] = new_num_partitions;
+                numeric_domain_sizes[split_var_id] = new_num_partitions;
                 refined_any = true;
                 
-                // Increment refinement counter for this variable
-                numeric_var_refinement_count[numeric_var_id]++;
+                // Increment refinement counter for the SPLIT variable (not the original flaw variable)
+                numeric_var_refinement_count[split_var_id]++;
                 
-             cout << "Refined num_" << numeric_var_id 
-                 << " at value " << concrete_value
-                 << " (partitions: " << old_num_partitions << " -> " << new_num_partitions << ")"
-                     << endl;
+                if (used_backward_solve) {
+                    cout << "Refined num_" << split_var_id 
+                         << " at backward-solved value " << split_value
+                         << " (originally flaw on num_" << numeric_var_id << " at " << concrete_value << ")"
+                         << " (partitions: " << old_num_partitions << " -> " << new_num_partitions << ")"
+                         << endl;
+                } else {
+                    cout << "Refined num_" << split_var_id 
+                         << " at value " << split_value
+                         << " (partitions: " << old_num_partitions << " -> " << new_num_partitions << ")"
+                         << endl;
+                }
             } else {
                 // No new partitions created - splits already exist
-             cout << "DEBUG: Flaw for num_" << numeric_var_id 
-                 << " at value " << concrete_value 
-                 << " - splits already exist (no refinement needed)" << endl;
+                cout << "DEBUG: Flaw for num_" << numeric_var_id 
+                     << " at value " << concrete_value 
+                     << " - splits already exist on num_" << split_var_id 
+                     << " at value " << split_value 
+                     << " (no refinement needed)" << endl;
             } 
         } else {
-            cout << "DEBUG: Cannot refine num_" << numeric_var_id 
+            cout << "DEBUG: Cannot refine num_" << split_var_id 
                  << " (blacklisted or size limit)" << endl;
         }
     }
