@@ -46,6 +46,10 @@ int DomainAbstraction::get_value(const State &state) const {
         size_t state_hash = compute_abstract_state_hash(
             state, task_proxy, domain_mapping, 
             numeric_domain_mapping, hash_multipliers);
+
+        //DEBUG state and numeric state
+        cout << "DEBUG DomainAbstraction::get_value: state_hash=" << state_hash << "\n";
+        
         
         // Create DomainAbstractionState and look it up in state registry
         DomainAbstractionState abs_state(state_hash);
