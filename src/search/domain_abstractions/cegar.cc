@@ -46,6 +46,7 @@ private:
     std::vector<int> local_to_global_regular_numeric_var_ids;
     std::vector<int> global_to_local_regular_numeric_var_ids; // NOTE: Not used yet(?)
     std::vector<std::vector<ap_float>> already_split;
+    mutable std::vector<std::set<ap_float>> regular_numeric_var_values;
     
     const int max_abstraction_size;
     const double max_time;
@@ -634,7 +635,8 @@ vector<Fact> CEGAR::get_flaws(
         return ss.str();
     };
 
-    vector<set<ap_float>> regular_numeric_var_values;  
+    
+    regular_numeric_var_values.clear();  
 
     for (size_t i = 0; i < local_to_global_regular_numeric_var_ids.size(); ++i) {
         int var_id = local_to_global_regular_numeric_var_ids[i];
