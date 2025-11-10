@@ -46,7 +46,7 @@ private:
     std::vector<int> local_to_global_regular_numeric_var_ids;
     std::vector<int> global_to_local_regular_numeric_var_ids; // NOTE: Not used yet(?)
     std::vector<std::vector<ap_float>> already_split;
-    mutable std::vector<std::set<ap_float>> regular_numeric_var_values;
+    mutable std::vector<std::vector<ap_float>> regular_numeric_var_values;
     
     const int max_abstraction_size;
     const double max_time;
@@ -201,12 +201,17 @@ CEGAR::CEGAR(
     /* TODO: Should we check somewhere that *init_split_var_ids* does not
         contain elements that are blacklisted? */
 
+    global_to_local_regular_numeric_var_ids.resize(
+        task_proxy.get_numeric_variables().size(), -1);
+
     for (size_t i = 0; i < task_proxy.get_numeric_variables().size(); ++i) {
         NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
         if (num_var.get_var_type() == numType::regular) {
             local_to_global_regular_numeric_var_ids.push_back(i);
             vector<ap_float> empty_vector;
             already_split.push_back(empty_vector);
+            global_to_local_regular_numeric_var_ids[i] =
+                static_cast<int>(local_to_global_regular_numeric_var_ids.size()) - 1;
         }
     }
 }
@@ -642,11 +647,11 @@ vector<Fact> CEGAR::get_flaws(
         int var_id = local_to_global_regular_numeric_var_ids[i];
         NumericVariableProxy num_var = task_proxy.get_numeric_variables()[var_id];
         if (num_var.get_var_type() == numType::regular) {
-            set<ap_float> values;
+            vector<ap_float> values;
             if (i < already_split.size() && 
                 find(already_split[i].begin(), already_split[i].end(),
                         numeric_state[var_id]) == already_split[i].end()) {
-                values.insert(numeric_state[var_id]);
+                values.push_back(numeric_state[var_id]);
             }
             regular_numeric_var_values.push_back(values);
         }
@@ -690,7 +695,7 @@ vector<Fact> CEGAR::get_flaws(
                     if (i < already_split.size() && 
                         find(already_split[i].begin(), already_split[i].end(),
                                 numeric_state[var_id]) == already_split[i].end()) {
-                        regular_numeric_var_values[i].insert(numeric_state[var_id]);
+                        regular_numeric_var_values[i].push_back(numeric_state[var_id]);
                     }
                 }
 
@@ -733,6 +738,16 @@ vector<Fact> CEGAR::get_flaws(
                                 continue;
                             // Split at current concrete value
                             ap_float concrete_value = numeric_state[numeric_var_id];
+                            cout << "    Detected numeric flaw on num_" << numeric_var_id
+                                 << " with concrete value " << concrete_value << endl;
+
+                            int local_numeric_var_index = global_to_local_regular_numeric_var_ids[numeric_var_id];
+                            assert(local_numeric_var_index != -1);
+
+                            if (!regular_numeric_var_values[local_numeric_var_index].empty()) { 
+                                cout << "EYYYYYYYYYYYYYY    regular_numeric_var_values[" << numeric_var_id << "] = ";
+                                cout << regular_numeric_var_values[local_numeric_var_index].back() << endl;
+                            }
                             detected_numeric_flaws.emplace_back(
                                 numeric_var_id, concrete_value, flaw.var);
                         }
@@ -770,6 +785,15 @@ vector<Fact> CEGAR::get_flaws(
                 cout << "Numeric variable num_" << local_to_global_regular_numeric_var_ids[i]
                     << " observed values during plan execution: ";
                 for (const ap_float &val : regular_numeric_var_values[i]) {
+                    cout << val << " ";
+                }
+                cout << endl;
+            }
+            // DEBUG already_split
+            for (size_t i = 0; i < already_split.size(); ++i) {
+                cout << "Numeric variable num_" << local_to_global_regular_numeric_var_ids[i]
+                    << " already split values: ";
+                for (const ap_float &val : already_split[i]) {
                     cout << val << " ";
                 }
                 cout << endl;
@@ -2087,7 +2111,7 @@ bool CEGAR::fix_numeric_flaws(
                     auto [success, result] = solve_backward_for_equal_flaw(
                         derived_var_id, target_value, task_proxy);
                     
-                    if (success) {
+                    if (success && false) { //NOTE: Markus. No idea what backward solving does, but I exclude it for now and see how it goes. 
                         auto [base_var_id, solution] = result;
                         split_var_id = base_var_id;
                         split_value = solution;
@@ -2117,7 +2141,11 @@ bool CEGAR::fix_numeric_flaws(
             int old_num_partitions = numeric_domain_mapping[split_var_id]->get_num_partitions();
             
             // Split at the value (backward-solved if available, otherwise concrete)
+            int local_id = global_to_local_regular_numeric_var_ids[split_var_id];
+
             int after_concrete_split = numeric_domain_mapping[split_var_id]->split_at(split_value);
+            assert(already_split.size() > static_cast<size_t>(local_id));
+            already_split[local_id].push_back(split_value);
             int new_num_partitions = after_concrete_split;
             
             if (new_num_partitions > old_num_partitions) {
