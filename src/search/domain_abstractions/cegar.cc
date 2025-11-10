@@ -743,13 +743,15 @@ vector<Fact> CEGAR::get_flaws(
 
                             int local_numeric_var_index = global_to_local_regular_numeric_var_ids[numeric_var_id];
                             assert(local_numeric_var_index != -1);
-
+                            
+                            int split_value = concrete_value;
                             if (!regular_numeric_var_values[local_numeric_var_index].empty()) { 
                                 cout << "EYYYYYYYYYYYYYY    regular_numeric_var_values[" << numeric_var_id << "] = ";
                                 cout << regular_numeric_var_values[local_numeric_var_index].back() << endl;
+                                split_value = regular_numeric_var_values[local_numeric_var_index].back();
                             }
                             detected_numeric_flaws.emplace_back(
-                                numeric_var_id, concrete_value, flaw.var);
+                                numeric_var_id, split_value, flaw.var);
                         }
                         // Also add the comparison axiom itself as a propositional flaw
                         flaws.emplace_back(flaw.var, flaw.value);
