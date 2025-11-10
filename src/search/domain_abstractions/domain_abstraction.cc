@@ -47,9 +47,32 @@ int DomainAbstraction::get_value(const State &state) const {
             state, task_proxy, domain_mapping, 
             numeric_domain_mapping, hash_multipliers);
 
-        //DEBUG state and numeric state
-        cout << "DEBUG DomainAbstraction::get_value: state_hash=" << state_hash << "\n";
+        // DEBUG: Print non-trivial propositional state values
+        cout << "DEBUG DomainAbstraction::get_value:\n";
+        cout << "  Propositional state (non-trivial only):\n";
+        VariablesProxy vars = task_proxy.get_variables();
+        for (size_t i = 0; i < state.size(); ++i) {
+            // Only print if this variable is part of the abstraction (non-trivial)
+            if (!domain_mapping[i].empty()) {
+                cout << "    fdr_" << i << " (" << vars[i].get_name() << ") = " 
+                     << state[i].get_value() << "\n";
+            }
+        }
         
+        // DEBUG: Print non-trivial numeric state values
+        NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+        cout << "  Numeric state (non-trivial only):\n";
+        for (size_t i = 0; i < num_vars.size(); ++i) {
+            // Only print if this numeric variable is part of the abstraction (non-trivial)
+            // A variable is non-trivial if it has a mapping and has been split (> 1 partition)
+            if (numeric_domain_mapping[i] && 
+                numeric_domain_mapping[i]->get_num_partitions() > 1) {
+                cout << "    num_" << i << " (" << num_vars[i].get_name() << ") = " 
+                     << state.nval(i) << "\n";
+            }
+        }
+        
+        cout << "  State hash: " << state_hash << "\n";
         
         // Create DomainAbstractionState and look it up in state registry
         DomainAbstractionState abs_state(state_hash);
@@ -59,10 +82,14 @@ int DomainAbstraction::get_value(const State &state) const {
         if (state_id == numeric_limits<size_t>::max()) {
             // State not found in registry - this shouldn't happen if the abstraction
             // was properly built, but we'll return infinity as a safe fallback
+            cout << "  State NOT FOUND in registry! Returning infinity.\n";
             return numeric_limits<int>::max();
         }
         
-        return distances[state_id];
+        int distance = distances[state_id];
+        cout << "  State ID: " << state_id << ", Distance to goal: " << distance << "\n";
+        
+        return distance;
     }
 }
 
