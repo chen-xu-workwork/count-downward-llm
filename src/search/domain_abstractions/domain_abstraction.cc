@@ -54,8 +54,10 @@ int DomainAbstraction::get_value(const State &state) const {
         for (size_t i = 0; i < state.size(); ++i) {
             // Only print if this variable is part of the abstraction (non-trivial)
             if (!domain_mapping[i].empty()) {
+                int concrete_val = state[i].get_value();
+                int abstract_val = domain_mapping[i][concrete_val];
                 cout << "    fdr_" << i << " (" << vars[i].get_name() << ") = " 
-                     << state[i].get_value() << "\n";
+                     << concrete_val << " (abstract: " << abstract_val << ")\n";
             }
         }
         
@@ -67,8 +69,22 @@ int DomainAbstraction::get_value(const State &state) const {
             // A variable is non-trivial if it has a mapping and has been split (> 1 partition)
             if (numeric_domain_mapping[i] && 
                 numeric_domain_mapping[i]->get_num_partitions() > 1) {
-                cout << "    num_" << i << " (" << num_vars[i].get_name() << ") = " 
-                     << state.nval(i) << "\n";
+                ap_float concrete_val = state.nval(i);
+                int partition_idx = numeric_domain_mapping[i]->get_partition_index(concrete_val);
+                
+                // Find the range that contains this value
+                const auto &ranges = numeric_domain_mapping[i]->get_ranges();
+                for (const auto &range : ranges) {
+                    if (range.contains(concrete_val)) {
+                        cout << "    num_" << i << " (" << num_vars[i].get_name() << ") = " 
+                             << concrete_val << " (abstract: partition " << partition_idx 
+                             << ", range: " 
+                             << (range.lower_inclusive ? "[" : "(") << range.lower 
+                             << ", " << range.upper << (range.upper_inclusive ? "]" : ")") 
+                             << ")\n";
+                        break;
+                    }
+                }
             }
         }
         
