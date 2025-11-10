@@ -43,7 +43,8 @@ private:
     // to prevent infinite loops
     mutable std::unordered_map<int, int> numeric_var_refinement_count;
 
-    std::vector<int> regular_numeric_var_ids;
+    std::vector<int> local_to_global_regular_numeric_var_ids;
+    std::vector<int> global_to_local_regular_numeric_var_ids; // NOTE: Not used yet(?)
     std::vector<std::vector<ap_float>> already_split;
     
     const int max_abstraction_size;
@@ -202,7 +203,7 @@ CEGAR::CEGAR(
     for (size_t i = 0; i < task_proxy.get_numeric_variables().size(); ++i) {
         NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
         if (num_var.get_var_type() == numType::regular) {
-            regular_numeric_var_ids.push_back(i);
+            local_to_global_regular_numeric_var_ids.push_back(i);
             vector<ap_float> empty_vector;
             already_split.push_back(empty_vector);
         }
@@ -635,11 +636,16 @@ vector<Fact> CEGAR::get_flaws(
 
     vector<set<ap_float>> regular_numeric_var_values;  
 
-    for (size_t i = 0; i < regular_numeric_var_ids.size(); ++i) {
-        int var_id = regular_numeric_var_ids[i];
+    for (size_t i = 0; i < local_to_global_regular_numeric_var_ids.size(); ++i) {
+        int var_id = local_to_global_regular_numeric_var_ids[i];
         NumericVariableProxy num_var = task_proxy.get_numeric_variables()[var_id];
         if (num_var.get_var_type() == numType::regular) {
             set<ap_float> values;
+            if (i < already_split.size() && 
+                find(already_split[i].begin(), already_split[i].end(),
+                        numeric_state[var_id]) == already_split[i].end()) {
+                values.insert(numeric_state[var_id]);
+            }
             regular_numeric_var_values.push_back(values);
         }
     }
@@ -650,15 +656,7 @@ vector<Fact> CEGAR::get_flaws(
     for (vector<int> &equivalent_ops : wildcard_plan) {
         assert(flaws.empty());
 
-        for (size_t i = 0; i < regular_numeric_var_ids.size(); ++i) {
-            int var_id = regular_numeric_var_ids[i];
-            // Use index i (not var_id) to access already_split since it's indexed by position in regular_numeric_var_ids
-            if (i < already_split.size() && 
-                find(already_split[i].begin(), already_split[i].end(),
-                        numeric_state[var_id]) == already_split[i].end()) {
-                regular_numeric_var_values[i].insert(numeric_state[var_id]);
-            }
-        }
+        
         
         for (int op_id : equivalent_ops) {
             OperatorProxy op = task_proxy.get_operators()[op_id];
@@ -683,6 +681,16 @@ vector<Fact> CEGAR::get_flaws(
                 apply_numeric_effects(numeric_state, op);
                 g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_state);
                 g_axiom_evaluator->evaluate(current_state, numeric_state);
+
+                for (size_t i = 0; i < local_to_global_regular_numeric_var_ids.size(); ++i) {
+                    int var_id = local_to_global_regular_numeric_var_ids[i];
+                    // Use index i (not var_id) to access already_split since it's indexed by position in regular_numeric_var_ids
+                    if (i < already_split.size() && 
+                        find(already_split[i].begin(), already_split[i].end(),
+                                numeric_state[var_id]) == already_split[i].end()) {
+                        regular_numeric_var_values[i].insert(numeric_state[var_id]);
+                    }
+                }
 
                 break;
             } else {
@@ -757,7 +765,7 @@ vector<Fact> CEGAR::get_flaws(
 
             // DEBUG regular_numeric_var_values
             for (size_t i = 0; i < regular_numeric_var_values.size(); ++i) {
-                cout << "Numeric variable num_" << regular_numeric_var_ids[i]
+                cout << "Numeric variable num_" << local_to_global_regular_numeric_var_ids[i]
                     << " observed values during plan execution: ";
                 for (const ap_float &val : regular_numeric_var_values[i]) {
                     cout << val << " ";
