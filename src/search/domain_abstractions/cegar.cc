@@ -744,7 +744,7 @@ vector<Fact> CEGAR::get_flaws(
                             int local_numeric_var_index = global_to_local_regular_numeric_var_ids[numeric_var_id];
                             assert(local_numeric_var_index != -1);
                             
-                            int split_value = concrete_value;
+                            ap_float split_value = concrete_value;
                             if (!regular_numeric_var_values[local_numeric_var_index].empty()) { 
                                 cout << "   LAST regular_numeric_var_values[" << numeric_var_id << "] = ";
                                 cout << regular_numeric_var_values[local_numeric_var_index].back() << endl;
@@ -810,6 +810,16 @@ vector<Fact> CEGAR::get_flaws(
     string decoded_state = decode_abstract_state_compact(current_state, numeric_state);
     cout << "[PLAN] " << decoded_state << endl;
 
+    for (size_t i = 0; i < local_to_global_regular_numeric_var_ids.size(); ++i) {
+        int var_id = local_to_global_regular_numeric_var_ids[i];
+        // Use index i (not var_id) to access already_split since it's indexed by position in regular_numeric_var_ids
+        if (i < already_split.size() && 
+            find(already_split[i].begin(), already_split[i].end(),
+                    numeric_state[var_id]) == already_split[i].end()) {
+            regular_numeric_var_values[i].push_back(numeric_state[var_id]);
+        }
+    }
+
  
 
     // Check goal flaws
@@ -859,7 +869,7 @@ vector<Fact> CEGAR::get_flaws(
                 ap_float concrete_value = numeric_state[numeric_var_id];
                 int local_numeric_var_index = global_to_local_regular_numeric_var_ids[numeric_var_id];
                 assert(local_numeric_var_index != -1);
-                int split_value = concrete_value;
+                ap_float split_value = concrete_value;
                 if (!regular_numeric_var_values[local_numeric_var_index].empty()) { 
                     cout << "   LAST regular_numeric_var_values[" << numeric_var_id << "] = ";
                     cout << regular_numeric_var_values[local_numeric_var_index].back() << endl;
@@ -867,7 +877,7 @@ vector<Fact> CEGAR::get_flaws(
                 }
                 // Add this as a numeric flaw to refine
                 detected_numeric_flaws.emplace_back(
-                    numeric_var_id, concrete_value, flaw.var);
+                    numeric_var_id, split_value, flaw.var);
                 added_any_numeric_flaw = true;
             }
             
