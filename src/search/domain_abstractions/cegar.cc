@@ -729,7 +729,7 @@ vector<Fact> CEGAR::get_flaws(
                             }
                             cout << endl;
                         }
-                        
+                        cout << "[DEBUG  Altready_split]" << endl;
                         for (int numeric_var_id : dep_vars) {
                             if (numeric_var_id < 0 || numeric_var_id >= (int)num_vars.size())
                                 continue;
@@ -746,7 +746,7 @@ vector<Fact> CEGAR::get_flaws(
                             
                             int split_value = concrete_value;
                             if (!regular_numeric_var_values[local_numeric_var_index].empty()) { 
-                                cout << "EYYYYYYYYYYYYYY    regular_numeric_var_values[" << numeric_var_id << "] = ";
+                                cout << "   LAST regular_numeric_var_values[" << numeric_var_id << "] = ";
                                 cout << regular_numeric_var_values[local_numeric_var_index].back() << endl;
                                 split_value = regular_numeric_var_values[local_numeric_var_index].back();
                             }
@@ -857,6 +857,14 @@ vector<Fact> CEGAR::get_flaws(
                     continue; // Skip CONSTANT/DERIVED in flaw collection
                 // Get current concrete value
                 ap_float concrete_value = numeric_state[numeric_var_id];
+                int local_numeric_var_index = global_to_local_regular_numeric_var_ids[numeric_var_id];
+                assert(local_numeric_var_index != -1);
+                int split_value = concrete_value;
+                if (!regular_numeric_var_values[local_numeric_var_index].empty()) { 
+                    cout << "   LAST regular_numeric_var_values[" << numeric_var_id << "] = ";
+                    cout << regular_numeric_var_values[local_numeric_var_index].back() << endl;
+                    split_value = regular_numeric_var_values[local_numeric_var_index].back();
+                }
                 // Add this as a numeric flaw to refine
                 detected_numeric_flaws.emplace_back(
                     numeric_var_id, concrete_value, flaw.var);
