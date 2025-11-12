@@ -160,9 +160,7 @@ exp.add_report(
 # PLOTS
 
 config_pairs = [
-    ("1-8c5d7", "1-6035d"),
-    # (f"lmcut-ipc-{REVISIONS[0][:5]}", f"num-ipdb-{REVISIONS[0][:5]}"),
-    # (f"ipdb-{REVISIONS[0][:5]}", f"num-ipdb-{REVISIONS[0][:5]}"),
+    ("LM-cut-6a64f", "LLL-6a64f"),
 ]
 
 
@@ -175,7 +173,7 @@ def remove_pn_domain(run):
 for alg1, alg2 in config_pairs:
     for attr in [
         "expansions_until_last_jump",
-        "planner_time",
+        "total_time",
         "search_time",
         "evaluations",
     ]:
@@ -185,10 +183,10 @@ for alg1, alg2 in config_pairs:
                 filter_algorithm=[alg1, alg2],
                 filter=[remove_pn_domain],
                 get_category=lambda r1, r2: r1["domain"],
-                format="png",
+                format="tex",
                 show_missing=True,
             ),
-            name=f"scatterplot-{attr.replace('_', '-')}-{alg1}-vs-{alg2}",
+            name=f"scatterplot-{attr.replace('_', '-')}-{alg1[:-6]}-vs-{alg2[:-6]}",
         )
 
 
