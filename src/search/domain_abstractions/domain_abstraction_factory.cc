@@ -762,6 +762,28 @@ void DomainAbstractionFactory::compute_distances(
     static int compute_distances_call_count = 0;
     compute_distances_call_count++;
     
+    // Pre-filter abstract states: remove states that are impossible when
+    // comparison axioms are evaluated. We build a mapping from the original
+    // state indices to a compact range of "actual" indices that only contains
+    // feasible states. This mapping can be used later if a compact ordering
+    // of states is desired (e.g., to shrink data structures before Dijkstra).
+    unordered_map<int,int> old_to_new;
+    vector<int> new_to_old;
+    old_to_new.reserve(num_states);
+    new_to_old.reserve(num_states);
+    for (int state_index = 0; state_index < num_states; ++state_index) {
+        vector<int> possible_states = enumerate_states_with_evaluated_comparisons(
+            state_index,
+            task_proxy);
+        bool feasible = find(possible_states.begin(), possible_states.end(), state_index) != possible_states.end();
+        if (feasible) {
+            int new_id = static_cast<int>(new_to_old.size());
+            old_to_new[state_index] = new_id;
+            new_to_old.push_back(state_index);
+        }
+    }
+    cout << "Filtered abstract states: kept " << new_to_old.size() << " / " << num_states << " feasible states." << endl;
+
     distances.reserve(num_states);
     // first implicit entry: priority, second entry: index for an abstract state
     AdaptiveQueue<int> pq;
