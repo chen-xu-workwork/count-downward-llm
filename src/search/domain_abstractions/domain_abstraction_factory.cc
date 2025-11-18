@@ -375,6 +375,7 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
                                    int concrete_op_id)
     : concrete_op_id(concrete_op_id),
       cost(cost),
+      pre(pre_pairs),
       regression_preconditions(prev_pairs) {
     regression_preconditions.insert(regression_preconditions.end(),
                                     eff_pairs.begin(), eff_pairs.end());
@@ -859,80 +860,13 @@ void DomainAbstractionFactory::compute_distances(
 
 
         // Reset state_index with reset_all_comparison_vars_to_unknown
-        int state_index2 = reset_all_comparison_vars_to_unknown(
+        int base_state = reset_all_comparison_vars_to_unknown(
             state_index, domain_mapping, hash_multipliers, task_proxy);
  
         // Regress using abstract operators (from match tree)
         // These handle both propositional-only and numeric operators
         vector<int> applicable_operator_ids;
-        match_tree.get_applicable_operator_ids(state_index2, applicable_operator_ids);
-
-        if (state_index == 959439) {
-            cout << "State decoded: " 
-                 << decode_abstract_state(state_index, domain_sizes,
-                                          numeric_domain_mapping,
-                                          hash_multipliers) << endl;
-            cout << "Applicable operators: ";
-            for (int op_id : applicable_operator_ids) {
-                // print operator id and name
-                OperatorProxy op = task_proxy.get_operators()[operators[op_id].get_concrete_op_id()];
-                cout << op.get_name() << " (id " << op.get_id() << "), ";
-                vector<Fact> preconds = operators[op_id].get_regression_preconditions();
-                cout << "preconds: ";
-                for (const Fact &f : preconds) {
-                    if (f.var > task_proxy.get_variables().size()) {
-                        cout << "num" << (f.var - task_proxy.get_variables().size())
-                             << "=" << f.value << ", ";
-                    } else {
-                        cout << "v" << f.var << "=" << f.value << ", ";
-                    }
-                }
-                int num30 = 8; // [3, inf]
-                int num29 = 1; // [0, 0]
-
-                for (AbstractOperator op : operators) {
-                    bool do_print = true;
-                    for (Fact f : op.get_regression_preconditions()) {
-                        int var_id = (f.var < task_proxy.get_variables().size()) 
-                                    ? f.var 
-                                    : f.var - task_proxy.get_variables().size();
-                        //cout << "var_id: " << var_id << ", f.value: " << f.value << ", " << f.var << "=" << f.value << "num vars: " << task_proxy.get_variables().size() << endl;
-                        string op_name = 
-                            task_proxy.get_operators()[op.get_concrete_op_id()].get_name();
-                        if (op_name.find("pour") == string::npos) {
-                            do_print = false;
-                        }
-                        if (var_id == 30 && f.value != num30) {
-                            do_print = false;
-                        }
-                        if (var_id == 29 && f.value != num29) {
-                            do_print = false;
-                        }
-                    }
-                    if (do_print) {
-                        // print op name 
-                        cout << "DEBUG OP CHECK: op " 
-                                << task_proxy.get_operators()[op.get_concrete_op_id()].get_name();
-                        vector<Fact> preconds = op.get_regression_preconditions();
-                        cout << " preconds: ";
-                        for (const Fact &f : preconds) {
-                            if (f.var >= task_proxy.get_variables().size()) {
-                                cout << "num" << (f.var - task_proxy.get_variables().size())
-                                        << "=" << f.value << ", ";
-                            } else {
-                                cout << "v" << f.var << "=" << f.value << ", ";
-                            }
-                        }
-                        cout << endl;
-
-                    }
-                }
-
-
-                cout << endl;
-            }
-            //exit(0);
-        }
+        match_tree.get_applicable_operator_ids(base_state, applicable_operator_ids);
 
         
         int valid_predecessors_this_state = 0;
@@ -945,7 +879,7 @@ void DomainAbstractionFactory::compute_distances(
             // Iterate over all possible hash effects (predecessors)
             // Propositional operators have 1 effect, numeric operators have multiple
             const int base_hash_effect = op.get_hash_effect();
-            int predecessor_base = state_index2 + base_hash_effect;
+            int predecessor_base = base_state + base_hash_effect;
             assert(predecessor_base < num_states && 0 <= predecessor_base);
 
             int predecessors_this_op = 0;
@@ -954,11 +888,80 @@ void DomainAbstractionFactory::compute_distances(
             vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                 predecessor_base,
                 task_proxy);
+
             
 
             // DEBUG CHECK 2: Validate a few enumerated predecessors
             
             for (int predecessor : possible_predecessors) {
+
+                if (predecessor == 16) {
+                    // Decode predecessor state
+                    string decoded = decode_abstract_state(
+                        predecessor,
+                        domain_sizes,
+                        numeric_domain_mapping,
+                        hash_multipliers);
+
+                    string decoded_base = decode_abstract_state(
+                        base_state,
+                        domain_sizes,
+                        numeric_domain_mapping,
+                        hash_multipliers);
+                    std::cout << "DEBUG Dijkstra: Found predecessor state 16: " << decoded << std::endl;
+                    std::cout << "    from base successor " << base_state << " decoded: " << decoded_base << std::endl;
+                    std::cout << "    via op_id " << op_id << std::endl;
+                    std::cout << "    with op name: " 
+                              << task_proxy.get_operators()[operators[op_id].get_concrete_op_id()].get_name()
+                              << std::endl;
+                    std::cout << "    regression preconditions: ";
+                    for (const Fact &f : operators[op_id].get_regression_preconditions()) {
+                        int var_id = f.var;
+                        if (var_id < task_proxy.get_variables().size()) {
+                            std::cout << "(v" << f.var << "=" << f.value << ") ";
+                        } else {
+                            int num_var_id = var_id - task_proxy.get_variables().size();
+                            // Map partition ID to range
+                            if (num_var_id >= 0 && num_var_id < static_cast<int>(numeric_domain_mapping.size())) {
+                                const NumericRange *rng = numeric_domain_mapping[num_var_id]->get_range_for_partition(f.value);
+                                if (rng) {
+                                    string lower_bracket = rng->lower_inclusive ? "[" : "(";
+                                    string upper_bracket = rng->upper_inclusive ? "]" : ")";
+                                    std::cout << "(num" << num_var_id << "=" << lower_bracket << rng->lower << "," << rng->upper << upper_bracket << ") ";
+                                } else {
+                                    std::cout << "(num" << num_var_id << "=partition" << f.value << "[INVALID]) ";
+                                }
+                            } else {
+                                std::cout << "(num" << num_var_id << "=" << f.value << ") ";
+                            }
+                        }
+                    }
+                    std::cout << std::endl;
+
+                    std::cout << "    preconditions: ";
+                    for (const Fact &f : operators[op_id].get_preconditions()) {
+                        int var_id = f.var;
+                        if (var_id < task_proxy.get_variables().size()) {
+                            std::cout << "(v" << f.var << "=" << f.value << ") ";
+                        } else {
+                            int num_var_id = var_id - task_proxy.get_variables().size();
+                            // Map partition ID to range
+                            if (num_var_id >= 0 && num_var_id < static_cast<int>(numeric_domain_mapping.size())) {
+                                const NumericRange *rng = numeric_domain_mapping[num_var_id]->get_range_for_partition(f.value);
+                                if (rng) {
+                                    string lower_bracket = rng->lower_inclusive ? "[" : "(";
+                                    string upper_bracket = rng->upper_inclusive ? "]" : ")";
+                                    std::cout << "(num" << num_var_id << "=" << lower_bracket << rng->lower << "," << rng->upper << upper_bracket << ") ";
+                                } else {
+                                    std::cout << "(num" << num_var_id << "=partition" << f.value << "[INVALID]) ";
+                                }
+                            } else {
+                                std::cout << "(num" << num_var_id << "=" << f.value << ") ";
+                            }
+                        }
+                    }
+                    std::cout << std::endl;
+                }
                 
                 assert(0 <= predecessor && predecessor < num_states);
                 if (predecessor < 0 || predecessor >= num_states) {
@@ -1014,7 +1017,7 @@ void DomainAbstractionFactory::compute_distances(
     iteration_count++;
     
     // DEBUG: Print table of core variables for all states
-    if (VERBOSE_DEBUG && false) {
+    if (VERBOSE_DEBUG && true) {
         cout << "\n=== TABLE OF CORE VARIABLES FOR ALL " << num_states << " STATES ===\n";
         
         // First, identify which propositional variables are derived from axioms
@@ -1191,9 +1194,15 @@ void DomainAbstractionFactory::compute_abstract_plan(
             vector<int> possible_successors = enumerate_states_with_evaluated_comparisons(
                 base_successor,
                 task_proxy);
+
+            
             
             // Find a valid successor with lower distance
             for (int candidate_successor : possible_successors) {
+                //debug successor
+                cout << "DEBUG PLAN: Candidate successor: " << candidate_successor << endl;
+                cout << "Decoded" << decode_abstract_state(candidate_successor, domain_sizes,
+                                              numeric_domain_mapping, hash_multipliers) << endl;
                 // Check if this successor is valid 
                 assert(candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()));
                 if (distances[candidate_successor] != numeric_limits<int>::max() &&
@@ -1229,9 +1238,11 @@ void DomainAbstractionFactory::compute_abstract_plan(
             // with the same cost as the generating operator
             vector<int> cheapest_operators;
             vector<int> applicable_operator_ids;
-            match_tree.get_applicable_operator_ids(successor_state, applicable_operator_ids);
+            match_tree.get_applicable_operator_ids(base_successor, applicable_operator_ids);
             for (int applicable_op_id : applicable_operator_ids) {
                 const AbstractOperator &applicable_op = operators[applicable_op_id];
+
+                cout << "[DEBUG] OP name: " << task_proxy.get_operators()[applicable_op.get_concrete_op_id()].get_name() << endl;
                 
                 // Check if this operator has the same cost
                 if (applicable_op.get_cost() != op.get_cost()) {
@@ -1241,7 +1252,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 // Check all hash effects of the applicable operator
                 int applicable_hash_effect = applicable_op.get_hash_effect();
                 // Compute base predecessor (without comparison axiom evaluation)
-                int base_predecessor = successor_state + applicable_hash_effect;
+                int base_predecessor = base_successor + applicable_hash_effect;
                 
                 // Enumerate all possible predecessors with evaluated comparison axioms
                 // This is the REVERSE of progression: we're checking if applying this operator

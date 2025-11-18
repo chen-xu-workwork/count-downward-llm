@@ -306,15 +306,16 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
         int var_id = pre.get_variable().get_id();
         
         // Skip trivial variables - they're completely abstracted away
-        if (variable_is_trivial(var_id)) {
-            continue;
+        if (!variable_is_trivial(var_id)) {
             has_precondition_on_var[var_id] = 0; // No meaning in original code?
-        }
-        has_precondition_on_var[var_id] = 0; // No meaning in original code?
+
+            has_precondition_on_var[var_id] = 0; // No meaning in original code?
         
-        // Map concrete value to abstract value
-        int abstract_val = domain_mapping[var_id][pre.get_value()];
-        has_precondition_on_var[var_id] = abstract_val;
+            // Map concrete value to abstract value
+            int abstract_val = domain_mapping[var_id][pre.get_value()];
+            has_precondition_on_var[var_id] = abstract_val;
+        }
+       
     }
 
     // Process propositional effects
@@ -360,7 +361,7 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
         if (has_effect_on_var[var_id] >= 0) {
             pre_pairs.emplace_back(var_id, val);
         } else {
-            if (!is_var_id_in_comparison_axioms) {
+            if (!is_var_id_in_comparison_axioms || true) {
                 prev_pairs.emplace_back(var_id, val);
             } else {
                 pre_pairs.emplace_back(var_id, val);
