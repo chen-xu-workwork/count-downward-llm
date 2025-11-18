@@ -304,7 +304,8 @@ private:
     std::vector<TransitionInfo> compute_hash_effects_with_preconditions(
         const std::vector<Fact> &pre_pairs,
         const std::vector<Fact> &eff_pairs,
-        const std::vector<NumAssProxy> &ass_effects);
+        const std::vector<NumAssProxy> &ass_effects,
+        const OperatorProxy &op);
     
     /**
      * Compute which derived propositional variables (from comparison axioms)

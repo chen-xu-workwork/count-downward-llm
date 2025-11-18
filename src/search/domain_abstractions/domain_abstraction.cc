@@ -47,7 +47,8 @@ int DomainAbstraction::get_value(const State &state) const {
             state, task_proxy, domain_mapping, 
             numeric_domain_mapping, hash_multipliers);
 
-        // DEBUG: Print non-trivial propositional state values
+        if (false) {
+            // DEBUG: Print non-trivial propositional state values
         cout << "DEBUG DomainAbstraction::get_value:\n";
         cout << "  Propositional state (non-trivial only):\n";
         VariablesProxy vars = task_proxy.get_variables();
@@ -60,35 +61,40 @@ int DomainAbstraction::get_value(const State &state) const {
                      << concrete_val << " (abstract: " << abstract_val << ")\n";
             }
         }
+        }
+        
         
         // DEBUG: Print non-trivial numeric state values
-        NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
-        cout << "  Numeric state (non-trivial only):\n";
-        for (size_t i = 0; i < num_vars.size(); ++i) {
-            // Only print if this numeric variable is part of the abstraction (non-trivial)
-            // A variable is non-trivial if it has a mapping and has been split (> 1 partition)
-            if (numeric_domain_mapping[i] && 
-                numeric_domain_mapping[i]->get_num_partitions() > 1) {
-                ap_float concrete_val = state.nval(i);
-                int partition_idx = numeric_domain_mapping[i]->get_partition_index(concrete_val);
-                
-                // Find the range that contains this value
-                const auto &ranges = numeric_domain_mapping[i]->get_ranges();
-                for (const auto &range : ranges) {
-                    if (range.contains(concrete_val)) {
-                        cout << "    num_" << i << " (" << num_vars[i].get_name() << ") = " 
-                             << concrete_val << " (abstract: partition " << partition_idx 
-                             << ", range: " 
-                             << (range.lower_inclusive ? "[" : "(") << range.lower 
-                             << ", " << range.upper << (range.upper_inclusive ? "]" : ")") 
-                             << ")\n";
-                        break;
+        
+        if (false) {
+            NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+            cout << "  Numeric state (non-trivial only):\n";
+            for (size_t i = 0; i < num_vars.size(); ++i) {
+                // Only print if this numeric variable is part of the abstraction (non-trivial)
+                // A variable is non-trivial if it has a mapping and has been split (> 1 partition)
+                if (numeric_domain_mapping[i] && 
+                    numeric_domain_mapping[i]->get_num_partitions() > 1) {
+                    ap_float concrete_val = state.nval(i);
+                    int partition_idx = numeric_domain_mapping[i]->get_partition_index(concrete_val);
+                    
+                    // Find the range that contains this value
+                    const auto &ranges = numeric_domain_mapping[i]->get_ranges();
+                    for (const auto &range : ranges) {
+                        if (range.contains(concrete_val)) {
+                            cout << "    num_" << i << " (" << num_vars[i].get_name() << ") = " 
+                                << concrete_val << " (abstract: partition " << partition_idx 
+                                << ", range: " 
+                                << (range.lower_inclusive ? "[" : "(") << range.lower 
+                                << ", " << range.upper << (range.upper_inclusive ? "]" : ")") 
+                                << ")\n";
+                            break;
+                        }
                     }
                 }
             }
+            cout << "  State hash: " << state_hash << "\n";
         }
         
-        cout << "  State hash: " << state_hash << "\n";
         
         // Create DomainAbstractionState and look it up in state registry
         DomainAbstractionState abs_state(state_hash);
@@ -103,7 +109,6 @@ int DomainAbstraction::get_value(const State &state) const {
         }
         
         int distance = distances[state_id];
-        cout << "  State ID: " << state_id << ", Distance to goal: " << distance << "\n";
         
         return distance;
     }

@@ -1017,7 +1017,7 @@ void DomainAbstractionFactory::compute_distances(
     iteration_count++;
     
     // DEBUG: Print table of core variables for all states
-    if (VERBOSE_DEBUG && true) {
+    if (VERBOSE_DEBUG && false) {
         cout << "\n=== TABLE OF CORE VARIABLES FOR ALL " << num_states << " STATES ===\n";
         
         // First, identify which propositional variables are derived from axioms
@@ -1068,6 +1068,10 @@ void DomainAbstractionFactory::compute_distances(
         
         // Print each state
         for (int state_hash = 0; state_hash < num_states; ++state_hash) {
+            if (distances[state_hash] == numeric_limits<int>::max()) {
+                // Skip unreachable states for brevity
+                continue;
+            }
             // State index
             cout << setw(5) << state_hash << " | ";
             
@@ -1201,10 +1205,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
             
             // Find a valid successor with lower distance
             for (int candidate_successor : possible_successors) {
-                //debug successor
-                cout << "DEBUG PLAN: Candidate successor: " << candidate_successor << endl;
-                cout << "Decoded" << decode_abstract_state(candidate_successor, domain_sizes,
-                                              numeric_domain_mapping, hash_multipliers) << endl;
                 // Check if this successor is valid 
                 assert(candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()));
                 if (distances[candidate_successor] != numeric_limits<int>::max() &&
@@ -1244,8 +1244,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
             for (int applicable_op_id : applicable_operator_ids) {
                 const AbstractOperator &applicable_op = operators[applicable_op_id];
 
-                cout << "[DEBUG] OP name: " << task_proxy.get_operators()[applicable_op.get_concrete_op_id()].get_name() << endl;
-                
                 // Check if this operator has the same cost
                 if (applicable_op.get_cost() != op.get_cost()) {
                     continue;

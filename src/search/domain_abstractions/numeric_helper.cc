@@ -423,7 +423,7 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
             size_t ops_before = operators.size();
             
             vector<TransitionInfo> transitions = 
-                compute_hash_effects_with_preconditions(pre_pairs, eff_pairs, ass_effects);
+                compute_hash_effects_with_preconditions(pre_pairs, eff_pairs, ass_effects, op);
             
             // Create one abstract operator per transition
             for (const TransitionInfo &trans : transitions) {
@@ -689,7 +689,8 @@ vector<int> DomainAbstractionNumericHelper::compute_hash_effects_with_cascades(
 vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with_preconditions(
     const vector<Fact> &pre_pairs,
     const vector<Fact> &eff_pairs,
-    const vector<NumAssProxy> &ass_effects) {
+    const vector<NumAssProxy> &ass_effects,
+    const OperatorProxy &op) {
     
     vector<TransitionInfo> transitions;
     
@@ -711,16 +712,16 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
     // PARTITION TRANSITION ENUMERATION:
     // We enumerate partition transitions in PROGRESSION semantics (easier to understand):
     // - source_partition = forward PRE (where operator starts)
-    // - target_partition = forward POST (where operator ends)
+    // - target_partition = forward EFF (where operator ends)
     // 
     // Then we convert to REGRESSION for the hash effect:
     // In regression, we go backwards, so:
-    // - Current state (where we are) = forward POST = target_partition
+    // - Current state (where we are) = forward EFF = target_partition
     // - Predecessor state (where we go) = forward PRE = source_partition
-    // - Hash effect moves from current to predecessor: (pre - post) = (source - target)
+    // - Hash effect moves from current to predecessor: (pre - eff) = (source - target)
     // 
     // Example: forward effect v += 1 with partitions {(-inf,9), [9,inf)}
-    //   Transition 0->1: source=0 (PRE: v<9), target=1 (POST: v>=9)
+    //   Transition 0->1: source=0 (PRE: v<9), target=1 (EFF: v>=9)
     //   In regression: current has v in partition 1, predecessor has v in partition 0
     //   Hash effect = (0 - 1) * multiplier = -multiplier
     function<void(size_t, vector<Fact>&, vector<Fact>&, vector<int>&, vector<int>&, vector<int>&)> enumerate_targets =
@@ -730,18 +731,168 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
         
         if (var_idx == numeric_domain_mapping.size()) {
             // Base case: we've fixed a combination of target partitions
-            // Now add the transition with hash effect and partition facts
+            // FILTERING: Check if source partitions violate comparison preconditions
             
-            // NOTE: We do NOT compute cascading effects here anymore!
-            // Comparison axiom cascades (propositional variables derived from comparisons)
-            // and assignment axiom cascades (derived numeric variables) are now handled
-            // ON-THE-FLY during Dijkstra search, not pre-computed in operators.
-            // This prevents operator explosion and allows more accurate evaluation.
+            unordered_map<int, int> partition_assignment;
+            for (const Fact &fact : source_facts) {
+                // fact.var is abstract var ID, convert to numeric var ID
+                int num_var_id = fact.var - domain_sizes.size();
+                partition_assignment[num_var_id] = fact.value;
+            }
             
-            TransitionInfo trans;
-            trans.source_partition_facts = source_facts;
-            trans.target_partition_facts = target_facts;
-            transitions.push_back(trans);
+            unordered_map<int, pair<ap_float, ap_float>> ranges;
+            NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+            
+            // Seed ranges from partition assignments and constants
+            for (size_t nvar_id = 0; nvar_id < num_vars.size(); ++nvar_id) {
+                NumericVariableProxy var = num_vars[nvar_id];
+                
+                if (var.get_var_type() == numType::constant) {
+                    ap_float val = var.get_initial_state_value();
+                    ranges[nvar_id] = make_pair(val, val);
+                } else if (var.get_var_type() == numType::regular) {
+                    auto it = partition_assignment.find(nvar_id);
+                    if (it != partition_assignment.end()) {
+                        // Variable has explicit partition assignment
+                        const NumericRange *rng = numeric_domain_mapping[nvar_id]->get_range_for_partition(it->second);
+                        if (rng) {
+                            ranges[nvar_id] = make_pair(rng->lower, rng->upper);
+                        }
+                    } else if (numeric_domain_sizes[nvar_id] == 1) {
+                        // Trivial variable (not in source_facts) - use full range (-inf, inf)
+                        ranges[nvar_id] = make_pair(
+                            -numeric_limits<ap_float>::infinity(),
+                            numeric_limits<ap_float>::infinity()
+                        );
+                    }
+                }
+            }
+            
+            AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+            bool changed = true;
+            int iterations = 0;
+            const int MAX_ITERATIONS = 100;
+            
+            while (changed && iterations++ < MAX_ITERATIONS) {
+                changed = false;
+                for (AssignmentAxiomProxy axiom : assignment_axioms) {
+                    int derived_id = axiom.get_assignment_variable().get_id();
+                    int ax_left_id = axiom.get_left_variable().get_id();
+                    int ax_right_id = axiom.get_right_variable().get_id();
+                    
+                    // Get left operand range
+                    bool left_known = false;
+                    ap_float l_lo = -numeric_limits<ap_float>::infinity();
+                    ap_float l_hi = numeric_limits<ap_float>::infinity();
+                    
+                    if (axiom.get_left_variable().get_var_type() == numType::constant) {
+                        l_lo = l_hi = axiom.get_left_variable().get_initial_state_value();
+                        left_known = true;
+                    } else if (ranges.count(ax_left_id)) {
+                        l_lo = ranges[ax_left_id].first;
+                        l_hi = ranges[ax_left_id].second;
+                        left_known = true;
+                    }
+                    
+                    // Get right operand range
+                    bool right_known = false;
+                    ap_float r_lo = -numeric_limits<ap_float>::infinity();
+                    ap_float r_hi = numeric_limits<ap_float>::infinity();
+                    
+                    if (axiom.get_right_variable().get_var_type() == numType::constant) {
+                        r_lo = r_hi = axiom.get_right_variable().get_initial_state_value();
+                        right_known = true;
+                    } else if (ranges.count(ax_right_id)) {
+                        r_lo = ranges[ax_right_id].first;
+                        r_hi = ranges[ax_right_id].second;
+                        right_known = true;
+                    }
+                    
+                    // Compute derived range if both operands known
+                    if (left_known && right_known) {
+                        pair<ap_float, ap_float> res = NumericDomainMapping::apply_range_operation(
+                            l_lo, l_hi, r_lo, r_hi, axiom.get_arithmetic_operator_type());
+                        
+                        auto it = ranges.find(derived_id);
+                        if (it == ranges.end() || it->second.first != res.first || it->second.second != res.second) {
+                            ranges[derived_id] = res;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            
+            // Step 4: Evaluate comparison preconditions optimistically
+            // Check concrete operator preconditions directly
+            bool satisfies_preconditions = true;
+            ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+            
+            for (FactProxy concrete_pre : op.get_preconditions()) {
+                int var_id = concrete_pre.get_variable().get_id();
+                int concrete_val = concrete_pre.get_value();
+                
+                // Check if this is a comparison axiom variable
+                bool is_comparison_var = false;
+                ComparisonAxiomProxy matching_axiom = comparison_axioms[0]; // Initialize to avoid warning
+                
+                for (ComparisonAxiomProxy axiom : comparison_axioms) {
+                    if (axiom.get_true_fact().get_variable().get_id() == var_id) {
+                        is_comparison_var = true;
+                        matching_axiom = axiom;
+                        break;
+                    }
+                }
+                
+                if (!is_comparison_var) {
+                    continue; // Not a comparison axiom precondition
+                }
+                
+                // Evaluate the comparison with propagated ranges from SOURCE state
+                int left_id = matching_axiom.get_left_variable().get_id();
+                int right_id = matching_axiom.get_right_variable().get_id();
+                comp_operator comp_op = matching_axiom.get_comparison_operator_type();
+                
+                // Get left operand range
+                ap_float left_lo = -numeric_limits<ap_float>::infinity();
+                ap_float left_hi = numeric_limits<ap_float>::infinity();
+                if (matching_axiom.get_left_variable().get_var_type() == numType::constant) {
+                    left_lo = left_hi = matching_axiom.get_left_variable().get_initial_state_value();
+                } else if (ranges.count(left_id)) {
+                    left_lo = ranges[left_id].first;
+                    left_hi = ranges[left_id].second;
+                }
+                
+                // Get right operand range
+                ap_float right_lo = -numeric_limits<ap_float>::infinity();
+                ap_float right_hi = numeric_limits<ap_float>::infinity();
+                if (matching_axiom.get_right_variable().get_var_type() == numType::constant) {
+                    right_lo = right_hi = matching_axiom.get_right_variable().get_initial_state_value();
+                } else if (ranges.count(right_id)) {
+                    right_lo = ranges[right_id].first;
+                    right_hi = ranges[right_id].second;
+                }
+                
+                // Evaluate comparison: 0=true, 1=false, 2=unknown
+                int eval = NumericDomainMapping::evaluate_comparison(
+                    comp_op, left_lo, left_hi, right_lo, right_hi);
+                
+                // Determine required evaluation result from concrete precondition
+                int true_val = matching_axiom.get_true_fact().get_value();
+                int required_eval = (concrete_val == true_val) ? 0 : 1;
+                
+                // Optimistic filtering: only reject if definitive contradiction
+                if (eval != 2 && eval != required_eval) {
+                    satisfies_preconditions = false;
+                    break;
+                }
+            }
+            
+            if (satisfies_preconditions) {
+                TransitionInfo trans;
+                trans.source_partition_facts = source_facts;
+                trans.target_partition_facts = target_facts;
+                transitions.push_back(trans);
+            }
             
             return;
         }
