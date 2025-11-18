@@ -872,9 +872,19 @@ void DomainAbstractionFactory::compute_distances(
                 // print operator id and name
                 OperatorProxy op = task_proxy.get_operators()[operators[op_id].get_concrete_op_id()];
                 cout << op.get_name() << " (id " << op.get_id() << "), ";
+                vector<Fact> preconds = operators[op_id].get_regression_preconditions();
+                cout << "preconds: ";
+                for (const Fact &f : preconds) {
+                    if (f.var > task_proxy.get_variables().size()) {
+                        cout << "num" << (f.var - task_proxy.get_variables().size())
+                             << "=" << f.value << ", ";
+                    } else {
+                        cout << "v" << f.var << "=" << f.value << ", ";
+                    }
+                }
+                cout << endl;
             }
-            cout << endl;
-            //exit(0);
+            exit(0);
         }
 
         
