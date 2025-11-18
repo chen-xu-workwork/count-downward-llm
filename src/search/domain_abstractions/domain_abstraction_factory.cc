@@ -477,11 +477,7 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     
     MatchTree match_tree = build_match_tree(combined_domain_sizes, operators);
     vector<Fact> abstract_goals = compute_abstract_goals(task_proxy);
-    //TODO: add abstract numeric goals
 
-    //TODO: next function assumes finite state space. 
-    //That is crucial for our implementation of Dijkstra.
-    // what we cannot do is, e.g., splitting into fixed intervals. 
     compute_distances(task_proxy, operators, match_tree, abstract_goals,
                       domain_sizes, compute_plan);
     if (compute_plan) {
@@ -865,6 +861,22 @@ void DomainAbstractionFactory::compute_distances(
         // These handle both propositional-only and numeric operators
         vector<int> applicable_operator_ids;
         match_tree.get_applicable_operator_ids(state_index, applicable_operator_ids);
+
+        if (state_index == 959439) {
+            cout << "State decoded: " 
+                 << decode_abstract_state(state_index, domain_sizes,
+                                          numeric_domain_mapping,
+                                          hash_multipliers) << endl;
+            cout << "Applicable operators: ";
+            for (int op_id : applicable_operator_ids) {
+                // print operator id and name
+                OperatorProxy op = task_proxy.get_operators()[operators[op_id].get_concrete_op_id()];
+                cout << op.get_name() << " (id " << op.get_id() << "), ";
+            }
+            cout << endl;
+            //exit(0);
+        }
+
         
         int valid_predecessors_this_state = 0;
         int out_of_bounds_predecessors = 0;
@@ -872,21 +884,6 @@ void DomainAbstractionFactory::compute_distances(
         for (int op_id : applicable_operator_ids) {
             const AbstractOperator &op = operators[op_id];
             int alternative_cost = distances[state_index] + op.get_cost();
-            
-            // Always print detailed info for the first few ops OR when they affect key refined vars
-            // Additionally, ALWAYS print for the concrete op named "pour agent1 plant1" to aid debugging.
-            bool is_pour = false;
-            string op_name_for_debug;
-            {
-                OperatorsProxy concrete_ops = task_proxy.get_operators();
-                int concrete_id = op.get_concrete_op_id();
-                if (concrete_id >= 0 && concrete_id < (int)concrete_ops.size()) {
-                    op_name_for_debug = concrete_ops[concrete_id].get_name();
-                    if (op_name_for_debug == "pour agent1 plant1") {
-                        is_pour = true;
-                    }
-                }
-            }
             
             // Iterate over all possible hash effects (predecessors)
             // Propositional operators have 1 effect, numeric operators have multiple
@@ -908,14 +905,7 @@ void DomainAbstractionFactory::compute_distances(
                 
                 assert(0 <= predecessor && predecessor < num_states);
                 if (predecessor < 0 || predecessor >= num_states) {
-                    if (dijkstra_iterations == 1) {
-                        out_of_bounds_predecessors++;
-                    }
-                    
-                    // Continue without asserting to allow the search to proceed
-                    // while we gather diagnostics. Invalid predecessors are
-                    // expected in conservative enumerations and should be skipped.
-                    continue;
+                    utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
                 }
 
                 valid_predecessors_this_state++;
@@ -1147,7 +1137,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
             
             // Find a valid successor with lower distance
             for (int candidate_successor : possible_successors) {
-                // Check if this successor is valid (was reached during Dijkstra)
+                // Check if this successor is valid 
                 assert(candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()));
                 if (distances[candidate_successor] != numeric_limits<int>::max() &&
                     distances[candidate_successor] < distances[current_state]) {
