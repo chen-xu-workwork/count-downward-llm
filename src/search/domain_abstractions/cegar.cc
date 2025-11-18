@@ -729,7 +729,7 @@ vector<Fact> CEGAR::get_flaws(
                             }
                             cout << endl;
                         }
-                        cout << "[DEBUG  Altready_split]" << endl;
+                        cout << "[DEBUG  Already_split]" << endl;
                         for (int numeric_var_id : dep_vars) {
                             if (numeric_var_id < 0 || numeric_var_id >= (int)num_vars.size())
                                 continue;
@@ -2054,22 +2054,6 @@ bool CEGAR::fix_numeric_flaws(
         ap_float concrete_value = flaw.concrete_value;
         int prop_var_id = flaw.prop_var_id;
         
-        // Check if we've attempted to refine this variable too many times
-        int attempt_count = numeric_var_refinement_count[numeric_var_id];
-        
-        if (attempt_count >= 10) {
-            if (VERBOSE_DEBUG) cout << "DEBUG: Skipping flaw for num_" << numeric_var_id 
-                 << " at value " << concrete_value
-                 << " (variable refined " << attempt_count << " times already - may be stuck)"
-                 << endl;
-            continue;  // Skip this flaw to avoid infinite loop
-        }
-        
-        if (VERBOSE_DEBUG) cout << "DEBUG: Processing numeric flaw for num_" << numeric_var_id 
-             << " at value " << concrete_value
-             << " (variable refinement count: " << attempt_count << ")"
-             << endl;
-        
         // Try to use backward solving for equal comparison flaws on derived variables
         ap_float split_value = concrete_value;  // Default: split at concrete value
         int split_var_id = numeric_var_id;      // Default: split the original variable
@@ -2080,74 +2064,14 @@ bool CEGAR::fix_numeric_flaws(
         auto comp_it = comparison_axiom_info.find(prop_var_id);
         if (comp_it != comparison_axiom_info.end()) {
             const ComparisonInfo &comp_info = comp_it->second;
-            
-            if (comp_info.comp_op == 2) {  // eq = 2
-                cout << "[EQUAL FLAW] Detected equal comparison flaw on num_" 
-                     << numeric_var_id << " at value " << concrete_value << endl;
-                cout << "  Comparison: num_" << comp_info.left_var_id 
-                     << " == num_" << comp_info.right_var_id << endl;
-                
-                // Check if LEFT or RIGHT of the comparison is a derived variable
-                NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
-                int derived_var_id = -1;
-                int target_var_id = -1;  // The other side of the comparison
-                
-                // Check left side
-                if (comp_info.left_var_id >= 0 && comp_info.left_var_id < (int)num_vars.size()) {
-                    NumericVariableProxy left_var = num_vars[comp_info.left_var_id];
-                    if (left_var.get_var_type() == numType::derived) {
-                        derived_var_id = comp_info.left_var_id;
-                        target_var_id = comp_info.right_var_id;
-                        cout << "  Left variable num_" << derived_var_id << " is DERIVED" << endl;
-                    }
-                }
-                
-                // Check right side (if left wasn't derived)
-                if (derived_var_id == -1 && comp_info.right_var_id >= 0 && 
-                    comp_info.right_var_id < (int)num_vars.size()) {
-                    NumericVariableProxy right_var = num_vars[comp_info.right_var_id];
-                    if (right_var.get_var_type() == numType::derived) {
-                        derived_var_id = comp_info.right_var_id;
-                        target_var_id = comp_info.left_var_id;
-                        cout << "  Right variable num_" << derived_var_id << " is DERIVED" << endl;
-                    }
-                }
-                
-                // If we found a derived variable, try backward solving
-                if (derived_var_id >= 0) {
-                    // Get the target value (the value on the other side of the==)
-                    ap_float target_value = 0.0;
-                    if (target_var_id >= 0 && target_var_id < (int)num_vars.size()) {
-                        NumericVariableProxy target_var = num_vars[target_var_id];
-                        if (target_var.get_var_type() == numType::constant) {
-                            target_value = target_var.get_initial_state_value();
-                            cout << "  Target value (constant): " << target_value << endl;
-                        }
-                    }
-                    
-                    cout << "  Attempting backward solve for derived_var=num_" 
-                         << derived_var_id << " to equal " << target_value << endl;
-                    
-                    auto [success, result] = solve_backward_for_equal_flaw(
-                        derived_var_id, target_value, task_proxy);
-                    
-                    if (success && false) { //NOTE: Markus. No idea what backward solving does, but I exclude it for now and see how it goes. 
-                        auto [base_var_id, solution] = result;
-                        split_var_id = base_var_id;
-                        split_value = solution;
-                        used_backward_solve = true;
-                        cout << "  Using backward-solved value: split num_" << split_var_id 
-                             << " at " << split_value 
-                             << " (instead of num_" << numeric_var_id 
-                             << " at " << concrete_value << ")" << endl;
-                    } else {
-                        cout << "  Backward solve failed, using concrete value" << endl;
-                    }
-                }
-            }
         }
         
-    // Check if we can refine this variable
+        if (split_value == 984.95) {
+            cout << "DEBUG: Considering numeric flaw on num_" << numeric_var_id 
+                 << " at value " << concrete_value << endl;
+            cout << "Can refine numeric variable " << split_var_id << "? "
+                 << (can_refine_numeric_variable(abstraction_size, split_var_id, task_proxy) ? "YES" : "NO") << endl;
+        }
         if (can_refine_numeric_variable(abstraction_size, split_var_id, task_proxy)) {
             // Bounds check
             if (split_var_id < 0 || split_var_id >= (int)numeric_domain_mapping.size()) {
