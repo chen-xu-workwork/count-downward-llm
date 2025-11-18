@@ -346,6 +346,9 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     // Classify preconditions as either pre_pairs or prev_pairs
     for (FactProxy pre : op.get_preconditions()) {
         int var_id = pre.get_variable().get_id();
+        bool is_var_id_in_comparison_axioms = 
+            (find(comparison_axiom_var_ids.begin(), comparison_axiom_var_ids.end(), var_id) 
+             != comparison_axiom_var_ids.end());
         
         // Skip trivial variables - they're completely abstracted away
         if (variable_is_trivial(var_id)) {
@@ -357,7 +360,12 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
         if (has_effect_on_var[var_id] >= 0) {
             pre_pairs.emplace_back(var_id, val);
         } else {
-            prev_pairs.emplace_back(var_id, val);
+            if (!is_var_id_in_comparison_axioms) {
+                prev_pairs.emplace_back(var_id, val);
+            } else {
+                pre_pairs.emplace_back(var_id, val);
+                eff_pairs.emplace_back(var_id, domain_mapping[var_id][2]); // unknown value
+            }
         }
     }
     

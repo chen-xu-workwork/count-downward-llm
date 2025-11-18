@@ -856,11 +856,16 @@ void DomainAbstractionFactory::compute_distances(
         assert(find(comparison_alternative_states.begin(),
                     comparison_alternative_states.end(),
                     state_index) != comparison_alternative_states.end());
+
+
+        // Reset state_index with reset_all_comparison_vars_to_unknown
+        int state_index2 = reset_all_comparison_vars_to_unknown(
+            state_index, domain_mapping, hash_multipliers, task_proxy);
  
         // Regress using abstract operators (from match tree)
         // These handle both propositional-only and numeric operators
         vector<int> applicable_operator_ids;
-        match_tree.get_applicable_operator_ids(state_index, applicable_operator_ids);
+        match_tree.get_applicable_operator_ids(state_index2, applicable_operator_ids);
 
         if (state_index == 959439) {
             cout << "State decoded: " 
@@ -882,9 +887,51 @@ void DomainAbstractionFactory::compute_distances(
                         cout << "v" << f.var << "=" << f.value << ", ";
                     }
                 }
+                int num30 = 8; // [3, inf]
+                int num29 = 1; // [0, 0]
+
+                for (AbstractOperator op : operators) {
+                    bool do_print = true;
+                    for (Fact f : op.get_regression_preconditions()) {
+                        int var_id = (f.var < task_proxy.get_variables().size()) 
+                                    ? f.var 
+                                    : f.var - task_proxy.get_variables().size();
+                        //cout << "var_id: " << var_id << ", f.value: " << f.value << ", " << f.var << "=" << f.value << "num vars: " << task_proxy.get_variables().size() << endl;
+                        string op_name = 
+                            task_proxy.get_operators()[op.get_concrete_op_id()].get_name();
+                        if (op_name.find("pour") == string::npos) {
+                            do_print = false;
+                        }
+                        if (var_id == 30 && f.value != num30) {
+                            do_print = false;
+                        }
+                        if (var_id == 29 && f.value != num29) {
+                            do_print = false;
+                        }
+                    }
+                    if (do_print) {
+                        // print op name 
+                        cout << "DEBUG OP CHECK: op " 
+                                << task_proxy.get_operators()[op.get_concrete_op_id()].get_name();
+                        vector<Fact> preconds = op.get_regression_preconditions();
+                        cout << " preconds: ";
+                        for (const Fact &f : preconds) {
+                            if (f.var >= task_proxy.get_variables().size()) {
+                                cout << "num" << (f.var - task_proxy.get_variables().size())
+                                        << "=" << f.value << ", ";
+                            } else {
+                                cout << "v" << f.var << "=" << f.value << ", ";
+                            }
+                        }
+                        cout << endl;
+
+                    }
+                }
+
+
                 cout << endl;
             }
-            exit(0);
+            //exit(0);
         }
 
         
@@ -898,7 +945,7 @@ void DomainAbstractionFactory::compute_distances(
             // Iterate over all possible hash effects (predecessors)
             // Propositional operators have 1 effect, numeric operators have multiple
             const int base_hash_effect = op.get_hash_effect();
-            int predecessor_base = state_index + base_hash_effect;
+            int predecessor_base = state_index2 + base_hash_effect;
             assert(predecessor_base < num_states && 0 <= predecessor_base);
 
             int predecessors_this_op = 0;
@@ -1175,27 +1222,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 string decoded_state = decode_abstract_state(current_state, domain_sizes,
                                                       numeric_domain_mapping, hash_multipliers);
                 cout << "[ABSTRACT PLAN] " << decoded_state << ", " << op_name << endl;
-              
-                /*
-                // List all abstract effects for this operator
-                cout << "  Abstract effects (hash_effect -> numeric transitions):" << endl;
-                int he = op.get_hash_effect();
-                cout << "    effect=" << he << ":";
-                size_t n = min(op.get_changed_numeric_vars().size(),
-                                min(op.get_source_partitions().size(), op.get_target_partitions().size()));
-                if (n == 0) {
-                    cout << " (no numeric changes)";
-                } else {
-                    cout << " ";
-                    for (size_t i = 0; i < n; ++i) {
-                        if (i) cout << ", ";
-                        cout << "num" << op.get_changed_numeric_vars()[i]
-                                << ": " << op.get_source_partitions()[i]
-                                << "->" << op.get_target_partitions()[i];
-                    }
-                }
-                cout << endl;
-                */
             }
 
             // Compute equivalent ops
