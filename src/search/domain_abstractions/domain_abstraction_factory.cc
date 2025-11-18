@@ -767,22 +767,22 @@ void DomainAbstractionFactory::compute_distances(
     // state indices to a compact range of "actual" indices that only contains
     // feasible states. This mapping can be used later if a compact ordering
     // of states is desired (e.g., to shrink data structures before Dijkstra).
-    unordered_map<int,int> old_to_new;
-    vector<int> new_to_old;
-    old_to_new.reserve(num_states);
-    new_to_old.reserve(num_states);
-    for (int state_index = 0; state_index < num_states; ++state_index) {
-        vector<int> possible_states = enumerate_states_with_evaluated_comparisons(
-            state_index,
-            task_proxy);
-        bool feasible = find(possible_states.begin(), possible_states.end(), state_index) != possible_states.end();
-        if (feasible) {
-            int new_id = static_cast<int>(new_to_old.size());
-            old_to_new[state_index] = new_id;
-            new_to_old.push_back(state_index);
-        }
-    }
-    cout << "Filtered abstract states: kept " << new_to_old.size() << " / " << num_states << " feasible states." << endl;
+    //unordered_map<int,int> old_to_new;
+    //vector<int> new_to_old;
+    //old_to_new.reserve(num_states);
+    //new_to_old.reserve(num_states);
+    //for (int state_index = 0; state_index < num_states; ++state_index) {
+    //    vector<int> possible_states = enumerate_states_with_evaluated_comparisons(
+    //        state_index,
+    //        task_proxy);
+    //    bool feasible = find(possible_states.begin(), possible_states.end(), state_index) != possible_states.end();
+    //    if (feasible) {
+    //        int new_id = static_cast<int>(new_to_old.size());
+    //        old_to_new[state_index] = new_id;
+    //        new_to_old.push_back(state_index);
+    //    }
+    //}
+    //cout << "Filtered abstract states: kept " << new_to_old.size() << " / " << num_states << " feasible states." << endl;
 
     distances.reserve(num_states);
     // first implicit entry: priority, second entry: index for an abstract state
@@ -923,9 +923,28 @@ void DomainAbstractionFactory::compute_distances(
                 
                 if (alternative_cost < distances[predecessor]) {
                     total_expansions++;
-                    
+
+                    int init_hash = compute_abstract_state_hash(
+                        task_proxy.get_initial_state(),
+                        task_proxy,
+                        domain_mapping,
+                        numeric_domain_mapping,
+                        hash_multipliers);
+
                     distances[predecessor] = alternative_cost;
-                    pq.push(alternative_cost, predecessor);
+                    
+                    bool insert_into_pq = true;
+                    if (init_hash != predecessor) {
+                        for (auto alt_state : possible_predecessors) {
+                            if (alt_state > predecessor) {
+                                insert_into_pq = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (insert_into_pq) {
+                        pq.push(alternative_cost, predecessor);
+                    }
                     if (compute_plan) {
                         generating_op_ids[predecessor] = op_id;
 
@@ -948,7 +967,7 @@ void DomainAbstractionFactory::compute_distances(
     iteration_count++;
     
     // DEBUG: Print table of core variables for all states
-    if (VERBOSE_DEBUG || true) {
+    if (VERBOSE_DEBUG && false) {
         cout << "\n=== TABLE OF CORE VARIABLES FOR ALL " << num_states << " STATES ===\n";
         
         // First, identify which propositional variables are derived from axioms
@@ -1069,14 +1088,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
     cout << "PLAN: Abstract state count = " << num_states << endl;
     cout << "PLAN: Distance to goal = " << distances[current_state] << endl;
 
-    //print distances
-    cout << "PLAN: Distance table (state -> distance):" << endl;
-    for (int i = 0; i < distances.size(); ++i) {
-        bool is_goal = is_goal_state(i, abstract_goals, domain_sizes);
-        cout << "  [" << i << "] = " << distances[i] 
-                << (is_goal ? " (GOAL)" : "")
-                << (i == current_state ? " (INITIAL)" : "") << endl;
-    }
     
     // Count how many states are reachable (have finite distance)
     int reachable_count = 0;
