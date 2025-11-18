@@ -361,7 +361,7 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
         if (has_effect_on_var[var_id] >= 0) {
             pre_pairs.emplace_back(var_id, val);
         } else {
-            if (!is_var_id_in_comparison_axioms || true) {
+            if (!is_var_id_in_comparison_axioms || false) {
                 prev_pairs.emplace_back(var_id, val);
             } else {
                 pre_pairs.emplace_back(var_id, val);

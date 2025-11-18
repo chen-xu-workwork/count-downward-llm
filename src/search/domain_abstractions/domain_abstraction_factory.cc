@@ -1187,6 +1187,8 @@ void DomainAbstractionFactory::compute_abstract_plan(
             
             // Compute base successor (without comparison axiom evaluation)
             int base_successor = current_state - candidate_hash_effect;
+            base_successor = reset_all_comparison_vars_to_unknown(
+                base_successor, domain_mapping, hash_multipliers, task_proxy);
             
             // Enumerate all possible successors with evaluated comparison axioms
             // For progression: we swap source/target partitions (opposite of regression)
