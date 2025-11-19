@@ -288,14 +288,16 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     // All variable value pairs that are an effect without precondition
     vector<Fact> effects_without_pre;
 
+    vector<bool> is_comparison_axiom_var(n_propositional_variables, false);
+
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
     vector<int> comparison_axiom_var_ids;
     for (ComparisonAxiomProxy axiom : comparison_axioms) {
         comparison_axiom_var_ids.push_back(axiom.get_true_fact().get_variable().get_id());
+        is_comparison_axiom_var[axiom.get_true_fact().get_variable().get_id()] = true;
         assert(axiom.get_true_fact().get_variable().get_id() == axiom.get_false_fact().get_variable().get_id());
     }
     
-
 
     int num_variables = task_proxy.get_variables().size();
     vector<int> has_precondition_on_var(num_variables, -1);
@@ -304,13 +306,10 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     // Process propositional preconditions
     for (FactProxy pre : op.get_preconditions()) {
         int var_id = pre.get_variable().get_id();
-        
-        // Skip trivial variables - they're completely abstracted away
-        if (!variable_is_trivial(var_id)) {
-            has_precondition_on_var[var_id] = 0; // No meaning in original code?
 
+        if (variable_is_trivial(var_id)) {
             has_precondition_on_var[var_id] = 0; // No meaning in original code?
-        
+        } else if (!variable_is_trivial(var_id)) {
             // Map concrete value to abstract value
             int abstract_val = domain_mapping[var_id][pre.get_value()];
             has_precondition_on_var[var_id] = abstract_val;
@@ -321,15 +320,16 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     // Process propositional effects
     for (EffectProxy eff : op.get_effects()) {
         int var_id = eff.get_fact().get_variable().get_id();
+
+        bool is_var_id_in_comparison_axioms = is_comparison_axiom_var[var_id];
+
+        // TODO: Get rid of one assertion
+        assert(!is_var_id_in_comparison_axioms);
         
         // Skip trivial variables - they're completely abstracted away
         if (variable_is_trivial(var_id)) {
             continue;
         }
-        
-        // There should never be a comparison axiom variable here
-        assert(find(comparison_axiom_var_ids.begin(), comparison_axiom_var_ids.end(), var_id) 
-            == comparison_axiom_var_ids.end());
         
         // Map concrete value to abstract value
         int val = domain_mapping[var_id][eff.get_fact().get_value()];
@@ -347,9 +347,7 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     // Classify preconditions as either pre_pairs or prev_pairs
     for (FactProxy pre : op.get_preconditions()) {
         int var_id = pre.get_variable().get_id();
-        bool is_var_id_in_comparison_axioms = 
-            (find(comparison_axiom_var_ids.begin(), comparison_axiom_var_ids.end(), var_id) 
-             != comparison_axiom_var_ids.end());
+        bool is_var_id_in_comparison_axioms = is_comparison_axiom_var[var_id];
         
         // Skip trivial variables - they're completely abstracted away
         if (variable_is_trivial(var_id)) {
@@ -361,13 +359,31 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
         if (has_effect_on_var[var_id] >= 0) {
             pre_pairs.emplace_back(var_id, val);
         } else {
-            if (!is_var_id_in_comparison_axioms || false) {
+            if (!is_var_id_in_comparison_axioms) {
                 prev_pairs.emplace_back(var_id, val);
             } else {
-                pre_pairs.emplace_back(var_id, val);
-                eff_pairs.emplace_back(var_id, domain_mapping[var_id][2]); // unknown value
+                //cout << "DEBUG: var_id=" << var_id << " is in comparison axioms, so pre_pair and eff_pair" << endl;
+                //pre_pairs.emplace_back(var_id, val);
+                //eff_pairs.emplace_back(var_id, domain_mapping[var_id][2]); // unknown value
             }
         }
+    }
+
+        for (FactProxy pre : op.get_preconditions()) {
+        int var_id = pre.get_variable().get_id();
+        bool is_var_id_in_comparison_axioms = is_comparison_axiom_var[var_id];
+        
+        // Skip trivial variables - they're completely abstracted away
+        if (variable_is_trivial(var_id)) {
+            continue;
+        }
+        
+        // Map concrete value to abstract value
+        int val = domain_mapping[var_id][pre.get_value()];
+        if (is_var_id_in_comparison_axioms) {
+            pre_pairs.emplace_back(var_id, val);
+            eff_pairs.emplace_back(var_id, domain_mapping[var_id][2]); // unknown value
+        } 
     }
     
     // Collect numeric effects (assignment effects)
@@ -434,14 +450,16 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                 vector<Fact> extended_pre_pairs = pre_pairs;
                 vector<Fact> extended_eff_pairs = eff_pairs;
                 vector<Fact> extended_prev_pairs = prev_pairs;
+
                 
                 // Sanity check: source and target facts must have same size
                 if (trans.source_partition_facts.size() != trans.target_partition_facts.size()) {
                     cout << "ERROR: Mismatched partition facts! source=" << trans.source_partition_facts.size()
                          << " target=" << trans.target_partition_facts.size() << endl;
-                    exit(1);
+                    utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
                 }
-                
+
+
                 extended_pre_pairs.insert(extended_pre_pairs.end(),
                                          trans.source_partition_facts.begin(),
                                          trans.source_partition_facts.end());
@@ -469,31 +487,6 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                     source_partitions_list.push_back(trans.source_partition_facts[i].value);
                     target_partitions_list.push_back(trans.target_partition_facts[i].value);
                 }
-                
-                // Build predecessor-only preconditions from comparison axiom preconditions
-                // of the concrete operator. These must hold in the predecessor, but should
-                // not affect hash effects or MatchTree applicability on the current state.
-                vector<Fact> predecessor_only_pres;
-                // We don't need that
-                //{
-                //    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-                //    vector<int> comparison_axiom_var_ids;
-                //    comparison_axiom_var_ids.reserve(comparison_axioms.size());
-                //    for (ComparisonAxiomProxy ax : comparison_axioms) {
-                //        comparison_axiom_var_ids.push_back(ax.get_true_fact().get_variable().get_id());
-                //    }
-                //    for (FactProxy pre : op.get_preconditions()) {
-                //        int var_id = pre.get_variable().get_id();
-                //        // Only collect comparison axiom preconditions (skip trivial variables)
-                //        if (variable_is_trivial(var_id))
-                //            continue;
-                //        if (find(comparison_axiom_var_ids.begin(), comparison_axiom_var_ids.end(), var_id)
-                //            != comparison_axiom_var_ids.end()) {
-                //            int abstract_val = domain_mapping[var_id][pre.get_value()];
-                //            predecessor_only_pres.emplace_back(var_id, abstract_val);
-                //        }
-                //    }
-                //}
 
                 std::vector<int> single_hash_effect = {};
                 operators.emplace_back(
@@ -520,6 +513,7 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
             } else {
                 prev_pairs.emplace_back(var_id, i);
             }
+
             multiply_out_propositional(
                 pos + 1, cost, prev_pairs, pre_pairs, eff_pairs,
                 effects_without_pre, ass_effects, concrete_op_id, operators, op);
