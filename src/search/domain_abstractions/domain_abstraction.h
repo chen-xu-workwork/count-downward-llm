@@ -27,7 +27,6 @@ class DomainAbstraction {
     std::vector<std::vector<int>> wildcard_plan;
     
     // State registry for handling discretized numeric variables
-    std::unique_ptr<DomainAbstractionStateRegistry> state_registry;
     
     // Task proxy for evaluating comparison axioms
     TaskProxy task_proxy;
@@ -50,7 +49,6 @@ public:
           hash_multipliers(std::move(hash_multipliers)),
           distances(std::move(distances)),
           wildcard_plan(std::move(wildcard_plan)),
-          state_registry(std::move(state_registry)),
           task_proxy(task_proxy),
           has_numeric_variables(false) {
         // Check if any numeric variable has non-trivial partitioning

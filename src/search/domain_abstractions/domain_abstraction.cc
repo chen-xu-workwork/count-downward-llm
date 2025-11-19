@@ -39,7 +39,6 @@ int DomainAbstraction::get_value(const State &state) const {
         return distances[index];
     } else {
         // Mixed propositional and numeric case - use state registry
-        assert(state_registry);
         
         // Compute the abstract state hash using the utility function that includes
         // full cascade evaluation of derived numeric variables and comparison axioms
@@ -98,17 +97,8 @@ int DomainAbstraction::get_value(const State &state) const {
         
         // Create DomainAbstractionState and look it up in state registry
         DomainAbstractionState abs_state(state_hash);
-        size_t state_id = state_registry->get_id(abs_state);
         
-        // Return the distance if the state was found
-        if (state_id == numeric_limits<size_t>::max()) {
-            // State not found in registry - this shouldn't happen if the abstraction
-            // was properly built, but we'll return infinity as a safe fallback
-            cout << "  State NOT FOUND in registry! Returning infinity.\n";
-            return numeric_limits<int>::max();
-        }
-        
-        int distance = distances[state_id];
+        int distance = distances[state_hash];
         
         return distance;
     }
