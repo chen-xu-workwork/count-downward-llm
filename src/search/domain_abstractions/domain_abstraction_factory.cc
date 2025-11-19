@@ -669,13 +669,13 @@ vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
                 int val = goal.get_value();
                 val = domain_mapping[var_id][val];
                 int val2 = goal.get_value();
-                cout << "GOAL: " << "var" << var_id << " mapped to abstract value " << val << " (" << val2 << ")" << endl;
+                //cout << "GOAL: " << "var" << var_id << " mapped to abstract value " << val << " (" << val2 << ")" << endl;
 
                 //print entire domain mapping.
-                for (size_t v = 0; v < domain_mapping[var_id].size(); ++v) {
-                    cout << domain_mapping[var_id][v] << " ";
-                }
-                cout << endl;
+                //for (size_t v = 0; v < domain_mapping[var_id].size(); ++v) {
+                //    cout << domain_mapping[var_id][v] << " ";
+                //}
+                //cout << endl;
                 
                 abstract_goals.emplace_back(var_id, val);
             }

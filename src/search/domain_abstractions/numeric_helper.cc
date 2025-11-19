@@ -263,16 +263,16 @@ vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operator
     unordered_set<int> modified_numeric_vars;
 
     // Debug domain mapping
-    for (size_t var_id = 0; var_id < domain_mapping.size(); ++var_id) {
-        if (domain_mapping[var_id].empty()) {
-            continue;
-        }
-        cout << "Var" << var_id << " mapping: ";
-        for (size_t v = 0; v < domain_mapping[var_id].size(); ++v) {
-            cout << domain_mapping[var_id][v] << " ";
-        }
-        cout << endl;
-    }
+    //for (size_t var_id = 0; var_id < domain_mapping.size(); ++var_id) {
+    //    if (domain_mapping[var_id].empty()) {
+    //        continue;
+    //    }
+    //    cout << "Var" << var_id << " mapping: ";
+    //    for (size_t v = 0; v < domain_mapping[var_id].size(); ++v) {
+    //        cout << domain_mapping[var_id][v] << " ";
+    //    }
+    //    cout << endl;
+    //}
     
     for (OperatorProxy op : operators) {
         ap_float cost = op.get_cost();
