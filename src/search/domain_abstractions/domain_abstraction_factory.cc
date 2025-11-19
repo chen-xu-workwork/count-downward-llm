@@ -949,7 +949,7 @@ void DomainAbstractionFactory::compute_distances(
     iteration_count++;
     
     // DEBUG: Print table of core variables for all states
-    if (VERBOSE_DEBUG && false) {
+    if (VERBOSE_DEBUG || true) {
         cout << "\n=== TABLE OF CORE VARIABLES FOR ALL " << num_states << " STATES ===\n";
         
         // First, identify which propositional variables are derived from axioms
@@ -978,23 +978,44 @@ void DomainAbstractionFactory::compute_distances(
             }
         }
         
+        // Prepare column headers and widths
+        vector<string> num_headers;
+        vector<int> num_widths;
+        NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+        for (int num_var_id : refined_numeric_vars) {
+            string name = num_vars[num_var_id].get_name();
+            string header = "num" + to_string(num_var_id) + "(" + name + ")";
+            num_headers.push_back(header);
+            num_widths.push_back(max((int)header.length(), 6));
+        }
+
+        vector<string> prop_headers;
+        vector<int> prop_widths;
+        VariablesProxy vars = task_proxy.get_variables();
+        for (int var_id : non_axiom_vars) {
+            string name = vars[var_id].get_name();
+            string header = "var" + to_string(var_id) + "(" + name + ")";
+            prop_headers.push_back(header);
+            prop_widths.push_back(max((int)header.length(), 6));
+        }
+        
         // Print table header
         cout << "\nState | Distance | ";
-        for (int num_var_id : refined_numeric_vars) {
-            cout << "num" << num_var_id << "_p | ";
+        for (size_t i = 0; i < refined_numeric_vars.size(); ++i) {
+            cout << setw(num_widths[i]) << num_headers[i] << " | ";
         }
-        for (int var_id : non_axiom_vars) {
-            cout << "var" << var_id << " | ";
+        for (size_t i = 0; i < non_axiom_vars.size(); ++i) {
+            cout << setw(prop_widths[i]) << prop_headers[i] << " | ";
         }
         cout << "\n";
         
         // Print separator
         cout << "------|----------|";
         for (size_t i = 0; i < refined_numeric_vars.size(); ++i) {
-            cout << "--------|";
+            cout << string(num_widths[i] + 2, '-') << "|";
         }
         for (size_t i = 0; i < non_axiom_vars.size(); ++i) {
-            cout << "--------|";
+            cout << string(prop_widths[i] + 2, '-') << "|";
         }
         cout << "\n";
         
@@ -1017,17 +1038,19 @@ void DomainAbstractionFactory::compute_distances(
             cout << " | ";
             
             // Numeric partitions
-            for (int num_var_id : refined_numeric_vars) {
+            for (size_t i = 0; i < refined_numeric_vars.size(); ++i) {
+                int num_var_id = refined_numeric_vars[i];
                 const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
                 int abstract_var_id = num_prop_vars + num_var_id;
                 int partition = (state_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
-                cout << setw(6) << partition << " | ";
+                cout << setw(num_widths[i]) << partition << " | ";
             }
             
             // Non-axiom propositional variables
-            for (int var_id : non_axiom_vars) {
+            for (size_t i = 0; i < non_axiom_vars.size(); ++i) {
+                int var_id = non_axiom_vars[i];
                 int value = (state_hash / hash_multipliers[var_id]) % domain_sizes[var_id];
-                cout << setw(6) << value << " | ";
+                cout << setw(prop_widths[i]) << value << " | ";
             }
             
             cout << "\n";

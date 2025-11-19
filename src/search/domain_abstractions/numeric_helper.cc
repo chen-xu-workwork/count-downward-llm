@@ -362,11 +362,7 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
         } else {
             if (!is_var_id_in_comparison_axioms) {
                 prev_pairs.emplace_back(var_id, val);
-            } else {
-                //cout << "DEBUG: var_id=" << var_id << " is in comparison axioms, so pre_pair and eff_pair" << endl;
-                //pre_pairs.emplace_back(var_id, val);
-                //eff_pairs.emplace_back(var_id, domain_mapping[var_id][2]); // unknown value
-            }
+            } 
         }
     }
 
@@ -489,7 +485,28 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                     target_partitions_list.push_back(trans.target_partition_facts[i].value);
                 }
 
-                std::vector<int> single_hash_effect = {};
+                string op_name = op.get_name();
+
+                if (op_name.find("drop") != string::npos) {
+                    //Print preconditions, prevail, and effects for debugging
+                    cout << "[]Operator: " << op_name << endl;
+                    cout << "  Prevail: ";
+                    for (const Fact &f : extended_prev_pairs) {
+                        cout << "(" << f.var << "," << f.value << ") ";
+                    }
+                    cout << endl;
+                    cout << "  Preconditions: ";
+                    for (const Fact &f : extended_pre_pairs) {
+                        cout << "(" << f.var << "," << f.value << ") ";
+                    }
+                    cout << endl;
+                    cout << "  Effects: ";
+                    for (const Fact &f : extended_eff_pairs) {
+                        cout << "(" << f.var << "," << f.value << ") ";
+                    }
+                    cout << endl;
+                }
+
                 operators.emplace_back(
                     extended_prev_pairs,        // prevail conditions (propositional only)
                     extended_pre_pairs,         // preconditions (propositional + source partitions)
