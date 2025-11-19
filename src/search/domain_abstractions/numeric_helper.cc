@@ -31,6 +31,13 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
       domain_sizes(domain_sizes),
       numeric_domain_sizes(numeric_domain_sizes),
       hash_multipliers(hash_multipliers) {
+
+    static int construction_count = 0;
+    construction_count++;
+
+    if (construction_count == 4) {
+        exit(0);
+    }
     
     // Verify this is a valid numeric task
     verify_no_non_numeric_axioms(task_proxy);
@@ -255,6 +262,18 @@ vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operator
     
     // Track which numeric variables are modified by operators
     unordered_set<int> modified_numeric_vars;
+
+    // Debug domain mapping
+    for (size_t var_id = 0; var_id < domain_mapping.size(); ++var_id) {
+        if (domain_mapping[var_id].empty()) {
+            continue;
+        }
+        cout << "Var" << var_id << " mapping: ";
+        for (size_t v = 0; v < domain_mapping[var_id].size(); ++v) {
+            cout << domain_mapping[var_id][v] << " ";
+        }
+        cout << endl;
+    }
     
     for (OperatorProxy op : operators) {
         // Check which numeric variables this operator modifies
@@ -263,7 +282,9 @@ vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operator
             int num_var_id = ass_eff.get_affected_variable().get_id();
             modified_numeric_vars.insert(num_var_id);
         }
+
         
+
         build_abstract_operator(op, abstract_operators);
     }
     
@@ -487,7 +508,7 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
 
                 string op_name = op.get_name();
 
-                if (op_name.find("drop") != string::npos) {
+                if (op_name.find("lift hoist1 crate0 pallet1 distributor0") != string::npos || op_name.find("lift hoist0 crate1 pallet0 depot0") != string::npos) {
                     //Print preconditions, prevail, and effects for debugging
                     cout << "[]Operator: " << op_name << endl;
                     cout << "  Prevail: ";

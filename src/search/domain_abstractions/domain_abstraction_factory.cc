@@ -623,6 +623,8 @@ static int get_achieving_comp_axiom(const TaskProxy &proxy, const FactProxy &con
 vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
     const TaskProxy &task_proxy) {
     vector<Fact> abstract_goals;
+
+   
     
     // Build a map from goal axiom effect variables to their axiom indices
     // Goal axioms have preconditions and exactly one effect
@@ -660,6 +662,16 @@ vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
             // Regular propositional goal - add directly
             if (!variable_is_trivial(var_id)) {
                 int val = goal.get_value();
+                val = domain_mapping[var_id][val];
+                int val2 = goal.get_value();
+                cout << "GOAL: " << "var" << var_id << " mapped to abstract value " << val << " (" << val2 << ")" << endl;
+
+                //print entire domain mapping.
+                for (size_t v = 0; v < domain_mapping[var_id].size(); ++v) {
+                    cout << domain_mapping[var_id][v] << " ";
+                }
+                cout << endl;
+                
                 abstract_goals.emplace_back(var_id, domain_mapping[var_id][val]);
             }
         }
