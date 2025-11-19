@@ -48,19 +48,19 @@ int DomainAbstraction::get_value(const State &state) const {
             numeric_domain_mapping, hash_multipliers);
 
         if (false) {
-            // DEBUG: Print non-trivial propositional state values
-        cout << "DEBUG DomainAbstraction::get_value:\n";
-        cout << "  Propositional state (non-trivial only):\n";
-        VariablesProxy vars = task_proxy.get_variables();
-        for (size_t i = 0; i < state.size(); ++i) {
-            // Only print if this variable is part of the abstraction (non-trivial)
-            if (!domain_mapping[i].empty()) {
-                int concrete_val = state[i].get_value();
-                int abstract_val = domain_mapping[i][concrete_val];
-                cout << "    fdr_" << i << " (" << vars[i].get_name() << ") = " 
-                     << concrete_val << " (abstract: " << abstract_val << ")\n";
+                // DEBUG: Print non-trivial propositional state values
+            cout << "DEBUG DomainAbstraction::get_value:\n";
+            cout << "  Propositional state (non-trivial only):\n";
+            VariablesProxy vars = task_proxy.get_variables();
+            for (size_t i = 0; i < state.size(); ++i) {
+                // Only print if this variable is part of the abstraction (non-trivial)
+                if (!domain_mapping[i].empty()) {
+                    int concrete_val = state[i].get_value();
+                    int abstract_val = domain_mapping[i][concrete_val];
+                    cout << "    fdr_" << i << " (" << vars[i].get_name() << ") = " 
+                        << concrete_val << " (abstract: " << abstract_val << ")\n";
+                }
             }
-        }
         }
         
         
