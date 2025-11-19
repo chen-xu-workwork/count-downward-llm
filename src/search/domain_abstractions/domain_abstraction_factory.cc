@@ -479,6 +479,11 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     MatchTree match_tree = build_match_tree(combined_domain_sizes, operators);
     vector<Fact> abstract_goals = compute_abstract_goals(task_proxy);
 
+    cout << "DEBUG FACTORY: Abstract goals computed." << endl;
+    for (const Fact &g : abstract_goals) {
+        cout << "  Goal: var" << g.var << " -> " << g.value << endl;
+    }
+
     compute_distances(task_proxy, operators, match_tree, abstract_goals,
                       domain_sizes, compute_plan);
     if (compute_plan) {
@@ -672,7 +677,7 @@ vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
                 }
                 cout << endl;
                 
-                abstract_goals.emplace_back(var_id, domain_mapping[var_id][val]);
+                abstract_goals.emplace_back(var_id, val);
             }
         }
     }
@@ -802,15 +807,7 @@ void DomainAbstractionFactory::compute_distances(
     for (int state_index = 0; state_index < num_states; ++state_index) {
         bool is_goal = is_goal_state(state_index, abstract_goals, domain_sizes);
         if (is_goal) {
-            // Filter out impossible goal states whose comparison-axiom goals
-            // contradict the numeric partitions of this state.
-            // THAT ONE IS APPARENTLY BROKEN!
-            bool feasible = is_state_goal_feasible(state_index,
-                                                   abstract_goals,
-                                                   domain_mapping,
-                                                   numeric_domain_mapping,
-                                                   hash_multipliers,
-                                                   task_proxy);
+            bool feasible = false;
             vector<int> possible_states = 
                 enumerate_states_with_evaluated_comparisons(
                     state_index,
@@ -1175,7 +1172,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 // Check if this successor is valid 
                 assert(candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()));
                 if (distances[candidate_successor] != numeric_limits<int>::max() &&
-                    distances[candidate_successor] < distances[current_state]) {
+                    (distances[candidate_successor] < distances[current_state] || distances[candidate_successor] == 0)) {
                     // Valid successor with lower distance - use it!
                     hash_effect = candidate_hash_effect;
                     successor_state = candidate_successor;
@@ -1293,9 +1290,7 @@ bool DomainAbstractionFactory::is_goal_state(
     const vector<int> &domain_sizes) const {
     
     // DEBUG: Print goals being checked (only once)
-    static bool debug_printed = false;
-    if (!debug_printed) {
-        debug_printed = true;
+    if (false) {
         cout << "\n=== is_goal_state DEBUG ===" << endl;
         cout << "Abstract (propositional) goals:" << endl;
         for (const Fact &goal : abstract_goals) {
