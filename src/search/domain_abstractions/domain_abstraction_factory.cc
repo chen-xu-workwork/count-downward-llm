@@ -958,7 +958,7 @@ void DomainAbstractionFactory::compute_distances(
     iteration_count++;
     
     // DEBUG: Print table of core variables for all states
-    if (VERBOSE_DEBUG || true) {
+    if (false) {
         cout << "\n=== TABLE OF CORE VARIABLES FOR ALL " << num_states << " STATES ===\n";
         
         // First, identify which propositional variables are derived from axioms
@@ -1144,48 +1144,42 @@ void DomainAbstractionFactory::compute_abstract_plan(
             assert(op_id != -1);
             const AbstractOperator &op = operators[op_id];
             
-            // For operators with multiple hash effects (numeric operators), find the
-            // correct hash effect that leads to a valid successor.
-            // IMPORTANT: We need to evaluate comparison axioms for successors just like
-            // we do for predecessors in Dijkstra!
             int hash_effect = -1;
             int successor_state = -1;
 
             int candidate_hash_effect = op.get_hash_effect();
             
-            // Compute base successor (without comparison axiom evaluation)
             int base_successor = current_state - candidate_hash_effect;
+
+            // TODO: Changed the code a bit. Not sure if that is needed anymore. 
             base_successor = reset_all_comparison_vars_to_unknown(
                 base_successor, domain_mapping, hash_multipliers, task_proxy);
             
-            // Enumerate all possible successors with evaluated comparison axioms
-            // For progression: we swap source/target partitions (opposite of regression)
-            // In progression: source=current partitions, target=successor partitions
             vector<int> possible_successors = enumerate_states_with_evaluated_comparisons(
                 base_successor,
                 task_proxy);
 
-            
-            
-            // Find a valid successor with lower distance
+            ap_float lowest_so_far = distances[current_state];
             for (int candidate_successor : possible_successors) {
-                // Check if this successor is valid 
                 assert(candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()));
-                if (distances[candidate_successor] != numeric_limits<int>::max() &&
-                    (distances[candidate_successor] < distances[current_state] || distances[candidate_successor] == 0)) {
-                    // Valid successor with lower distance - use it!
+                if (candidate_successor > successor_state) {
+                    assert((distances[candidate_successor] < distances[current_state] && op.get_cost() > 0) || 
+                            (distances[candidate_successor] == distances[current_state] && op.get_cost() == 0));
                     hash_effect = candidate_hash_effect;
                     successor_state = candidate_successor;
-                    break;
+                    lowest_so_far = distances[candidate_successor];
                 }
             }
 
             if (successor_state == -1) {
                 cout << "PLAN: No valid successor from state " << current_state
                      << " with lower distance; aborting plan extraction." << endl;
+                cout << "Number of possible successors considered: " << possible_successors.size() << endl;
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
                 break;
             }
+
+            assert(lowest_so_far < distances[current_state] || op.get_cost() == 0);
 
             // Report this plan step: operator and abstract effects
             {

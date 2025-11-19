@@ -507,28 +507,6 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                     target_partitions_list.push_back(trans.target_partition_facts[i].value);
                 }
 
-                string op_name = op.get_name();
-
-                if (op_name.find("lift hoist1 crate0 pallet1 distributor0") != string::npos || op_name.find("lift hoist0 crate1 pallet0 depot0") != string::npos) {
-                    //Print preconditions, prevail, and effects for debugging
-                    cout << "[]Operator: " << op_name << endl;
-                    cout << "  Prevail: ";
-                    for (const Fact &f : extended_prev_pairs) {
-                        cout << "(" << f.var << "," << f.value << ") ";
-                    }
-                    cout << endl;
-                    cout << "  Preconditions: ";
-                    for (const Fact &f : extended_pre_pairs) {
-                        cout << "(" << f.var << "," << f.value << ") ";
-                    }
-                    cout << endl;
-                    cout << "  Effects: ";
-                    for (const Fact &f : extended_eff_pairs) {
-                        cout << "(" << f.var << "," << f.value << ") ";
-                    }
-                    cout << endl;
-                }
-
                 operators.emplace_back(
                     extended_prev_pairs,        // prevail conditions (propositional only)
                     extended_pre_pairs,         // preconditions (propositional + source partitions)
