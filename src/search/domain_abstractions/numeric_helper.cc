@@ -9,6 +9,7 @@
 #include <cassert>
 #include <queue>
 #include <unordered_set>
+#include <optional>
 
 using namespace std;
 using namespace arithmetic_expression;
@@ -827,12 +828,12 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 
                 // Check if this is a comparison axiom variable
                 bool is_comparison_var = false;
-                ComparisonAxiomProxy matching_axiom = comparison_axioms[0]; // Initialize to avoid warning
-                
+                optional<ComparisonAxiomProxy> matching_axiom_opt = std::nullopt; // Initialize to avoid warning
+
                 for (ComparisonAxiomProxy axiom : comparison_axioms) {
                     if (axiom.get_true_fact().get_variable().get_id() == var_id) {
                         is_comparison_var = true;
-                        matching_axiom = axiom;
+                        matching_axiom_opt = axiom;
                         break;
                     }
                 }
@@ -840,6 +841,8 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 if (!is_comparison_var) {
                     continue; // Not a comparison axiom precondition
                 }
+
+                ComparisonAxiomProxy matching_axiom = matching_axiom_opt.value();
                 
                 // Evaluate the comparison with propagated ranges from SOURCE state
                 int left_id = matching_axiom.get_left_variable().get_id();
