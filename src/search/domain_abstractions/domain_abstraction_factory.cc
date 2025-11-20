@@ -998,7 +998,6 @@ void DomainAbstractionFactory::compute_distances(
                 }
 
 
-                exit(0);
             }
 
             
