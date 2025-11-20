@@ -32,11 +32,11 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
       numeric_domain_sizes(numeric_domain_sizes),
       hash_multipliers(hash_multipliers) {
 
-    //static int construction_count = 0;
-    //construction_count++;
-    //if (construction_count == 4) {
-    //    exit(0);
-    //}
+    static int construction_count = 0;
+    construction_count++;
+    if (construction_count == 3) {
+        exit(0);
+    }
     
     // Verify this is a valid numeric task
     verify_no_non_numeric_axioms(task_proxy);
@@ -276,7 +276,7 @@ vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operator
     
     for (OperatorProxy op : operators) {
         ap_float cost = op.get_cost();
-        //assert(cost > 0);
+        assert(cost >= 0);
         // Check which numeric variables this operator modifies
         for (auto ass_eff_proxy : op.get_ass_effects()) {
             NumAssProxy ass_eff = ass_eff_proxy.get_assignment();

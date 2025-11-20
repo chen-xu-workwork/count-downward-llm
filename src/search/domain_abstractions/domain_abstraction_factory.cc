@@ -898,6 +898,22 @@ void DomainAbstractionFactory::compute_distances(
                 predecessor_base,
                 task_proxy);
 
+
+            if (distance == 0) {
+                string op_name = 
+                    task_proxy.get_operators()[op.get_concrete_op_id()].get_name();
+                if (op_name.find("move-slow") != string::npos || false) {
+                    cout << "Operator name: " 
+                                        << task_proxy.get_operators()[op.get_concrete_op_id()].get_name() << endl;
+                    for (int predecessor : possible_predecessors) {
+                        cout << "  Possible predecessor: " 
+                         << decode_abstract_state(predecessor, domain_sizes, 
+                                                  numeric_domain_mapping, hash_multipliers) << endl;
+                    }
+                }
+               
+            }
+
             
 
             // DEBUG CHECK 2: Validate a few enumerated predecessors
@@ -958,7 +974,7 @@ void DomainAbstractionFactory::compute_distances(
     iteration_count++;
     
     // DEBUG: Print table of core variables for all states
-    if (false) {
+    if (true) {
         cout << "\n=== TABLE OF CORE VARIABLES FOR ALL " << num_states << " STATES ===\n";
         
         // First, identify which propositional variables are derived from axioms
@@ -1338,83 +1354,6 @@ bool DomainAbstractionFactory::operator_has_numeric_effects(const OperatorProxy 
     return false;
 }
 
-std::vector<int> DomainAbstractionFactory::compute_abstract_numeric_predecessors(
-    int state_index,
-    const OperatorProxy &op,
-    const vector<int> &domain_sizes) const {
-    /*
-      Given an abstract state (state_index) and an operator with numeric effects,
-      compute all possible abstract predecessor states.
-      
-      For regression: predecessor = state where we'd need to apply op to reach state_index
-      
-      The challenge: numeric effects like x += 2 can cause transitions between partitions.
-      Example: If state has x in partition [0, inf), and op does x += 2,
-               predecessors could have x in [-inf, 0) or [0, inf) depending on the exact value.
-      
-      For now, we use a conservative approach: we consider ALL partitions as possible predecessors
-      for numeric variables affected by the operator.
-    */
-    vector<int> predecessors;
-    
-    // Extract abstract state for both propositional and numeric variables
-    vector<int> prop_vals(domain_mapping.size());
-    for (size_t i = 0; i < domain_mapping.size(); ++i) {
-        if (!variable_is_trivial(i)) {
-            int temp = state_index / hash_multipliers[i];
-            prop_vals[i] = temp % domain_sizes[i];
-        }
-    }
-    
-    vector<int> num_partitions(numeric_domain_mapping.size());
-    for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
-        int temp = state_index / hash_multipliers[domain_mapping.size() + i];
-        int domain_size_at_i = domain_sizes[domain_mapping.size() + i];
-        num_partitions[i] = temp % domain_size_at_i;
-    }
-    
-    // Identify which numeric variables are affected by this operator
-    vector<bool> affected_numeric_vars(numeric_domain_mapping.size(), false);
-    for (auto eff : op.get_ass_effects()) {
-        int num_var_id = eff.get_assignment().get_affected_variable().get_id();
-        if (num_var_id < static_cast<int>(numeric_domain_mapping.size())) {
-            affected_numeric_vars[num_var_id] = true;
-        }
-    }
-    
-    // For each affected numeric variable, we need to consider all possible predecessor partitions
-    // This is a conservative overapproximation
-    function<void(size_t, int)> enumerate_predecessors = [&](size_t var_idx, int current_pred) {
-        if (var_idx == numeric_domain_mapping.size()) {
-            predecessors.push_back(current_pred);
-            return;
-        }
-        
-        if (affected_numeric_vars[var_idx]) {
-            // Try all possible partitions for this affected variable
-            int num_partitions_for_var = domain_sizes[domain_mapping.size() + var_idx];
-            for (int partition = 0; partition < num_partitions_for_var; ++partition) {
-                int pred_with_partition = current_pred + hash_multipliers[domain_mapping.size() + var_idx] * partition;
-                enumerate_predecessors(var_idx + 1, pred_with_partition);
-            }
-        } else {
-            // Not affected: keep the same partition
-            int pred_with_partition = current_pred + hash_multipliers[domain_mapping.size() + var_idx] * num_partitions[var_idx];
-            enumerate_predecessors(var_idx + 1, pred_with_partition);
-        }
-    };
-    
-    // Start with propositional part
-    int prop_predecessor = 0;
-    for (size_t i = 0; i < domain_mapping.size(); ++i) {
-        if (!variable_is_trivial(i)) {
-            prop_predecessor += hash_multipliers[i] * prop_vals[i];
-        }
-    }
-    
-    enumerate_predecessors(0, prop_predecessor);
-    return predecessors;
-}
 
 DomainAbstraction DomainAbstractionFactory::generate() {
     // Check if we have any non-trivial numeric variables (with more than 1 partition)

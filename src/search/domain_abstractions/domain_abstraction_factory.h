@@ -185,10 +185,6 @@ class DomainAbstractionFactory {
     
     // Helper methods for numeric variables
     bool operator_has_numeric_effects(const OperatorProxy &op) const;
-    std::vector<int> compute_abstract_numeric_predecessors(
-        int state_index,
-        const OperatorProxy &op,
-        const std::vector<int> &domain_sizes) const;
 
 public:
     DomainAbstractionFactory(

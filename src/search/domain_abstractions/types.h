@@ -6,6 +6,7 @@
 #include <vector>
 #include <limits>
 #include <memory>
+#include <string>
 #include <iostream>
 #include <algorithm>
 
@@ -70,6 +71,9 @@ struct NumericRange {
     
     // Compute intersection of two ranges (may be empty)
     NumericRange intersect(const NumericRange &other) const;
+
+    std::string to_string() const;
+
 };
 
 // Partition: represents a union of disjoint numeric ranges
@@ -153,7 +157,7 @@ public:
     
     // Debug output
     void dump(std::ostream &out = std::cout) const;
-    
+
     // Validate that ranges are sorted and disjoint
     bool is_valid() const;
 };

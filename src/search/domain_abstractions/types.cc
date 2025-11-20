@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <sstream>
 
 namespace domain_abstractions {
 
@@ -163,6 +164,8 @@ void NumericDomainMapping::dump() const {
         std::cout << " -> partition " << range.partition_index << std::endl;
     }
 }
+
+
 
 const NumericRange* NumericDomainMapping::get_range_for_partition(int partition_index) const {
     for (const auto &range : ranges) {
@@ -523,6 +526,24 @@ NumericRange NumericRange::intersect(const NumericRange &other) const {
     }
     
     return NumericRange(new_lower, new_upper, new_lower_inclusive, new_upper_inclusive, partition_index);
+}
+
+std::string NumericRange::to_string() const {
+    std::ostringstream oss;
+    oss << (lower_inclusive ? "[" : "(");
+    if (lower == -std::numeric_limits<ap_float>::infinity()) {
+        oss << "-inf";
+    } else {
+        oss << lower;
+    }
+    oss << ", ";
+    if (upper == std::numeric_limits<ap_float>::infinity()) {
+        oss << "inf";
+    } else {
+        oss << upper;
+    }
+    oss << (upper_inclusive ? "]" : ")");
+    return oss.str();
 }
 
 Partition::Partition(const std::vector<NumericRange> &input_ranges) {
