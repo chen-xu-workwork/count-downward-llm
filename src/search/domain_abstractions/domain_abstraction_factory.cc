@@ -399,33 +399,43 @@ void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_m
     for (ComparisonAxiomProxy ax : comparison_axioms) {
         comparison_ids.push_back(ax.get_true_fact().get_variable().get_id());
     }
-    
-    cout << "Abstract Operator (concrete id " << concrete_op_id << ", cost " << cost << "):" <<  endl;
-    cout << "Preconditions: " << endl;
+    string op_name = task_proxy.get_operators()[concrete_op_id].get_name();
+    cout << op_name << " -- " << "ID: " << cost << endl;
+    cout << "Preconditions: " << endl << "  ";
     for (const Fact &p : pre) {
         int var_id = p.var;
         
         bool is_comparison = (find(comparison_ids.begin(), comparison_ids.end(), var_id) != comparison_ids.end());
-        cout << "  var" << var_id << " -> " << p.value << endl;
+        cout << "var" << var_id << "=" << p.value << ", ";
     }
+    cout << endl;
 
     int num_variables = task_proxy.get_variables().size();
-    cout << "Regression Preconditions: " << endl;
+    cout << "Effects: " << endl << "  ";
     for (const Fact &p : regression_preconditions) {
         int var_id = p.var;
         int value = p.value;
 
+        int pre_value = -1; 
+        for (const Fact &pre_fact : pre) {
+            if (pre_fact.var == var_id) {
+                pre_value = pre_fact.value;
+                break;
+            }
+        }
+        assert(pre_value != -1);
+
         if (var_id >= num_variables) {
             string partition = numeric_domain_mapping[var_id - num_variables]->get_ranges()[value].to_string();
+            string pre_partition = numeric_domain_mapping[var_id - num_variables]->get_ranges()[pre_value].to_string();
 
-            cout << "  num" << var_id - num_variables << " -> " << partition << endl;
+            cout << "num" << var_id - num_variables << " " << pre_partition << " -> " << partition << ", ";
 
         } else {
-            cout << "  var" << var_id << " -> " << value << endl;
-        }
-        
+            cout << "var" << var_id << " " << pre_value << " -> " << value << ", ";
+        }        
     }
-    
+    cout << endl;   
 }
 
 DomainAbstractionFactory::DomainAbstractionFactory (
