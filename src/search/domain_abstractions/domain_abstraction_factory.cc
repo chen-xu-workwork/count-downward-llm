@@ -392,6 +392,8 @@ void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_m
     for (ComparisonAxiomProxy ax : comparison_axioms) {
         comparison_ids.push_back(ax.get_true_fact().get_variable().get_id());
     }
+    int num_variables = task_proxy.get_variables().size();
+
     string op_name = task_proxy.get_operators()[concrete_op_id].get_name();
     cout << op_name << " -- " << "ID: " << cost << endl;
     cout << "Preconditions: " << endl << "  ";
@@ -399,11 +401,16 @@ void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_m
         int var_id = p.var;
         
         bool is_comparison = (find(comparison_ids.begin(), comparison_ids.end(), var_id) != comparison_ids.end());
-        cout << "var" << var_id << "=" << p.value << ", ";
+        
+        if (var_id >= num_variables) {
+            string partition = numeric_domain_mapping[var_id - num_variables]->get_ranges()[p.value].to_string();
+            cout << "num" << var_id - num_variables << "=" << partition << ", ";
+        } else {
+            cout << "var" << var_id << "=" << p.value << ", ";
+        }
     }
     cout << endl;
 
-    int num_variables = task_proxy.get_variables().size();
     cout << "Effects: " << endl << "  ";
     for (const Fact &p : regression_preconditions) {
         int var_id = p.var;
@@ -889,8 +896,6 @@ void DomainAbstractionFactory::compute_distances(
         match_tree.get_applicable_operator_ids(base_state, applicable_operator_ids);
 
         
-        int valid_predecessors_this_state = 0;
-        int out_of_bounds_predecessors = 0;
         int operators_checked = 0;
         for (int op_id : applicable_operator_ids) {
             const AbstractOperator &op = operators[op_id];
@@ -902,8 +907,6 @@ void DomainAbstractionFactory::compute_distances(
             int predecessor_base = base_state + base_hash_effect;
             assert(predecessor_base < num_states && 0 <= predecessor_base);
 
-            int predecessors_this_op = 0;
-            
             // Enumerate all possible predecessors considering comparison axiom cascades
             vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                 predecessor_base,
@@ -924,6 +927,79 @@ void DomainAbstractionFactory::compute_distances(
                 }
                
             }
+            cout << "START" << endl;
+            bool at_least_one_predecessor_valid = false;
+            bool all_numeric_values_match = true;
+
+            for (int predecessor : possible_predecessors) {
+                vector<Fact> pre = op.get_preconditions();
+                bool preconditions_satisfied = true;
+                string decoded_pred = 
+                    decode_abstract_state(predecessor, domain_sizes, 
+                                          numeric_domain_mapping, hash_multipliers);
+                cout << "  Checking predecessor: " << decoded_pred << endl;
+                for (const Fact &p : pre) {
+                    int var_id = p.var;
+                    int expected_value = p.value;
+                    int multiplier = hash_multipliers[var_id];
+                    bool is_numeric = (var_id >= task_proxy.get_variables().size());
+                    int dom_size = is_numeric ? 
+                        numeric_domain_mapping[var_id - task_proxy.get_variables().size()]->get_num_partitions() :
+                        domain_sizes[var_id];
+                    int actual_value = (predecessor / multiplier) % dom_size;
+                    if (actual_value != expected_value) {
+                        preconditions_satisfied = false;
+                        int num_vars = task_proxy.get_variables().size();
+                        break;
+                    }
+                    if (actual_value != expected_value && is_numeric) {
+                        all_numeric_values_match = false;
+                    }
+                }
+                
+                if (preconditions_satisfied) {
+                    cout << "    Preconditions satisfied for predecessor: " << decoded_pred << endl;
+                    at_least_one_predecessor_valid = true;
+                    break;
+                }
+            }
+            if (!at_least_one_predecessor_valid || !all_numeric_values_match) {
+                op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
+                string decoded_base = 
+                    decode_abstract_state(base_state, domain_sizes, 
+                                          numeric_domain_mapping, hash_multipliers);
+                cout << "Base: " << decoded_base << endl;
+                string decoded_pre_base = 
+                    decode_abstract_state(predecessor_base, domain_sizes, 
+                                          numeric_domain_mapping, hash_multipliers);
+                cout << "Predecessor base: " << decoded_pre_base << endl;
+
+                //decode hash effect into vectors
+                int hash_effect = op.get_hash_effect();
+                for (size_t var_id = 0; var_id < domain_sizes.size(); ++var_id) {
+                    int multiplier = hash_multipliers[var_id];
+                    int effect_value = (hash_effect / multiplier) % domain_sizes[var_id];
+                    if (effect_value == 0) {
+                        continue;
+                    }
+                    cout << "  Effect on var" << var_id << ": " << effect_value << endl;
+                }
+
+                //TODO: Make this a function, quite useful for debugging.
+                for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+                    int multiplier_idx = domain_sizes.size() + num_var_id;
+                    int multiplier = hash_multipliers[multiplier_idx];
+                    int num_partitions = numeric_domain_mapping[num_var_id]->get_num_partitions();
+                    int effect_value = (hash_effect / multiplier) % num_partitions;
+                    if (effect_value == 0) {
+                        continue;
+                    }
+                    cout << "  Effect on num" << num_var_id << ": " << effect_value << endl;
+                }
+
+
+                exit(0);
+            }
 
             
 
@@ -936,8 +1012,6 @@ void DomainAbstractionFactory::compute_distances(
                     utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
                 }
 
-                valid_predecessors_this_state++;
-                predecessors_this_op++;
                 
                 if (alternative_cost < distances[predecessor]) {
                     total_expansions++;
