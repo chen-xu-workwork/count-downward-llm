@@ -752,7 +752,7 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 partition_assignment[num_var_id] = fact.value;
             }
             
-            unordered_map<int, pair<ap_float, ap_float>> ranges;
+            unordered_map<int, NumericRange> ranges;
             NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
             
             // Seed ranges from partition assignments and constants
@@ -761,20 +761,21 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 
                 if (var.get_var_type() == numType::constant) {
                     ap_float val = var.get_initial_state_value();
-                    ranges[nvar_id] = make_pair(val, val);
+                    ranges[nvar_id] = NumericRange(val, val, true, true);
                 } else if (var.get_var_type() == numType::regular) {
                     auto it = partition_assignment.find(nvar_id);
                     if (it != partition_assignment.end()) {
                         // Variable has explicit partition assignment
                         const NumericRange *rng = numeric_domain_mapping[nvar_id]->get_range_for_partition(it->second);
                         if (rng) {
-                            ranges[nvar_id] = make_pair(rng->lower, rng->upper);
+                            ranges[nvar_id] = *rng;
                         }
                     } else if (numeric_domain_sizes[nvar_id] == 1) {
                         // Trivial variable (not in source_facts) - use full range (-inf, inf)
-                        ranges[nvar_id] = make_pair(
+                        ranges[nvar_id] = NumericRange(
                             -numeric_limits<ap_float>::infinity(),
-                            numeric_limits<ap_float>::infinity()
+                            numeric_limits<ap_float>::infinity(),
+                            false, false
                         );
                     }
                 }
@@ -794,39 +795,39 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                     
                     // Get left operand range
                     bool left_known = false;
-                    ap_float l_lo = -numeric_limits<ap_float>::infinity();
-                    ap_float l_hi = numeric_limits<ap_float>::infinity();
+                    NumericRange left_range;
                     
                     if (axiom.get_left_variable().get_var_type() == numType::constant) {
-                        l_lo = l_hi = axiom.get_left_variable().get_initial_state_value();
+                        ap_float val = axiom.get_left_variable().get_initial_state_value();
+                        left_range = NumericRange(val, val, true, true);
                         left_known = true;
                     } else if (ranges.count(ax_left_id)) {
-                        l_lo = ranges[ax_left_id].first;
-                        l_hi = ranges[ax_left_id].second;
+                        left_range = ranges[ax_left_id];
                         left_known = true;
                     }
                     
                     // Get right operand range
                     bool right_known = false;
-                    ap_float r_lo = -numeric_limits<ap_float>::infinity();
-                    ap_float r_hi = numeric_limits<ap_float>::infinity();
+                    NumericRange right_range;
                     
                     if (axiom.get_right_variable().get_var_type() == numType::constant) {
-                        r_lo = r_hi = axiom.get_right_variable().get_initial_state_value();
+                        ap_float val = axiom.get_right_variable().get_initial_state_value();
+                        right_range = NumericRange(val, val, true, true);
                         right_known = true;
                     } else if (ranges.count(ax_right_id)) {
-                        r_lo = ranges[ax_right_id].first;
-                        r_hi = ranges[ax_right_id].second;
+                        right_range = ranges[ax_right_id];
                         right_known = true;
                     }
                     
                     // Compute derived range if both operands known
                     if (left_known && right_known) {
-                        pair<ap_float, ap_float> res = NumericDomainMapping::apply_range_operation(
-                            l_lo, l_hi, r_lo, r_hi, axiom.get_arithmetic_operator_type());
+                        NumericRange res = NumericDomainMapping::apply_range_operation(
+                            left_range, right_range, axiom.get_arithmetic_operator_type());
                         
                         auto it = ranges.find(derived_id);
-                        if (it == ranges.end() || it->second.first != res.first || it->second.second != res.second) {
+                        if (it == ranges.end() || 
+                            it->second.lower != res.lower || it->second.upper != res.upper ||
+                            it->second.lower_inclusive != res.lower_inclusive || it->second.upper_inclusive != res.upper_inclusive) {
                             ranges[derived_id] = res;
                             changed = true;
                         }
@@ -867,28 +868,26 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 comp_operator comp_op = matching_axiom.get_comparison_operator_type();
                 
                 // Get left operand range
-                ap_float left_lo = -numeric_limits<ap_float>::infinity();
-                ap_float left_hi = numeric_limits<ap_float>::infinity();
+                NumericRange left_range;
                 if (matching_axiom.get_left_variable().get_var_type() == numType::constant) {
-                    left_lo = left_hi = matching_axiom.get_left_variable().get_initial_state_value();
+                    ap_float val = matching_axiom.get_left_variable().get_initial_state_value();
+                    left_range = NumericRange(val, val, true, true);
                 } else if (ranges.count(left_id)) {
-                    left_lo = ranges[left_id].first;
-                    left_hi = ranges[left_id].second;
+                    left_range = ranges[left_id];
                 }
                 
                 // Get right operand range
-                ap_float right_lo = -numeric_limits<ap_float>::infinity();
-                ap_float right_hi = numeric_limits<ap_float>::infinity();
+                NumericRange right_range;
                 if (matching_axiom.get_right_variable().get_var_type() == numType::constant) {
-                    right_lo = right_hi = matching_axiom.get_right_variable().get_initial_state_value();
+                    ap_float val = matching_axiom.get_right_variable().get_initial_state_value();
+                    right_range = NumericRange(val, val, true, true);
                 } else if (ranges.count(right_id)) {
-                    right_lo = ranges[right_id].first;
-                    right_hi = ranges[right_id].second;
+                    right_range = ranges[right_id];
                 }
                 
                 // Evaluate comparison: 0=true, 1=false, 2=unknown
                 int eval = NumericDomainMapping::evaluate_comparison(
-                    comp_op, left_lo, left_hi, right_lo, right_hi);
+                    comp_op, left_range, right_range);
                 
                 // Determine required evaluation result from concrete precondition
                 int true_val = matching_axiom.get_true_fact().get_value();
