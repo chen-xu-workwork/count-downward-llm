@@ -101,6 +101,7 @@ static void compute_numeric_context(
             }
 
 
+
             // Right operand range
             bool right_known = false;
             NumericRange r_range;
@@ -112,20 +113,18 @@ static void compute_numeric_context(
                 r_range = ranges_out[right_id];
                 right_known = true;
             }
+            //Check if axioms are sorted
             assert(left_known && right_known);
 
-
-            if (left_known && right_known) {
-                NumericRange res = NumericDomainMapping::apply_range_operation(
-                    l_range, r_range, axiom.get_arithmetic_operator_type());
-                auto it = ranges_out.find(derived_id);
-                if (it == ranges_out.end() || 
-                    it->second.lower != res.lower || it->second.upper != res.upper ||
-                    it->second.lower_inclusive != res.lower_inclusive || 
-                    it->second.upper_inclusive != res.upper_inclusive) {
-                    ranges_out[derived_id] = res;
-                    changed = true;
-                }
+            NumericRange res = NumericDomainMapping::apply_range_operation(
+                l_range, r_range, axiom.get_arithmetic_operator_type());
+            auto it = ranges_out.find(derived_id);
+            if (it == ranges_out.end() || 
+                it->second.lower != res.lower || it->second.upper != res.upper ||
+                it->second.lower_inclusive != res.lower_inclusive || 
+                it->second.upper_inclusive != res.upper_inclusive) {
+                ranges_out[derived_id] = res;
+                changed = true;
             }
         }
     }
@@ -179,19 +178,17 @@ static vector<CompEvalHelper> evaluate_all_comparisons(
             if (rng) { r_range = *rng; right_known = true; }
         }
 
+        assert(left_known && right_known);
+
         int eval = 2;
-        if (left_known && right_known) {
-            // Raw evaluation from NumericDomainMapping uses: 0=false, 1=true, 2=unknown.
-            // Normalize here to the comparison-axiom convention: 0=true, 1=false, 2=unknown.
-            int raw = NumericDomainMapping::evaluate_comparison(
-                axiom.get_comparison_operator_type(), l_range, r_range);
-            if (raw == 2) {
-                eval = 2;
-            } else if (raw == 0) {
-                eval = 0; // true -> 0
-            } else {
-                eval = 1; // false -> 1
-            }
+        int raw = NumericDomainMapping::evaluate_comparison(
+            axiom.get_comparison_operator_type(), l_range, r_range);
+        if (raw == 2) {
+            eval = 2;
+        } else if (raw == 0) {
+            eval = 0; // true -> 0
+        } else {
+            eval = 1; // false -> 1
         }
 
         out.push_back(CompEvalHelper{
@@ -212,16 +209,12 @@ static int reset_all_comparison_vars_to_unknown(
     const vector<int> &hash_multipliers,
     const TaskProxy &task_proxy) {
     int delta = 0;
-    unordered_set<int> seen;
     ComparisonAxiomsProxy comp_axioms = task_proxy.get_comparison_axioms();
     for (ComparisonAxiomProxy ax : comp_axioms) {
         int var_id = ax.get_true_fact().get_variable().get_id();
-        if (!seen.insert(var_id).second)
-            continue;
-        if (var_id < 0 || var_id >= static_cast<int>(hash_multipliers.size()))
-            continue;
+        assert(var_id >= 0 || var_id < static_cast<int>(hash_multipliers.size()));
         // Treat empty mapping as trivial; skip.
-        if (var_id >= static_cast<int>(domain_mapping.size()) || domain_mapping[var_id].empty())
+        if (domain_mapping[var_id].empty())
             continue;
 
         int multiplier = hash_multipliers[var_id];
@@ -605,7 +598,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         const CompEvalHelper &comp = comparisons[idx];
         int var_id = comp.prop_var_id;
         
-        if (var_id >= static_cast<int>(hash_multipliers.size()) || variable_is_trivial(var_id)) {
+        if (variable_is_trivial(var_id)) {
             enumerate_combinations(idx + 1, delta_from_unknown);
             return;
         }
