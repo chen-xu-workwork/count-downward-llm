@@ -423,9 +423,9 @@ void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_m
                 break;
             }
         }
-        assert(pre_value != -1);
+        //assert(pre_value != -1); // Think that should be correct.......
 
-        if (var_id >= num_variables) {
+        if (var_id >= num_variables && pre_value != -1) {
             string partition = numeric_domain_mapping[var_id - num_variables]->get_ranges()[value].to_string();
             string pre_partition = numeric_domain_mapping[var_id - num_variables]->get_ranges()[pre_value].to_string();
 
@@ -913,21 +913,8 @@ void DomainAbstractionFactory::compute_distances(
                 task_proxy);
 
 
-            if (distance == 0) {
-                string op_name = 
-                    task_proxy.get_operators()[op.get_concrete_op_id()].get_name();
-                if (op_name.find("move-slow") != string::npos || false) {
-                    cout << "Operator name: " 
-                                        << task_proxy.get_operators()[op.get_concrete_op_id()].get_name() << endl;
-                    for (int predecessor : possible_predecessors) {
-                        cout << "  Possible predecessor: " 
-                         << decode_abstract_state(predecessor, domain_sizes, 
-                                                  numeric_domain_mapping, hash_multipliers) << endl;
-                    }
-                }
-               
-            }
-            cout << "START" << endl;
+            if (false) {
+                cout << "START" << endl;
             bool at_least_one_predecessor_valid = false;
             bool all_numeric_values_match = true;
 
@@ -964,7 +951,7 @@ void DomainAbstractionFactory::compute_distances(
                 }
             }
             if (!at_least_one_predecessor_valid || !all_numeric_values_match) {
-                op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
+                //op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
                 string decoded_base = 
                     decode_abstract_state(base_state, domain_sizes, 
                                           numeric_domain_mapping, hash_multipliers);
@@ -998,7 +985,10 @@ void DomainAbstractionFactory::compute_distances(
                 }
 
 
+                exit(0);
             }
+            }
+            
 
             
 
@@ -1058,7 +1048,7 @@ void DomainAbstractionFactory::compute_distances(
     iteration_count++;
     
     // DEBUG: Print table of core variables for all states
-    if (true) {
+    if (false) {
         cout << "\n=== TABLE OF CORE VARIABLES FOR ALL " << num_states << " STATES ===\n";
         
         // First, identify which propositional variables are derived from axioms
@@ -1225,9 +1215,9 @@ void DomainAbstractionFactory::compute_abstract_plan(
         cout << decoded << endl;
     }
 
-    for (AbstractOperator abs_op : operators) {
-        abs_op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
-    }
+    //for (AbstractOperator abs_op : operators) {
+    //    abs_op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
+    //}
 
 
     if (distances[current_state] != numeric_limits<int>::max()) {

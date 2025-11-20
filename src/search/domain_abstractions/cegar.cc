@@ -662,29 +662,33 @@ vector<Fact> CEGAR::get_flaws(
     // Debug domain mapping
     const DomainMapping &dm = abstraction.get_domain_mapping();
     const NumericDomainMappingType &ndm = abstraction.get_numeric_domain_mapping();
-    cout << "  Domain mapping (propositional):" << endl;
-    for (size_t i = 0; i < dm.size(); ++i) {
-        if (!dm[i].empty()) {
-            cout << "    var " << i << ": ";
-            for (size_t j = 0; j < dm[i].size(); ++j) {
-                cout << j << " -> " << dm[i][j] << ", ";
+    if (false) {
+        cout << "  Domain mapping (propositional):" << endl;
+        for (size_t i = 0; i < dm.size(); ++i) {
+            if (!dm[i].empty()) {
+                cout << "    var " << i << ": ";
+                for (size_t j = 0; j < dm[i].size(); ++j) {
+                    cout << j << " -> " << dm[i][j] << ", ";
+                }
+                cout << endl;
             }
-            cout << endl;
         }
-    }
-    cout << "  Domain mapping (numeric):" << endl;
-    for (size_t i = 0; i < ndm.size(); ++i) {
-        if (ndm[i]->get_num_partitions() > 1) {
-            cout << "    num var " << i << ": { ";
-            for (size_t j = 0; j < ndm[i]->get_num_partitions(); ++j) {
-                int part_id = ndm[i]->get_partition_index(j);
-                NumericRange range = ndm[i]->get_ranges()[part_id];
-                cout << j << " -> (" << part_id << ") " << range.to_string() << " ";
-            }   
-            cout << "}" << endl;
+        cout << "  Domain mapping (numeric):" << endl;
+        for (size_t i = 0; i < ndm.size(); ++i) {
+            if (ndm[i]->get_num_partitions() > 1) {
+                cout << "    num var " << i << ": { ";
+                for (size_t j = 0; j < ndm[i]->get_num_partitions(); ++j) {
+                    int part_id = ndm[i]->get_partition_index(j);
+                    NumericRange range = ndm[i]->get_ranges()[part_id];
+                    cout << j << " -> (" << part_id << ") " << range.to_string() << " ";
+                }   
+                cout << "}" << endl;
+            }
         }
+        cout << "PLAN: State 0 (start): " << decode_abstract_state_compact(current_state, numeric_state) << endl;
+
     }
-    cout << "PLAN: State 0 (start): " << decode_abstract_state_compact(current_state, numeric_state) << endl;
+    
     int step_num = 0;
     for (vector<int> &equivalent_ops : wildcard_plan) {
         assert(flaws.empty());
