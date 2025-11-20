@@ -35,7 +35,7 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
     static int construction_count = 0;
     construction_count++;
     if (construction_count == 3) {
-        exit(0);
+        //exit(0);
     }
     
     // Verify this is a valid numeric task

@@ -434,6 +434,13 @@ std::pair<ap_float, ap_float> NumericDomainMapping::apply_range_operation(
             break;
             
         case mult: // left * right
+            // Handle multiplication by zero explicitly to avoid NaN with infinity
+            if ((left_lower == 0 && left_upper == 0) || (right_lower == 0 && right_upper == 0)) {
+                result_lower = 0;
+                result_upper = 0;
+                break;
+            }
+
             // Need to consider all four combinations and take min/max
             {
                 ap_float products[4] = {
@@ -483,9 +490,268 @@ std::pair<ap_float, ap_float> NumericDomainMapping::apply_range_operation(
     return std::make_pair(result_lower, result_upper);
 }
 
+NumericRange NumericDomainMapping::apply_range_operation(
+    const NumericRange &left, const NumericRange &right, cal_operator op) {
+    
+    ap_float result_lower, result_upper;
+    bool result_lower_inclusive = false;
+    bool result_upper_inclusive = false;
+    
+    switch (op) {
+        case sum: // left + right
+            result_lower = left.lower + right.lower;
+            result_upper = left.upper + right.upper;
+            result_lower_inclusive = left.lower_inclusive && right.lower_inclusive;
+            result_upper_inclusive = left.upper_inclusive && right.upper_inclusive;
+            break;
+            
+        case diff: // left - right
+            // [a,b) - [c,d) = [a-d, b-c)
+            result_lower = left.lower - right.upper;
+            result_upper = left.upper - right.lower;
+            result_lower_inclusive = left.lower_inclusive && right.upper_inclusive;
+            result_upper_inclusive = left.upper_inclusive && right.lower_inclusive;
+            break;
+            
+        case mult: // left * right
+            // Handle multiplication by zero explicitly to avoid NaN with infinity
+            if ((left.lower == 0 && left.upper == 0) || (right.lower == 0 && right.upper == 0)) {
+                result_lower = 0;
+                result_upper = 0;
+                result_lower_inclusive = true;
+                result_upper_inclusive = true;
+                break;
+            }
+
+            // Need to consider all four combinations and take min/max
+            {
+                ap_float products[4] = {
+                    left.lower * right.lower,
+                    left.lower * right.upper,
+                    left.upper * right.lower,
+                    left.upper * right.upper
+                };
+                
+                // Determine which product is min/max
+                int min_idx = 0;
+                int max_idx = 0;
+                for (int i = 1; i < 4; ++i) {
+                    if (products[i] < products[min_idx]) min_idx = i;
+                    if (products[i] > products[max_idx]) max_idx = i;
+                }
+                
+                result_lower = products[min_idx];
+                result_upper = products[max_idx];
+                
+                // Determine inclusivity based on the operands that produced min/max
+                // 0: ll * rl -> l_inc && r_inc
+                // 1: ll * ru -> l_inc && r_inc (upper of right is effectively lower of negated right?)
+                // Actually, just check the source boundaries.
+                
+                auto get_inclusivity = [&](int idx) {
+                    switch(idx) {
+                        case 0: return left.lower_inclusive && right.lower_inclusive;
+                        case 1: return left.lower_inclusive && right.upper_inclusive;
+                        case 2: return left.upper_inclusive && right.lower_inclusive;
+                        case 3: return left.upper_inclusive && right.upper_inclusive;
+                        default: return false;
+                    }
+                };
+                
+                result_lower_inclusive = get_inclusivity(min_idx);
+                result_upper_inclusive = get_inclusivity(max_idx);
+                
+                // If multiple products are equal to min/max, we need to be careful.
+                // The result is inclusive if ANY combination producing the extremum is inclusive?
+                // No, the result is the union of possible values.
+                // If we have [0, 1] * [0, 1], min is 0. 0*0=0 (inc), 0*1=0 (inc).
+                // If we have (0, 1) * (0, 1), min is 0. 0*0=0 (exc).
+                // If we have [0, 1] * (0, 1), min is 0. 0*0=0 (exc).
+                // So if ANY combination producing the min is exclusive, the result is exclusive?
+                // Wait. The range of products is continuous.
+                // The lower bound is inclusive if there exist x in left, y in right such that x*y = result_lower.
+                // This happens if the combination producing result_lower uses inclusive bounds.
+                // If there are multiple combinations producing the same min, and ONE of them is inclusive, then the value is achievable.
+                // So we should OR the inclusivity for ties.
+                
+                for (int i = 0; i < 4; ++i) {
+                    if (products[i] == result_lower) {
+                        result_lower_inclusive = result_lower_inclusive || get_inclusivity(i);
+                    }
+                    if (products[i] == result_upper) {
+                        result_upper_inclusive = result_upper_inclusive || get_inclusivity(i);
+                    }
+                }
+            }
+            break;
+            
+        case divi: // left / right
+            // Need to check for division by zero
+            {
+                // If right range contains zero, result is undefined
+                if (right.lower < 0 && right.upper > 0) {
+                    // Range spans zero - return infinite range
+                    result_lower = -std::numeric_limits<ap_float>::infinity();
+                    result_upper = std::numeric_limits<ap_float>::infinity();
+                    result_lower_inclusive = false;
+                    result_upper_inclusive = false;
+                } else if (right.lower == 0 && right.upper == 0) {
+                    // Division by zero - undefined
+                    result_lower = -std::numeric_limits<ap_float>::infinity();
+                    result_upper = std::numeric_limits<ap_float>::infinity();
+                    result_lower_inclusive = false;
+                    result_upper_inclusive = false;
+                } else {
+                    // Safe to divide - check all four combinations
+                    ap_float quotients[4] = {
+                        left.lower / right.lower,
+                        left.lower / right.upper,
+                        left.upper / right.lower,
+                        left.upper / right.upper
+                    };
+                    
+                    int min_idx = 0;
+                    int max_idx = 0;
+                    for (int i = 1; i < 4; ++i) {
+                        if (quotients[i] < quotients[min_idx]) min_idx = i;
+                        if (quotients[i] > quotients[max_idx]) max_idx = i;
+                    }
+                    
+                    result_lower = quotients[min_idx];
+                    result_upper = quotients[max_idx];
+                    
+                    auto get_inclusivity = [&](int idx) {
+                        switch(idx) {
+                            case 0: return left.lower_inclusive && right.lower_inclusive;
+                            case 1: return left.lower_inclusive && right.upper_inclusive;
+                            case 2: return left.upper_inclusive && right.lower_inclusive;
+                            case 3: return left.upper_inclusive && right.upper_inclusive;
+                            default: return false;
+                        }
+                    };
+                    
+                    result_lower_inclusive = get_inclusivity(min_idx);
+                    result_upper_inclusive = get_inclusivity(max_idx);
+                    
+                    for (int i = 0; i < 4; ++i) {
+                        if (quotients[i] == result_lower) {
+                            result_lower_inclusive = result_lower_inclusive || get_inclusivity(i);
+                        }
+                        if (quotients[i] == result_upper) {
+                            result_upper_inclusive = result_upper_inclusive || get_inclusivity(i);
+                        }
+                    }
+                }
+            }
+            break;
+            
+        default:
+            // Unknown operator, return infinite range
+            result_lower = -std::numeric_limits<ap_float>::infinity();
+            result_upper = std::numeric_limits<ap_float>::infinity();
+            break;
+    }
+    
+    return NumericRange(result_lower, result_upper, result_lower_inclusive, result_upper_inclusive);
+}
+
+int NumericDomainMapping::evaluate_comparison(
+    comp_operator op,
+    const NumericRange &left, const NumericRange &right) {
+    
+    // Evaluate based on comparison operator
+    // Returns: 0 = definitely false, 1 = definitely true, 2 = unknown
+    
+    switch (op) {
+        case comp_operator::lt: // left < right
+            // Definitely true if: max(left) < min(right)
+            // OR max(left) == min(right) AND (max(left) exclusive OR min(right) exclusive)
+            if (left.upper < right.lower) {
+                return 0; // definitely true
+            } else if (left.upper == right.lower && (!left.upper_inclusive || !right.lower_inclusive)) {
+                return 0; // definitely true
+            }
+            
+            // Definitely false if: min(left) >= max(right)
+            // OR min(left) == max(right) AND (min(left) inclusive AND max(right) inclusive) -> actually if they are equal, it is NOT <.
+            // So false if min(left) > max(right)
+            // OR min(left) == max(right) (always false for <)
+            if (left.lower >= right.upper) {
+                return 1; // definitely false
+            }
+            return 2; // unknown
+            
+        case comp_operator::le: // left <= right
+            // Definitely true if: max(left) <= min(right)
+            // Wait, if max(left) == min(right), we need both inclusive to be sure?
+            // No, if max(left) == min(right), then any x in left is <= max(left) == min(right) <= any y in right.
+            // So x <= y is always true.
+            if (left.upper <= right.lower) {
+                return 0; // definitely true
+            }
+            
+            // Definitely false if: min(left) > max(right)
+            // OR min(left) == max(right) AND (min(left) exclusive OR max(right) exclusive)
+            if (left.lower > right.upper) {
+                return 1; // definitely false
+            } else if (left.lower == right.upper && (!left.lower_inclusive || !right.upper_inclusive)) {
+                return 1; // definitely false
+            }
+            return 2; // unknown
+            
+        case comp_operator::eq: // left == right
+            // Definitely true only if both ranges are the same single point
+            if (left.lower == left.upper && right.lower == right.upper && 
+                left.lower == right.lower &&
+                left.lower_inclusive && left.upper_inclusive &&
+                right.lower_inclusive && right.upper_inclusive) {
+                return 0; // definitely true
+            }
+            // Definitely false if ranges don't overlap
+            if (!left.overlaps_with(right)) {
+                return 1; // definitely false
+            }
+            return 2; // unknown
+            
+        case comp_operator::ge: // left >= right
+            // Definitely true if: min(left) >= max(right)
+            if (left.lower >= right.upper) {
+                return 0; // definitely true
+            }
+            
+            // Definitely false if: max(left) < min(right)
+            // OR max(left) == min(right) AND (max(left) exclusive OR min(right) exclusive)
+            if (left.upper < right.lower) {
+                return 1; // definitely false
+            } else if (left.upper == right.lower && (!left.upper_inclusive || !right.lower_inclusive)) {
+                return 1; // definitely false
+            }
+            return 2; // unknown
+            
+        case comp_operator::gt: // left > right
+            // Definitely true if: min(left) > max(right)
+            // OR min(left) == max(right) AND (min(left) exclusive OR max(right) exclusive)
+            if (left.lower > right.upper) {
+                return 0; // definitely true
+            } else if (left.lower == right.upper && (!left.lower_inclusive || !right.upper_inclusive)) {
+                return 0; // definitely true
+            }
+            
+            // Definitely false if: max(left) <= min(right)
+            if (left.upper <= right.lower) {
+                return 1; // definitely false
+            }
+            return 2; // unknown
+            
+        default:
+            return 2; // unknown
+    }
+}
+
 // ============================================================================
 // Partition class implementation
 // ============================================================================
+// An idea I had before when partitions can consist of multiple intervals. Deprecated for now.
 
 bool NumericRange::overlaps_with(const NumericRange &other) const {
     return overlaps_with(other.lower, other.upper, other.lower_inclusive, other.upper_inclusive);

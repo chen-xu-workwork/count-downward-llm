@@ -45,7 +45,7 @@ static void compute_numeric_context(
     const NumericDomainMappingType &numeric_domain_mapping,
     const vector<int> &hash_multipliers,
     const TaskProxy &task_proxy,
-    unordered_map<int, pair<ap_float, ap_float>> &ranges_out,
+    unordered_map<int, NumericRange> &ranges_out,
     vector<int> &cur_num_partitions_out) {
     ranges_out.clear();
     cur_num_partitions_out.clear();
@@ -66,13 +66,13 @@ static void compute_numeric_context(
         NumericVariableProxy var = num_vars[num_var_id];
         if (var.get_var_type() == numType::constant) {
             ap_float val = var.get_initial_state_value();
-            ranges_out[num_var_id] = make_pair(val, val);
+            ranges_out[num_var_id] = NumericRange(val, val, true, true);
         } else if (var.get_var_type() == numType::regular && num_var_id < numeric_domain_mapping.size()) {
             const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
             int part = cur_num_partitions_out[num_var_id];
             const NumericRange *rng = mapping.get_range_for_partition(part);
             if (rng) {
-                ranges_out[num_var_id] = make_pair(rng->lower, rng->upper);
+                ranges_out[num_var_id] = *rng;
             }
         }
         // Derived variables will be computed below
@@ -90,40 +90,39 @@ static void compute_numeric_context(
 
             // Left operand range
             bool left_known = false;
-            ap_float l_lo = -numeric_limits<ap_float>::infinity();
-            ap_float l_hi = numeric_limits<ap_float>::infinity();
+            NumericRange l_range;
             if (axiom.get_left_variable().get_var_type() == numType::constant) {
                 ap_float val = axiom.get_left_variable().get_initial_state_value();
-                l_lo = l_hi = val;
+                l_range = NumericRange(val, val, true, true);
                 left_known = true;
             } else if (ranges_out.count(left_id)) {
-                l_lo = ranges_out[left_id].first;
-                l_hi = ranges_out[left_id].second;
+                l_range = ranges_out[left_id];
                 left_known = true;
             }
 
 
             // Right operand range
             bool right_known = false;
-            ap_float r_lo = -numeric_limits<ap_float>::infinity();
-            ap_float r_hi = numeric_limits<ap_float>::infinity();
+            NumericRange r_range;
             if (axiom.get_right_variable().get_var_type() == numType::constant) {
                 ap_float val = axiom.get_right_variable().get_initial_state_value();
-                r_lo = r_hi = val;
+                r_range = NumericRange(val, val, true, true);
                 right_known = true;
             } else if (ranges_out.count(right_id)) {
-                r_lo = ranges_out[right_id].first;
-                r_hi = ranges_out[right_id].second;
+                r_range = ranges_out[right_id];
                 right_known = true;
             }
             assert(left_known && right_known);
 
 
             if (left_known && right_known) {
-                pair<ap_float, ap_float> res = NumericDomainMapping::apply_range_operation(
-                    l_lo, l_hi, r_lo, r_hi, axiom.get_arithmetic_operator_type());
+                NumericRange res = NumericDomainMapping::apply_range_operation(
+                    l_range, r_range, axiom.get_arithmetic_operator_type());
                 auto it = ranges_out.find(derived_id);
-                if (it == ranges_out.end() || it->second.first != res.first || it->second.second != res.second) {
+                if (it == ranges_out.end() || 
+                    it->second.lower != res.lower || it->second.upper != res.upper ||
+                    it->second.lower_inclusive != res.lower_inclusive || 
+                    it->second.upper_inclusive != res.upper_inclusive) {
                     ranges_out[derived_id] = res;
                     changed = true;
                 }
@@ -134,7 +133,7 @@ static void compute_numeric_context(
 
 // Evaluate all comparison axioms against the current numeric ranges/partitions.
 static vector<CompEvalHelper> evaluate_all_comparisons(
-    const unordered_map<int, pair<ap_float, ap_float>> &ranges,
+    const unordered_map<int, NumericRange> &ranges,
     const vector<int> &cur_num_partitions,
     const NumericDomainMappingType &numeric_domain_mapping,
     const TaskProxy &task_proxy) {
@@ -147,41 +146,37 @@ static vector<CompEvalHelper> evaluate_all_comparisons(
         int right_id = axiom.get_right_variable().get_id();
 
         // Left range
-        ap_float l_lo = -numeric_limits<ap_float>::infinity();
-        ap_float l_hi = numeric_limits<ap_float>::infinity();
+        NumericRange l_range;
         bool left_known = false;
         if (axiom.get_left_variable().get_var_type() == numType::constant) {
             ap_float val = axiom.get_left_variable().get_initial_state_value();
-            l_lo = l_hi = val;
+            l_range = NumericRange(val, val, true, true);
             left_known = true;
         } else if (ranges.count(left_id)) {
-            l_lo = ranges.at(left_id).first;
-            l_hi = ranges.at(left_id).second;
+            l_range = ranges.at(left_id);
             left_known = true;
         } else if (left_id >= 0 && left_id < static_cast<int>(numeric_domain_mapping.size())) {
             const NumericDomainMapping &m = *numeric_domain_mapping[left_id];
             int part = cur_num_partitions[left_id];
             const NumericRange *rng = m.get_range_for_partition(part);
-            if (rng) { l_lo = rng->lower; l_hi = rng->upper; left_known = true; }
+            if (rng) { l_range = *rng; left_known = true; }
         }
 
         // Right range
-        ap_float r_lo = -numeric_limits<ap_float>::infinity();
-        ap_float r_hi = numeric_limits<ap_float>::infinity();
+        NumericRange r_range;
         bool right_known = false;
         if (axiom.get_right_variable().get_var_type() == numType::constant) {
             ap_float val = axiom.get_right_variable().get_initial_state_value();
-            r_lo = r_hi = val;
+            r_range = NumericRange(val, val, true, true);
             right_known = true;
         } else if (ranges.count(right_id)) {
-            r_lo = ranges.at(right_id).first;
-            r_hi = ranges.at(right_id).second;
+            r_range = ranges.at(right_id);
             right_known = true;
         } else if (right_id >= 0 && right_id < static_cast<int>(numeric_domain_mapping.size())) {
             const NumericDomainMapping &m = *numeric_domain_mapping[right_id];
             int part = cur_num_partitions[right_id];
             const NumericRange *rng = m.get_range_for_partition(part);
-            if (rng) { r_lo = rng->lower; r_hi = rng->upper; right_known = true; }
+            if (rng) { r_range = *rng; right_known = true; }
         }
 
         int eval = 2;
@@ -189,7 +184,7 @@ static vector<CompEvalHelper> evaluate_all_comparisons(
             // Raw evaluation from NumericDomainMapping uses: 0=false, 1=true, 2=unknown.
             // Normalize here to the comparison-axiom convention: 0=true, 1=false, 2=unknown.
             int raw = NumericDomainMapping::evaluate_comparison(
-                axiom.get_comparison_operator_type(), l_lo, l_hi, r_lo, r_hi);
+                axiom.get_comparison_operator_type(), l_range, r_range);
             if (raw == 2) {
                 eval = 2;
             } else if (raw == 0) {
@@ -249,7 +244,7 @@ static bool is_state_goal_feasible(
     const vector<int> &hash_multipliers,
     const TaskProxy &task_proxy) {
     // Build numeric context
-    unordered_map<int, pair<ap_float, ap_float>> ranges;
+    unordered_map<int, NumericRange> ranges;
     vector<int> cur_parts;
     compute_numeric_context(state_index, domain_mapping, numeric_domain_mapping,
                             hash_multipliers, task_proxy, ranges, cur_parts);
@@ -307,8 +302,8 @@ static bool is_state_goal_feasible(
                     l_lo = l_hi = val;
                     left_known = true;
                 } else if (ranges.count(left_id)) {
-                    l_lo = ranges[left_id].first;
-                    l_hi = ranges[left_id].second;
+                    l_lo = ranges[left_id].lower;
+                    l_hi = ranges[left_id].upper;
                     left_known = true;
                 } else if (left_id >= 0 && left_id < static_cast<int>(numeric_domain_mapping.size())) {
                     const NumericDomainMapping &m = *numeric_domain_mapping[left_id];
@@ -323,8 +318,8 @@ static bool is_state_goal_feasible(
                     r_lo = r_hi = val;
                     right_known = true;
                 } else if (ranges.count(right_id)) {
-                    r_lo = ranges[right_id].first;
-                    r_hi = ranges[right_id].second;
+                    r_lo = ranges[right_id].lower;
+                    r_hi = ranges[right_id].upper;
                     right_known = true;
                 } else if (right_id >= 0 && right_id < static_cast<int>(numeric_domain_mapping.size())) {
                     const NumericDomainMapping &m = *numeric_domain_mapping[right_id];
@@ -396,6 +391,41 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
         int effect = (new_val - old_val) * hash_multipliers[var];
         hash_effect += effect;
     }
+}
+
+void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_mapping, NumericDomainMappingType &numeric_domain_mapping) const {
+    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+    vector<int> comparison_ids;
+    for (ComparisonAxiomProxy ax : comparison_axioms) {
+        comparison_ids.push_back(ax.get_true_fact().get_variable().get_id());
+    }
+    
+    cout << "Abstract Operator (concrete id " << concrete_op_id << ", cost " << cost << "):" <<  endl;
+    cout << "Preconditions: " << endl;
+    for (const Fact &p : pre) {
+        int var_id = p.var;
+        
+        bool is_comparison = (find(comparison_ids.begin(), comparison_ids.end(), var_id) != comparison_ids.end());
+        cout << "  var" << var_id << " -> " << p.value << endl;
+    }
+
+    int num_variables = task_proxy.get_variables().size();
+    cout << "Regression Preconditions: " << endl;
+    for (const Fact &p : regression_preconditions) {
+        int var_id = p.var;
+        int value = p.value;
+
+        if (var_id >= num_variables) {
+            string partition = numeric_domain_mapping[var_id - num_variables]->get_ranges()[value].to_string();
+
+            cout << "  num" << var_id - num_variables << " -> " << partition << endl;
+
+        } else {
+            cout << "  var" << var_id << " -> " << value << endl;
+        }
+        
+    }
+    
 }
 
 DomainAbstractionFactory::DomainAbstractionFactory (
@@ -536,7 +566,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     
     vector<int> result;
     // Build numeric context and evaluate all comparisons
-    unordered_map<int, pair<ap_float, ap_float>> ranges;
+    unordered_map<int, NumericRange> ranges;
     vector<int> cur_num_partitions;
     compute_numeric_context(base_state_index, domain_mapping, numeric_domain_mapping,
                             hash_multipliers, task_proxy, ranges, cur_num_partitions);
@@ -545,7 +575,7 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
 
     //for (const auto& r : ranges) {
     //    cout << "DEBUG ENUM: var" << r.first 
-    //         << " range=[" << r.second.first << "," << r.second.second << "]" << endl;
+    //         << " range=" << r.second.to_string() << endl;
     //}   
 
     // Reset ALL comparison axiom variables to UNKNOWN using shared helper
@@ -775,28 +805,6 @@ void DomainAbstractionFactory::compute_distances(
     // DETAILED DEBUG OUTPUT FOR ITERATION 2
     static int compute_distances_call_count = 0;
     compute_distances_call_count++;
-    
-    // Pre-filter abstract states: remove states that are impossible when
-    // comparison axioms are evaluated. We build a mapping from the original
-    // state indices to a compact range of "actual" indices that only contains
-    // feasible states. This mapping can be used later if a compact ordering
-    // of states is desired (e.g., to shrink data structures before Dijkstra).
-    //unordered_map<int,int> old_to_new;
-    //vector<int> new_to_old;
-    //old_to_new.reserve(num_states);
-    //new_to_old.reserve(num_states);
-    //for (int state_index = 0; state_index < num_states; ++state_index) {
-    //    vector<int> possible_states = enumerate_states_with_evaluated_comparisons(
-    //        state_index,
-    //        task_proxy);
-    //    bool feasible = find(possible_states.begin(), possible_states.end(), state_index) != possible_states.end();
-    //    if (feasible) {
-    //        int new_id = static_cast<int>(new_to_old.size());
-    //        old_to_new[state_index] = new_id;
-    //        new_to_old.push_back(state_index);
-    //    }
-    //}
-    //cout << "Filtered abstract states: kept " << new_to_old.size() << " / " << num_states << " feasible states." << endl;
 
     distances.reserve(num_states);
     // first implicit entry: priority, second entry: index for an abstract state
@@ -1131,17 +1139,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
         }
     }
     cout << "PLAN: Reachable states = " << reachable_count << " / " << num_states << endl;
-    
-    // List which states are reachable and their distances
-    if (VERBOSE_DEBUG) cout << "DEBUG PLAN: Reachable state details:" << endl;
-    for (int i = 0; i < min(static_cast<int>(distances.size()), 20); ++i) {
-        if (distances[i] != numeric_limits<int>::max() || i == current_state) {
-            bool is_goal = is_goal_state(i, abstract_goals, domain_sizes);
-            if (VERBOSE_DEBUG) cout << "  State " << i << ": distance=" << distances[i] 
-                 << (is_goal ? " (GOAL)" : "")
-                 << (i == current_state ? " (INITIAL)" : "") << endl;
-        }
-    }
+
     
     // Decode the initial state to understand what it represents
     if (current_state < num_states) {
@@ -1149,6 +1147,10 @@ void DomainAbstractionFactory::compute_abstract_plan(
         string decoded = decode_abstract_state(current_state, domain_sizes, 
                                               numeric_domain_mapping, hash_multipliers);
         cout << decoded << endl;
+    }
+
+    for (AbstractOperator abs_op : operators) {
+        abs_op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
     }
 
 
@@ -1183,8 +1185,17 @@ void DomainAbstractionFactory::compute_abstract_plan(
                             (distances[candidate_successor] == distances[current_state] && op.get_cost() == 0));
                     hash_effect = candidate_hash_effect;
                     successor_state = candidate_successor;
+                    cout << "Successor: " << decode_abstract_state(successor_state, domain_sizes,
+                                                      numeric_domain_mapping, hash_multipliers)
+                         << " with distance " << distances[successor_state] << endl;
                     lowest_so_far = distances[candidate_successor];
+                    
                 }
+            }
+
+            //enumerate abstract operators
+            for (AbstractOperator abs_op : operators) {
+
             }
 
             if (successor_state == -1) {
@@ -1244,11 +1255,21 @@ void DomainAbstractionFactory::compute_abstract_plan(
                     break; // Only add once per operator
                 }
             }
+
+            
             
            
             if (cheapest_operators.empty()) {
                 cout << "PLAN: No equivalent operators found from state " << current_state
                      << " to " << successor_state << "; aborting plan extraction." << endl;
+
+                string decoded_current_state = decode_abstract_state(current_state, domain_sizes,
+                                                      numeric_domain_mapping, hash_multipliers);
+                string decoded_successor_state = decode_abstract_state(successor_state, domain_sizes,
+                                                      numeric_domain_mapping, hash_multipliers);
+                cout << "  Current: " << decoded_current_state << endl;
+                cout << "  Successor: " << decoded_successor_state << endl;
+
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
             }
             
