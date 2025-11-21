@@ -662,12 +662,13 @@ vector<Fact> CEGAR::get_flaws(
     // Debug domain mapping
     const DomainMapping &dm = abstraction.get_domain_mapping();
     const NumericDomainMappingType &ndm = abstraction.get_numeric_domain_mapping();
-    if (false) {
+    if (true) {
         cout << "  Domain mapping (propositional):" << endl;
         for (size_t i = 0; i < dm.size(); ++i) {
             if (!dm[i].empty()) {
                 cout << "    var " << i << ": ";
                 for (size_t j = 0; j < dm[i].size(); ++j) {
+                    if (dm[i][j] == 0) continue;
                     cout << j << " -> " << dm[i][j] << ", ";
                 }
                 cout << endl;
@@ -1753,6 +1754,32 @@ DomainAbstraction CEGAR::build_abstraction(
         if (!all_valid) {
             cout << "CRITICAL ERROR: Numeric domain mapping validation failed!" << endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
+
+        if (true) {
+            cout << "  Domain mapping (propositional):" << endl;
+            for (size_t i = 0; i < domain_mapping.size(); ++i) {
+                if (!domain_mapping[i].empty()) {
+                    cout << "    var " << i << ": ";
+                    for (size_t j = 0; j < domain_mapping[i].size(); ++j) {
+                        if (domain_mapping[i][j] == 0) continue;
+                        cout << j << " -> " << domain_mapping[i][j] << ", ";
+                    }
+                    cout << endl;
+                }
+            }
+            cout << "  Domain mapping (numeric):" << endl;
+            for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
+                if (numeric_domain_mapping[i]->get_num_partitions() > 1) {
+                    cout << "    num var " << i << ": { ";
+                    for (size_t j = 0; j < numeric_domain_mapping[i]->get_num_partitions(); ++j) {
+                        int part_id = numeric_domain_mapping[i]->get_partition_index(j);
+                        NumericRange range = numeric_domain_mapping[i]->get_ranges()[part_id];
+                        cout << j << " -> (" << part_id << ") " << range.to_string() << " ";
+                    }   
+                    cout << "}" << endl;
+                }
+            }
         }
         
         DomainAbstractionFactory new_factory(

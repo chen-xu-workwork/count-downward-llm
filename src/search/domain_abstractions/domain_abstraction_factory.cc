@@ -365,6 +365,7 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
       cost(cost),
       pre(pre_pairs),
       regression_preconditions(prev_pairs) {
+
     regression_preconditions.insert(regression_preconditions.end(),
                                     eff_pairs.begin(), eff_pairs.end());
     // Sort preconditions for MatchTree construction.
@@ -395,7 +396,7 @@ void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_m
     int num_variables = task_proxy.get_variables().size();
 
     string op_name = task_proxy.get_operators()[concrete_op_id].get_name();
-    cout << op_name << " -- " << "ID: " << cost << endl;
+    cout << op_name << " -- " << endl;
     cout << "Preconditions: " << endl << "  ";
     for (const Fact &p : pre) {
         int var_id = p.var;
@@ -411,6 +412,8 @@ void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_m
     }
     cout << endl;
 
+    bool pre_value_was_negative = false;
+
     cout << "Effects: " << endl << "  ";
     for (const Fact &p : regression_preconditions) {
         int var_id = p.var;
@@ -423,19 +426,27 @@ void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_m
                 break;
             }
         }
+
+        if (pre_value == -1) {
+            pre_value_was_negative = true;
+        }
         //assert(pre_value != -1); // Think that should be correct.......
 
-        if (var_id >= num_variables && pre_value != -1) {
+        if (var_id >= num_variables) {
             string partition = numeric_domain_mapping[var_id - num_variables]->get_ranges()[value].to_string();
-            string pre_partition = numeric_domain_mapping[var_id - num_variables]->get_ranges()[pre_value].to_string();
+            string pre_partition = pre_value != -1 ? numeric_domain_mapping[var_id - num_variables]->get_ranges()[pre_value].to_string() : "N/A";
 
             cout << "num" << var_id - num_variables << " " << pre_partition << " -> " << partition << ", ";
 
         } else {
+            //string pre_value = pre_value_was_negative ? -1 : pre_value;
             cout << "var" << var_id << " " << pre_value << " -> " << value << ", ";
-        }        
+        }     
+        
+        
     }
     cout << endl;   
+
 }
 
 DomainAbstractionFactory::DomainAbstractionFactory (
@@ -913,8 +924,7 @@ void DomainAbstractionFactory::compute_distances(
                 task_proxy);
 
 
-            if (false) {
-                cout << "START" << endl;
+            if (true) {
             bool at_least_one_predecessor_valid = false;
             bool all_numeric_values_match = true;
 
@@ -924,7 +934,7 @@ void DomainAbstractionFactory::compute_distances(
                 string decoded_pred = 
                     decode_abstract_state(predecessor, domain_sizes, 
                                           numeric_domain_mapping, hash_multipliers);
-                cout << "  Checking predecessor: " << decoded_pred << endl;
+                //cout << "  Checking predecessor: " << decoded_pred << endl;
                 for (const Fact &p : pre) {
                     int var_id = p.var;
                     int expected_value = p.value;
@@ -945,7 +955,7 @@ void DomainAbstractionFactory::compute_distances(
                 }
                 
                 if (preconditions_satisfied) {
-                    cout << "    Preconditions satisfied for predecessor: " << decoded_pred << endl;
+                    //cout << "    Preconditions satisfied for predecessor: " << decoded_pred << endl;
                     at_least_one_predecessor_valid = true;
                     break;
                 }
@@ -985,7 +995,7 @@ void DomainAbstractionFactory::compute_distances(
                 }
 
 
-                exit(0);
+                //exit(0);
             }
             }
             
@@ -1251,9 +1261,9 @@ void DomainAbstractionFactory::compute_abstract_plan(
                             (distances[candidate_successor] == distances[current_state] && op.get_cost() == 0));
                     hash_effect = candidate_hash_effect;
                     successor_state = candidate_successor;
-                    cout << "Successor: " << decode_abstract_state(successor_state, domain_sizes,
-                                                      numeric_domain_mapping, hash_multipliers)
-                         << " with distance " << distances[successor_state] << endl;
+                    //cout << "Successor: " << decode_abstract_state(successor_state, domain_sizes,
+                    //                                  numeric_domain_mapping, hash_multipliers)
+                    //     << " with distance " << distances[successor_state] << endl;
                     lowest_so_far = distances[candidate_successor];
                     
                 }
@@ -1284,6 +1294,8 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 string decoded_state = decode_abstract_state(current_state, domain_sizes,
                                                       numeric_domain_mapping, hash_multipliers);
                 cout << "[ABSTRACT PLAN] " << decoded_state << ", " << op_name << endl;
+                //cout << "OP ID: " << op_id << endl;
+                //op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
             }
 
             // Compute equivalent ops

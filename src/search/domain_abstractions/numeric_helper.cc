@@ -17,6 +17,9 @@ using namespace numeric_condition;
 
 namespace domain_abstractions {
 
+static int debug_counter = 0;
+
+
 DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
     const shared_ptr<AbstractTask> &task,
     const DomainMapping &domain_mapping,
@@ -32,10 +35,9 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
       numeric_domain_sizes(numeric_domain_sizes),
       hash_multipliers(hash_multipliers) {
 
-    static int construction_count = 0;
-    construction_count++;
-    if (construction_count == 3) {
-        //exit(0);
+    debug_counter++;
+    if (debug_counter == 4) {
+        exit(0);
     }
     
     // Verify this is a valid numeric task
@@ -505,6 +507,43 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                     changed_numeric_vars.push_back(num_var_id);
                     source_partitions_list.push_back(trans.source_partition_facts[i].value);
                     target_partitions_list.push_back(trans.target_partition_facts[i].value);
+                }
+
+                if (operators.size() == 209 && debug_counter == 2) {
+                    string op_name = op.get_name();
+                    cout << "[DEBUG] Creating AbstractOperator for op " << op_name << " ID " << concrete_op_id << endl;
+                    cout << "  Prevail: ";
+                    for (const Fact &f : extended_prev_pairs) {
+                        cout << "(var" << f.var << " = " << f.value << ") ";
+                    }
+                    cout << endl;
+
+                    cout << "  Pre: ";
+                    for (const Fact &f : extended_pre_pairs) {
+                        cout << "(var" << f.var << " = " << f.value << ") ";
+                    }
+                    cout << endl;
+
+                    cout << "  Eff: ";
+                    for (const Fact &f : extended_eff_pairs) {
+                        cout << "(var" << f.var << " = " << f.value << ") ";
+                    }
+                    cout << endl;
+
+                    //print concrete preconditions and effects
+                    cout << "  Concrete Pre: ";
+                    for (FactProxy pre : op.get_preconditions()) {
+                        cout << "(var" << pre.get_variable().get_id() << " = " << pre.get_value() << ") ";
+                    }
+                    cout << endl;
+
+                    cout << "  Concrete Eff: ";
+                    for (EffectProxy eff : op.get_effects()) {
+                        //cout << "(var" << eff.get_variable().get_id() << " = " << eff.get_value() << ") ";
+                    }
+                    cout << endl;
+
+                    //exit(0);
                 }
 
                 operators.emplace_back(
