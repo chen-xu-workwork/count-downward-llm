@@ -37,7 +37,7 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
 
     debug_counter++;
     if (debug_counter == 11) {
-        exit(0);
+        //exit(0);
     }
     
     // Verify this is a valid numeric task
