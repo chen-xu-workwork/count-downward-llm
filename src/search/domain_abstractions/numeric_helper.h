@@ -265,7 +265,7 @@ private:
      * This implements the multiply_out pattern from the factory.
      */
     void multiply_out_propositional(
-        int pos, int cost,
+        int pos, ap_float cost,
         std::vector<Fact> &prev_pairs,
         std::vector<Fact> &pre_pairs,
         std::vector<Fact> &eff_pairs,

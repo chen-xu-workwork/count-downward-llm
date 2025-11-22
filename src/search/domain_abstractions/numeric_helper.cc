@@ -444,7 +444,7 @@ void DomainAbstractionNumericHelper::enumerate_abstract_transitions(
 }
 
 void DomainAbstractionNumericHelper::multiply_out_propositional(
-    int pos, int cost, vector<Fact> &prev_pairs,
+    int pos, ap_float cost, vector<Fact> &prev_pairs,
     vector<Fact> &pre_pairs,
     vector<Fact> &eff_pairs,
     const vector<Fact> &effects_without_pre,
