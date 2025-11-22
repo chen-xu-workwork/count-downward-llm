@@ -36,7 +36,7 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
       hash_multipliers(hash_multipliers) {
 
     debug_counter++;
-    if (debug_counter == 4) {
+    if (debug_counter == 11) {
         exit(0);
     }
     

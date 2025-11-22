@@ -1058,7 +1058,7 @@ void DomainAbstractionFactory::compute_distances(
     iteration_count++;
     
     // DEBUG: Print table of core variables for all states
-    if (false) {
+    if (true) {
         cout << "\n=== TABLE OF CORE VARIABLES FOR ALL " << num_states << " STATES ===\n";
         
         // First, identify which propositional variables are derived from axioms
@@ -1163,6 +1163,7 @@ void DomainAbstractionFactory::compute_distances(
             }
             
             cout << "\n";
+            break;
         }
         cout << "\n";
     }

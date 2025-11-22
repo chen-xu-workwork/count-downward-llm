@@ -210,6 +210,41 @@ SearchStatus EagerSearch::step() {
 //            ap_float succ_h = 4;
 //  was before:
             ap_float succ_h = eval_context.get_heuristic_value(heuristics[0]);
+
+            ap_float f_value = succ_g + succ_h;
+
+
+            if (false) {
+                // print propositional variables for debugging
+                cout << "Propositional variables:" << endl;
+                vector<int> comparison_var_ids;
+                
+                // Build a list of all comparison axiom variable IDs (prop var ids)
+                const shared_ptr<AbstractTask> task = g_root_task();
+                TaskProxy task_proxy(*task);
+                ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+                comparison_var_ids.reserve(comparison_axioms.size());
+                for (ComparisonAxiomProxy ax : comparison_axioms) {
+                    comparison_var_ids.push_back(ax.get_true_fact().get_variable().get_id());
+                }
+
+                VariablesProxy vars = task_proxy.get_variables();
+                for (size_t i = 0; i < g_variable_domain.size(); ++i) {
+                    if (g_variable_domain[i] > 1) {
+                        string var_name = (i < vars.size()) ? vars[i].get_name() : string("<unknown>");
+                        if (find(comparison_var_ids.begin(), comparison_var_ids.end(), (int)i) != comparison_var_ids.end()) {
+                            continue; // skip comparison axiom variables
+                        }
+                        cout << "  var" << i << " (" << var_name << "): " << succ_state[i] << endl;
+
+                    }
+                }
+                cout << "Heuristic value:" << succ_h << endl;
+                cout << "g value:" << succ_g << endl;
+                cout << "f value:" << f_value << endl; 
+                exit(0);
+            }
+
             if (PLAN_VIS_LOG == plan_vis_log) h_time.stop();
 
             succ_node.open(node, op);

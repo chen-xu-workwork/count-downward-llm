@@ -24,7 +24,7 @@ int DomainAbstraction::hash_index(const vector<int> &state) const {
 }
 
 int DomainAbstraction::get_value(const State &state) const {
-    if (!has_numeric_variables) {
+    if (!has_numeric_variables && false) {
         // Purely propositional case - use direct hash indexing
         // Build the abstract state from the concrete state (only propositional variables)
         vector<int> abstract_state(state.size());
@@ -34,6 +34,7 @@ int DomainAbstraction::get_value(const State &state) const {
         
         // Compute the hash index for the abstract state
         int index = hash_index(abstract_state);
+
         
         // Return the distance value from the distances vector
         return distances[index];
@@ -93,8 +94,7 @@ int DomainAbstraction::get_value(const State &state) const {
             }
             cout << "  State hash: " << state_hash << "\n";
         }
-        
-        
+
         // Create DomainAbstractionState and look it up in state registry
         DomainAbstractionState abs_state(state_hash);
         
