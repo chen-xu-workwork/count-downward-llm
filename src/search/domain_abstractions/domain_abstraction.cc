@@ -7,11 +7,73 @@
 
 #include <algorithm>
 #include <limits>
+#include <sstream>
+#include <iomanip>
 
 using namespace std;
 using namespace numeric_pdbs;
 
 namespace domain_abstractions {
+
+// Helper: compute propositional domain sizes from DomainMapping
+static std::vector<int> get_domain_sizes_from_mapping(const DomainMapping &domain_mapping) {
+    std::vector<int> domain_sizes;
+    domain_sizes.reserve(domain_mapping.size());
+    for (const auto &map_vec : domain_mapping) {
+        if (map_vec.empty()) {
+            domain_sizes.push_back(1);
+        } else {
+            int max_val = 0;
+            for (int v : map_vec) {
+                if (v > max_val) max_val = v;
+            }
+            domain_sizes.push_back(max_val + 1);
+        }
+    }
+    return domain_sizes;
+}
+
+// Decode an abstract state index into a human-readable string representation.
+// This mirrors the implementation in DomainAbstractionFactory::decode_abstract_state
+static std::string decode_abstract_state(int state_index, const std::vector<int> &domain_sizes,
+                                         const NumericDomainMappingType &numeric_domain_mapping,
+                                         const std::vector<int> &hash_multipliers) {
+    std::stringstream ss;
+    ss << "State " << state_index << ": [";
+    int remaining = state_index;
+    // Propositional variables
+    for (size_t var_id = 0; var_id < domain_sizes.size(); ++var_id) {
+        if (domain_sizes[var_id] <= 1) continue;
+        int multiplier = hash_multipliers[var_id];
+        int value = (remaining / multiplier) % domain_sizes[var_id];
+        ss << "v" << var_id << "=" << value;
+        if (var_id < domain_sizes.size() - 1 || !numeric_domain_mapping.empty()) ss << ", ";
+    }
+    // Numeric partitions
+    for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+        if (numeric_domain_mapping[num_var_id]->get_num_partitions() <= 1) continue;
+        int multiplier_idx = domain_sizes.size() + num_var_id;
+        int multiplier = hash_multipliers[multiplier_idx];
+        int num_partitions = numeric_domain_mapping[num_var_id]->get_num_partitions();
+        int partition = (remaining / multiplier) % num_partitions;
+        const NumericRange *rng = numeric_domain_mapping[num_var_id]->get_range_for_partition(partition);
+        if (rng) {
+            ap_float lower = rng->lower;
+            ap_float upper = rng->upper;
+            bool lower_incl = rng->lower_inclusive;
+            bool upper_incl = rng->upper_inclusive;
+            std::string lower_str = lower_incl ? "[" : "(";
+            std::string upper_str = upper_incl ? "]" : ")";
+            ss << "num" << num_var_id << "=" << lower_str << lower << "," << upper << upper_str;
+        } else {
+            ss << "num" << num_var_id << "=INVALID";
+        }
+        if (num_var_id < numeric_domain_mapping.size() - 1) ss << ", ";
+    }
+    ss << "]";
+    return ss.str();
+}
+
 
 int DomainAbstraction::hash_index(const vector<int> &state) const {
     int index = 0;
@@ -98,7 +160,50 @@ int DomainAbstraction::get_value(const State &state) const {
         // Create DomainAbstractionState and look it up in state registry
         DomainAbstractionState abs_state(state_hash);
         
+        assert(state_hash < distances.size() && state_hash >= 0);
         int distance = distances[state_hash];
+
+        if (false) {
+            for (size_t i = 0; i < distances.size(); ++i) {
+                string dec = decode_abstract_state(i, 
+                                            get_domain_sizes_from_mapping(domain_mapping), 
+                                            numeric_domain_mapping, 
+                                            hash_multipliers);
+
+                int sum = 0;
+
+
+
+                cout << "distance[" << i << "] = " << distances[i] << " -> " << dec << endl;
+            }
+            exit(0);
+        }
+
+        bool is_concrete_goal = true;
+        for (FactProxy goal : task_proxy.get_goals()) {
+            int var_id = goal.get_variable().get_id();
+            if (state[var_id].get_value() != goal.get_value()) {
+                is_concrete_goal = false;
+                break;
+            }
+        }
+
+        if (!is_concrete_goal) {
+            distance = std::max(distance, 1);
+        }
+        
+        ap_float va33 = state[33].get_value() == 11;
+        ap_float va34 = state[34].get_value() == 10;
+        ap_float va35 = state[35].get_value() == 12;
+        ap_float va36 = state[36].get_value() == 5;
+        ap_float va37 = state[37].get_value() == 8;
+        ap_float va38 = state[38].get_value() == 7;
+
+        int distance2 = static_cast<int>(va33 + va34 + va35 + va36 + va37 + va38);
+        //cout << "Computed distance: " << distance << " vs " << distance2 << endl;
+
+        
+
         
         return distance;
     }
