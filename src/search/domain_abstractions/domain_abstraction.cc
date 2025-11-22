@@ -85,7 +85,7 @@ int DomainAbstraction::hash_index(const vector<int> &state) const {
     return index;
 }
 
-int DomainAbstraction::get_value(const State &state) const {
+ap_float DomainAbstraction::get_value(const State &state) const {
     if (!has_numeric_variables && false) {
         // Purely propositional case - use direct hash indexing
         // Build the abstract state from the concrete state (only propositional variables)
@@ -161,7 +161,7 @@ int DomainAbstraction::get_value(const State &state) const {
         DomainAbstractionState abs_state(state_hash);
         
         assert(state_hash < distances.size() && state_hash >= 0);
-        int distance = distances[state_hash];
+        ap_float distance = distances[state_hash];
 
         if (false) {
             for (size_t i = 0; i < distances.size(); ++i) {
@@ -189,22 +189,9 @@ int DomainAbstraction::get_value(const State &state) const {
         }
 
         if (!is_concrete_goal) {
-            distance = std::max(distance, 1);
+            distance = std::max(distance, min_operator_cost);
         }
-        
-        ap_float va33 = state[33].get_value() == 11;
-        ap_float va34 = state[34].get_value() == 10;
-        ap_float va35 = state[35].get_value() == 12;
-        ap_float va36 = state[36].get_value() == 5;
-        ap_float va37 = state[37].get_value() == 8;
-        ap_float va38 = state[38].get_value() == 7;
 
-        int distance2 = static_cast<int>(va33 + va34 + va35 + va36 + va37 + va38);
-        //cout << "Computed distance: " << distance << " vs " << distance2 << endl;
-
-        
-
-        
         return distance;
     }
 }

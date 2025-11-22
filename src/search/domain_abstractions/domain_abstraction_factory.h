@@ -24,7 +24,7 @@ class AbstractOperator {
     */
     int concrete_op_id;
     int hash_effect;
-    int cost;
+    ap_float cost;
 
     /*
       Preconditions for the regression search, corresponds to normal
@@ -64,7 +64,7 @@ public:
   AbstractOperator(const std::vector<Fact> &prev_pairs,
                     const std::vector<Fact> &pre_pairs,
                     const std::vector<Fact> &eff_pairs,
-                    int cost,
+                    ap_float cost,
                     const std::vector<int> &hash_multipliers,
                     int concrete_op_id);
     
@@ -96,7 +96,7 @@ public:
       Returns the cost of the abstract operator (same as the cost of
       the original concrete operator)
     */
-    int get_cost() const {return cost;}
+    ap_float get_cost() const {return cost;}
     
     /*
       Returns information about numeric variable transitions for cascade enumeration.
@@ -134,9 +134,9 @@ class DomainAbstractionFactory {
     
     /*
       final h-values for abstract-states.
-      dead-ends are represented by numeric_limits<int>::max()
+      dead-ends are represented by numeric_limits<ap_float>::max()
     */
-    std::vector<int> distances;
+    std::vector<ap_float> distances;
 
     std::vector<int> generating_op_ids;
     std::vector<std::vector<int>> wildcard_plan;

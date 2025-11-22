@@ -22,7 +22,7 @@ class DomainAbstraction {
     NumericDomainMappingType numeric_domain_mapping;
     
     std::vector<int> hash_multipliers;
-    std::vector<int> distances;
+    std::vector<ap_float> distances;
     // TODO: get rid of this here and return it from the factory optionally.
     std::vector<std::vector<int>> wildcard_plan;
     
@@ -32,6 +32,7 @@ class DomainAbstraction {
     TaskProxy task_proxy;
     
     bool has_numeric_variables;
+    ap_float min_operator_cost;
 
     int hash_index(const std::vector<int> &state) const;
 
@@ -39,7 +40,7 @@ public:
     DomainAbstraction(DomainMapping &&domain_mapping,
                       NumericDomainMappingType &&numeric_domain_mapping, 
                       std::vector<int> &&hash_multipliers,
-                      std::vector<int> &&distances,
+                      std::vector<ap_float> &&distances,
                       std::vector<std::vector<int>> &&wildcard_plan,
                       std::unique_ptr<DomainAbstractionStateRegistry> &&state_registry,
                       const TaskProxy &task_proxy
@@ -50,13 +51,18 @@ public:
           distances(std::move(distances)),
           wildcard_plan(std::move(wildcard_plan)),
           task_proxy(task_proxy),
-          has_numeric_variables(false) {
+          has_numeric_variables(false),
+          min_operator_cost(std::numeric_limits<ap_float>::max()) {
         // Check if any numeric variable has non-trivial partitioning
         for (const auto &num_mapping : this->numeric_domain_mapping) {
             if (num_mapping->get_ranges().size() > 1) {
                 has_numeric_variables = true;
                 break;
             }
+        }
+        // Compute minimum operator cost
+        for (OperatorProxy op : task_proxy.get_operators()) {
+            min_operator_cost = std::min(min_operator_cost, op.get_cost());
         }
     }
 
@@ -76,7 +82,7 @@ public:
         return numeric_domain_mapping;
     }
 
-    int get_value(const State &state) const;
+    ap_float get_value(const State &state) const;
 
     std::vector<std::vector<int>> get_plan() const {
         return wildcard_plan;
@@ -86,11 +92,15 @@ public:
         return distances.size();
     }
     
-    int get_distance_by_index(int index) const {
+    ap_float get_distance_by_index(int index) const {
         if (index >= 0 && index < static_cast<int>(distances.size())) {
             return distances[index];
         }
-        return std::numeric_limits<int>::max();
+        return std::numeric_limits<ap_float>::max();
+    }
+    
+    ap_float get_min_operator_cost() const {
+        return min_operator_cost;
     }
 
     void dump(utils::LogProxy &log) const;

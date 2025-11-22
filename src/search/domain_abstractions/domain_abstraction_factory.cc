@@ -358,7 +358,7 @@ static bool is_state_goal_feasible(
 AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
                                    const vector<Fact> &pre_pairs,
                                    const vector<Fact> &eff_pairs,
-                                   int cost,
+                                   ap_float cost,
                                    const vector<int> &hash_multipliers,
                                    int concrete_op_id)
     : concrete_op_id(concrete_op_id),
@@ -852,10 +852,10 @@ void DomainAbstractionFactory::compute_distances(
                 pq.push(0, state_index);
                 distances.push_back(0);
             } else {
-                distances.push_back(numeric_limits<int>::max());
+                distances.push_back(numeric_limits<ap_float>::max());
             }
         } else {
-            distances.push_back(numeric_limits<int>::max());
+            distances.push_back(numeric_limits<ap_float>::max());
         }
     }
 
@@ -910,7 +910,7 @@ void DomainAbstractionFactory::compute_distances(
         int operators_checked = 0;
         for (int op_id : applicable_operator_ids) {
             const AbstractOperator &op = operators[op_id];
-            int alternative_cost = distances[state_index] + op.get_cost();
+            ap_float alternative_cost = distances[state_index] + op.get_cost();
             
             // Iterate over all possible hash effects (predecessors)
             // Propositional operators have 1 effect, numeric operators have multiple
@@ -1130,7 +1130,7 @@ void DomainAbstractionFactory::compute_distances(
         
         // Print each state
         for (int state_hash = 0; state_hash < num_states; ++state_hash) {
-            if (distances[state_hash] == numeric_limits<int>::max()) {
+            if (distances[state_hash] == numeric_limits<ap_float>::max()) {
                 // Skip unreachable states for brevity
                 continue;
             }
@@ -1138,8 +1138,8 @@ void DomainAbstractionFactory::compute_distances(
             cout << setw(5) << state_hash << " | ";
             
             // Distance
-            int dist = distances[state_hash];
-            if (dist == numeric_limits<int>::max()) {
+            ap_float dist = distances[state_hash];
+            if (dist == numeric_limits<ap_float>::max()) {
                 cout << setw(8) << "INF";
             } else {
                 cout << setw(8) << dist;
@@ -1210,8 +1210,8 @@ void DomainAbstractionFactory::compute_abstract_plan(
     
     // Count how many states are reachable (have finite distance)
     int reachable_count = 0;
-    for (int d : distances) {
-        if (d != numeric_limits<int>::max()) {
+    for (ap_float d : distances) {
+        if (d != numeric_limits<ap_float>::max()) {
             reachable_count++;
         }
     }
@@ -1231,7 +1231,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
     //}
 
 
-    if (distances[current_state] != numeric_limits<int>::max()) {
+    if (distances[current_state] != numeric_limits<ap_float>::max()) {
         int plan_step = 0;
         cout << "PLAN: Executing abstract plan..." << endl;
         while (!is_goal_state(current_state, abstract_goals, domain_sizes)) {
