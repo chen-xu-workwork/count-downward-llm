@@ -141,7 +141,6 @@ private:
     NumericDomainMappingType compute_initial_numeric_domain_mapping(
         const TaskProxy &task_proxy);
     
-    void build_comparison_axiom_mapping(const TaskProxy &task_proxy);
     
     // Debug: print axiom dependency trees
     void print_cegar_axiom_trees(const TaskProxy &task_proxy,
@@ -176,6 +175,8 @@ public:
           unordered_set<int> &&blacklisted_variables);
 
     DomainAbstraction build_abstraction(const TaskProxy &task_proxy);
+    void build_comparison_axiom_mapping(const TaskProxy &task_proxy);
+
 };
 
 CEGAR::CEGAR(
@@ -468,10 +469,11 @@ pair<int, vector<int>> CEGAR::get_random_init_goal_partition_split(
     return make_pair(1, vector<int>{});
 }
 
-static vector<Fact> get_precondition_flaws(
+static pair<vector<Fact>, vector<vector<Fact>>> get_precondition_flaws(
     const OperatorProxy &op, const vector<int> &current_state,
-    const unordered_set<int> &blacklisted_variables) {
+    const unordered_set<int> &blacklisted_variables, std::unordered_map<int, std::unordered_set<int>> deps) {
     vector<Fact> flaws;
+    vector<vector<Fact>> dep_flaws;
     for (FactProxy pre : op.get_preconditions()) {
         int var_id = pre.get_variable().get_id();
         if (blacklisted_variables.count(var_id) == 0
@@ -479,7 +481,8 @@ static vector<Fact> get_precondition_flaws(
             flaws.emplace_back(var_id, pre.get_value());
         }
     }
-    return flaws;
+
+    return make_pair(flaws, dep_flaws);
 }
 
 // Helper function to check if a variable is derived (appears in axiom effects)
@@ -704,10 +707,12 @@ vector<Fact> CEGAR::get_flaws(
             
             
             // Check propositional preconditions
-            vector<Fact> operator_flaws =
+            pair<vector<Fact>, vector<vector<Fact>>> flaw_data =
                 get_precondition_flaws(
-                    op, current_state, blacklisted_variables);
+                    op, current_state, blacklisted_variables, comparison_axiom_dependencies);
 
+            vector<Fact> operator_flaws = flaw_data.first;
+            vector<vector<Fact>> regular_numeric_flaws = flaw_data.second;
             if (operator_flaws.empty()) {
                 // Propositional preconditions satisfied - apply operator
                 flaws.clear();
@@ -1282,22 +1287,14 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         int derived_id = axiom.get_assignment_variable().get_id();
         int left_id = axiom.get_left_variable().get_id();
         int right_id = axiom.get_right_variable().get_id();
+
+        assert(derived_id >= 0 && derived_id < num_numeric_vars);
+        assert(left_id >= 0 && left_id < num_numeric_vars);
+        assert(right_id >= 0 && right_id < num_numeric_vars);
         
-        if (derived_id >= 0 && derived_id < num_numeric_vars) {
-            is_derived[derived_id] = true;
-            
-            if (left_id >= 0) {
-                axiom_dependencies[derived_id].push_back(left_id);
-            }
-            if (right_id >= 0 && right_id != left_id) {
-                axiom_dependencies[derived_id].push_back(right_id);
-            }
-            
-            if (derived_id == 70 || derived_id == 21 || derived_id == 37 || derived_id == 66) {
-                cout << "DEBUG AXIOM MAP:   Axiom: num_" << derived_id << " := num_" 
-                     << left_id << " op num_" << right_id << endl;
-            }
-        }
+        is_derived[derived_id] = true;
+        axiom_dependencies[derived_id].push_back(left_id);
+        axiom_dependencies[derived_id].push_back(right_id);
     }
     
     // Helper function to recursively find all regular (non-derived) variables
@@ -1305,9 +1302,7 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
     auto find_regular_dependencies = [&](int var_id, auto& find_regular_dependencies_ref) -> unordered_set<int> {
         unordered_set<int> regular_vars;
         
-        if (var_id < 0 || var_id >= num_numeric_vars) {
-            return regular_vars;
-        }
+        assert(var_id >= 0 && var_id < num_numeric_vars);
         
         if (!is_derived[var_id]) {
             // This is a regular variable - add it
@@ -1337,9 +1332,8 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         // Get the propositional variable created by this comparison axiom
         FactProxy true_fact = axiom.get_true_fact();
         FactProxy false_fact = axiom.get_false_fact();
-
-        
         assert(true_fact.get_variable().get_id() == false_fact.get_variable().get_id());
+        
         int prop_var_id = true_fact.get_variable().get_id();
         
         cout << "DEBUG: Processing comparison axiom for fdr_" << prop_var_id 
@@ -1348,19 +1342,17 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         // Get the numeric variables used in the comparison (may be derived!)
         int left_var_id = axiom.get_left_variable().get_id();
         int right_var_id = axiom.get_right_variable().get_id();
+        assert(left_var_id >= 0 && left_var_id < num_numeric_vars);
+        assert(right_var_id >= 0 && right_var_id < num_numeric_vars);
         
         // Trace through to find regular variables
         unordered_set<int> regular_vars;
         
-        if (left_var_id >= 0) {
-            unordered_set<int> left_deps = find_regular_dependencies(left_var_id, find_regular_dependencies);
-            regular_vars.insert(left_deps.begin(), left_deps.end());
-        }
+        unordered_set<int> left_deps = find_regular_dependencies(left_var_id, find_regular_dependencies);
+        regular_vars.insert(left_deps.begin(), left_deps.end());
         
-        if (right_var_id >= 0) {
-            unordered_set<int> right_deps = find_regular_dependencies(right_var_id, find_regular_dependencies);
-            regular_vars.insert(right_deps.begin(), right_deps.end());
-        }
+        unordered_set<int> right_deps = find_regular_dependencies(right_var_id, find_regular_dependencies);
+        regular_vars.insert(right_deps.begin(), right_deps.end());
         
         // Store the mapping
         comparison_axiom_dependencies[prop_var_id] = regular_vars;
@@ -1376,19 +1368,6 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
             cout << "num_" << reg_var << " ";
         }
         cout << "}" << endl;
-        
-        // Store comparison info (operator and variable IDs for threshold extraction)
-        ComparisonInfo info;
-        info.left_var_id = left_var_id;
-        info.right_var_id = right_var_id;
-        info.comp_op = static_cast<int>(axiom.get_comparison_operator_type());
-        comparison_axiom_info[prop_var_id] = info;
-        
-        cout << "DEBUG: Stored mapping for fdr_" << prop_var_id << " -> {";
-        for (int reg_var : regular_vars) {
-            cout << "num_" << reg_var << " ";
-        }
-        cout << "} with operator=" << info.comp_op << endl;
     }
     
     cout << "DEBUG: Total comparison axiom dependencies stored: " 
@@ -1557,6 +1536,7 @@ DomainAbstraction CEGAR::build_abstraction(
         comparison_axiom_var_ids.insert(var_id);
     }
     
+    // NOTE: There are always 2 logic axioms that we ignore
     // Now blacklist all axiom variables that are NOT comparison axioms
     cout << "Blacklisting logic axiom variables:" << endl;
     for (OperatorProxy axiom : task_proxy.get_axioms()) {
@@ -1610,8 +1590,7 @@ DomainAbstraction CEGAR::build_abstraction(
     numeric_domain_mapping = compute_initial_numeric_domain_mapping(task_proxy);
     numeric_domain_sizes.resize(numeric_domain_mapping.size(), 1);
     
-    // Build mapping from comparison axiom propositional variables to numeric variables
-    build_comparison_axiom_mapping(task_proxy);
+
     
     // DEBUG: Print all comparison axiom mappings
     cout << "DEBUG: Comparison axiom mappings:" << endl;
@@ -2121,16 +2100,8 @@ bool CEGAR::fix_numeric_flaws(
         // Check if this flaw came from an equality comparison
         // Look up the comparison axiom info that we built during abstraction construction
         auto comp_it = comparison_axiom_info.find(prop_var_id);
-        if (comp_it != comparison_axiom_info.end()) {
-            const ComparisonInfo &comp_info = comp_it->second;
-        }
         
-        if (split_value == 984.95) {
-            cout << "DEBUG: Considering numeric flaw on num_" << numeric_var_id 
-                 << " at value " << concrete_value << endl;
-            cout << "Can refine numeric variable " << split_var_id << "? "
-                 << (can_refine_numeric_variable(abstraction_size, split_var_id, task_proxy) ? "YES" : "NO") << endl;
-        }
+       
         if (can_refine_numeric_variable(abstraction_size, split_var_id, task_proxy)) {
             // Bounds check
             if (split_var_id < 0 || split_var_id >= (int)numeric_domain_mapping.size()) {
@@ -2215,7 +2186,10 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         rng,
         task_proxy,
         move(init_split_var_ids),
-        move(blacklisted_variables));        
+        move(blacklisted_variables));  
+        
+    // Build mapping from comparison axiom propositional variables to numeric variables
+    cegar.build_comparison_axiom_mapping(task_proxy);
 
     return cegar.build_abstraction(task_proxy);
 }
