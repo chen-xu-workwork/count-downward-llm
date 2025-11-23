@@ -678,10 +678,11 @@ vector<Fact> CEGAR::get_flaws(
         for (size_t i = 0; i < ndm.size(); ++i) {
             if (ndm[i]->get_num_partitions() > 1) {
                 cout << "    num var " << i << ": { ";
-                for (size_t j = 0; j < ndm[i]->get_num_partitions(); ++j) {
-                    int part_id = ndm[i]->get_partition_index(j);
-                    NumericRange range = ndm[i]->get_ranges()[part_id];
-                    cout << j << " -> (" << part_id << ") " << range.to_string() << " ";
+                // Iterate through actual ranges and show partition assignment
+                const auto &ranges = ndm[i]->get_ranges();
+                for (size_t range_idx = 0; range_idx < ranges.size(); ++range_idx) {
+                    const NumericRange &range = ranges[range_idx];
+                    cout << "partition " << range.partition_index << ": " << range.to_string() << " ";
                 }   
                 cout << "}" << endl;
             }
@@ -1772,10 +1773,11 @@ DomainAbstraction CEGAR::build_abstraction(
             for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
                 if (numeric_domain_mapping[i]->get_num_partitions() > 1) {
                     cout << "    num var " << i << ": { ";
-                    for (size_t j = 0; j < numeric_domain_mapping[i]->get_num_partitions(); ++j) {
-                        int part_id = numeric_domain_mapping[i]->get_partition_index(j);
-                        NumericRange range = numeric_domain_mapping[i]->get_ranges()[part_id];
-                        cout << j << " -> (" << part_id << ") " << range.to_string() << " ";
+                    // Iterate through actual ranges and show partition assignment
+                    const auto &ranges = numeric_domain_mapping[i]->get_ranges();
+                    for (size_t range_idx = 0; range_idx < ranges.size(); ++range_idx) {
+                        const NumericRange &range = ranges[range_idx];
+                        cout << "partition " << range.partition_index << ": " << range.to_string() << " ";
                     }   
                     cout << "}" << endl;
                 }
