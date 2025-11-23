@@ -68,7 +68,7 @@ private:
     
     // Temporary storage for numeric flaws detected in get_flaws()
     // (mutable because get_flaws is const but needs to store flaws)
-    mutable std::vector<NumericFlaw> detected_numeric_flaws;
+    mutable std::vector<std::vector<NumericFlaw>> detected_numeric_flaws;
     
     // Track which propositional flaws we actually chose/refined in this iteration.
     // Used to restrict numeric refinements to only those caused by the selected propositional flaws.
@@ -207,7 +207,7 @@ CEGAR::CEGAR(
 
     for (size_t i = 0; i < task_proxy.get_numeric_variables().size(); ++i) {
         NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
-        if (num_var.get_var_type() == numType::regular) {
+        if (num_var.get_var_type() == numType::regular || num_var.get_var_type() == numType::constant) {
             local_to_global_regular_numeric_var_ids.push_back(i);
             vector<ap_float> empty_vector;
             already_split.push_back(empty_vector);
@@ -469,20 +469,27 @@ pair<int, vector<int>> CEGAR::get_random_init_goal_partition_split(
     return make_pair(1, vector<int>{});
 }
 
-static pair<vector<Fact>, vector<vector<Fact>>> get_precondition_flaws(
+static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_precondition_flaws(
     const OperatorProxy &op, const vector<int> &current_state,
     const unordered_set<int> &blacklisted_variables, std::unordered_map<int, std::unordered_set<int>> deps) {
     vector<Fact> flaws;
-    vector<vector<Fact>> dep_flaws;
+    vector<vector<pair<int, ap_float>>> regular_numeric_flaws;
     for (FactProxy pre : op.get_preconditions()) {
         int var_id = pre.get_variable().get_id();
         if (blacklisted_variables.count(var_id) == 0
             && current_state[var_id] != pre.get_value()) {
             flaws.emplace_back(var_id, pre.get_value());
+            regular_numeric_flaws.emplace_back();
+            regular_numeric_flaws.back().reserve(deps[var_id].size());
+            for (int dep_var_id : deps[var_id]) {
+                ap_float concrete_value = current_state[dep_var_id];
+                regular_numeric_flaws.back().emplace_back(dep_var_id, concrete_value); 
+            }
+
         }
     }
 
-    return make_pair(flaws, dep_flaws);
+    return make_pair(flaws, regular_numeric_flaws);
 }
 
 // Helper function to check if a variable is derived (appears in axiom effects)
@@ -497,10 +504,12 @@ static bool is_derived_variable(const TaskProxy &task_proxy, int var_id) {
     return false;
 }
 
-static vector<Fact> get_goal_flaws(
+static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_goal_flaws(
     const TaskProxy &task_proxy, const vector<int> &current_state,
-    const unordered_set<int> &blacklisted_variables) {
+    const unordered_set<int> &blacklisted_variables,
+    std::unordered_map<int, std::unordered_set<int>> deps) {
     vector<Fact> flaws;
+    vector<vector<pair<int, ap_float>>> regular_numeric_flaws;
     
     // First, collect non-derived goals directly
     for (const FactProxy &goal : task_proxy.get_goals()) {
@@ -509,6 +518,12 @@ static vector<Fact> get_goal_flaws(
             if (blacklisted_variables.count(var_id) == 0
                 && current_state[var_id] != goal.get_value()) {
                 flaws.emplace_back(var_id, goal.get_value());
+                regular_numeric_flaws.emplace_back();
+                regular_numeric_flaws.back().reserve(deps[var_id].size());
+                for (int dep_var_id : deps[var_id]) {
+                    ap_float concrete_value = current_state[dep_var_id];
+                    regular_numeric_flaws.back().emplace_back(dep_var_id, concrete_value);
+                }
             }
         }
     }
@@ -527,12 +542,18 @@ static vector<Fact> get_goal_flaws(
                 if (blacklisted_variables.count(var_id) == 0
                     && current_state[var_id] != pre.get_value()) {
                     flaws.emplace_back(var_id, pre.get_value());
+                    regular_numeric_flaws.emplace_back();
+                    regular_numeric_flaws.back().reserve(deps[var_id].size());
+                    for (int dep_var_id : deps[var_id]) {
+                        ap_float concrete_value = current_state[dep_var_id];
+                        regular_numeric_flaws.back().emplace_back(dep_var_id, concrete_value);
+                    }
                 }
             }
         }
     }
     
-    return flaws;
+    return make_pair(flaws, regular_numeric_flaws);
 }
 
 /*
@@ -649,7 +670,7 @@ vector<Fact> CEGAR::get_flaws(
     for (size_t i = 0; i < local_to_global_regular_numeric_var_ids.size(); ++i) {
         int var_id = local_to_global_regular_numeric_var_ids[i];
         NumericVariableProxy num_var = task_proxy.get_numeric_variables()[var_id];
-        if (num_var.get_var_type() == numType::regular) {
+        if (num_var.get_var_type() == numType::regular || num_var.get_var_type() == numType::constant) {
             vector<ap_float> values;
             if (i < already_split.size() && 
                 find(already_split[i].begin(), already_split[i].end(),
@@ -707,12 +728,12 @@ vector<Fact> CEGAR::get_flaws(
             
             
             // Check propositional preconditions
-            pair<vector<Fact>, vector<vector<Fact>>> flaw_data =
+            pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> flaw_data =
                 get_precondition_flaws(
                     op, current_state, blacklisted_variables, comparison_axiom_dependencies);
 
             vector<Fact> operator_flaws = flaw_data.first;
-            vector<vector<Fact>> regular_numeric_flaws = flaw_data.second;
+            vector<vector<pair<int, ap_float>>> regular_numeric_flaws = flaw_data.second;
             if (operator_flaws.empty()) {
                 // Propositional preconditions satisfied - apply operator
                 flaws.clear();
@@ -739,63 +760,55 @@ vector<Fact> CEGAR::get_flaws(
                 break;
             } else {
                 // We have precondition flaws
-                // KEY PRINCIPLE: Only add numeric flaws for comparison axioms that appear as precondition flaws
-                
                 // Check if any precondition flaw is on a comparison axiom variable
-                for (Fact &flaw : operator_flaws) {
-                    auto it = comparison_axiom_dependencies.find(flaw.var);
-                    if (it != comparison_axiom_dependencies.end()) {
-                        // This is a comparison axiom variable - trace to regular numeric variables it depends on
-                        const unordered_set<int> &dep_vars = it->second;
-                        NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
-                        
-                        // DEBUG: Print comparison axiom details
-                        auto comp_it = comparison_axiom_info.find(flaw.var);
-                        if (comp_it != comparison_axiom_info.end()) {
-                            const ComparisonInfo &comp_info = comp_it->second;
-                            ap_float left_val = numeric_state[comp_info.left_var_id];
-                            ap_float right_val = numeric_state[comp_info.right_var_id];
-                            cout << "  [DEBUG EQUAL FLAW] Comparison axiom flaw: var=" << flaw.var 
+                NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+                for (size_t i = 0; i < operator_flaws.size(); ++i) {
+                    Fact &flaw = operator_flaws[i];
+                    vector<pair<int, ap_float>> &reg_numeric_flaws = regular_numeric_flaws[i];
+                    flaws.push_back(flaw);
+
+                    // Build inner vector of numeric flaws for this propositional flaw
+                    vector<NumericFlaw> numeric_flaws_for_this_prop_flaw;
+                    
+                    for (pair<int, ap_float> &reg_flaw : reg_numeric_flaws) {
+                        int numeric_var_id = reg_flaw.first;
+                        ap_float concrete_value = reg_flaw.second;
+                        cout << "  [DEBUG FLAW] Comparison axiom flaw: var=" << flaw.var 
                                  << " value=" << flaw.value 
-                                 << " op=" << comp_info.comp_op
-                                 << " left(num_" << comp_info.left_var_id << ")=" << left_val
-                                 << " right(num_" << comp_info.right_var_id << ")=" << right_val;
-                            if (comp_info.comp_op == 2) { // eq = 2
-                                cout << " [EQUAL COMPARISON: " << left_val << " == " << right_val 
-                                     << " ? " << (left_val == right_val ? "TRUE" : "FALSE") << "]";
-                            }
-                            cout << endl;
-                        }
-                        cout << "[DEBUG  Already_split]" << endl;
-                        for (int numeric_var_id : dep_vars) {
-                            if (numeric_var_id < 0 || numeric_var_id >= (int)num_vars.size())
-                                continue;
-                            // Only collect flaws for REGULAR numeric variables (skip CONSTANT/DERIVED)
-                            if (num_vars[numeric_var_id].get_var_type() != numType::regular)
-                                continue;
-                            // Split at current concrete value
-                            ap_float concrete_value = numeric_state[numeric_var_id];
-                            cout << "    Detected numeric flaw on num_" << numeric_var_id
+                                 << " op=" << op_name << endl;
+                       
+                    }
+                    
+                    cout << "[DEBUG  Already_split]" << endl;
+                    for (pair<int, ap_float> &reg_flaw : reg_numeric_flaws) {
+                        int id = reg_flaw.first;
+                        cout << "   num_" << id << " : ";
+                        cout << num_vars[id].get_var_type() << endl;
+                    }
+                    for (pair<int, ap_float> &reg_flaw : reg_numeric_flaws) {
+                        int numeric_var_id = reg_flaw.first;
+                        assert(num_vars[numeric_var_id].get_var_type() != numType::derived);
+
+                        ap_float concrete_value = numeric_state[numeric_var_id];
+                        cout << "    Detected numeric flaw on num_" << numeric_var_id
                                  << " with concrete value " << concrete_value << endl;
 
-                            int local_numeric_var_index = global_to_local_regular_numeric_var_ids[numeric_var_id];
-                            assert(local_numeric_var_index != -1);
-                            
-                            ap_float split_value = concrete_value;
-                            if (!regular_numeric_var_values[local_numeric_var_index].empty()) { 
-                                cout << "   LAST regular_numeric_var_values[" << numeric_var_id << "] = ";
-                                cout << regular_numeric_var_values[local_numeric_var_index].back() << endl;
-                                split_value = regular_numeric_var_values[local_numeric_var_index].back();
-                            }
-                            detected_numeric_flaws.emplace_back(
-                                numeric_var_id, split_value, flaw.var);
+                        int local_numeric_var_index = global_to_local_regular_numeric_var_ids[numeric_var_id];
+                        assert(local_numeric_var_index != -1);
+
+                        ap_float split_value = concrete_value;
+                        if (!regular_numeric_var_values[local_numeric_var_index].empty()) { 
+                            cout << "   LAST regular_numeric_var_values[" << numeric_var_id << "] = ";
+                            cout << regular_numeric_var_values[local_numeric_var_index].back() << endl;
+                            split_value = regular_numeric_var_values[local_numeric_var_index].back();
                         }
-                        // Also add the comparison axiom itself as a propositional flaw
-                        flaws.emplace_back(flaw.var, flaw.value);
-                    } else {
-                        // Regular propositional flaw
-                        flaws.emplace_back(flaw.var, flaw.value);
+                        numeric_flaws_for_this_prop_flaw.emplace_back(
+                            numeric_var_id, split_value, flaw.var);
+                      
                     }
+                    // Add the inner vector to the 2D structure
+                    detected_numeric_flaws.push_back(numeric_flaws_for_this_prop_flaw);
+                    flaws.emplace_back(flaw.var, flaw.value);
                 }
             }
         }
@@ -803,7 +816,7 @@ vector<Fact> CEGAR::get_flaws(
         
 
         
-        if (!flaws.empty() || !detected_numeric_flaws.empty()) {
+        if (!flaws.empty()) {
             string decoded_state = decode_abstract_state_compact(current_state, numeric_state);
             cout << "[PLAN] " << decoded_state
                  << " -- FLAW at step " << step_num << endl;
@@ -813,9 +826,11 @@ vector<Fact> CEGAR::get_flaws(
             }
             cout << endl;
             cout << "  Numeric flaws: ";
-            for (const NumericFlaw &num_flaw : detected_numeric_flaws) {
-                cout << "num_" << num_flaw.numeric_var_id
-                     << " (concrete value: " << num_flaw.concrete_value << ") ";
+            for (const std::vector<NumericFlaw> &num_flaw_vec : detected_numeric_flaws) {
+                for (const NumericFlaw &num_flaw : num_flaw_vec) {
+                    cout << "num_" << num_flaw.numeric_var_id
+                         << " (concrete value: " << num_flaw.concrete_value << ") ";
+                }
             }
             cout << endl;
 
@@ -837,6 +852,7 @@ vector<Fact> CEGAR::get_flaws(
                 }
                 cout << endl;
             }
+            exit(0);
            
             return flaws;
         }
@@ -862,70 +878,49 @@ vector<Fact> CEGAR::get_flaws(
     // Check goal flaws
     assert(flaws.empty());
     
-    flaws = get_goal_flaws(task_proxy, current_state,
-                           blacklisted_variables);
+    pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> goal_flaw_data =
+        get_goal_flaws(task_proxy, current_state, blacklisted_variables,
+                       comparison_axiom_dependencies);
     
-    // Separate comparison axiom flaws from regular propositional flaws
-    // KEY PRINCIPLE: Only add numeric flaws for comparison axioms that appear as propositional flaws
-    vector<Fact> filtered_flaws;
-    for (const Fact &flaw : flaws) {
+    vector<Fact> goal_flaws = goal_flaw_data.first;
+    vector<vector<pair<int, ap_float>>> goal_numeric_flaws = goal_flaw_data.second;
+    
+    // Process goal flaws similar to precondition flaws
+    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+    for (size_t i = 0; i < goal_flaws.size(); ++i) {
+        Fact &flaw = goal_flaws[i];
+        vector<pair<int, ap_float>> &reg_numeric_flaws = goal_numeric_flaws[i];
+        flaws.push_back(flaw);
         
-        // Check if this goal flaw is on a comparison axiom variable
-        auto it = comparison_axiom_dependencies.find(flaw.var);
-        if (it != comparison_axiom_dependencies.end()) {
+        // Build inner vector of numeric flaws for this propositional flaw
+        vector<NumericFlaw> numeric_flaws_for_this_prop_flaw;
+        
+        for (pair<int, ap_float> &reg_flaw : reg_numeric_flaws) {
+            int numeric_var_id = reg_flaw.first;
+            assert(num_vars[numeric_var_id].get_var_type() != numType::derived);
             
-            // DEBUG: Print comparison axiom details for goal flaws
-            auto comp_it = comparison_axiom_info.find(flaw.var);
-            if (comp_it != comparison_axiom_info.end()) {
-                const ComparisonInfo &comp_info = comp_it->second;
-                ap_float left_val = numeric_state[comp_info.left_var_id];
-                ap_float right_val = numeric_state[comp_info.right_var_id];
-                cout << "  [DEBUG EQUAL FLAW GOAL] Comparison axiom flaw: var=" << flaw.var 
-                     << " value=" << flaw.value 
-                     << " op=" << comp_info.comp_op
-                     << " left(num_" << comp_info.left_var_id << ")=" << left_val
-                     << " right(num_" << comp_info.right_var_id << ")=" << right_val;
-                if (comp_info.comp_op == 2) { // eq = 2
-                    cout << " [EQUAL COMPARISON: " << left_val << " == " << right_val 
-                         << " ? " << (left_val == right_val ? "TRUE" : "FALSE") << "]";
-                }
-                cout << endl;
+            ap_float concrete_value = numeric_state[numeric_var_id];
+            cout << "    Detected numeric goal flaw on num_" << numeric_var_id
+                     << " with concrete value " << concrete_value << endl;
+            
+            int local_numeric_var_index = global_to_local_regular_numeric_var_ids[numeric_var_id];
+            assert(local_numeric_var_index != -1);
+            
+            ap_float split_value = concrete_value;
+            if (!regular_numeric_var_values[local_numeric_var_index].empty()) {
+                cout << "   LAST regular_numeric_var_values[" << numeric_var_id << "] = ";
+                cout << regular_numeric_var_values[local_numeric_var_index].back() << endl;
+                split_value = regular_numeric_var_values[local_numeric_var_index].back();
             }
-            
-            // Numeric goal flaw - trace to regular numeric variables that this comparison depends on
-            const unordered_set<int> &dep_vars = it->second;
-            
-            bool added_any_numeric_flaw = false;
-            NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
-            for (int numeric_var_id : dep_vars) {
-                if (numeric_var_id < 0 || numeric_var_id >= (int)num_vars.size())
-                    continue;
-                if (num_vars[numeric_var_id].get_var_type() != numType::regular)
-                    continue; // Skip CONSTANT/DERIVED in flaw collection
-                // Get current concrete value
-                ap_float concrete_value = numeric_state[numeric_var_id];
-                int local_numeric_var_index = global_to_local_regular_numeric_var_ids[numeric_var_id];
-                assert(local_numeric_var_index != -1);
-                ap_float split_value = concrete_value;
-                if (!regular_numeric_var_values[local_numeric_var_index].empty()) { 
-                    cout << "   LAST regular_numeric_var_values[" << numeric_var_id << "] = ";
-                    cout << regular_numeric_var_values[local_numeric_var_index].back() << endl;
-                    split_value = regular_numeric_var_values[local_numeric_var_index].back();
-                }
-                // Add this as a numeric flaw to refine
-                detected_numeric_flaws.emplace_back(
-                    numeric_var_id, split_value, flaw.var);
-                added_any_numeric_flaw = true;
-            }
-            
-            filtered_flaws.push_back(flaw);
-        } else {
-            // Regular propositional flaw - keep it
-            filtered_flaws.push_back(flaw);
+            numeric_flaws_for_this_prop_flaw.emplace_back(
+                numeric_var_id, split_value, flaw.var);
         }
+        
+        // Add the inner vector to the 2D structure
+        detected_numeric_flaws.push_back(numeric_flaws_for_this_prop_flaw);
     }
 
-    return filtered_flaws;
+    return flaws;
 }
 
 bool CEGAR::fix_flaws(
@@ -1217,18 +1212,11 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
             
             numeric_domain_mapping.push_back(std::make_unique<ConstantMapping>(const_value));
         } else if (var_type == numType::derived) {
-            // Derived variables are computed from other variables via assignment axioms
-            // They should be implicitly abstracted based on their source variables
-            // Don't create a refinable mapping - use ConstantMapping as placeholder
-            // (the actual partitioning happens implicitly during axiom evaluation)
             std::cout << "  num_" << i << " (" << num_var.get_name() 
                      << ") is DERIVED - skipping explicit mapping (implicitly abstracted)" << std::endl;
-            
-            // Use a placeholder ConstantMapping with value 0
-            // The actual value doesn't matter since derived variables are computed
+            //TODO: Can we get rid of this?
             numeric_domain_mapping.push_back(std::make_unique<ConstantMapping>(0));
         } else if (var_type == numType::regular) {
-            // Regular variables: create refinable mapping
             std::cout << "  num_" << i << " (" << num_var.get_name() 
                      << ") is REGULAR - creating refinable mapping" << std::endl;
             
@@ -1239,7 +1227,6 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
                 numeric_domain_mapping.push_back(std::make_unique<StandardSplitMapping>());
             }
         } else {
-            // Unknown or instrumentation type - treat as refinable for now
             std::cout << "  num_" << i << " (" << num_var.get_name() 
                      << ") is OTHER/UNKNOWN (type=" << static_cast<int>(var_type)
                      << ") - creating refinable mapping" << std::endl;
@@ -1273,7 +1260,7 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
     
     // First, build a helper to track which variables are derived
     int num_numeric_vars = task_proxy.get_numeric_variables().size();
-    vector<bool> is_derived(num_numeric_vars, false);
+    vector<bool> is_regular(num_numeric_vars, false); //regular or constant
     
     // Build dependency graph: derived_var -> [source_vars]
     vector<vector<int>> axiom_dependencies(num_numeric_vars);
@@ -1282,7 +1269,7 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
     cout << "DEBUG AXIOM MAP: Building assignment axiom dependency graph" << endl;
     cout << "DEBUG AXIOM MAP: Total numeric variables: " << num_numeric_vars << endl;
     cout << "DEBUG AXIOM MAP: Assignment axioms: " << assignment_axioms.size() << endl;
-    
+
     for (AssignmentAxiomProxy axiom : assignment_axioms) {
         int derived_id = axiom.get_assignment_variable().get_id();
         int left_id = axiom.get_left_variable().get_id();
@@ -1292,10 +1279,21 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         assert(left_id >= 0 && left_id < num_numeric_vars);
         assert(right_id >= 0 && right_id < num_numeric_vars);
         
-        is_derived[derived_id] = true;
         axiom_dependencies[derived_id].push_back(left_id);
         axiom_dependencies[derived_id].push_back(right_id);
     }
+
+    for (int i = 0; i < num_numeric_vars; ++i) {
+        NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
+        int var_id = num_var.get_id();
+        //get var type
+        numType num_type = num_var.get_var_type();
+        if (num_type == numType::regular) {
+            is_regular[i] = true;
+            cout << "  num_" << var_id << " (" << num_var.get_name() << ") is REGULAR" << endl;
+        }
+    }
+
     
     // Helper function to recursively find all regular (non-derived) variables
     // that a given variable depends on
@@ -1304,7 +1302,7 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         
         assert(var_id >= 0 && var_id < num_numeric_vars);
         
-        if (!is_derived[var_id]) {
+        if (is_regular[var_id]) {
             // This is a regular variable - add it
             regular_vars.insert(var_id);
         } else {
@@ -1360,9 +1358,9 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         // Debug output for ALL comparison axioms
         cout << "  fdr_" << prop_var_id << " depends on:" << endl;
         cout << "    left_var=num_" << left_var_id 
-             << (left_var_id >= 0 && is_derived[left_var_id] ? " (DERIVED)" : " (regular)") << endl;
+             << (left_var_id >= 0 && is_regular[left_var_id] ? " (regular)" : " (DERIVED)") << endl;
         cout << "    right_var=num_" << right_var_id 
-             << (right_var_id >= 0 && is_derived[right_var_id] ? " (DERIVED)" : " (regular)") << endl;
+             << (right_var_id >= 0 && is_regular[right_var_id] ? " (regular)" : " (DERIVED)") << endl;
         cout << "    Regular dependencies: {";
         for (int reg_var : regular_vars) {
             cout << "num_" << reg_var << " ";
@@ -1372,6 +1370,30 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
     
     cout << "DEBUG: Total comparison axiom dependencies stored: " 
          << comparison_axiom_dependencies.size() << endl;
+    
+    // Print full comparison_axiom_dependencies mapping
+    cout << "\n=== COMPLETE comparison_axiom_dependencies mapping ===" << endl;
+    NumericVariablesProxy num_vars_for_print = task_proxy.get_numeric_variables();
+    for (const auto &entry : comparison_axiom_dependencies) {
+        int prop_var_id = entry.first;
+        const unordered_set<int> &reg_vars = entry.second;
+        VariableProxy prop_var = task_proxy.get_variables()[prop_var_id];
+        cout << "  fdr_" << prop_var_id << " (" << prop_var.get_name() << ") -> {";
+        for (int reg_var_id : reg_vars) {
+            NumericVariableProxy num_var = num_vars_for_print[reg_var_id];
+            numType var_type = num_var.get_var_type();
+            string type_str;
+            switch (var_type) {
+                case numType::regular: type_str = "REGULAR"; break;
+                case numType::constant: type_str = "CONSTANT"; break;
+                case numType::derived: type_str = "DERIVED"; break;
+                default: type_str = "UNKNOWN"; break;
+            }
+            cout << " num_" << reg_var_id << "(" << num_var.get_name() << "," << type_str << ")";
+        }
+        cout << " }" << endl;
+    }
+    cout << "======================================================\n" << endl;
     
     // PHASE 2: Collect all numeric variables modified by operators
     // This ensures we refine ALL operator-modified variables when numeric flaws occur
@@ -1387,7 +1409,7 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
             
             if (affected_var_id >= 0 && affected_var_id < num_numeric_vars) {
                 // Only add if this is a REGULAR variable (not derived)
-                if (!is_derived[affected_var_id]) {
+                if (is_regular[affected_var_id]) {
                     operator_modified_numeric_vars.insert(affected_var_id);
                 }
             }
@@ -1406,115 +1428,7 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
          << " variables" << endl;
     
     // Print comprehensive axiom dependency tree for CEGAR
-    print_cegar_axiom_trees(task_proxy, is_derived, axiom_dependencies);
-}
-
-void CEGAR::print_cegar_axiom_trees(
-    const TaskProxy &task_proxy,
-    const vector<bool> &is_derived,
-    const vector<vector<int>> &axiom_dependencies) {
-    
-    cout << "\n========== CEGAR: Axiom Dependency Trees ==========" << endl;
-    
-    int num_numeric_vars = task_proxy.get_numeric_variables().size();
-    
-    // Print assignment axioms with derived status
-    cout << "\n--- Assignment Axioms (from CEGAR perspective) ---" << endl;
-    AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
-    cout << "Total assignment axioms: " << assignment_axioms.size() << endl;
-    
-    for (AssignmentAxiomProxy axiom : assignment_axioms) {
-        int derived_id = axiom.get_assignment_variable().get_id();
-        int left_id = axiom.get_left_variable().get_id();
-        int right_id = axiom.get_right_variable().get_id();
-        cal_operator op = axiom.get_arithmetic_operator_type();
-        
-        string op_str;
-        switch (op) {
-            case cal_operator::sum: op_str = "+"; break;
-            case cal_operator::diff: op_str = "-"; break;
-            case cal_operator::mult: op_str = "*"; break;
-            case cal_operator::divi: op_str = "/"; break;
-            default: op_str = "?"; break;
-        }
-        
-        NumericVariableProxy derived_var = axiom.get_assignment_variable();
-        NumericVariableProxy left_var = axiom.get_left_variable();
-        NumericVariableProxy right_var = axiom.get_right_variable();
-        
-        cout << "  Axiom: var" << derived_id << " := var" << left_id << " " << op_str << " var" << right_id;
-        if (derived_id == 66 || derived_id == 67 || derived_id == 68 || derived_id == 70 || 
-            derived_id == 21 || derived_id == 22 || derived_id == 26 || derived_id == 28) {
-            cout << " *** KEY VAR ***";
-        }
-        cout << endl;
-        cout << "    Names: " << derived_var.get_name() << " := " 
-             << left_var.get_name() << " " << op_str << " " << right_var.get_name() << endl;
-        cout << "    Derived: " << (is_derived[derived_id] ? "YES" : "NO")
-             << ", Left: " << (left_id >= 0 && is_derived[left_id] ? "YES" : "NO")
-             << ", Right: " << (right_id >= 0 && is_derived[right_id] ? "YES" : "NO") << endl;
-    }
-    
-    // Print comparison axioms and their regular dependencies
-    cout << "\n--- Comparison Axioms -> Regular Variable Mappings ---" << endl;
-    cout << "Format: prop_varX := (numvar_left op numvar_right) -> {regular dependencies}" << endl;
-    
-    for (const auto &entry : comparison_axiom_dependencies) {
-        int prop_var_id = entry.first;
-        const unordered_set<int> &regular_vars = entry.second;
-        
-        cout << "  Propositional var" << prop_var_id << " depends on numeric vars: {";
-        for (int reg_var : regular_vars) {
-            cout << reg_var << " ";
-        }
-        cout << "}" << endl;
-    }
-    
-    // Print full dependency chains for key variables
-    cout << "\n--- Full Dependency Chains for Key Variables ---" << endl;
-    vector<int> key_vars = {66, 67, 68, 70, 21, 22, 26, 28};
-    
-    for (int var_id : key_vars) {
-        if (var_id >= num_numeric_vars) continue;
-        
-        cout << "\nvar" << var_id << ": ";
-        if (is_derived[var_id]) {
-            cout << "DERIVED, depends on: [";
-            for (size_t i = 0; i < axiom_dependencies[var_id].size(); ++i) {
-                cout << "var" << axiom_dependencies[var_id][i];
-                if (i < axiom_dependencies[var_id].size() - 1) cout << ", ";
-            }
-            cout << "]" << endl;
-            
-            // Print full transitive closure to regular variables
-            function<unordered_set<int>(int)> find_all_regular;
-            find_all_regular = [&](int v) -> unordered_set<int> {
-                unordered_set<int> result;
-                if (v < 0 || v >= num_numeric_vars) return result;
-                
-                if (!is_derived[v]) {
-                    result.insert(v);
-                } else {
-                    for (int dep : axiom_dependencies[v]) {
-                        unordered_set<int> deps = find_all_regular(dep);
-                        result.insert(deps.begin(), deps.end());
-                    }
-                }
-                return result;
-            };
-            
-            unordered_set<int> regular_deps = find_all_regular(var_id);
-            cout << "  Traces to REGULAR variables: {";
-            for (int reg : regular_deps) {
-                cout << "var" << reg << " ";
-            }
-            cout << "}" << endl;
-        } else {
-            cout << "REGULAR (base variable)" << endl;
-        }
-    }
-    
-    cout << "\n===================================================\n" << endl;
+    //print_cegar_axiom_trees(task_proxy, is_derived, axiom_dependencies);
 }
 
 DomainAbstraction CEGAR::build_abstraction(
@@ -1659,12 +1573,14 @@ DomainAbstraction CEGAR::build_abstraction(
                 // Access proxies (reuse if already declared above not available in this scope)
                 VariablesProxy vars = task_proxy.get_variables();
                 NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
-                for (const auto &nf : detected_numeric_flaws) {
-                    string num_name = num_vars[nf.numeric_var_id].get_name();
-                    string prop_name = vars[nf.prop_var_id].get_name();
-                    cout << "    num_" << nf.numeric_var_id << " (" << num_name << ")"
-                         << " at value " << nf.concrete_value
-                         << " (from axiom fdr_" << nf.prop_var_id << " (" << prop_name << "))" << endl;
+                for (const vector<NumericFlaw> &num_flaw_vec : detected_numeric_flaws) {
+                    for (const NumericFlaw &nf : num_flaw_vec) {
+                        string num_name = num_vars[nf.numeric_var_id].get_name();
+                        string prop_name = vars[nf.prop_var_id].get_name();
+                        cout << "    num_" << nf.numeric_var_id << " (" << num_name << ")"
+                             << " at value " << nf.concrete_value
+                             << " (from axiom fdr_" << nf.prop_var_id << " (" << prop_name << "))" << endl;
+                    }
                 }
             } else {
                 cout << "  Numeric flaws: none" << endl;
@@ -1687,22 +1603,21 @@ DomainAbstraction CEGAR::build_abstraction(
         
         // Then try to fix numeric flaws (if any)
         bool numeric_flaws_fixed = true;
-        if (!detected_numeric_flaws.empty()) {
-            // Filter numeric flaws to only those originating from the propositional flaws
-            // we actually selected/refined above. If none were selected (e.g., no propositional
-            // refinement possible), fall back to all numeric flaws.
-            std::vector<NumericFlaw> filtered_numeric_flaws;
-            if (!last_selected_prop_flaw_vars.empty()) {
-                for (const auto &nf : detected_numeric_flaws) {
-                    if (last_selected_prop_flaw_vars.count(nf.prop_var_id)) {
-                        filtered_numeric_flaws.push_back(nf);
-                    }
-                }
-            } else {
-                filtered_numeric_flaws = detected_numeric_flaws;
-            }
-            numeric_flaws_fixed = fix_numeric_flaws(filtered_numeric_flaws, abstraction.size(), task_proxy);
+
+        // Filter numeric flaws to only those originating from the propositional flaws
+        // we actually selected/refined above. If none were selected (e.g., no propositional
+        // refinement possible), fall back to all numeric flaws.
+        std::vector<NumericFlaw> filtered_numeric_flaws;
+        for (size_t last_id = 0; last_id < last_selected_prop_flaw_vars.size(); ++last_id) {
+            cout << "LAST ID: " << last_id << "detected_flaw size: " << detected_numeric_flaws.size() << endl;
+            cout << "last_selected_prop_flaw_vars: " << last_selected_prop_flaw_vars.size() << endl;
+            vector<NumericFlaw> regular_numeric_flaws = detected_numeric_flaws[last_id];
+            filtered_numeric_flaws.insert(filtered_numeric_flaws.end(),
+                                            regular_numeric_flaws.begin(),
+                                            regular_numeric_flaws.end());
         }
+
+        numeric_flaws_fixed = fix_numeric_flaws(filtered_numeric_flaws, abstraction.size(), task_proxy);
         
         if (!flaws_fixed || !numeric_flaws_fixed) {
             assert(max_abstraction_size != numeric_limits<int>::max());
