@@ -86,7 +86,7 @@ int DomainAbstraction::hash_index(const vector<int> &state) const {
 }
 
 ap_float DomainAbstraction::get_value(const State &state) const {
-    if (!has_numeric_variables && false) {
+    if (!has_numeric_variables) {
         // Purely propositional case - use direct hash indexing
         // Build the abstract state from the concrete state (only propositional variables)
         vector<int> abstract_state(state.size());
