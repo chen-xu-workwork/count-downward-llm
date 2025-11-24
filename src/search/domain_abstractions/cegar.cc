@@ -852,7 +852,6 @@ vector<Fact> CEGAR::get_flaws(
                 }
                 cout << endl;
             }
-            exit(0);
            
             return flaws;
         }
