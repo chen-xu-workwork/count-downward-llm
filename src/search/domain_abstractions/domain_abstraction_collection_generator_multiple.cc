@@ -103,6 +103,11 @@ void DomainAbstractionCollectionGeneratorMultiple::handle_generated_abstraction(
           PDB, update collection size and reset time_point_of_last_new_pattern.
         */
         time_point_of_last_new_pattern = timer.get_elapsed_time();
+        cout << "abstraction size: " << abstraction.size()
+             << ", remaining collection size: " << remaining_collection_size - abstraction.size()
+             << ", time elapsed: " << timer.get_elapsed_time() << "s"
+             << ", time remaining: " << timer.get_remaining_time() << "s"
+             << endl;
         remaining_collection_size -= abstraction.size();
         generated_abstractions.push_back(move(abstraction));
     }
@@ -214,6 +219,9 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
         if (collection_size_limit_reached() ||
             time_limit_reached(timer) ||
             check_for_stagnation(timer)) {
+                cout << "collection sizle limit reached?" << collection_size_limit_reached() << " "
+                     << "time limit reached? " << time_limit_reached(timer) << " "
+                     << "stagnation? " << check_for_stagnation(timer) << endl; 
             break;
         }
 
@@ -283,13 +291,13 @@ void add_multiple_options_to_parser(options::OptionParser &parser) {
         "maximum number of states for each pattern database, computed "
         "by compute_abstraction (possibly ignored by singleton patterns consisting "
         "of a goal variable)",
-        "1M",
+        "1000000",
         Bounds("1", "infinity"));
     parser.add_option<int>(
         "max_collection_size",
         "maximum number of states in all pattern databases of the "
         "collection (possibly ignored, see max_abstraction_size)",
-        "10M",
+        "10000000",
         Bounds("1", "infinity"));
     parser.add_option<double>(
         "abstraction_generation_max_time",
