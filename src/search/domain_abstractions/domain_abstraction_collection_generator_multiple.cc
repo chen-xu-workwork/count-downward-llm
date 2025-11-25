@@ -103,11 +103,11 @@ void DomainAbstractionCollectionGeneratorMultiple::handle_generated_abstraction(
           PDB, update collection size and reset time_point_of_last_new_pattern.
         */
         time_point_of_last_new_pattern = timer.get_elapsed_time();
-        cout << "abstraction size: " << abstraction.size()
-             << ", remaining collection size: " << remaining_collection_size - abstraction.size()
-             << ", time elapsed: " << timer.get_elapsed_time() << "s"
-             << ", time remaining: " << timer.get_remaining_time() << "s"
-             << endl;
+        //cout << "abstraction size: " << abstraction.size()
+        //     << ", remaining collection size: " << remaining_collection_size - abstraction.size()
+        //     << ", time elapsed: " << timer.get_elapsed_time() << "s"
+        //     << ", time remaining: " << timer.get_remaining_time() << "s"
+        //     << endl;
         remaining_collection_size -= abstraction.size();
         generated_abstractions.push_back(move(abstraction));
     }
@@ -219,9 +219,9 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
         if (collection_size_limit_reached() ||
             time_limit_reached(timer) ||
             check_for_stagnation(timer)) {
-                cout << "collection sizle limit reached?" << collection_size_limit_reached() << " "
-                     << "time limit reached? " << time_limit_reached(timer) << " "
-                     << "stagnation? " << check_for_stagnation(timer) << endl; 
+                //cout << "collection sizle limit reached?" << collection_size_limit_reached() << " "
+                //     << "time limit reached? " << time_limit_reached(timer) << " "
+                //     << "stagnation? " << check_for_stagnation(timer) << endl; 
             break;
         }
 

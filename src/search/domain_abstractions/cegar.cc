@@ -1118,76 +1118,76 @@ void CEGAR::print_statistics(
         avg_numeric_partitions = ((double) total_numeric_partitions) / num_numeric_variables;
     }
     if(false) {
-        cout << "\n=== CEGAR Statistics ===" << endl;
-        cout << "Final abstraction size: " << abstraction_size << endl;
-        cout << "\nPropositional variables:" << endl;
-        cout << "  Total: " << num_variables << endl;
-        cout << "  Trivial (size 1): " << num_trivial_variables << endl;
-        cout << "  Complete (not abstracted): " << num_complete_variables << endl;
-        cout << "  Average domain size ratio: " << avg_domain_size << endl;
+        CEGARLogger::log(Verbosity::INFO, "\n=== CEGAR Statistics ===");
+        CEGARLogger::log(Verbosity::INFO, "Final abstraction size: ", abstraction_size);
+        CEGARLogger::log(Verbosity::INFO, "\nPropositional variables:");
+        CEGARLogger::log(Verbosity::INFO, "  Total: ", num_variables);
+        CEGARLogger::log(Verbosity::INFO, "  Trivial (size 1): ", num_trivial_variables);
+        CEGARLogger::log(Verbosity::INFO, "  Complete (not abstracted): ", num_complete_variables);
+        CEGARLogger::log(Verbosity::INFO, "  Average domain size ratio: ", avg_domain_size);
         
         // Print details of non-trivial propositional variables
-        cout << "\n  Non-trivial propositional variables:" << endl;
+        CEGARLogger::log(Verbosity::INFO, "\n  Non-trivial propositional variables:");
         for (int i = 0; i < num_variables; ++i) {
             if (abstract_domain_sizes[i] > 1) {
                 VariableProxy var = task_proxy.get_variables()[i];
                 int original_size = var.get_domain_size();
-                cout << "    var" << i << " (" << var.get_name() << "): "
-                    << "abstract_size=" << abstract_domain_sizes[i] 
-                    << ", original_size=" << original_size << endl;
+                CEGARLogger::log(Verbosity::INFO, "    var", i, " (", var.get_name(), "): ",
+                                "abstract_size=", abstract_domain_sizes[i],
+                                ", original_size=", original_size);
                 
                 // Print the domain mapping if it's not too large
                 if (abstract_domain_sizes[i] <= 10 && original_size <= 20) {
-                    cout << "      mapping: [";
+                    CEGARLogger::log_no_endl(Verbosity::INFO, "      mapping: [");
                     for (int val = 0; val < original_size; ++val) {
-                        if (val > 0) cout << ", ";
-                        cout << val << "->" << domain_mapping[i][val];
+                        if (val > 0) CEGARLogger::log_no_endl(Verbosity::INFO, ", ");
+                        CEGARLogger::log_no_endl(Verbosity::INFO, val, "->", domain_mapping[i][val]);
                     }
-                    cout << "]" << endl;
+                    CEGARLogger::log(Verbosity::INFO, "]");
                 }
             }
         }
         
-        cout << "\nNumeric variables:" << endl;
-        cout << "  Total: " << num_numeric_variables << endl;
-        cout << "  Trivial (1 partition): " << num_trivial_numeric_vars << endl;
-        cout << "  Refined (>1 partition): " << num_refined_numeric_vars << endl;
-        cout << "  Total partitions: " << total_numeric_partitions << endl;
-        cout << "  Average partitions per variable: " << avg_numeric_partitions << endl;
+        CEGARLogger::log(Verbosity::INFO, "\nNumeric variables:");
+        CEGARLogger::log(Verbosity::INFO, "  Total: ", num_numeric_variables);
+        CEGARLogger::log(Verbosity::INFO, "  Trivial (1 partition): ", num_trivial_numeric_vars);
+        CEGARLogger::log(Verbosity::INFO, "  Refined (>1 partition): ", num_refined_numeric_vars);
+        CEGARLogger::log(Verbosity::INFO, "  Total partitions: ", total_numeric_partitions);
+        CEGARLogger::log(Verbosity::INFO, "  Average partitions per variable: ", avg_numeric_partitions);
         
         // Print details of refined numeric variables
-        cout << "\n  Refined numeric variables:" << endl;
+        CEGARLogger::log(Verbosity::INFO, "\n  Refined numeric variables:");
         for (int i = 0; i < num_numeric_variables; ++i) {
             if (numeric_domain_sizes[i] > 1) {
                 NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
-                cout << "    var" << i << " (" << num_var.get_name() << "): "
-                    << numeric_domain_sizes[i] << " partitions" << endl;
+                CEGARLogger::log(Verbosity::INFO, "    var", i, " (", num_var.get_name(), "): ",
+                                numeric_domain_sizes[i], " partitions");
                 
                 // Print the ranges for this variable
                 const vector<NumericRange> &ranges = numeric_domain_mapping[i]->get_ranges();
                 for (size_t j = 0; j < ranges.size(); ++j) {
-                    cout << "      partition " << ranges[j].partition_index << ": ";
+                    CEGARLogger::log_no_endl(Verbosity::INFO, "      partition ", ranges[j].partition_index, ": ");
                     // Print lower bound with correct bracket
-                    cout << (ranges[j].lower_inclusive ? "[" : "(");
+                    CEGARLogger::log_no_endl(Verbosity::INFO, (ranges[j].lower_inclusive ? "[" : "("));
                     if (ranges[j].lower == -numeric_limits<ap_float>::infinity()) {
-                        cout << "-inf";
+                        CEGARLogger::log_no_endl(Verbosity::INFO, "-inf");
                     } else {
-                        cout << ranges[j].lower;
+                        CEGARLogger::log_no_endl(Verbosity::INFO, ranges[j].lower);
                     }
-                    cout << ", ";
+                    CEGARLogger::log_no_endl(Verbosity::INFO, ", ");
                     // Print upper bound
                     if (ranges[j].upper == numeric_limits<ap_float>::infinity()) {
-                        cout << "inf";
+                        CEGARLogger::log_no_endl(Verbosity::INFO, "inf");
                     } else {
-                        cout << ranges[j].upper;
+                        CEGARLogger::log_no_endl(Verbosity::INFO, ranges[j].upper);
                     }
                     // Print upper bracket
-                    cout << (ranges[j].upper_inclusive ? "]" : ")") << endl;
+                    CEGARLogger::log(Verbosity::INFO, (ranges[j].upper_inclusive ? "]" : ")"));
                 }
             }
         }
         
-        cout << "========================\n" << endl;
+        CEGARLogger::log(Verbosity::INFO, "========================\n");
     }
 }
 
@@ -1207,9 +1207,8 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
     // Initialize numeric domain mapping with full range (-inf, inf) for regular/derived variables
     // Constants should have a single partition at their exact value
     // Choose strategy based on configuration
-    std::cout << "DEBUG: NumericSplitStrategy = " 
-              << (numeric_split_strategy == NumericSplitStrategy::EXCLUSION ? "EXCLUSION" : "STANDARD") 
-              << std::endl;
+    CEGARLogger::log(Verbosity::DEBUG, "DEBUG: NumericSplitStrategy = ", 
+                   (numeric_split_strategy == NumericSplitStrategy::EXCLUSION ? "EXCLUSION" : "STANDARD"));
     NumericDomainMappingType numeric_domain_mapping;
     numeric_domain_mapping.reserve(num_numeric_variables);
     

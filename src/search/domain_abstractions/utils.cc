@@ -152,13 +152,8 @@ size_t compute_abstract_state_hash(
     for (size_t i = 0; i < domain_mapping.size(); ++i) {
         if (!domain_mapping[i].empty()) {
             int val;
-            if (comparison_axiom_vars.count(i) > 0) {
-                // Comparison axiom: Start with UNKNOWN value (2), we'll adjust it later
-                val = 2;
-            } else {
-                // Regular propositional variable: use actual state value
-                val = state[i].get_value();
-            }
+            // Regular propositional variable: use actual state value
+            val = state[i].get_value();
             int abstract_val = domain_mapping[i][val];
             state_hash += hash_multipliers[i] * abstract_val;
         }
@@ -173,6 +168,8 @@ size_t compute_abstract_state_hash(
 
     // 3. Evaluate comparison axioms using CONCRETE state values
     // This is the KEY FIX: use actual evaluated values, not range-based optimistic evaluation
+
+    return state_hash;
     
     static int hash_call_count = 0;
     hash_call_count++;
@@ -189,13 +186,6 @@ size_t compute_abstract_state_hash(
         // Skip if this comparison axiom is not in the abstraction
         if (prop_var_id >= static_cast<int>(domain_mapping.size()) || 
             domain_mapping[prop_var_id].empty()) {
-            if (debug_this_call && prop_var_id == 24) {
-                cout << "  var24: SKIPPED (not in abstraction or trivial)\n";
-                cout << "    prop_var_id=" << prop_var_id << ", domain_mapping.size()=" << domain_mapping.size() << "\n";
-                if (prop_var_id < static_cast<int>(domain_mapping.size())) {
-                    cout << "    domain_mapping[24].empty()=" << domain_mapping[24].empty() << "\n";
-                }
-            }
             continue;
         }
         
@@ -206,19 +196,6 @@ size_t compute_abstract_state_hash(
         int false_value = axiom.get_false_fact().get_value();
         
         bool is_evaluated = (concrete_value == true_value || concrete_value == false_value);
-        
-        if (debug_this_call && prop_var_id == 24) {
-            cout << "  var24: concrete_value=" << concrete_value 
-                 << ", true_value=" << true_value 
-                 << ", false_value=" << false_value 
-                 << ", is_evaluated=" << is_evaluated << "\n";
-            cout << "  domain_mapping[24] size=" << domain_mapping[24].size() << ": [";
-            for (size_t i = 0; i < domain_mapping[24].size(); ++i) {
-                if (i > 0) cout << ", ";
-                cout << i << "->" << domain_mapping[24][i];
-            }
-            cout << "]\n";
-        }
         
         if (is_evaluated) {
             // The comparison is already evaluated in the concrete state - use it directly!
