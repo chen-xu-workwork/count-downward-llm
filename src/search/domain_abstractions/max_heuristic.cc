@@ -13,7 +13,6 @@ using namespace std;
 namespace domain_abstractions {
 static DomainAbstractionCollection get_domain_abstractions_from_options(
     const options::Options &opts, const TaskProxy &task_proxy) {
-    verify_no_axioms(task_proxy);
     verify_no_conditional_effects(task_proxy);
 
     shared_ptr<DomainAbstractionCollectionGenerator> generator =
