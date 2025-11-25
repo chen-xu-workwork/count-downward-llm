@@ -52,7 +52,7 @@ DomainAbstraction DomainAbstractionCollectionGeneratorMultipleCegar::compute_abs
         move(blacklisted_variables));
 }
 
-static DomainAbstractionCollectionGenerator * _parse(options::OptionParser &parser) {
+static shared_ptr<DomainAbstractionCollectionGenerator> _parse(OptionParser &parser) {
     parser.document_synopsis(
         "Multiple CEGAR",
         "This pattern collection generator implements the multiple CEGAR "
@@ -70,8 +70,8 @@ static DomainAbstractionCollectionGenerator * _parse(options::OptionParser &pars
         return nullptr;
     }
 
-    return new DomainAbstractionCollectionGeneratorMultipleCegar(opts);
+    return make_shared<DomainAbstractionCollectionGeneratorMultipleCegar>(opts);
 }
 
-static Plugin<DomainAbstractionCollectionGenerator> _plugin("multiple_domain_abstractions_cegar", _parse);
+static PluginShared<DomainAbstractionCollectionGenerator> _plugin("multiple_domain_abstractions_cegar", _parse);
 }
