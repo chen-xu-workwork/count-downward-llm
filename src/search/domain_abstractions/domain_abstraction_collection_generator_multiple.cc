@@ -156,8 +156,14 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
 
     utils::CountdownTimer timer(total_max_time);
 
+
     // Store the set of goals in random order.
     vector<Fact> goals = get_goals_in_random_order(task_proxy, *rng);
+    cout << "Goals in random order: ";
+    for (const Fact &goal : goals) {
+        cout << task_proxy.get_variables()[goal.var].get_name() << "=" << goal.value << " ";
+    }
+    cout << endl;
 
     // Store candidates for potential blacklisting.
     vector<int> blacklist_candidates =

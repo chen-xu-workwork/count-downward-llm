@@ -27,11 +27,30 @@ namespace domain_abstractions {
 vector<Fact> get_goals_in_random_order(
     const TaskProxy &task_proxy, utils::RandomNumberGenerator &rng) {
     //vector<Fact> goals = task_tools::get_facts(task_proxy.get_goals());
-    GoalsProxy goals_proxy = task_proxy.get_goals();
     vector<Fact> goals;
+    int goal_id = -1;
+    AxiomsProxy axioms = task_proxy.get_axioms();
+    for (size_t i = 0; i < axioms.size(); ++i) {
+        OperatorProxy axiom = axioms[i];
+        assert(axiom.get_effects().size() == 1);    
+        int effect_id = axiom.get_effects()[0].get_fact().get_variable().get_id();
+        goal_id = effect_id;
+        PreconditionsProxy conditions = axiom.get_preconditions();
+        if (conditions.size() > 1) {
+            for (const FactProxy &condition : conditions) {
+                goals.push_back(Fact(condition.get_variable().get_id(), condition.get_value()));
+            }
+            cout << endl;
+        }
+    }
+    GoalsProxy goals_proxy = task_proxy.get_goals();
     goals.reserve(goals_proxy.size());
     for (size_t i = 0; i < goals_proxy.size(); ++i) {
         FactProxy goal = goals_proxy[i];
+        if (goal_id == goal.get_variable().get_id()) {
+            assert(goal_id != -1);
+            continue;
+        }
         goals.push_back(Fact(goal.get_variable().get_id(), goal.get_value()));
     }
     rng.shuffle(goals);
