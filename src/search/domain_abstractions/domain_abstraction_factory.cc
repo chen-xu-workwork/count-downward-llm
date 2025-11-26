@@ -927,7 +927,7 @@ void DomainAbstractionFactory::compute_distances(
                 task_proxy);
 
 
-            if (true) {
+            if (logger && logger->should_log(Verbosity::DEBUG)) {
             bool at_least_one_predecessor_valid = false;
             bool all_numeric_values_match = true;
 
@@ -1061,8 +1061,8 @@ void DomainAbstractionFactory::compute_distances(
     iteration_count++;
     
     // DEBUG: Print table of core variables for all states
-    if (false) {
-        cout << "\n=== TABLE OF CORE VARIABLES FOR ALL " << num_states << " STATES ===\n";
+    if (logger && logger->should_log(Verbosity::DEBUG)) {
+        logger->log(Verbosity::DEBUG, "\n=== TABLE OF CORE VARIABLES FOR ALL ", num_states, " STATES ===\n");
         
         // First, identify which propositional variables are derived from axioms
         vector<bool> is_axiom_var(task_proxy.get_variables().size(), false);
@@ -1112,24 +1112,24 @@ void DomainAbstractionFactory::compute_distances(
         }
         
         // Print table header
-        cout << "\nState | Distance | ";
+        logger->log_no_endl(Verbosity::DEBUG, "\nState | Distance | ");
         for (size_t i = 0; i < refined_numeric_vars.size(); ++i) {
-            cout << setw(num_widths[i]) << num_headers[i] << " | ";
+            logger->log_no_endl(Verbosity::DEBUG, setw(num_widths[i]), num_headers[i], " | ");
         }
         for (size_t i = 0; i < non_axiom_vars.size(); ++i) {
-            cout << setw(prop_widths[i]) << prop_headers[i] << " | ";
+            logger->log_no_endl(Verbosity::DEBUG, setw(prop_widths[i]), prop_headers[i], " | ");
         }
-        cout << "\n";
+        logger->log_no_endl(Verbosity::DEBUG, "\n");
         
         // Print separator
-        cout << "------|----------|";
+        logger->log_no_endl(Verbosity::DEBUG, "------|----------|");
         for (size_t i = 0; i < refined_numeric_vars.size(); ++i) {
-            cout << string(num_widths[i] + 2, '-') << "|";
+            logger->log_no_endl(Verbosity::DEBUG, string(num_widths[i] + 2, '-'), "|");
         }
         for (size_t i = 0; i < non_axiom_vars.size(); ++i) {
-            cout << string(prop_widths[i] + 2, '-') << "|";
+            logger->log_no_endl(Verbosity::DEBUG, string(prop_widths[i] + 2, '-'), "|");
         }
-        cout << "\n";
+        logger->log_no_endl(Verbosity::DEBUG, "\n");
         
         // Print each state
         for (int state_hash = 0; state_hash < num_states; ++state_hash) {
@@ -1138,16 +1138,16 @@ void DomainAbstractionFactory::compute_distances(
                 continue;
             }
             // State index
-            cout << setw(5) << state_hash << " | ";
+            logger->log_no_endl(Verbosity::DEBUG, setw(5), state_hash, " | ");
             
             // Distance
             ap_float dist = distances[state_hash];
             if (dist == numeric_limits<ap_float>::max()) {
-                cout << setw(8) << "INF";
+                logger->log_no_endl(Verbosity::DEBUG, setw(8), "INF");
             } else {
-                cout << setw(8) << dist;
+                logger->log_no_endl(Verbosity::DEBUG, setw(8), dist);
             }
-            cout << " | ";
+            logger->log_no_endl(Verbosity::DEBUG, " | ");
             
             // Numeric partitions
             for (size_t i = 0; i < refined_numeric_vars.size(); ++i) {
@@ -1155,20 +1155,20 @@ void DomainAbstractionFactory::compute_distances(
                 const NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
                 int abstract_var_id = num_prop_vars + num_var_id;
                 int partition = (state_hash / hash_multipliers[abstract_var_id]) % mapping.get_num_partitions();
-                cout << setw(num_widths[i]) << partition << " | ";
+                logger->log_no_endl(Verbosity::DEBUG, setw(num_widths[i]), partition, " | ");
             }
             
             // Non-axiom propositional variables
             for (size_t i = 0; i < non_axiom_vars.size(); ++i) {
                 int var_id = non_axiom_vars[i];
                 int value = (state_hash / hash_multipliers[var_id]) % domain_sizes[var_id];
-                cout << setw(prop_widths[i]) << value << " | ";
+                logger->log_no_endl(Verbosity::DEBUG, setw(prop_widths[i]), value, " | ");
             }
             
-            cout << "\n";
+            logger->log_no_endl(Verbosity::DEBUG, "\n");
             break;
         }
-        cout << "\n";
+        logger->log_no_endl(Verbosity::DEBUG, "\n");
     }
 
     
@@ -1408,17 +1408,17 @@ bool DomainAbstractionFactory::is_goal_state(
     const vector<int> &domain_sizes) const {
     
     // DEBUG: Print goals being checked (only once)
-    if (false) {
-        cout << "\n=== is_goal_state DEBUG ===" << endl;
-        cout << "Abstract (propositional) goals:" << endl;
+    if (logger && logger->should_log(Verbosity::DEBUG)) {
+        logger->log(Verbosity::DEBUG, "\n=== is_goal_state DEBUG ===");
+        logger->log(Verbosity::DEBUG, "Abstract (propositional) goals:");
         for (const Fact &goal : abstract_goals) {
-            cout << "  var" << goal.var << " = " << goal.value << endl;
+            logger->log(Verbosity::DEBUG, "  var", goal.var, " = ", goal.value);
         }
-        cout << "Numeric goal conditions:" << endl;
+        logger->log(Verbosity::DEBUG, "Numeric goal conditions:");
         for (const auto &ng : numeric_goal_conditions) {
-            cout << "  var" << ng.numeric_var_id << " " << ng.op << " " << ng.constant << endl;
+            logger->log(Verbosity::DEBUG, "  var", ng.numeric_var_id, " ", ng.op, " ", ng.constant);
         }
-        cout << "===================================\n" << endl;
+        logger->log(Verbosity::DEBUG, "===================================\n");
     }
     
     // Check propositional goals

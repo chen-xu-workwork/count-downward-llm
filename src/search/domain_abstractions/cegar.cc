@@ -1090,77 +1090,77 @@ void CEGAR::print_statistics(
     if (num_numeric_variables > 0) {
         avg_numeric_partitions = ((double) total_numeric_partitions) / num_numeric_variables;
     }
-    if(false) {
-        logger->log(Verbosity::INFO, "\n=== CEGAR Statistics ===");
-        logger->log(Verbosity::INFO, "Final abstraction size: ", abstraction_size);
-        logger->log(Verbosity::INFO, "\nPropositional variables:");
-        logger->log(Verbosity::INFO, "  Total: ", num_variables);
-        logger->log(Verbosity::INFO, "  Trivial (size 1): ", num_trivial_variables);
-        logger->log(Verbosity::INFO, "  Complete (not abstracted): ", num_complete_variables);
-        logger->log(Verbosity::INFO, "  Average domain size ratio: ", avg_domain_size);
+    if(logger && logger->should_log(Verbosity::DEBUG)) {
+        logger->log(Verbosity::DEBUG, "\n=== CEGAR Statistics ===");
+        logger->log(Verbosity::DEBUG, "Final abstraction size: ", abstraction_size);
+        logger->log(Verbosity::DEBUG, "\nPropositional variables:");
+        logger->log(Verbosity::DEBUG, "  Total: ", num_variables);
+        logger->log(Verbosity::DEBUG, "  Trivial (size 1): ", num_trivial_variables);
+        logger->log(Verbosity::DEBUG, "  Complete (not abstracted): ", num_complete_variables);
+        logger->log(Verbosity::DEBUG, "  Average domain size ratio: ", avg_domain_size);
         
         // Print details of non-trivial propositional variables
-        logger->log(Verbosity::INFO, "\n  Non-trivial propositional variables:");
+        logger->log(Verbosity::DEBUG, "\n  Non-trivial propositional variables:");
         for (int i = 0; i < num_variables; ++i) {
             if (abstract_domain_sizes[i] > 1) {
                 VariableProxy var = task_proxy.get_variables()[i];
                 int original_size = var.get_domain_size();
-                logger->log(Verbosity::INFO, "    var", i, " (", var.get_name(), "): ",
+                logger->log(Verbosity::DEBUG, "    var", i, " (", var.get_name(), "): ",
                                 "abstract_size=", abstract_domain_sizes[i],
                                 ", original_size=", original_size);
                 
                 // Print the domain mapping if it's not too large
                 if (abstract_domain_sizes[i] <= 10 && original_size <= 20) {
-                    logger->log_no_endl(Verbosity::INFO, "      mapping: [");
+                    logger->log_no_endl(Verbosity::DEBUG, "      mapping: [");
                     for (int val = 0; val < original_size; ++val) {
-                        if (val > 0) logger->log_no_endl(Verbosity::INFO, ", ");
-                        logger->log_no_endl(Verbosity::INFO, val, "->", domain_mapping[i][val]);
+                        if (val > 0) logger->log_no_endl(Verbosity::DEBUG, ", ");
+                        logger->log_no_endl(Verbosity::DEBUG, val, "->", domain_mapping[i][val]);
                     }
-                    logger->log(Verbosity::INFO, "]");
+                    logger->log(Verbosity::DEBUG, "]");
                 }
             }
         }
         
-        logger->log(Verbosity::INFO, "\nNumeric variables:");
-        logger->log(Verbosity::INFO, "  Total: ", num_numeric_variables);
-        logger->log(Verbosity::INFO, "  Trivial (1 partition): ", num_trivial_numeric_vars);
-        logger->log(Verbosity::INFO, "  Refined (>1 partition): ", num_refined_numeric_vars);
-        logger->log(Verbosity::INFO, "  Total partitions: ", total_numeric_partitions);
-        logger->log(Verbosity::INFO, "  Average partitions per variable: ", avg_numeric_partitions);
+        logger->log(Verbosity::DEBUG, "\nNumeric variables:");
+        logger->log(Verbosity::DEBUG, "  Total: ", num_numeric_variables);
+        logger->log(Verbosity::DEBUG, "  Trivial (1 partition): ", num_trivial_numeric_vars);
+        logger->log(Verbosity::DEBUG, "  Refined (>1 partition): ", num_refined_numeric_vars);
+        logger->log(Verbosity::DEBUG, "  Total partitions: ", total_numeric_partitions);
+        logger->log(Verbosity::DEBUG, "  Average partitions per variable: ", avg_numeric_partitions);
         
         // Print details of refined numeric variables
-        logger->log(Verbosity::INFO, "\n  Refined numeric variables:");
+        logger->log(Verbosity::DEBUG, "\n  Refined numeric variables:");
         for (int i = 0; i < num_numeric_variables; ++i) {
             if (numeric_domain_sizes[i] > 1) {
                 NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
-                logger->log(Verbosity::INFO, "    var", i, " (", num_var.get_name(), "): ",
+                logger->log(Verbosity::DEBUG, "    var", i, " (", num_var.get_name(), "): ",
                                 numeric_domain_sizes[i], " partitions");
                 
                 // Print the ranges for this variable
                 const vector<NumericRange> &ranges = numeric_domain_mapping[i]->get_ranges();
                 for (size_t j = 0; j < ranges.size(); ++j) {
-                    logger->log_no_endl(Verbosity::INFO, "      partition ", ranges[j].partition_index, ": ");
+                    logger->log_no_endl(Verbosity::DEBUG, "      partition ", ranges[j].partition_index, ": ");
                     // Print lower bound with correct bracket
-                    logger->log_no_endl(Verbosity::INFO, (ranges[j].lower_inclusive ? "[" : "("));
+                    logger->log_no_endl(Verbosity::DEBUG, (ranges[j].lower_inclusive ? "[" : "("));
                     if (ranges[j].lower == -numeric_limits<ap_float>::infinity()) {
-                        logger->log_no_endl(Verbosity::INFO, "-inf");
+                        logger->log_no_endl(Verbosity::DEBUG, "-inf");
                     } else {
-                        logger->log_no_endl(Verbosity::INFO, ranges[j].lower);
+                        logger->log_no_endl(Verbosity::DEBUG, ranges[j].lower);
                     }
-                    logger->log_no_endl(Verbosity::INFO, ", ");
+                    logger->log_no_endl(Verbosity::DEBUG, ", ");
                     // Print upper bound
                     if (ranges[j].upper == numeric_limits<ap_float>::infinity()) {
-                        logger->log_no_endl(Verbosity::INFO, "inf");
+                        logger->log_no_endl(Verbosity::DEBUG, "inf");
                     } else {
-                        logger->log_no_endl(Verbosity::INFO, ranges[j].upper);
+                        logger->log_no_endl(Verbosity::DEBUG, ranges[j].upper);
                     }
                     // Print upper bracket
-                    logger->log(Verbosity::INFO, (ranges[j].upper_inclusive ? "]" : ")"));
+                    logger->log(Verbosity::DEBUG, (ranges[j].upper_inclusive ? "]" : ")"));
                 }
             }
         }
         
-        logger->log(Verbosity::INFO, "========================\n");
+        logger->log(Verbosity::DEBUG, "========================\n");
     }
 }
 
