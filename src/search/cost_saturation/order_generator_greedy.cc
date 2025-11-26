@@ -96,7 +96,7 @@ Order OrderGeneratorGreedy::compute_order_for_state(
 }
 
 
-static OrderGenerator *_parse_greedy(options::OptionParser &parser) {
+static shared_ptr<OrderGenerator> _parse_greedy(options::OptionParser &parser) {
     parser.document_synopsis(
         "Greedy orders",
         "Order abstractions greedily by a given scoring function.");
@@ -106,8 +106,8 @@ static OrderGenerator *_parse_greedy(options::OptionParser &parser) {
     if (parser.dry_run())
         return nullptr;
     else
-        return new OrderGeneratorGreedy(opts);
+        return make_shared<OrderGeneratorGreedy>(opts);
 }
 
-static Plugin<OrderGenerator> _plugin_greedy("greedy_orders", _parse_greedy);
+static PluginShared<OrderGenerator> _plugin_greedy("greedy_orders", _parse_greedy);
 }

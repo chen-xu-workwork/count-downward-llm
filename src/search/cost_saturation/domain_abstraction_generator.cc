@@ -79,7 +79,7 @@ Abstractions DomainAbstractionGenerator::generate_abstractions(
     return abstractions;
 }
 
-static AbstractionGenerator *_parse(OptionParser &parser) {
+static shared_ptr<AbstractionGenerator> _parse(OptionParser &parser) {
     parser.document_synopsis(
         "DomainAbstraction generator",
         "");
@@ -98,8 +98,8 @@ static AbstractionGenerator *_parse(OptionParser &parser) {
     if (parser.dry_run())
         return nullptr;
 
-    return new DomainAbstractionGenerator(opts);
+    return make_shared<DomainAbstractionGenerator>(opts);
 }
 
-static Plugin<AbstractionGenerator> _plugin("domain_abstractions", _parse);
+static PluginShared<AbstractionGenerator> _plugin("domain_abstractions", _parse);
 }
