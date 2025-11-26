@@ -654,6 +654,14 @@ fast_downward_plugin(
         numeric_landmarks/numeric_bound.cc
 )
 
+fast_downward_plugin(
+    NAME COST_SATURATION
+    HELP "Saturated cost partitioning for domain abstractions"
+    SOURCES
+        cost_saturation/abstraction.cc
+    DEPENDS DOMAIN_ABSTRACTIONS
+)
+
 fast_downward_add_plugin_sources(PLANNER_SOURCES)
 
 
