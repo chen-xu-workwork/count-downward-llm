@@ -1,6 +1,8 @@
 #ifndef COST_SATURATION_ABSTRACTION_H
 #define COST_SATURATION_ABSTRACTION_H
 
+#include "../globals.h"
+
 #include <cassert>
 #include <functional>
 #include <memory>
@@ -58,10 +60,10 @@ public:
 
     Abstraction(const Abstraction &) = delete;
 
-    virtual std::vector<int> compute_goal_distances(
-        const std::vector<int> &costs) const = 0;
-    virtual std::vector<int> compute_saturated_costs(
-        const std::vector<int> &h_values) const = 0;
+    virtual std::vector<ap_float> compute_goal_distances(
+        const std::vector<ap_float> &costs) const = 0;
+    virtual std::vector<ap_float> compute_saturated_costs(
+        const std::vector<ap_float> &h_values) const = 0;
 
     virtual int get_num_operators() const = 0;
 
