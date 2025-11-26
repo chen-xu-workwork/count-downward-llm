@@ -1,6 +1,7 @@
 #ifndef DOMAIN_ABSTRACTION_DOMAIN_ABSTRACTION_FACTORY_H
 #define DOMAIN_ABSTRACTION_DOMAIN_ABSTRACTION_FACTORY_H
 
+#include "cegar_logger.h"
 #include "types.h"
 
 #include "../task_proxy.h"

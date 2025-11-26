@@ -1,6 +1,7 @@
 #ifndef DOMAIN_ABSTRACTIONS_NUMERIC_HELPER_H
 #define DOMAIN_ABSTRACTIONS_NUMERIC_HELPER_H
 
+#include "cegar_logger.h"
 #include "types.h"
 #include "../numeric_pdbs/numeric_condition.h"
 #include "../task_proxy.h"

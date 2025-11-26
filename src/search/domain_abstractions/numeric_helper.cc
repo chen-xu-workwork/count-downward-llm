@@ -271,11 +271,13 @@ vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operator
     //    if (domain_mapping[var_id].empty()) {
     //        continue;
     //    }
-    //    cout << "Var" << var_id << " mapping: ";
-    //    for (size_t v = 0; v < domain_mapping[var_id].size(); ++v) {
-    //        cout << domain_mapping[var_id][v] << " ";
+    //    if (logger) {
+    //        logger->log_no_endl(Verbosity::DEBUG, "Var", var_id, " mapping: ");
+    //        for (size_t v = 0; v < domain_mapping[var_id].size(); ++v) {
+    //            logger->log_no_endl(Verbosity::DEBUG, domain_mapping[var_id][v], " ");
+    //        }
+    //        logger->log(Verbosity::DEBUG, "");
     //    }
-    //    cout << endl;
     //}
     
     for (OperatorProxy op : operators) {
@@ -477,8 +479,10 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                 
                 // Sanity check: source and target facts must have same size
                 if (trans.source_partition_facts.size() != trans.target_partition_facts.size()) {
-                    cout << "ERROR: Mismatched partition facts! source=" << trans.source_partition_facts.size()
-                         << " target=" << trans.target_partition_facts.size() << endl;
+                    if (logger) {
+                        logger->log(Verbosity::INFO, "ERROR: Mismatched partition facts! source=", trans.source_partition_facts.size(),
+                                   " target=", trans.target_partition_facts.size());
+                    }
                     utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
                 }
 
@@ -940,7 +944,9 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                         var_idx, source_partition, *ass_eff_for_var);
                     
                 } else {
-                    cout << "CRITICAL ERROR: Ass eff var not present" << endl;
+                    if (logger) {
+                        logger->log(Verbosity::INFO, "CRITICAL ERROR: Ass eff var not present");
+                    }
                     utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
                 }
                 

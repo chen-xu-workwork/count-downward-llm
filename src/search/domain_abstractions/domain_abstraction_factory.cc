@@ -1281,9 +1281,11 @@ void DomainAbstractionFactory::compute_abstract_plan(
             }
 
             if (successor_state == -1) {
-                cout << "PLAN: No valid successor from state " << current_state
-                     << " with lower distance; aborting plan extraction." << endl;
-                cout << "Number of possible successors considered: " << possible_successors.size() << endl;
+                if (logger) {
+                    logger->log(Verbosity::INFO, "PLAN: No valid successor from state ", current_state,
+                               " with lower distance; aborting plan extraction.");
+                    logger->log(Verbosity::INFO, "Number of possible successors considered: ", possible_successors.size());
+                }
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
                 break;
             }
@@ -1344,16 +1346,17 @@ void DomainAbstractionFactory::compute_abstract_plan(
             
            
             if (cheapest_operators.empty()) {
-                cout << "PLAN: No equivalent operators found from state " << current_state
-                     << " to " << successor_state << "; aborting plan extraction." << endl;
+                if (logger) {
+                    logger->log(Verbosity::INFO, "PLAN: No equivalent operators found from state ", current_state,
+                               " to ", successor_state, "; aborting plan extraction.");
 
-                string decoded_current_state = decode_abstract_state(current_state, domain_sizes,
-                                                      numeric_domain_mapping, hash_multipliers);
-                string decoded_successor_state = decode_abstract_state(successor_state, domain_sizes,
-                                                      numeric_domain_mapping, hash_multipliers);
-                cout << "  Current: " << decoded_current_state << endl;
-                cout << "  Successor: " << decoded_successor_state << endl;
-
+                    string decoded_current_state = decode_abstract_state(current_state, domain_sizes,
+                                                          numeric_domain_mapping, hash_multipliers);
+                    string decoded_successor_state = decode_abstract_state(successor_state, domain_sizes,
+                                                          numeric_domain_mapping, hash_multipliers);
+                    logger->log(Verbosity::INFO, "  Current: ", decoded_current_state);
+                    logger->log(Verbosity::INFO, "  Successor: ", decoded_successor_state);
+                }
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
             }
             
@@ -1485,11 +1488,15 @@ DomainAbstraction DomainAbstractionFactory::generate() {
             
             // The registry_id should match state_idx for direct lookup
             if (registry_id != state_idx) {
-                cout << "ERROR: Registry ID mismatch! state_idx=" << state_idx 
-                     << ", registry_id=" << registry_id << endl;
+                if (logger) {
+                    logger->log(Verbosity::INFO, "ERROR: Registry ID mismatch! state_idx=", state_idx,
+                               ", registry_id=", registry_id);
+                }
             }
         }
-        if (VERBOSE_DEBUG) cout << "DEBUG: State registry size after population: " << state_registry->size() << endl;
+        if (logger && logger->should_log(Verbosity::DEBUG)) {
+            logger->log(Verbosity::DEBUG, "DEBUG: State registry size after population: ", state_registry->size());
+        }
     }
     
     return DomainAbstraction(move(domain_mapping), move(numeric_domain_mapping),

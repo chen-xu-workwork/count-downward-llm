@@ -1,5 +1,6 @@
 #include "cegar.h"
 
+#include "cegar_logger.h"
 #include "domain_abstraction.h"
 #include "domain_abstraction_factory.h"
 
@@ -24,44 +25,6 @@ using namespace std;
 
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
-
-// Verbosity levels for logging
-enum class Verbosity {
-    NONE,   // No output
-    INFO,   // Important milestones and summaries
-    DEBUG   // Detailed debugging information
-};
-
-// Simple logger that respects verbosity levels
-class CEGARLogger {
-public:
-    explicit CEGARLogger(Verbosity verbosity) : verbosity_level(verbosity) {}
-    
-    bool should_log(Verbosity level) const {
-        return static_cast<int>(level) <= static_cast<int>(verbosity_level);
-    }
-    
-    template<typename... Args>
-    void log(Verbosity level, Args&&... args) const {
-        if (should_log(level)) {
-            (cout << ... << args) << endl;
-        }
-    }
-    
-    template<typename... Args>
-    void log_no_endl(Verbosity level, Args&&... args) const {
-        if (should_log(level)) {
-            (cout << ... << args);
-        }
-    }
-    
-    Verbosity get_verbosity() const {
-        return verbosity_level;
-    }
-    
-private:
-    Verbosity verbosity_level;
-};
 
 class CEGAR {
 private:
