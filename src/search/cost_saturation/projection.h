@@ -197,10 +197,10 @@ public:
         bool combine_labels = true);
     virtual ~Projection() override;
 
-    virtual std::vector<int> compute_goal_distances(
-        const std::vector<int> &operator_costs) const override;
-    virtual std::vector<int> compute_saturated_costs(
-        const std::vector<int> &h_values) const override;
+    virtual std::vector<ap_float> compute_goal_distances(
+        const std::vector<ap_float> &operator_costs) const override;
+    virtual std::vector<ap_float> compute_saturated_costs(
+        const std::vector<ap_float> &h_values) const override;
     virtual int get_num_operators() const override;
     virtual bool operator_is_active(int op_id) const override;
     virtual bool operator_induces_self_loop(int op_id) const override;

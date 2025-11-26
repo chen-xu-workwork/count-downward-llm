@@ -9,11 +9,15 @@
 
 class AbstractTask;
 
+namespace options {
+class Options;
+}
+
 namespace cost_saturation {
 class AbstractionGenerator {
 protected:
     // TODO: Add logging support
-    // mutable utils::LogProxy log;
+    mutable utils::Log log;
 
 public:
     explicit AbstractionGenerator(const options::Options &opts);

@@ -4,7 +4,7 @@
 
 #include "../task_proxy.h"
 
-#include "../algorithms/priority_queues.h"
+#include "../priority_queue.h"
 #include "../pdbs/match_tree.h"
 #include "../task_utils/task_properties.h"
 #include "../utils/collections.h"
@@ -469,27 +469,27 @@ bool Projection::is_consistent(
     return true;
 }
 
-vector<int> Projection::compute_saturated_costs(
-    const vector<int> &h_values) const {
+vector<ap_float> Projection::compute_saturated_costs(
+    const vector<ap_float> &h_values) const {
     int num_operators = get_num_operators();
 
     int num_labels = label_to_operators.size();
-    vector<int> saturated_label_costs(num_labels, -INF);
+    vector<ap_float> saturated_label_costs(num_labels, -INF);
 
     for_each_label_transition(
         [&saturated_label_costs, &h_values](const Transition &t) {
             assert(utils::in_bounds(t.src, h_values));
             assert(utils::in_bounds(t.target, h_values));
-            int src_h = h_values[t.src];
-            int target_h = h_values[t.target];
+            ap_float src_h = h_values[t.src];
+            ap_float target_h = h_values[t.target];
             if (src_h == INF || target_h == INF) {
                 return;
             }
-            int &needed_costs = saturated_label_costs[t.op];
+            ap_float &needed_costs = saturated_label_costs[t.op];
             needed_costs = max(needed_costs, src_h - target_h);
         });
 
-    vector<int> saturated_costs(num_operators, -INF);
+    vector<ap_float> saturated_costs(num_operators, -INF);
     /* To prevent negative cost cycles, we ensure that all operators inducing
        self-loops (among possibly other transitions) have non-negative costs. */
     for (int op_id = 0; op_id < num_operators; ++op_id) {
@@ -499,7 +499,7 @@ vector<int> Projection::compute_saturated_costs(
     }
 
     for (int label_id = 0; label_id < num_labels; ++label_id) {
-        int saturated_label_cost = saturated_label_costs[label_id];
+        ap_float saturated_label_cost = saturated_label_costs[label_id];
         for (int op_id : label_to_operators.get_slice(label_id)) {
             saturated_costs[op_id] = max(saturated_costs[op_id], saturated_label_cost);
         }
@@ -512,25 +512,25 @@ int Projection::get_num_operators() const {
     return task_info->get_num_operators();
 }
 
-vector<int> Projection::compute_goal_distances(const vector<int> &operator_costs) const {
-    assert(all_of(operator_costs.begin(), operator_costs.end(), [](int c) {return c >= 0;}));
+vector<ap_float> Projection::compute_goal_distances(const vector<ap_float> &operator_costs) const {
+    assert(all_of(operator_costs.begin(), operator_costs.end(), [](ap_float c) {return c >= 0;}));
 
     // Assign each label the cost of cheapest operator that the label covers.
     int num_labels = label_to_operators.size();
-    vector<int> label_costs;
+    vector<ap_float> label_costs;
     label_costs.reserve(num_labels);
     for (int label_id = 0; label_id < num_labels; ++label_id) {
-        int min_cost = INF;
+        ap_float min_cost = INF;
         for (int op_id : label_to_operators.get_slice(label_id)) {
             min_cost = min(min_cost, operator_costs[op_id]);
         }
         label_costs.push_back(min_cost);
     }
 
-    vector<int> distances(num_states, INF);
+    vector<ap_float> distances(num_states, INF);
 
     // Initialize queue.
-    priority_queues::AdaptiveQueue<int> pq;
+    HeapQueue<int> pq;
     for (int goal : goal_states) {
         pq.push(0, goal);
         distances[goal] = 0;
@@ -541,8 +541,8 @@ vector<int> Projection::compute_goal_distances(const vector<int> &operator_costs
 
     // Run Dijkstra loop.
     while (!pq.empty()) {
-        pair<int, size_t> node = pq.pop();
-        int distance = node.first;
+        pair<ap_float, int> node = pq.pop();
+        ap_float distance = node.first;
         int state_index = node.second;
         assert(utils::in_bounds(state_index, distances));
         if (distance > distances[state_index]) {
@@ -557,7 +557,7 @@ vector<int> Projection::compute_goal_distances(const vector<int> &operator_costs
             const RankedOperator &op = ranked_operators[ranked_op_id];
             int predecessor = state_index - op.hash_effect;
             assert(utils::in_bounds(op.label, label_costs));
-            int alternative_cost = (label_costs[op.label] == INF) ?
+            ap_float alternative_cost = (label_costs[op.label] == INF) ?
                 INF : distances[state_index] + label_costs[op.label];
             assert(utils::in_bounds(predecessor, distances));
             if (alternative_cost < distances[predecessor]) {

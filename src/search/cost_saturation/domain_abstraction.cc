@@ -4,10 +4,10 @@
 
 #include "../task_proxy.h"
 
-#include "../algorithms/priority_queues.h"
+#include "../priority_queue.h"
 #include "../domain_abstractions/domain_abstraction.h"
-#include "../domain_abstractions/match_tree_with_pattern.h"
-#include "../task_utils/task_properties.h"
+#include "../domain_abstractions/match_tree.h"
+#include "../task_tools.h"
 #include "../utils/collections.h"
 #include "../utils/logging.h"
 #include "../utils/math.h"
@@ -17,6 +17,10 @@
 #include <unordered_map>
 
 using namespace std;
+
+std::ostream &operator<<(std::ostream &os, const Fact &fact) {
+    return os << fact.var << "=" << fact.value;
+}
 
 namespace cost_saturation {
 static vector<int> get_abstract_preconditions(
@@ -89,14 +93,14 @@ static vector<bool> compute_looping_operators(
         */
         unordered_map<int, int> var_to_precondition;
         for (FactProxy precondition : op.get_preconditions()) {
-            const Fact pre = precondition.get_pair();
+            const Fact pre(precondition.get_variable().get_id(), precondition.get_value());
             if (!variable_is_trivial(pre.var, domain_mapping)) {
                 var_to_precondition[pre.var] =
                     domain_mapping[pre.var][pre.value];
             }
         }
         for (EffectProxy effect : op.get_effects()) {
-            const Fact eff = effect.get_fact().get_pair();
+            const Fact eff(effect.get_fact().get_variable().get_id(), effect.get_fact().get_value());
             if (var_to_precondition.count(eff.var) > 0
                 && !variable_is_trivial(eff.var, domain_mapping)
                 && var_to_precondition[eff.var]
@@ -119,7 +123,7 @@ struct OperatorGroup {
     }
 };
 
-using OperatorIDsByPreEffMap = utils::HashMap<pair<vector<Fact>, vector<Fact>>, vector<int>>;
+using OperatorIDsByPreEffMap = std::unordered_map<pair<vector<Fact>, vector<Fact>>, vector<int>>;
 using OperatorGroups = vector<OperatorGroup>;
 
 static OperatorGroups group_equivalent_operators(
@@ -135,7 +139,7 @@ static OperatorGroups group_equivalent_operators(
            with operator_induces_self_loop(). */
         effects.clear();
         for (EffectProxy eff : op.get_effects()) {
-            Fact e = eff.get_fact().get_pair();
+            Fact e(eff.get_fact().get_variable().get_id(), eff.get_fact().get_value());
             int mapped_var = variable_to_pattern_index[e.var];
             if (mapped_var != -1) {
                 effects.emplace_back(mapped_var, domain_mapping[e.var][e.value]);
@@ -148,7 +152,7 @@ static OperatorGroups group_equivalent_operators(
 
         preconditions.clear();
         for (FactProxy fact : op.get_preconditions()) {
-            Fact p = fact.get_pair();
+            Fact p(fact.get_variable().get_id(), fact.get_value());
             int mapped_var = variable_to_pattern_index[p.var];
             if (mapped_var != -1) {
                 preconditions.emplace_back(mapped_var, domain_mapping[p.var][p.value]);
@@ -202,7 +206,7 @@ static OperatorGroups get_singleton_operator_groups(
         vector<int> pre_vals(variable_to_pattern_index.size(), -1);
         group.preconditions.reserve(op.get_preconditions().size());
         for (FactProxy pre : op.get_preconditions()) {
-            Fact p = pre.get_pair();
+            Fact p(pre.get_variable().get_id(), pre.get_value());
             int mapped_var = variable_to_pattern_index[p.var];
             if (mapped_var != -1) {
                 int mapped_val = domain_mapping[p.var][p.value];
@@ -214,7 +218,7 @@ static OperatorGroups get_singleton_operator_groups(
 
         group.effects.reserve(op.get_effects().size());
         for (EffectProxy eff : op.get_effects()) {
-            Fact e = eff.get_fact().get_pair();
+            Fact e(eff.get_fact().get_variable().get_id(), eff.get_fact().get_value());
             int mapped_var = variable_to_pattern_index[e.var];
             if (mapped_var != -1) {
                 int mapped_val = domain_mapping[e.var][e.value];
@@ -261,12 +265,12 @@ DomainAbstraction::DomainAbstraction(
     const std::shared_ptr<TaskInfo> &task_info,
     domain_abstractions::DomainAbstraction &domain_abstraction,
     bool combine_labels,
-    utils::LogProxy &log)
+    utils::Log &log)
     : Abstraction(nullptr),
       task_info(task_info),
       domain_mapping(domain_abstraction.extract_domain_mapping()) {
-    if (log.is_at_least_debug()) {
-        task_properties::dump_task(task_proxy);
+    if (false) {
+        // task_properties::dump_task(task_proxy);
     }
     for (size_t var_id = 0; var_id < domain_mapping.size(); ++var_id) {
         if (!domain_mapping[var_id].empty()) {
@@ -281,7 +285,7 @@ DomainAbstraction::DomainAbstraction(
 
     looping_operators = compute_looping_operators(task_proxy, domain_mapping);
 
-    if (log.is_at_least_debug()) {
+    if (false) {
         log << "domain mapping: " << domain_mapping << endl;
         log << "pattern: " << pattern << endl;
         log << "pattern domain sizes: " << pattern_domain_sizes << endl;
@@ -304,10 +308,10 @@ DomainAbstraction::DomainAbstraction(
         } else {
             cerr << "Given pattern is too large! (Overflow occured): " << endl;
             cerr << pattern << endl;
-            utils::exit_with(utils::ExitCode::SEARCH_CRITICAL_ERROR);
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
-    if (log.is_at_least_debug()) {
+    if (false) {
         log << "hash multipliers: " << hash_multipliers << endl;
         log << "num states: " << num_states << endl;
     }
@@ -316,7 +320,7 @@ DomainAbstraction::DomainAbstraction(
     abstraction_function = utils::make_unique_ptr<DomainAbstractionFunction>(
         pattern, hash_multipliers, domain_mapping);
 
-    match_tree_backward = utils::make_unique_ptr<domain_abstractions::MatchTreeWithPattern>(
+    match_tree_backward = utils::make_unique_ptr<domain_abstractions::MatchTree>(
         pattern_domain_sizes, hash_multipliers);
 
     OperatorGroups operator_groups;
@@ -337,7 +341,7 @@ DomainAbstraction::DomainAbstraction(
         const vector<Fact> &effects = group.effects;
 
         int label_id = label_to_operators.size();
-        if (log.is_at_least_debug()) {
+        if (false) {
             log << "label: " << label_id << ", preconditions: " << preconditions
             << ", effects: " << effects << ", op ids: " << group.operator_ids
             << endl;
@@ -376,14 +380,14 @@ DomainAbstraction::DomainAbstraction(
             log);
     }
     ranked_operators.shrink_to_fit();
-    if (log.is_at_least_debug()) {
+    if (false) {
         for (const auto &op : ranked_operators) {
             log << "label: " << op.label << ", pre: " << op.precondition_hash << ", effect: " << op.hash_effect << endl;
         }
     }
 
     goal_states = compute_goal_states(variable_to_pattern_index);
-    if (log.is_at_least_debug()) {
+    if (false) {
         log << "goal states: " << goal_states << endl;
     }
 }
@@ -429,8 +433,8 @@ void DomainAbstraction::multiply_out(int pos,
                               vector<Fact> &eff_pairs,
                               const vector<Fact> &effects_without_pre,
                               const OperatorCallback &callback,
-                              utils::LogProxy &log) const {
-    if (log.is_at_least_debug()) {
+                              utils::Log &log) const {
+    if (false) {
         log << "recursive call" << endl;
         log << prev_pairs << endl;
         log << pre_pairs << endl;
@@ -466,7 +470,7 @@ void DomainAbstraction::multiply_out(int pos,
             }
         }
     }
-    if (log.is_at_least_debug()) {
+    if (false) {
         log << "backtracking" << endl;
     }
 }
@@ -476,7 +480,7 @@ void DomainAbstraction::build_ranked_operators(
     const vector<Fact> &effects,
     int num_vars,
     const OperatorCallback &callback,
-    utils::LogProxy &log) const {
+    utils::Log &log) const {
     /*
       The preconditions and effects are already mapped to the abstract
       variable IDs (determined by the pattern) and the abstract
@@ -536,27 +540,27 @@ bool DomainAbstraction::is_consistent(
     return true;
 }
 
-vector<int> DomainAbstraction::compute_saturated_costs(
-    const vector<int> &h_values) const {
+vector<ap_float> DomainAbstraction::compute_saturated_costs(
+    const vector<ap_float> &h_values) const {
     int num_operators = get_num_operators();
 
     int num_labels = label_to_operators.size();
-    vector<int> saturated_label_costs(num_labels, -INF);
+    vector<ap_float> saturated_label_costs(num_labels, -INF);
 
     for_each_label_transition(
         [&saturated_label_costs, &h_values](const Transition &t) {
             assert(utils::in_bounds(t.src, h_values));
             assert(utils::in_bounds(t.target, h_values));
-            int src_h = h_values[t.src];
-            int target_h = h_values[t.target];
+            ap_float src_h = h_values[t.src];
+            ap_float target_h = h_values[t.target];
             if (src_h == INF || target_h == INF) {
                 return;
             }
-            int &needed_costs = saturated_label_costs[t.op];
+            ap_float &needed_costs = saturated_label_costs[t.op];
             needed_costs = max(needed_costs, src_h - target_h);
         });
 
-    vector<int> saturated_costs(num_operators, -INF);
+    vector<ap_float> saturated_costs(num_operators, -INF);
     /* To prevent negative cost cycles, we ensure that all operators inducing
        self-loops (among possibly other transitions) have non-negative costs. */
     for (int op_id = 0; op_id < num_operators; ++op_id) {
@@ -566,7 +570,7 @@ vector<int> DomainAbstraction::compute_saturated_costs(
     }
 
     for (int label_id = 0; label_id < num_labels; ++label_id) {
-        int saturated_label_cost = saturated_label_costs[label_id];
+        ap_float saturated_label_cost = saturated_label_costs[label_id];
         for (int op_id : label_to_operators.get_slice(label_id)) {
             saturated_costs[op_id] = max(saturated_costs[op_id], saturated_label_cost);
         }
@@ -579,8 +583,8 @@ int DomainAbstraction::get_num_operators() const {
     return task_info->get_num_operators();
 }
 
-vector<int> DomainAbstraction::compute_goal_distances(const vector<int> &operator_costs) const {
-    assert(all_of(operator_costs.begin(), operator_costs.end(), [](int c) {return c >= 0;}));
+vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float> &operator_costs) const {
+    assert(all_of(operator_costs.begin(), operator_costs.end(), [](ap_float c) {return c >= 0;}));
 
     // TODO: use log
 //    if (log.is_at_least_debug()) {
@@ -592,20 +596,20 @@ vector<int> DomainAbstraction::compute_goal_distances(const vector<int> &operato
 
     // Assign each label the cost of cheapest operator that the label covers.
     int num_labels = label_to_operators.size();
-    vector<int> label_costs;
+    vector<ap_float> label_costs;
     label_costs.reserve(num_labels);
     for (int label_id = 0; label_id < num_labels; ++label_id) {
-        int min_cost = INF;
+        ap_float min_cost = INF;
         for (int op_id : label_to_operators.get_slice(label_id)) {
             min_cost = min(min_cost, operator_costs[op_id]);
         }
         label_costs.push_back(min_cost);
     }
 
-    vector<int> distances(num_states, INF);
+    vector<ap_float> distances(num_states, INF);
 
     // Initialize queue.
-    priority_queues::AdaptiveQueue<int> pq;
+    HeapQueue<int> pq;
     for (int goal : goal_states) {
         pq.push(0, goal);
         distances[goal] = 0;
@@ -616,8 +620,8 @@ vector<int> DomainAbstraction::compute_goal_distances(const vector<int> &operato
 
     // Run Dijkstra loop.
     while (!pq.empty()) {
-        pair<int, size_t> node = pq.pop();
-        int distance = node.first;
+        pair<ap_float, int> node = pq.pop();
+        ap_float distance = node.first;
         int state_index = node.second;
         assert(utils::in_bounds(state_index, distances));
         if (distance > distances[state_index]) {
@@ -632,7 +636,7 @@ vector<int> DomainAbstraction::compute_goal_distances(const vector<int> &operato
             const RankedOperator &op = ranked_operators[ranked_op_id];
             int predecessor = state_index - op.hash_effect;
             assert(utils::in_bounds(op.label, label_costs));
-            int alternative_cost = (label_costs[op.label] == INF) ?
+            ap_float alternative_cost = (label_costs[op.label] == INF) ?
                 INF : distances[state_index] + label_costs[op.label];
             assert(utils::in_bounds(predecessor, distances));
             if (alternative_cost < distances[predecessor]) {

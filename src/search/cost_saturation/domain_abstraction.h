@@ -8,7 +8,7 @@
 #include "../abstract_task.h"
 
 #include "../algorithms/array_pool.h"
-#include "../domain_abstractions//types.h"
+#include "../domain_abstractions/types.h"
 #include "../pdbs/types.h"
 
 #include <functional>
@@ -19,7 +19,7 @@ class TaskProxy;
 class VariablesProxy;
 
 namespace domain_abstractions {
-class MatchTreeWithPattern;
+class MatchTree;
 }
 
 namespace utils {
@@ -63,7 +63,7 @@ class DomainAbstraction : public Abstraction {
     std::vector<bool> looping_operators;
 
     std::vector<RankedOperator> ranked_operators;
-    std::unique_ptr<domain_abstractions::MatchTreeWithPattern> match_tree_backward;
+    std::unique_ptr<domain_abstractions::MatchTree> match_tree_backward;
 
     // Number of abstract states in the projection.
     int num_states;
@@ -133,7 +133,7 @@ class DomainAbstraction : public Abstraction {
         std::vector<Fact> &eff_pairs,
         const std::vector<Fact> &effects_without_pre,
         const OperatorCallback &callback,
-        utils::LogProxy &log) const;
+        utils::Log &log) const;
 
     /*
       Compute all abstract operators for a given concrete operator. Initialize
@@ -146,7 +146,7 @@ class DomainAbstraction : public Abstraction {
         const std::vector<Fact> &effects,
         int num_vars,
         const OperatorCallback &callback,
-        utils::LogProxy &log) const;
+        utils::Log &log) const;
 
     /*
       Return true iff all abstract facts hold in the given state.
@@ -161,13 +161,13 @@ public:
         const std::shared_ptr<TaskInfo> &task_info,
         domain_abstractions::DomainAbstraction &domain_abstraction,
         bool combine_labels,
-        utils::LogProxy &log);
+        utils::Log &log);
     virtual ~DomainAbstraction() override;
 
-    virtual std::vector<int> compute_goal_distances(
-        const std::vector<int> &operator_costs) const override;
-    virtual std::vector<int> compute_saturated_costs(
-        const std::vector<int> &h_values) const override;
+    virtual std::vector<ap_float> compute_goal_distances(
+        const std::vector<ap_float> &operator_costs) const override;
+    virtual std::vector<ap_float> compute_saturated_costs(
+        const std::vector<ap_float> &h_values) const override;
     virtual int get_num_operators() const override;
     virtual bool operator_is_active(int op_id) const override;
     virtual bool operator_induces_self_loop(int op_id) const override;

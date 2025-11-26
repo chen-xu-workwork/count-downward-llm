@@ -662,6 +662,8 @@ fast_downward_plugin(
         cost_saturation/cost_partitioning_heuristic.cc
         cost_saturation/cost_partitioning_heuristic_collection_generator.cc
         cost_saturation/diversifier.cc
+        cost_saturation/domain_abstraction.cc
+        cost_saturation/domain_abstraction_generator.cc
         cost_saturation/max_cost_partitioning_heuristic.cc
         cost_saturation/order_generator.cc
         cost_saturation/order_generator_greedy.cc
