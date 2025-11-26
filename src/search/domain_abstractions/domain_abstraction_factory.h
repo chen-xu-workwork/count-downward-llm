@@ -126,11 +126,15 @@ struct NumericGoalCondition {
         : numeric_var_id(var_id), op(op), constant(constant) {}
 };
 
+// Forward declare CEGARLogger
+class CEGARLogger;
+
 class DomainAbstractionFactory {
     TaskProxy task_proxy;
     DomainMapping domain_mapping;
     NumericDomainMappingType numeric_domain_mapping;
     std::vector<int> numeric_domain_sizes;
+    std::shared_ptr<CEGARLogger> logger;
     
     /*
       final h-values for abstract-states.
@@ -194,7 +198,8 @@ public:
         const std::vector<int> &numeric_domain_sizes,
         bool compute_plan,
         const std::shared_ptr<utils::RandomNumberGenerator> &rng,
-        bool compute_wildcard_plan);
+        bool compute_wildcard_plan,
+        std::shared_ptr<CEGARLogger> logger = nullptr);
 
     DomainAbstraction generate();
 

@@ -32,29 +32,35 @@ enum class Verbosity {
     DEBUG   // Detailed debugging information
 };
 
-// Global verbosity setting - change this to control output
-static const Verbosity VERBOSITY = Verbosity::NONE;
-
 // Simple logger that respects verbosity levels
 class CEGARLogger {
 public:
-    static bool should_log(Verbosity level) {
-        return static_cast<int>(level) <= static_cast<int>(VERBOSITY);
+    explicit CEGARLogger(Verbosity verbosity) : verbosity_level(verbosity) {}
+    
+    bool should_log(Verbosity level) const {
+        return static_cast<int>(level) <= static_cast<int>(verbosity_level);
     }
     
     template<typename... Args>
-    static void log(Verbosity level, Args&&... args) {
+    void log(Verbosity level, Args&&... args) const {
         if (should_log(level)) {
             (cout << ... << args) << endl;
         }
     }
     
     template<typename... Args>
-    static void log_no_endl(Verbosity level, Args&&... args) {
+    void log_no_endl(Verbosity level, Args&&... args) const {
         if (should_log(level)) {
             (cout << ... << args);
         }
     }
+    
+    Verbosity get_verbosity() const {
+        return verbosity_level;
+    }
+    
+private:
+    Verbosity verbosity_level;
 };
 
 class CEGAR {
@@ -87,6 +93,9 @@ private:
     const shared_ptr<utils::RandomNumberGenerator> &rng;
     const std::unordered_set<int> init_split_var_ids;
     std::unordered_set<int> blacklisted_variables;
+    
+    // Shared logger for consistent output across CEGAR, factory, and helper
+    shared_ptr<CEGARLogger> logger;
 
     std::vector<int> abstract_domain_sizes;
     std::vector<int> real_domain_sizes;
@@ -221,7 +230,8 @@ CEGAR::CEGAR(
       numeric_split_strategy(numeric_split_strategy),
       rng(rng),
       init_split_var_ids(move(init_split_var_ids)),
-      blacklisted_variables(move(blacklisted_variables)) {
+      blacklisted_variables(move(blacklisted_variables)),
+      logger(make_shared<CEGARLogger>(Verbosity::DEBUG)) {
     /* TODO: Should we check somewhere that *init_split_var_ids* does not
         contain elements that are blacklisted? */
 
@@ -282,32 +292,32 @@ static bool variable_specified_in_goal(int var_id,
 
 vector<int> CEGAR::compute_initial_split(
     int var_id, const TaskProxy &task_proxy, int &abstraction_size) {
-    CEGARLogger::log_no_endl(Verbosity::DEBUG, "Initial split for variable ", var_id, ": with initialization method ");
+    logger->log_no_endl(Verbosity::DEBUG, "Initial split for variable ", var_id, ": with initialization method ");
     switch (init_split_method) {
     case InitSplitMethod::GOAL_VALUE:
-        CEGARLogger::log(Verbosity::DEBUG, "GOAL_VALUE");
+        logger->log(Verbosity::DEBUG, "GOAL_VALUE");
         assert(variable_specified_in_goal(var_id, task_proxy));
         break;
     case InitSplitMethod::GOAL_VALUE_OR_RANDOM_IF_NON_GOAL:
-        CEGARLogger::log(Verbosity::DEBUG, "GOAL_VALUE_OR_RANDOM_IF_NON_GOAL");
+        logger->log(Verbosity::DEBUG, "GOAL_VALUE_OR_RANDOM_IF_NON_GOAL");
         break;
     case InitSplitMethod::INIT_VALUE:
-        CEGARLogger::log(Verbosity::DEBUG, "INIT_VALUE");
+        logger->log(Verbosity::DEBUG, "INIT_VALUE");
         break;
     case InitSplitMethod::RANDOM_VALUE: 
-        CEGARLogger::log(Verbosity::DEBUG, "RANDOM_VALUE");
+        logger->log(Verbosity::DEBUG, "RANDOM_VALUE");
         break;
     case InitSplitMethod::RANDOM_PARTITION:
-        CEGARLogger::log(Verbosity::DEBUG, "RANDOM_PARTITION");
+        logger->log(Verbosity::DEBUG, "RANDOM_PARTITION");
         break;
     case InitSplitMethod::RANDOM_BINARY_PARTITION_SEPARATING_INIT_GOAL:
-        CEGARLogger::log(Verbosity::DEBUG, "RANDOM_BINARY_PARTITION_SEPARATING_INIT_GOAL");
+        logger->log(Verbosity::DEBUG, "RANDOM_BINARY_PARTITION_SEPARATING_INIT_GOAL");
         break;
     case InitSplitMethod::IDENTITY:
-        CEGARLogger::log(Verbosity::DEBUG, "IDENTITY");
+        logger->log(Verbosity::DEBUG, "IDENTITY");
         break;
     }
-    CEGARLogger::log(Verbosity::DEBUG, "");
+    logger->log(Verbosity::DEBUG, "");
     if (init_split_method == InitSplitMethod::RANDOM_PARTITION
         || initialization_fits_size_limit(abstraction_size, var_id)) {
         pair<int, vector<int>> init_split;
@@ -405,7 +415,7 @@ pair<int, vector<int>> CEGAR::get_init_value_split(
     State init_state = task_proxy.get_initial_state();
 
     int init_value = task_proxy.get_initial_state()[var_id].get_value();
-    CEGARLogger::log(Verbosity::DEBUG, "init value ", init_value);
+    logger->log(Verbosity::DEBUG, "init value ", init_value);
     assert(utils::in_bounds(init_value, init_split));
     //TODO: Do the same for numeric variables
     init_split[init_value] = 1;
@@ -450,7 +460,7 @@ pair<int, vector<int>> CEGAR::get_random_partition_split(
             abstraction_size, abstract_domain_size, max_abstraction_size)) {
             return make_pair(abstract_domain_size, move(init_split));
         } else {
-            CEGARLogger::log(Verbosity::DEBUG, "Initial split for variable ", var_id, " exceeds size limit.");
+            logger->log(Verbosity::DEBUG, "Initial split for variable ", var_id, " exceeds size limit.");
         }
     }
     return make_pair(1, vector<int>{});
@@ -703,37 +713,37 @@ vector<Fact> CEGAR::get_flaws(
         }
     }
 
-    CEGARLogger::log(Verbosity::DEBUG, "PLAN: Validating abstract plan (", wildcard_plan.size(), " steps)");
+    logger->log(Verbosity::DEBUG, "PLAN: Validating abstract plan (", wildcard_plan.size(), " steps)");
 
     // Debug domain mapping
     const DomainMapping &dm = abstraction.get_domain_mapping();
     const NumericDomainMappingType &ndm = abstraction.get_numeric_domain_mapping();
     
-    CEGARLogger::log(Verbosity::DEBUG, "  Domain mapping (propositional):");
+    logger->log(Verbosity::DEBUG, "  Domain mapping (propositional):");
     for (size_t i = 0; i < dm.size(); ++i) {
         if (!dm[i].empty()) {
-            CEGARLogger::log_no_endl(Verbosity::DEBUG, "    var ", i, ": ");
+            logger->log_no_endl(Verbosity::DEBUG, "    var ", i, ": ");
             for (size_t j = 0; j < dm[i].size(); ++j) {
                 if (dm[i][j] == 0) continue;
-                CEGARLogger::log_no_endl(Verbosity::DEBUG, j, " -> ", dm[i][j], ", ");
+                logger->log_no_endl(Verbosity::DEBUG, j, " -> ", dm[i][j], ", ");
             }
-            CEGARLogger::log(Verbosity::DEBUG, "");
+            logger->log(Verbosity::DEBUG, "");
         }
     }
-    CEGARLogger::log(Verbosity::DEBUG, "  Domain mapping (numeric):");
+    logger->log(Verbosity::DEBUG, "  Domain mapping (numeric):");
     for (size_t i = 0; i < ndm.size(); ++i) {
         if (ndm[i]->get_num_partitions() > 1) {
-            CEGARLogger::log_no_endl(Verbosity::DEBUG, "    num var ", i, ": { ");
+            logger->log_no_endl(Verbosity::DEBUG, "    num var ", i, ": { ");
             // Iterate through actual ranges and show partition assignment
             const auto &ranges = ndm[i]->get_ranges();
             for (size_t range_idx = 0; range_idx < ranges.size(); ++range_idx) {
                 const NumericRange &range = ranges[range_idx];
-                CEGARLogger::log_no_endl(Verbosity::DEBUG, "partition ", range.partition_index, ": ", range.to_string(), " ");
+                logger->log_no_endl(Verbosity::DEBUG, "partition ", range.partition_index, ": ", range.to_string(), " ");
             }   
-            CEGARLogger::log(Verbosity::DEBUG, "}");
+            logger->log(Verbosity::DEBUG, "}");
         }
     }
-    CEGARLogger::log(Verbosity::DEBUG, "PLAN: State 0 (start): ", decode_abstract_state_compact(current_state, numeric_state));
+    logger->log(Verbosity::DEBUG, "PLAN: State 0 (start): ", decode_abstract_state_compact(current_state, numeric_state));
     
     int step_num = 0;
     for (vector<int> &equivalent_ops : wildcard_plan) {
@@ -760,7 +770,7 @@ vector<Fact> CEGAR::get_flaws(
                 detected_numeric_flaws.clear();
                 
                 string decoded_state = decode_abstract_state_compact(current_state, numeric_state);
-                CEGARLogger::log(Verbosity::DEBUG, "[PLAN] ", decoded_state, ", ", op_name);
+                logger->log(Verbosity::DEBUG, "[PLAN] ", decoded_state, ", ", op_name);
                 apply_op_to_state(current_state, op);
                 apply_numeric_effects(numeric_state, op);
                 g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_state);
@@ -792,23 +802,23 @@ vector<Fact> CEGAR::get_flaws(
                     for (pair<int, ap_float> &reg_flaw : reg_numeric_flaws) {
                         int numeric_var_id = reg_flaw.first;
                         ap_float concrete_value = reg_flaw.second;
-                        CEGARLogger::log(Verbosity::DEBUG, "  [DEBUG FLAW] Comparison axiom flaw: var=", flaw.var,
+                        logger->log(Verbosity::DEBUG, "  [DEBUG FLAW] Comparison axiom flaw: var=", flaw.var,
                                         " value=", flaw.value,
                                         " op=", op_name);
                        
                     }
                     
-                    CEGARLogger::log(Verbosity::DEBUG, "[DEBUG  Already_split]");
+                    logger->log(Verbosity::DEBUG, "[DEBUG  Already_split]");
                     for (pair<int, ap_float> &reg_flaw : reg_numeric_flaws) {
                         int id = reg_flaw.first;
-                        CEGARLogger::log(Verbosity::DEBUG, "   num_", id, " : ", num_vars[id].get_var_type());
+                        logger->log(Verbosity::DEBUG, "   num_", id, " : ", num_vars[id].get_var_type());
                     }
                     for (pair<int, ap_float> &reg_flaw : reg_numeric_flaws) {
                         int numeric_var_id = reg_flaw.first;
                         assert(num_vars[numeric_var_id].get_var_type() != numType::derived);
 
                         ap_float concrete_value = numeric_state[numeric_var_id];
-                        CEGARLogger::log(Verbosity::DEBUG, "    Detected numeric flaw on num_", numeric_var_id,
+                        logger->log(Verbosity::DEBUG, "    Detected numeric flaw on num_", numeric_var_id,
                                          " with concrete value ", concrete_value);
 
                         int local_numeric_var_index = global_to_local_regular_numeric_var_ids[numeric_var_id];
@@ -816,7 +826,7 @@ vector<Fact> CEGAR::get_flaws(
 
                         ap_float split_value = concrete_value;
                         if (!regular_numeric_var_values[local_numeric_var_index].empty()) { 
-                            CEGARLogger::log(Verbosity::DEBUG, "   LAST regular_numeric_var_values[", numeric_var_id, "] = ",
+                            logger->log(Verbosity::DEBUG, "   LAST regular_numeric_var_values[", numeric_var_id, "] = ",
                                            regular_numeric_var_values[local_numeric_var_index].back());
                             split_value = regular_numeric_var_values[local_numeric_var_index].back();
                         }
@@ -836,48 +846,48 @@ vector<Fact> CEGAR::get_flaws(
         
         if (!flaws.empty()) {
             string decoded_state = decode_abstract_state_compact(current_state, numeric_state);
-            CEGARLogger::log(Verbosity::DEBUG, "[PLAN] ", decoded_state, " -- FLAW at step ", step_num);
-            CEGARLogger::log_no_endl(Verbosity::DEBUG, "  Propositional flaws: ");
+            logger->log(Verbosity::DEBUG, "[PLAN] ", decoded_state, " -- FLAW at step ", step_num);
+            logger->log_no_endl(Verbosity::DEBUG, "  Propositional flaws: ");
             for (const Fact &flaw : flaws) {
-                CEGARLogger::log_no_endl(Verbosity::DEBUG, "fdr_", flaw.var, "=", flaw.value, " ");
+                logger->log_no_endl(Verbosity::DEBUG, "fdr_", flaw.var, "=", flaw.value, " ");
             }
-            CEGARLogger::log(Verbosity::DEBUG, "");
-            CEGARLogger::log_no_endl(Verbosity::DEBUG, "  Numeric flaws: ");
+            logger->log(Verbosity::DEBUG, "");
+            logger->log_no_endl(Verbosity::DEBUG, "  Numeric flaws: ");
             for (const std::vector<NumericFlaw> &num_flaw_vec : detected_numeric_flaws) {
                 for (const NumericFlaw &num_flaw : num_flaw_vec) {
-                    CEGARLogger::log_no_endl(Verbosity::DEBUG, "num_", num_flaw.numeric_var_id,
+                    logger->log_no_endl(Verbosity::DEBUG, "num_", num_flaw.numeric_var_id,
                                            " (concrete value: ", num_flaw.concrete_value, ") ");
                 }
             }
-            CEGARLogger::log(Verbosity::DEBUG, "");
+            logger->log(Verbosity::DEBUG, "");
 
             // DEBUG regular_numeric_var_values
             for (size_t i = 0; i < regular_numeric_var_values.size(); ++i) {
-                CEGARLogger::log_no_endl(Verbosity::DEBUG, "Numeric variable num_", local_to_global_regular_numeric_var_ids[i],
+                logger->log_no_endl(Verbosity::DEBUG, "Numeric variable num_", local_to_global_regular_numeric_var_ids[i],
                                         " observed values during plan execution: ");
                 for (const ap_float &val : regular_numeric_var_values[i]) {
-                    CEGARLogger::log_no_endl(Verbosity::DEBUG, val, " ");
+                    logger->log_no_endl(Verbosity::DEBUG, val, " ");
                 }
-                CEGARLogger::log(Verbosity::DEBUG, "");
+                logger->log(Verbosity::DEBUG, "");
             }
             // DEBUG already_split
             for (size_t i = 0; i < already_split.size(); ++i) {
-                CEGARLogger::log_no_endl(Verbosity::DEBUG, "Numeric variable num_", local_to_global_regular_numeric_var_ids[i],
+                logger->log_no_endl(Verbosity::DEBUG, "Numeric variable num_", local_to_global_regular_numeric_var_ids[i],
                                         " already split values: ");
                 for (const ap_float &val : already_split[i]) {
-                    CEGARLogger::log_no_endl(Verbosity::DEBUG, val, " ");
+                    logger->log_no_endl(Verbosity::DEBUG, val, " ");
                 }
-                CEGARLogger::log(Verbosity::DEBUG, "");
+                logger->log(Verbosity::DEBUG, "");
             }
            
             return flaws;
         }
-        CEGARLogger::log(Verbosity::DEBUG, "");
+        logger->log(Verbosity::DEBUG, "");
         step_num++;
     }
 
     string decoded_state = decode_abstract_state_compact(current_state, numeric_state);
-    CEGARLogger::log(Verbosity::DEBUG, "[PLAN] ", decoded_state);
+    logger->log(Verbosity::DEBUG, "[PLAN] ", decoded_state);
 
     for (size_t i = 0; i < local_to_global_regular_numeric_var_ids.size(); ++i) {
         int var_id = local_to_global_regular_numeric_var_ids[i];
@@ -916,7 +926,7 @@ vector<Fact> CEGAR::get_flaws(
             assert(num_vars[numeric_var_id].get_var_type() != numType::derived);
             
             ap_float concrete_value = numeric_state[numeric_var_id];
-            CEGARLogger::log(Verbosity::DEBUG, "    Detected numeric goal flaw on num_", numeric_var_id,
+            logger->log(Verbosity::DEBUG, "    Detected numeric goal flaw on num_", numeric_var_id,
                             " with concrete value ", concrete_value);
             
             int local_numeric_var_index = global_to_local_regular_numeric_var_ids[numeric_var_id];
@@ -924,7 +934,7 @@ vector<Fact> CEGAR::get_flaws(
             
             ap_float split_value = concrete_value;
             if (!regular_numeric_var_values[local_numeric_var_index].empty()) {
-                CEGARLogger::log(Verbosity::DEBUG, "   LAST regular_numeric_var_values[", numeric_var_id, "] = ",
+                logger->log(Verbosity::DEBUG, "   LAST regular_numeric_var_values[", numeric_var_id, "] = ",
                                 regular_numeric_var_values[local_numeric_var_index].back());
                 split_value = regular_numeric_var_values[local_numeric_var_index].back();
             }
@@ -976,7 +986,7 @@ bool CEGAR::fix_single_random_flaw(
 
             return true;
         } else {
-            CEGARLogger::log(Verbosity::DEBUG, "Variable ", fact.var,
+            logger->log(Verbosity::DEBUG, "Variable ", fact.var,
                            " cannot be refined (domain size exceeds limit or blacklisted).");
         }
     }
@@ -1118,76 +1128,76 @@ void CEGAR::print_statistics(
         avg_numeric_partitions = ((double) total_numeric_partitions) / num_numeric_variables;
     }
     if(false) {
-        CEGARLogger::log(Verbosity::INFO, "\n=== CEGAR Statistics ===");
-        CEGARLogger::log(Verbosity::INFO, "Final abstraction size: ", abstraction_size);
-        CEGARLogger::log(Verbosity::INFO, "\nPropositional variables:");
-        CEGARLogger::log(Verbosity::INFO, "  Total: ", num_variables);
-        CEGARLogger::log(Verbosity::INFO, "  Trivial (size 1): ", num_trivial_variables);
-        CEGARLogger::log(Verbosity::INFO, "  Complete (not abstracted): ", num_complete_variables);
-        CEGARLogger::log(Verbosity::INFO, "  Average domain size ratio: ", avg_domain_size);
+        logger->log(Verbosity::INFO, "\n=== CEGAR Statistics ===");
+        logger->log(Verbosity::INFO, "Final abstraction size: ", abstraction_size);
+        logger->log(Verbosity::INFO, "\nPropositional variables:");
+        logger->log(Verbosity::INFO, "  Total: ", num_variables);
+        logger->log(Verbosity::INFO, "  Trivial (size 1): ", num_trivial_variables);
+        logger->log(Verbosity::INFO, "  Complete (not abstracted): ", num_complete_variables);
+        logger->log(Verbosity::INFO, "  Average domain size ratio: ", avg_domain_size);
         
         // Print details of non-trivial propositional variables
-        CEGARLogger::log(Verbosity::INFO, "\n  Non-trivial propositional variables:");
+        logger->log(Verbosity::INFO, "\n  Non-trivial propositional variables:");
         for (int i = 0; i < num_variables; ++i) {
             if (abstract_domain_sizes[i] > 1) {
                 VariableProxy var = task_proxy.get_variables()[i];
                 int original_size = var.get_domain_size();
-                CEGARLogger::log(Verbosity::INFO, "    var", i, " (", var.get_name(), "): ",
+                logger->log(Verbosity::INFO, "    var", i, " (", var.get_name(), "): ",
                                 "abstract_size=", abstract_domain_sizes[i],
                                 ", original_size=", original_size);
                 
                 // Print the domain mapping if it's not too large
                 if (abstract_domain_sizes[i] <= 10 && original_size <= 20) {
-                    CEGARLogger::log_no_endl(Verbosity::INFO, "      mapping: [");
+                    logger->log_no_endl(Verbosity::INFO, "      mapping: [");
                     for (int val = 0; val < original_size; ++val) {
-                        if (val > 0) CEGARLogger::log_no_endl(Verbosity::INFO, ", ");
-                        CEGARLogger::log_no_endl(Verbosity::INFO, val, "->", domain_mapping[i][val]);
+                        if (val > 0) logger->log_no_endl(Verbosity::INFO, ", ");
+                        logger->log_no_endl(Verbosity::INFO, val, "->", domain_mapping[i][val]);
                     }
-                    CEGARLogger::log(Verbosity::INFO, "]");
+                    logger->log(Verbosity::INFO, "]");
                 }
             }
         }
         
-        CEGARLogger::log(Verbosity::INFO, "\nNumeric variables:");
-        CEGARLogger::log(Verbosity::INFO, "  Total: ", num_numeric_variables);
-        CEGARLogger::log(Verbosity::INFO, "  Trivial (1 partition): ", num_trivial_numeric_vars);
-        CEGARLogger::log(Verbosity::INFO, "  Refined (>1 partition): ", num_refined_numeric_vars);
-        CEGARLogger::log(Verbosity::INFO, "  Total partitions: ", total_numeric_partitions);
-        CEGARLogger::log(Verbosity::INFO, "  Average partitions per variable: ", avg_numeric_partitions);
+        logger->log(Verbosity::INFO, "\nNumeric variables:");
+        logger->log(Verbosity::INFO, "  Total: ", num_numeric_variables);
+        logger->log(Verbosity::INFO, "  Trivial (1 partition): ", num_trivial_numeric_vars);
+        logger->log(Verbosity::INFO, "  Refined (>1 partition): ", num_refined_numeric_vars);
+        logger->log(Verbosity::INFO, "  Total partitions: ", total_numeric_partitions);
+        logger->log(Verbosity::INFO, "  Average partitions per variable: ", avg_numeric_partitions);
         
         // Print details of refined numeric variables
-        CEGARLogger::log(Verbosity::INFO, "\n  Refined numeric variables:");
+        logger->log(Verbosity::INFO, "\n  Refined numeric variables:");
         for (int i = 0; i < num_numeric_variables; ++i) {
             if (numeric_domain_sizes[i] > 1) {
                 NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
-                CEGARLogger::log(Verbosity::INFO, "    var", i, " (", num_var.get_name(), "): ",
+                logger->log(Verbosity::INFO, "    var", i, " (", num_var.get_name(), "): ",
                                 numeric_domain_sizes[i], " partitions");
                 
                 // Print the ranges for this variable
                 const vector<NumericRange> &ranges = numeric_domain_mapping[i]->get_ranges();
                 for (size_t j = 0; j < ranges.size(); ++j) {
-                    CEGARLogger::log_no_endl(Verbosity::INFO, "      partition ", ranges[j].partition_index, ": ");
+                    logger->log_no_endl(Verbosity::INFO, "      partition ", ranges[j].partition_index, ": ");
                     // Print lower bound with correct bracket
-                    CEGARLogger::log_no_endl(Verbosity::INFO, (ranges[j].lower_inclusive ? "[" : "("));
+                    logger->log_no_endl(Verbosity::INFO, (ranges[j].lower_inclusive ? "[" : "("));
                     if (ranges[j].lower == -numeric_limits<ap_float>::infinity()) {
-                        CEGARLogger::log_no_endl(Verbosity::INFO, "-inf");
+                        logger->log_no_endl(Verbosity::INFO, "-inf");
                     } else {
-                        CEGARLogger::log_no_endl(Verbosity::INFO, ranges[j].lower);
+                        logger->log_no_endl(Verbosity::INFO, ranges[j].lower);
                     }
-                    CEGARLogger::log_no_endl(Verbosity::INFO, ", ");
+                    logger->log_no_endl(Verbosity::INFO, ", ");
                     // Print upper bound
                     if (ranges[j].upper == numeric_limits<ap_float>::infinity()) {
-                        CEGARLogger::log_no_endl(Verbosity::INFO, "inf");
+                        logger->log_no_endl(Verbosity::INFO, "inf");
                     } else {
-                        CEGARLogger::log_no_endl(Verbosity::INFO, ranges[j].upper);
+                        logger->log_no_endl(Verbosity::INFO, ranges[j].upper);
                     }
                     // Print upper bracket
-                    CEGARLogger::log(Verbosity::INFO, (ranges[j].upper_inclusive ? "]" : ")"));
+                    logger->log(Verbosity::INFO, (ranges[j].upper_inclusive ? "]" : ")"));
                 }
             }
         }
         
-        CEGARLogger::log(Verbosity::INFO, "========================\n");
+        logger->log(Verbosity::INFO, "========================\n");
     }
 }
 
@@ -1207,7 +1217,7 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
     // Initialize numeric domain mapping with full range (-inf, inf) for regular/derived variables
     // Constants should have a single partition at their exact value
     // Choose strategy based on configuration
-    CEGARLogger::log(Verbosity::DEBUG, "DEBUG: NumericSplitStrategy = ", 
+    logger->log(Verbosity::DEBUG, "DEBUG: NumericSplitStrategy = ", 
                    (numeric_split_strategy == NumericSplitStrategy::EXCLUSION ? "EXCLUSION" : "STANDARD"));
     NumericDomainMappingType numeric_domain_mapping;
     numeric_domain_mapping.reserve(num_numeric_variables);
@@ -1333,13 +1343,13 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
     
     GoalsProxy goal = task_proxy.get_goals();
     for (FactProxy goal_fact : goal) {
-        CEGARLogger::log(Verbosity::DEBUG, "DEBUG:   Goal: ",
+        logger->log(Verbosity::DEBUG, "DEBUG:   Goal: ",
                         goal_fact.get_variable().get_name(), "=", goal_fact.get_value());
     }
 
     // Now build the comparison axiom mapping
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-    CEGARLogger::log(Verbosity::DEBUG, "DEBUG: Building comparison axiom mapping, total axioms: ", comparison_axioms.size());
+    logger->log(Verbosity::DEBUG, "DEBUG: Building comparison axiom mapping, total axioms: ", comparison_axioms.size());
     for (ComparisonAxiomProxy axiom : comparison_axioms) {
         // Get the propositional variable created by this comparison axiom
         FactProxy true_fact = axiom.get_true_fact();
@@ -1348,7 +1358,7 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         
         int prop_var_id = true_fact.get_variable().get_id();
         
-        CEGARLogger::log(Verbosity::DEBUG, "DEBUG: Processing comparison axiom for fdr_", prop_var_id,
+        logger->log(Verbosity::DEBUG, "DEBUG: Processing comparison axiom for fdr_", prop_var_id,
                         " (", true_fact.get_variable().get_name(), ")");
         
         // Get the numeric variables used in the comparison (may be derived!)
@@ -1370,29 +1380,29 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         comparison_axiom_dependencies[prop_var_id] = regular_vars;
         
         // Debug output for ALL comparison axioms
-        CEGARLogger::log(Verbosity::DEBUG, "  fdr_", prop_var_id, " depends on:");
-        CEGARLogger::log(Verbosity::DEBUG, "    left_var=num_", left_var_id,
+        logger->log(Verbosity::DEBUG, "  fdr_", prop_var_id, " depends on:");
+        logger->log(Verbosity::DEBUG, "    left_var=num_", left_var_id,
                         (left_var_id >= 0 && is_regular[left_var_id] ? " (regular)" : " (DERIVED)"));
-        CEGARLogger::log(Verbosity::DEBUG, "    right_var=num_", right_var_id,
+        logger->log(Verbosity::DEBUG, "    right_var=num_", right_var_id,
                         (right_var_id >= 0 && is_regular[right_var_id] ? " (regular)" : " (DERIVED)"));
-        CEGARLogger::log_no_endl(Verbosity::DEBUG, "    Regular dependencies: {");
+        logger->log_no_endl(Verbosity::DEBUG, "    Regular dependencies: {");
         for (int reg_var : regular_vars) {
-            CEGARLogger::log_no_endl(Verbosity::DEBUG, "num_", reg_var, " ");
+            logger->log_no_endl(Verbosity::DEBUG, "num_", reg_var, " ");
         }
-        CEGARLogger::log(Verbosity::DEBUG, "}");
+        logger->log(Verbosity::DEBUG, "}");
     }
     
-    CEGARLogger::log(Verbosity::DEBUG, "DEBUG: Total comparison axiom dependencies stored: ",
+    logger->log(Verbosity::DEBUG, "DEBUG: Total comparison axiom dependencies stored: ",
                     comparison_axiom_dependencies.size());
     
     // Print full comparison_axiom_dependencies mapping
-    CEGARLogger::log(Verbosity::DEBUG, "\n=== COMPLETE comparison_axiom_dependencies mapping ===");
+    logger->log(Verbosity::DEBUG, "\n=== COMPLETE comparison_axiom_dependencies mapping ===");
     NumericVariablesProxy num_vars_for_print = task_proxy.get_numeric_variables();
     for (const auto &entry : comparison_axiom_dependencies) {
         int prop_var_id = entry.first;
         const unordered_set<int> &reg_vars = entry.second;
         VariableProxy prop_var = task_proxy.get_variables()[prop_var_id];
-        CEGARLogger::log_no_endl(Verbosity::DEBUG, "  fdr_", prop_var_id, " (", prop_var.get_name(), ") -> {");
+        logger->log_no_endl(Verbosity::DEBUG, "  fdr_", prop_var_id, " (", prop_var.get_name(), ") -> {");
         for (int reg_var_id : reg_vars) {
             NumericVariableProxy num_var = num_vars_for_print[reg_var_id];
             numType var_type = num_var.get_var_type();
@@ -1403,17 +1413,17 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
                 case numType::derived: type_str = "DERIVED"; break;
                 default: type_str = "UNKNOWN"; break;
             }
-            CEGARLogger::log_no_endl(Verbosity::DEBUG, " num_", reg_var_id, "(", num_var.get_name(), ",", type_str, ")");
+            logger->log_no_endl(Verbosity::DEBUG, " num_", reg_var_id, "(", num_var.get_name(), ",", type_str, ")");
         }
-        CEGARLogger::log(Verbosity::DEBUG, " }");
+        logger->log(Verbosity::DEBUG, " }");
     }
-    CEGARLogger::log(Verbosity::DEBUG, "======================================================\n");
+    logger->log(Verbosity::DEBUG, "======================================================\n");
     
     // PHASE 2: Collect all numeric variables modified by operators
     // This ensures we refine ALL operator-modified variables when numeric flaws occur
     operator_modified_numeric_vars.clear();
     
-    CEGARLogger::log(Verbosity::DEBUG, "DEBUG PHASE2: Collecting operator-modified numeric variables...");
+    logger->log(Verbosity::DEBUG, "DEBUG PHASE2: Collecting operator-modified numeric variables...");
     OperatorsProxy operators = task_proxy.get_operators();
     for (OperatorProxy op : operators) {
         // Check additive effects (NumAss effects)
@@ -1430,15 +1440,15 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         }
     }
     
-    CEGARLogger::log_no_endl(Verbosity::DEBUG, "DEBUG PHASE2: Operator-modified numeric variables: ");
+    logger->log_no_endl(Verbosity::DEBUG, "DEBUG PHASE2: Operator-modified numeric variables: ");
     vector<int> sorted_op_vars(operator_modified_numeric_vars.begin(), 
                                 operator_modified_numeric_vars.end());
     sort(sorted_op_vars.begin(), sorted_op_vars.end());
     for (int var_id : sorted_op_vars) {
-        CEGARLogger::log_no_endl(Verbosity::DEBUG, "var", var_id, " ");
+        logger->log_no_endl(Verbosity::DEBUG, "var", var_id, " ");
     }
-    CEGARLogger::log(Verbosity::DEBUG, "");
-    CEGARLogger::log(Verbosity::DEBUG, "DEBUG PHASE2: Total: ", operator_modified_numeric_vars.size(), " variables");
+    logger->log(Verbosity::DEBUG, "");
+    logger->log(Verbosity::DEBUG, "DEBUG PHASE2: Total: ", operator_modified_numeric_vars.size(), " variables");
     
     // Print comprehensive axiom dependency tree for CEGAR
     //print_cegar_axiom_trees(task_proxy, is_derived, axiom_dependencies);
@@ -1446,7 +1456,7 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
 
 DomainAbstraction CEGAR::build_abstraction(
     const TaskProxy &task_proxy) {
-    CEGARLogger::log(Verbosity::INFO, "Building domain abstraction...");
+    logger->log(Verbosity::INFO, "Building domain abstraction...");
     utils::reserve_extra_memory_padding(memory_padding_in_mb);
     utils::CountdownTimer timer(max_time);
 
@@ -1465,14 +1475,14 @@ DomainAbstraction CEGAR::build_abstraction(
     
     // NOTE: There are always 2 logic axioms that we ignore
     // Now blacklist all axiom variables that are NOT comparison axioms
-    CEGARLogger::log(Verbosity::DEBUG, "Blacklisting logic axiom variables:");
+    logger->log(Verbosity::DEBUG, "Blacklisting logic axiom variables:");
     for (OperatorProxy axiom : task_proxy.get_axioms()) {
         for (EffectProxy eff : axiom.get_effects()) {
             int var_id = eff.get_fact().get_variable().get_id();
             // Only blacklist if this is NOT a comparison axiom
             if (comparison_axiom_var_ids.count(var_id) == 0) {
                 blacklisted_variables.insert(var_id);
-                CEGARLogger::log(Verbosity::DEBUG, "  Blacklisted logic axiom variable ", var_id,
+                logger->log(Verbosity::DEBUG, "  Blacklisted logic axiom variable ", var_id,
                                " (", eff.get_fact().get_variable().get_name(), ")");
             }
         }
@@ -1480,16 +1490,16 @@ DomainAbstraction CEGAR::build_abstraction(
 
     DomainMapping domain_mapping =
         compute_initial_domain_mapping(task_proxy);
-    CEGARLogger::log(Verbosity::DEBUG, "Initial domain mapping: ", domain_mapping);
+    logger->log(Verbosity::DEBUG, "Initial domain mapping: ", domain_mapping);
     
     // Debug: Check which variables are derived/axiom variables
-    CEGARLogger::log(Verbosity::DEBUG, "Variable analysis:");
+    logger->log(Verbosity::DEBUG, "Variable analysis:");
     for (int var_id = 0; var_id < task_proxy.get_variables().size(); ++var_id) {
         VariableProxy var = task_proxy.get_variables()[var_id];
         bool is_comparison = (comparison_axiom_var_ids.count(var_id) > 0);
         bool is_blacklisted = (blacklisted_variables.count(var_id) > 0);
         bool has_mapping = !domain_mapping[var_id].empty();
-        CEGARLogger::log(Verbosity::DEBUG, "  Variable ", var_id, " (", var.get_name(), "): ",
+        logger->log(Verbosity::DEBUG, "  Variable ", var_id, " (", var.get_name(), "): ",
                         "comparison=", (is_comparison ? "yes" : "no"), ", ",
                         "blacklisted=", (is_blacklisted ? "yes" : "no"), ", ",
                         "has_mapping=", (has_mapping ? "yes" : "no"), ", ",
@@ -1497,20 +1507,20 @@ DomainAbstraction CEGAR::build_abstraction(
     }
     
     // Debug: Show logic axioms
-    CEGARLogger::log(Verbosity::DEBUG, "Logic axioms in task: ", task_proxy.get_axioms().size());
+    logger->log(Verbosity::DEBUG, "Logic axioms in task: ", task_proxy.get_axioms().size());
     for (size_t i = 0; i < task_proxy.get_axioms().size(); ++i) {
         OperatorProxy axiom = task_proxy.get_axioms()[i];
-        CEGARLogger::log(Verbosity::DEBUG, "  Logic axiom ", i, ": ", axiom.get_name());
+        logger->log(Verbosity::DEBUG, "  Logic axiom ", i, ": ", axiom.get_name());
         for (EffectProxy eff : axiom.get_effects()) {
-            CEGARLogger::log(Verbosity::DEBUG, "    affects variable ", eff.get_fact().get_variable().get_id());
+            logger->log(Verbosity::DEBUG, "    affects variable ", eff.get_fact().get_variable().get_id());
         }
     }
     
     // Debug: Show comparison axioms
-    CEGARLogger::log(Verbosity::DEBUG, "Comparison axioms in task: ", g_comp_axioms.size());
+    logger->log(Verbosity::DEBUG, "Comparison axioms in task: ", g_comp_axioms.size());
     for (size_t i = 0; i < g_comp_axioms.size(); ++i) {
         const ComparisonAxiom &ax = g_comp_axioms[i];
-        CEGARLogger::log(Verbosity::DEBUG, "  Comparison axiom ", i, ": affects variable ", ax.affected_variable);
+        logger->log(Verbosity::DEBUG, "  Comparison axiom ", i, ": affects variable ", ax.affected_variable);
     }
     
     // Initialize numeric domain mapping with full range (-inf, inf) for all numeric variables
@@ -1520,21 +1530,21 @@ DomainAbstraction CEGAR::build_abstraction(
 
     
     // DEBUG: Print all comparison axiom mappings
-    CEGARLogger::log(Verbosity::DEBUG, "DEBUG: Comparison axiom mappings:");
+    logger->log(Verbosity::DEBUG, "DEBUG: Comparison axiom mappings:");
     for (const auto &entry : comparison_axiom_dependencies) {
         int prop_var_id = entry.first;
         const unordered_set<int> &numeric_var_ids = entry.second;
-        CEGARLogger::log_no_endl(Verbosity::DEBUG, "  Propositional var ", prop_var_id, " depends on numeric vars: ");
+        logger->log_no_endl(Verbosity::DEBUG, "  Propositional var ", prop_var_id, " depends on numeric vars: ");
         for (int nvar : numeric_var_ids) {
-            CEGARLogger::log_no_endl(Verbosity::DEBUG, nvar, " ");
+            logger->log_no_endl(Verbosity::DEBUG, nvar, " ");
         }
-        CEGARLogger::log(Verbosity::DEBUG, "");
+        logger->log(Verbosity::DEBUG, "");
     }
     
     DomainAbstractionFactory factory(
         task_proxy, domain_mapping, abstract_domain_sizes,
         numeric_domain_mapping, numeric_domain_sizes,
-        true, rng, use_wildcard_plans);
+        true, rng, use_wildcard_plans, logger);
     DomainAbstraction abstraction = factory.generate();
 
     int iteration = 1;
@@ -1542,7 +1552,7 @@ DomainAbstraction CEGAR::build_abstraction(
     //concrete_init.unpack();
     while (!termination_criterion_satisfied(timer)) {
         
-        CEGARLogger::log(Verbosity::INFO, "iteration #", iteration);
+        logger->log(Verbosity::INFO, "iteration #", iteration);
 
         vector<Fact> flaws =
             get_flaws(task_proxy, concrete_init, abstraction);
@@ -1551,9 +1561,9 @@ DomainAbstraction CEGAR::build_abstraction(
 
         // SUMMARY: Final flaws and dependencies for this iteration
         if (!flaws.empty() || !detected_numeric_flaws.empty()) {
-            CEGARLogger::log(Verbosity::INFO, "SUMMARY: Flaws after plan validation");
+            logger->log(Verbosity::INFO, "SUMMARY: Flaws after plan validation");
             if (!flaws.empty()) {
-                CEGARLogger::log(Verbosity::INFO, "  Propositional flaws:");
+                logger->log(Verbosity::INFO, "  Propositional flaws:");
                 // Access variable and numeric proxies for names
                 VariablesProxy vars = task_proxy.get_variables();
                 NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
@@ -1561,27 +1571,27 @@ DomainAbstraction CEGAR::build_abstraction(
                     bool is_comp = (comparison_axiom_dependencies.find(f.var) != comparison_axiom_dependencies.end());
                     // Print propositional variable with its human-readable name
                     string prop_name = vars[f.var].get_name();
-                    CEGARLogger::log(Verbosity::INFO, "    fdr_", f.var, " (", prop_name, ")=", f.value,
+                    logger->log(Verbosity::INFO, "    fdr_", f.var, " (", prop_name, ")=", f.value,
                                     (is_comp ? " (comparison)" : ""));
                     if (is_comp) {
                         const auto &deps = comparison_axiom_dependencies.at(f.var);
-                        CEGARLogger::log_no_endl(Verbosity::INFO, "      depends on numeric: ");
+                        logger->log_no_endl(Verbosity::INFO, "      depends on numeric: ");
                         bool first = true;
                         for (int nv : deps) {
-                            if (!first) CEGARLogger::log_no_endl(Verbosity::INFO, ", ");
+                            if (!first) logger->log_no_endl(Verbosity::INFO, ", ");
                             // Include numeric variable name
                             string num_name = num_vars[nv].get_name();
-                            CEGARLogger::log_no_endl(Verbosity::INFO, "num_", nv, " (", num_name, ")");
+                            logger->log_no_endl(Verbosity::INFO, "num_", nv, " (", num_name, ")");
                             first = false;
                         }
-                        CEGARLogger::log(Verbosity::INFO, "");
+                        logger->log(Verbosity::INFO, "");
                     }
                 }
             } else {
-                CEGARLogger::log(Verbosity::INFO, "  Propositional flaws: none");
+                logger->log(Verbosity::INFO, "  Propositional flaws: none");
             }
             if (!detected_numeric_flaws.empty()) {
-                CEGARLogger::log(Verbosity::INFO, "  Numeric flaws:");
+                logger->log(Verbosity::INFO, "  Numeric flaws:");
                 // Access proxies (reuse if already declared above not available in this scope)
                 VariablesProxy vars = task_proxy.get_variables();
                 NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
@@ -1589,18 +1599,18 @@ DomainAbstraction CEGAR::build_abstraction(
                     for (const NumericFlaw &nf : num_flaw_vec) {
                         string num_name = num_vars[nf.numeric_var_id].get_name();
                         string prop_name = vars[nf.prop_var_id].get_name();
-                        CEGARLogger::log(Verbosity::INFO, "    num_", nf.numeric_var_id, " (", num_name, ")",
+                        logger->log(Verbosity::INFO, "    num_", nf.numeric_var_id, " (", num_name, ")",
                                         " at value ", nf.concrete_value,
                                         " (from axiom fdr_", nf.prop_var_id, " (", prop_name, "))");
                     }
                 }
             } else {
-                CEGARLogger::log(Verbosity::INFO, "  Numeric flaws: none");
+                logger->log(Verbosity::INFO, "  Numeric flaws: none");
             }
         }
 
         if (flaws.empty() && detected_numeric_flaws.empty()) {
-            CEGARLogger::log(Verbosity::INFO, "No more flaws found, terminating CEGAR refinement.");
+            logger->log(Verbosity::INFO, "No more flaws found, terminating CEGAR refinement.");
             break;
         }
 
@@ -1618,8 +1628,8 @@ DomainAbstraction CEGAR::build_abstraction(
         // refinement possible), fall back to all numeric flaws.
         std::vector<NumericFlaw> filtered_numeric_flaws;
         for (size_t last_id = 0; last_id < last_selected_prop_flaw_vars.size(); ++last_id) {
-            CEGARLogger::log(Verbosity::DEBUG, "LAST ID: ", last_id, " detected_flaw size: ", detected_numeric_flaws.size());
-            CEGARLogger::log(Verbosity::DEBUG, "last_selected_prop_flaw_vars: ", last_selected_prop_flaw_vars.size());
+            logger->log(Verbosity::DEBUG, "LAST ID: ", last_id, " detected_flaw size: ", detected_numeric_flaws.size());
+            logger->log(Verbosity::DEBUG, "last_selected_prop_flaw_vars: ", last_selected_prop_flaw_vars.size());
             vector<NumericFlaw> regular_numeric_flaws = detected_numeric_flaws[last_id];
             filtered_numeric_flaws.insert(filtered_numeric_flaws.end(),
                                             regular_numeric_flaws.begin(),
@@ -1630,7 +1640,7 @@ DomainAbstraction CEGAR::build_abstraction(
         
         if (!flaws_fixed || !numeric_flaws_fixed) {
             assert(max_abstraction_size != numeric_limits<int>::max());
-            CEGARLogger::log(Verbosity::INFO, "Terminating CEGAR loop because fixing flaws ",
+            logger->log(Verbosity::INFO, "Terminating CEGAR loop because fixing flaws ",
                            "surpasses abstraction size limit of ", max_abstraction_size, " states.");
             break;
         }
@@ -1645,42 +1655,42 @@ DomainAbstraction CEGAR::build_abstraction(
             int actual_partitions = numeric_domain_mapping[i]->get_num_partitions();
             int expected_partitions = numeric_domain_sizes[i];
             if (actual_partitions != expected_partitions) {
-                CEGARLogger::log(Verbosity::INFO, "ERROR: num_", i, " has ", actual_partitions,
+                logger->log(Verbosity::INFO, "ERROR: num_", i, " has ", actual_partitions,
                                 " partitions but expected ", expected_partitions);
                 all_valid = false;
             }
             if (!numeric_domain_mapping[i]->is_valid()) {
-                CEGARLogger::log(Verbosity::INFO, "ERROR: num_", i, " has invalid mapping");
+                logger->log(Verbosity::INFO, "ERROR: num_", i, " has invalid mapping");
                 all_valid = false;
             }
         }
         if (!all_valid) {
-            CEGARLogger::log(Verbosity::INFO, "CRITICAL ERROR: Numeric domain mapping validation failed!");
+            logger->log(Verbosity::INFO, "CRITICAL ERROR: Numeric domain mapping validation failed!");
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
 
-        CEGARLogger::log(Verbosity::DEBUG, "  Domain mapping (propositional):");
+        logger->log(Verbosity::DEBUG, "  Domain mapping (propositional):");
         for (size_t i = 0; i < domain_mapping.size(); ++i) {
             if (!domain_mapping[i].empty()) {
-                CEGARLogger::log_no_endl(Verbosity::DEBUG, "    var ", i, ": ");
+                logger->log_no_endl(Verbosity::DEBUG, "    var ", i, ": ");
                 for (size_t j = 0; j < domain_mapping[i].size(); ++j) {
                     if (domain_mapping[i][j] == 0) continue;
-                    CEGARLogger::log_no_endl(Verbosity::DEBUG, j, " -> ", domain_mapping[i][j], ", ");
+                    logger->log_no_endl(Verbosity::DEBUG, j, " -> ", domain_mapping[i][j], ", ");
                 }
-                CEGARLogger::log(Verbosity::DEBUG, "");
+                logger->log(Verbosity::DEBUG, "");
             }
         }
-        CEGARLogger::log(Verbosity::DEBUG, "  Domain mapping (numeric):");
+        logger->log(Verbosity::DEBUG, "  Domain mapping (numeric):");
         for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
             if (numeric_domain_mapping[i]->get_num_partitions() > 1) {
-                CEGARLogger::log_no_endl(Verbosity::DEBUG, "    num var ", i, ": { ");
+                logger->log_no_endl(Verbosity::DEBUG, "    num var ", i, ": { ");
                 // Iterate through actual ranges and show partition assignment
                 const auto &ranges = numeric_domain_mapping[i]->get_ranges();
                 for (size_t range_idx = 0; range_idx < ranges.size(); ++range_idx) {
                     const NumericRange &range = ranges[range_idx];
-                    CEGARLogger::log_no_endl(Verbosity::DEBUG, "partition ", range.partition_index, ": ", range.to_string(), " ");
+                    logger->log_no_endl(Verbosity::DEBUG, "partition ", range.partition_index, ": ", range.to_string(), " ");
                 }   
-                CEGARLogger::log(Verbosity::DEBUG, "}");
+                logger->log(Verbosity::DEBUG, "}");
             }
         }
         
@@ -1701,7 +1711,7 @@ DomainAbstraction CEGAR::build_abstraction(
 
 
     print_statistics(task_proxy, domain_mapping);
-    CEGARLogger::log(Verbosity::INFO, "Number of CEGAR iterations: ", iteration);
+    logger->log(Verbosity::INFO, "Number of CEGAR iterations: ", iteration);
 
     return abstraction;
 }
@@ -1709,11 +1719,11 @@ DomainAbstraction CEGAR::build_abstraction(
 bool CEGAR::termination_criterion_satisfied(
     utils::CountdownTimer &timer) {
     if (timer.is_expired()) {
-        CEGARLogger::log(Verbosity::INFO, "Terminating CEGAR; time limit reached.");
+        logger->log(Verbosity::INFO, "Terminating CEGAR; time limit reached.");
         return true;
     }
     if (!utils::extra_memory_padding_is_reserved()) {
-        CEGARLogger::log(Verbosity::INFO, "Terminating CEGAR; memory limit reached.");
+        logger->log(Verbosity::INFO, "Terminating CEGAR; memory limit reached.");
         return true;
     }
     return false;
@@ -1754,17 +1764,17 @@ bool CEGAR::can_refine_numeric_variable(
         NumericVariableProxy num_var = num_vars[numeric_var_id];
         numType var_type = num_var.get_var_type();
         
-        CEGARLogger::log(Verbosity::DEBUG, "DEBUG can_refine: num_", numeric_var_id,
+        logger->log(Verbosity::DEBUG, "DEBUG can_refine: num_", numeric_var_id,
                         " has type=", static_cast<int>(var_type),
                         " (1=constant, 2=derived, 4=regular)");
         
         if (var_type == numType::constant) {
-            CEGARLogger::log(Verbosity::DEBUG, "Cannot refine num_", numeric_var_id, " (CONSTANT); ignoring");
+            logger->log(Verbosity::DEBUG, "Cannot refine num_", numeric_var_id, " (CONSTANT); ignoring");
             return false;
         }
         
         if (var_type == numType::derived) {
-            CEGARLogger::log(Verbosity::DEBUG, "Cannot refine num_", numeric_var_id, " (DERIVED); ignoring");
+            logger->log(Verbosity::DEBUG, "Cannot refine num_", numeric_var_id, " (DERIVED); ignoring");
             return false;
         }
     }
@@ -1777,11 +1787,11 @@ bool CEGAR::can_refine_numeric_variable(
     int current_partitions = numeric_domain_mapping[numeric_var_id]->get_num_partitions();
     int abs_size_without_var = old_abstraction_size / current_partitions;
 
-    CEGARLogger::log(Verbosity::DEBUG, "Numeric variable ", numeric_var_id,
+    logger->log(Verbosity::DEBUG, "Numeric variable ", numeric_var_id,
                     " has ", current_partitions, " partitions.");
-    CEGARLogger::log(Verbosity::DEBUG, "Old abstraction size: ", old_abstraction_size);
-    CEGARLogger::log(Verbosity::DEBUG, "Abstraction size without this variable: ", abs_size_without_var);
-    CEGARLogger::log(Verbosity::DEBUG, "Max abstraction size: ", max_abstraction_size);
+    logger->log(Verbosity::DEBUG, "Old abstraction size: ", old_abstraction_size);
+    logger->log(Verbosity::DEBUG, "Abstraction size without this variable: ", abs_size_without_var);
+    logger->log(Verbosity::DEBUG, "Max abstraction size: ", max_abstraction_size);
     
     // Splitting will create one more partition
     if (utils::is_product_within_limit(abs_size_without_var, current_partitions + 1,
@@ -1789,7 +1799,7 @@ bool CEGAR::can_refine_numeric_variable(
         return true;
     }
     
-    CEGARLogger::log(Verbosity::DEBUG, "Cannot refine numeric variable ", numeric_var_id, "; blacklisting");
+    logger->log(Verbosity::DEBUG, "Cannot refine numeric variable ", numeric_var_id, "; blacklisting");
     blacklisted_numeric_variables.insert(numeric_var_id);
     return false;
 }
@@ -1870,7 +1880,7 @@ bool CEGAR::fix_numeric_flaws(
         if (can_refine_numeric_variable(abstraction_size, split_var_id, task_proxy)) {
             // Bounds check
             if (split_var_id < 0 || split_var_id >= (int)numeric_domain_mapping.size()) {
-                CEGARLogger::log(Verbosity::INFO, "ERROR: split_var_id ", split_var_id,
+                logger->log(Verbosity::INFO, "ERROR: split_var_id ", split_var_id,
                                " is out of bounds! numeric_domain_mapping.size()=",
                                numeric_domain_mapping.size());
                 continue;
@@ -1896,33 +1906,33 @@ bool CEGAR::fix_numeric_flaws(
                 numeric_var_refinement_count[split_var_id]++;
                 
                 if (used_backward_solve) {
-                    CEGARLogger::log(Verbosity::INFO, "Refined num_", split_var_id,
+                    logger->log(Verbosity::INFO, "Refined num_", split_var_id,
                                    " at backward-solved value ", split_value,
                                    " (originally flaw on num_", numeric_var_id, " at ", concrete_value, ")",
                                    " (partitions: ", old_num_partitions, " -> ", new_num_partitions, ")");
                 } else {
-                    CEGARLogger::log(Verbosity::INFO, "Refined num_", split_var_id,
+                    logger->log(Verbosity::INFO, "Refined num_", split_var_id,
                                    " at value ", split_value,
                                    " (partitions: ", old_num_partitions, " -> ", new_num_partitions, ")");
                 }
             } else {
                 // No new partitions created - splits already exist
-                CEGARLogger::log(Verbosity::DEBUG, "DEBUG: Flaw for num_", numeric_var_id,
+                logger->log(Verbosity::DEBUG, "DEBUG: Flaw for num_", numeric_var_id,
                                " at value ", concrete_value,
                                " - splits already exist on num_", split_var_id,
                                " at value ", split_value,
                                " (no refinement needed)");
             } 
         } else {
-            CEGARLogger::log(Verbosity::DEBUG, "DEBUG: Cannot refine num_", split_var_id,
+            logger->log(Verbosity::DEBUG, "DEBUG: Cannot refine num_", split_var_id,
                            " (blacklisted or size limit)");
         }
     }
     
     if (!refined_any) {
-        CEGARLogger::log(Verbosity::INFO, "WARNING: fix_numeric_flaws() called but no numeric variables were refined!");
-        CEGARLogger::log(Verbosity::INFO, "  This usually means all flaws are at partition boundaries,");
-        CEGARLogger::log(Verbosity::INFO, "  which indicates the abstraction is already distinguishing these values.");
+        logger->log(Verbosity::INFO, "WARNING: fix_numeric_flaws() called but no numeric variables were refined!");
+        logger->log(Verbosity::INFO, "  This usually means all flaws are at partition boundaries,");
+        logger->log(Verbosity::INFO, "  which indicates the abstraction is already distinguishing these values.");
     }
     
     return refined_any;

@@ -74,6 +74,9 @@ class AbstractOperator;
  * The DomainAbstractionFactory uses this helper to get properly constructed
  * AbstractOperators instead of building them directly.
  */
+// Forward declare CEGARLogger
+class CEGARLogger;
+
 class DomainAbstractionNumericHelper {
 public:
     /**
@@ -84,6 +87,7 @@ public:
      * @param domain_sizes Abstract domain sizes for propositional variables
      * @param numeric_domain_sizes Number of partitions per numeric variable
      * @param hash_multipliers Hash multipliers for perfect hashing
+     * @param logger Shared logger for output (optional)
      */
     explicit DomainAbstractionNumericHelper(
         const std::shared_ptr<AbstractTask> &task,
@@ -91,7 +95,8 @@ public:
         const NumericDomainMappingType &numeric_domain_mapping,
         const std::vector<int> &domain_sizes,
         const std::vector<int> &numeric_domain_sizes,
-        const std::vector<int> &hash_multipliers);
+        const std::vector<int> &hash_multipliers,
+        std::shared_ptr<CEGARLogger> logger = nullptr);
     
     // Access to numeric task information
     int get_num_numeric_variables() const {
@@ -198,6 +203,9 @@ private:
     const std::vector<int> &domain_sizes;
     const std::vector<int> &numeric_domain_sizes;
     const std::vector<int> &hash_multipliers;
+    
+    // Shared logger for output
+    std::shared_ptr<CEGARLogger> logger;
     
     int n_numeric_variables;
     int n_propositional_variables;

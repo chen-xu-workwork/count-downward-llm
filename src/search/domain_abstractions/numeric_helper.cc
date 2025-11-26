@@ -26,14 +26,16 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
     const NumericDomainMappingType &numeric_domain_mapping,
     const vector<int> &domain_sizes,
     const vector<int> &numeric_domain_sizes,
-    const vector<int> &hash_multipliers)
+    const vector<int> &hash_multipliers,
+    shared_ptr<CEGARLogger> logger)
     : task(task), 
       task_proxy(*task),
       domain_mapping(domain_mapping),
       numeric_domain_mapping(numeric_domain_mapping),
       domain_sizes(domain_sizes),
       numeric_domain_sizes(numeric_domain_sizes),
-      hash_multipliers(hash_multipliers) {
+      hash_multipliers(hash_multipliers),
+      logger(logger) {
 
     debug_counter++;
     if (debug_counter == 11) {

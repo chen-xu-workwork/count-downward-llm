@@ -457,10 +457,12 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     const vector<int> &numeric_domain_sizes,
     bool compute_plan,
     const shared_ptr<utils::RandomNumberGenerator> &rng,
-    bool compute_wildcard_plan)
+    bool compute_wildcard_plan,
+    shared_ptr<CEGARLogger> logger)
     : task_proxy(task_proxy),
       domain_mapping(domain_mapping),
-      numeric_domain_sizes(numeric_domain_sizes) {
+      numeric_domain_sizes(numeric_domain_sizes),
+      logger(logger) {
         // Deep copy numeric_domain_mapping using clone() (can't copy unique_ptr directly)
         for (const auto &mapping : numeric_domain_mapping) {
             this->numeric_domain_mapping.push_back(mapping->clone());
@@ -563,7 +565,8 @@ vector<AbstractOperator> DomainAbstractionFactory::compute_abstract_operators(
         numeric_domain_mapping,
         domain_sizes,
         numeric_domain_sizes,
-        hash_multipliers);
+        hash_multipliers,
+        logger);
     
     // Let the helper build all abstract operators
     return helper.build_abstract_operators(task_proxy);
