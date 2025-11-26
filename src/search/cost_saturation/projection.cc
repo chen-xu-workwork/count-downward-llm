@@ -1,12 +1,11 @@
 #include "projection.h"
 
 #include "types.h"
+#include "match_tree.h"
 
 #include "../task_proxy.h"
 
 #include "../priority_queue.h"
-#include "../pdbs/match_tree.h"
-#include "../task_utils/task_properties.h"
 #include "../utils/collections.h"
 #include "../utils/logging.h"
 #include "../utils/math.h"
@@ -14,10 +13,21 @@
 
 #include <cassert>
 #include <unordered_map>
+#include <unordered_set>
+#include <algorithm>
 
 using namespace std;
 
 namespace cost_saturation {
+template <typename T>
+static vector<Fact> get_fact_pairs(const T &fact_proxies) {
+    vector<Fact> facts;
+    for (FactProxy fact : fact_proxies) {
+        facts.push_back({fact.get_variable().get_id(), fact.get_value()});
+    }
+    return facts;
+}
+
 static vector<int> get_abstract_preconditions(
     const vector<Fact> &prev_pairs,
     const vector<Fact> &pre_pairs,
@@ -69,12 +79,12 @@ static vector<int> get_variables(const OperatorProxy &op) {
 static vector<int> get_changed_variables(const OperatorProxy &op) {
     unordered_map<int, int> var_to_precondition;
     for (FactProxy precondition : op.get_preconditions()) {
-        const Fact fact = precondition.get_pair();
+        const Fact fact = {precondition.get_variable().get_id(), precondition.get_value()};
         var_to_precondition[fact.var] = fact.value;
     }
     vector<int> changed_variables;
     for (EffectProxy effect : op.get_effects()) {
-        const Fact fact = effect.get_fact().get_pair();
+        const Fact fact = {effect.get_fact().get_variable().get_id(), effect.get_fact().get_value()};
         auto it = var_to_precondition.find(fact.var);
         if (it != var_to_precondition.end() && it->second != fact.value) {
             changed_variables.push_back(fact.var);
@@ -103,7 +113,7 @@ struct OperatorGroup {
     }
 };
 
-using OperatorIDsByPreEffMap = utils::HashMap<pair<vector<Fact>, vector<Fact>>, vector<int>>;
+using OperatorIDsByPreEffMap = unordered_map<pair<vector<Fact>, vector<Fact>>, vector<int>>;
 using OperatorGroups = vector<OperatorGroup>;
 
 static OperatorGroups group_equivalent_operators(
@@ -115,8 +125,9 @@ static OperatorGroups group_equivalent_operators(
     for (OperatorProxy op : task_proxy.get_operators()) {
         effects.clear();
         for (EffectProxy eff : op.get_effects()) {
-            if (variable_to_pattern_index[eff.get_fact().get_pair().var] != -1) {
-                effects.push_back(eff.get_fact().get_pair());
+            Fact eff_fact = {eff.get_fact().get_variable().get_id(), eff.get_fact().get_value()};
+            if (variable_to_pattern_index[eff_fact.var] != -1) {
+                effects.push_back(eff_fact);
             }
         }
         /* Skip operators that only induce self-loops. They can be queried
@@ -128,8 +139,9 @@ static OperatorGroups group_equivalent_operators(
 
         preconditions.clear();
         for (FactProxy fact : op.get_preconditions()) {
-            if (variable_to_pattern_index[fact.get_pair().var] != -1) {
-                preconditions.push_back(fact.get_pair());
+            Fact p_fact = {fact.get_variable().get_id(), fact.get_value()};
+            if (variable_to_pattern_index[p_fact.var] != -1) {
+                preconditions.push_back(p_fact);
             }
         }
         sort(preconditions.begin(), preconditions.end());
@@ -155,11 +167,11 @@ static OperatorGroups get_singleton_operator_groups(const TaskProxy &task_proxy)
     OperatorGroups groups;
     for (OperatorProxy op : task_proxy.get_operators()) {
         OperatorGroup group;
-        group.preconditions = task_properties::get_fact_pairs(op.get_preconditions());
+        group.preconditions = get_fact_pairs(op.get_preconditions());
         sort(group.preconditions.begin(), group.preconditions.end());
         group.effects.reserve(op.get_effects().size());
         for (EffectProxy eff : op.get_effects()) {
-            group.effects.push_back(eff.get_fact().get_pair());
+            group.effects.push_back({eff.get_fact().get_variable().get_id(), eff.get_fact().get_value()});
         }
         sort(group.effects.begin(), group.effects.end());
         group.operator_ids = {op.get_id()};
@@ -172,7 +184,7 @@ static OperatorGroups get_singleton_operator_groups(const TaskProxy &task_proxy)
 TaskInfo::TaskInfo(const TaskProxy &task_proxy) {
     num_variables = task_proxy.get_variables().size();
     num_operators = task_proxy.get_operators().size();
-    goals = task_properties::get_fact_pairs(task_proxy.get_goals());
+    goals = get_fact_pairs(task_proxy.get_goals());
     mentioned_variables.resize(num_operators * num_variables, false);
     pre_eff_variables.resize(num_operators * num_variables, false);
     effect_variables.resize(num_operators * num_variables, false);
@@ -262,7 +274,7 @@ Projection::Projection(
         } else {
             cerr << "Given pattern is too large! (Overflow occured): " << endl;
             cerr << pattern << endl;
-            utils::exit_with(utils::ExitCode::SEARCH_CRITICAL_ERROR);
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
 
@@ -279,7 +291,7 @@ Projection::Projection(
         pattern_domain_sizes.push_back(variables[pattern_var].get_domain_size());
     }
 
-    match_tree_backward = utils::make_unique_ptr<pdbs::MatchTree>(
+    match_tree_backward = utils::make_unique_ptr<MatchTree>(
         task_proxy, pattern, hash_multipliers);
 
     OperatorGroups operator_groups;

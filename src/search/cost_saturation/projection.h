@@ -15,11 +15,9 @@ class OperatorProxy;
 class TaskProxy;
 class VariablesProxy;
 
-namespace pdbs {
-class MatchTree;
-}
-
 namespace cost_saturation {
+class MatchTree;
+
 /* Precompute and store information about a task that is useful for projections. */
 class TaskInfo {
     int num_variables;
@@ -97,7 +95,7 @@ class Projection : public Abstraction {
     std::vector<bool> looping_operators;
 
     std::vector<RankedOperator> ranked_operators;
-    std::unique_ptr<pdbs::MatchTree> match_tree_backward;
+    std::unique_ptr<MatchTree> match_tree_backward;
 
     // Number of abstract states in the projection.
     int num_states;

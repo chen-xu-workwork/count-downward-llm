@@ -43,6 +43,15 @@ public:
     }
 };
 
+namespace std {
+template<>
+struct hash<Fact> {
+    size_t operator()(const Fact &fact) const {
+        return hash<int>{}(fact.var) ^ (hash<int>{}(fact.value) << 1);
+    }
+};
+}
+
 struct AssEffect {
 	int aff_var;
 	f_operator op_type;

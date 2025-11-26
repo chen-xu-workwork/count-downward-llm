@@ -659,6 +659,7 @@ fast_downward_plugin(
     HELP "Saturated cost partitioning for domain abstractions"
     SOURCES
         cost_saturation/abstraction.cc
+        cost_saturation/abstraction_generator.cc
         cost_saturation/cost_partitioning_heuristic.cc
         cost_saturation/cost_partitioning_heuristic_collection_generator.cc
         cost_saturation/diversifier.cc
@@ -669,6 +670,8 @@ fast_downward_plugin(
         cost_saturation/order_generator_greedy.cc
         cost_saturation/greedy_order_utils.cc
         cost_saturation/order_optimizer.cc
+        cost_saturation/projection.cc
+        cost_saturation/match_tree.cc
         cost_saturation/saturated_cost_partitioning_heuristic.cc
         cost_saturation/unsolvability_heuristic.cc
         cost_saturation/utils.cc
