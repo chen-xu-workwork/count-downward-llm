@@ -6,12 +6,18 @@
 #include "projection.h" // for TaskInfo and RankedOperator
 
 #include "../abstract_task.h"
+#include "../globals.h"
+#include "../utils/logging.h"
 
 #include "../algorithms/array_pool.h"
 #include "../domain_abstractions/types.h"
 #include "../pdbs/types.h"
 
+#include <cmath>
+#include <cstring>
+#include <cstdint>
 #include <functional>
+#include <tuple>
 #include <vector>
 
 class OperatorProxy;
@@ -27,9 +33,52 @@ class LogProxy;
 }
 
 namespace cost_saturation {
+
+struct NumericEffect {
+    int var;
+    f_operator op;
+    ap_float value;
+    int operand_var;
+
+private:
+    // Convert double to uint64_t for consistent total ordering
+    static uint64_t double_to_bits(ap_float d) {
+        uint64_t bits;
+        std::memcpy(&bits, &d, sizeof(bits));
+        // Make negative floats sort correctly by flipping all bits if negative,
+        // or just the sign bit if positive
+        if (bits & (1ULL << 63)) {
+            bits = ~bits;  // negative: flip all bits
+        } else {
+            bits ^= (1ULL << 63);  // positive: flip sign bit
+        }
+        return bits;
+    }
+
+public:
+    bool operator<(const NumericEffect &other) const {
+        if (var != other.var) return var < other.var;
+        if (op != other.op) return op < other.op;
+        if (operand_var != other.operand_var) return operand_var < other.operand_var;
+        // Total ordering via bit representation
+        return double_to_bits(value) < double_to_bits(other.value);
+    }
+    bool operator==(const NumericEffect &other) const {
+        // Use bit-exact comparison for consistency with operator<
+        uint64_t bits1, bits2;
+        std::memcpy(&bits1, &value, sizeof(bits1));
+        std::memcpy(&bits2, &other.value, sizeof(bits2));
+        return var == other.var && op == other.op && 
+               operand_var == other.operand_var && bits1 == bits2;
+    }
+    bool operator!=(const NumericEffect &other) const {
+        return !(*this == other);
+    }
+};
+
 class DomainAbstractionFunction : public AbstractionFunction {
     const domain_abstractions::DomainMapping domain_mapping;
-    const domain_abstractions::NumericDomainMappingType numeric_domain_mapping;
+    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping;
     struct VariableAndMultiplier {
         int pattern_var;
         int hash_multiplier;
@@ -45,7 +94,8 @@ public:
     DomainAbstractionFunction(
         const pdbs::Pattern &pattern,
         const std::vector<int> &hash_multipliers,
-        domain_abstractions::DomainMapping domain_mapping);
+        domain_abstractions::DomainMapping domain_mapping,
+        const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping);
 
     virtual int get_abstract_state_id(const State &concrete_state) const override;
 };
@@ -134,6 +184,7 @@ class DomainAbstraction : public Abstraction {
         std::vector<Fact> &pre_pairs,
         std::vector<Fact> &eff_pairs,
         const std::vector<Fact> &effects_without_pre,
+        const std::vector<NumericEffect> &numeric_effects_without_pre,
         const OperatorCallback &callback,
         utils::Log &log) const;
 
@@ -146,6 +197,7 @@ class DomainAbstraction : public Abstraction {
     void build_ranked_operators(
         const std::vector<Fact> &preconditions,
         const std::vector<Fact> &effects,
+        const std::vector<NumericEffect> &numeric_effects,
         int num_vars,
         const OperatorCallback &callback,
         utils::Log &log) const;

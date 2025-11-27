@@ -311,7 +311,7 @@ void add_multiple_options_to_parser(options::OptionParser &parser) {
         "maximum time in seconds for this pattern collection generator. "
         "It will always execute at least one iteration, i.e., call the "
         "algorithm for computing a single pattern at least once.",
-        "100.0",
+        "10.0",
         Bounds("0.0", "infinity"));
     parser.add_option<double>(
         "stagnation_limit",

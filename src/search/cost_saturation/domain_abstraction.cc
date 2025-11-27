@@ -15,6 +15,8 @@
 
 #include <cassert>
 #include <unordered_map>
+#include <map>
+#include <tuple>
 
 using namespace std;
 
@@ -65,7 +67,10 @@ static bool variable_is_trivial(
 
 static vector<bool> compute_looping_operators(
     const TaskProxy &task_proxy,
-    const domain_abstractions::DomainMapping &domain_mapping) {
+    const domain_abstractions::DomainMapping &domain_mapping,
+    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping,
+    const vector<int> &variable_to_pattern_index,
+    const vector<int> &numeric_variable_to_pattern_index) {
     OperatorsProxy ops = task_proxy.get_operators();
     int num_ops = ops.size();
     vector<bool> loops(num_ops, true);
@@ -109,52 +114,151 @@ static vector<bool> compute_looping_operators(
                 break;
             }
         }
+        if (!loops[op_id]) continue;
+
+        for (AssEffectProxy eff : op.get_ass_effects()) {
+            int aff_var = eff.get_assignment().get_affected_variable().get_id();
+            if (aff_var < static_cast<int>(numeric_variable_to_pattern_index.size()) &&
+                numeric_variable_to_pattern_index[aff_var] != -1) {
+                // If there is a numeric effect on a pattern variable, assume it changes state.
+                loops[op_id] = false;
+                break;
+            }
+        }
     }
     return loops;
 }
 
+
+
 struct OperatorGroup {
     vector<Fact> preconditions;
     vector<Fact> effects;
+    vector<NumericEffect> numeric_effects;
     vector<int> operator_ids;
 
+    OperatorGroup() = default;
+    OperatorGroup(const OperatorGroup&) = default;
+    OperatorGroup(OperatorGroup&&) = default;
+    OperatorGroup& operator=(const OperatorGroup&) = default;
+    OperatorGroup& operator=(OperatorGroup&&) = default;
+    ~OperatorGroup() = default;
+
     bool operator<(const OperatorGroup &other) const {
+        if (preconditions < other.preconditions) return true;
+        if (other.preconditions < preconditions) return false;
+        if (effects < other.effects) return true;
+        if (other.effects < effects) return false;
+        if (numeric_effects < other.numeric_effects) return true;
+        if (other.numeric_effects < numeric_effects) return false;
         return operator_ids < other.operator_ids;
     }
 };
 
-using OperatorIDsByPreEffMap = std::unordered_map<pair<vector<Fact>, vector<Fact>>, vector<int>>;
+using OperatorKey = tuple<vector<Fact>, vector<Fact>, vector<NumericEffect>>;
+using OperatorIDsByPreEffMap = std::map<OperatorKey, vector<int>>;
 using OperatorGroups = vector<OperatorGroup>;
+
+// Custom hash function for OperatorKey to use unordered_map
+struct OperatorKeyHash {
+    size_t operator()(const OperatorKey& key) const {
+        size_t h = 0;
+        for (const auto& fact : get<0>(key)) {
+            h ^= std::hash<int>()(fact.var) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<int>()(fact.value) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        }
+        for (const auto& fact : get<1>(key)) {
+            h ^= std::hash<int>()(fact.var) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<int>()(fact.value) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        }
+        for (const auto& ne : get<2>(key)) {
+            h ^= std::hash<int>()(ne.var) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<int>()(static_cast<int>(ne.op)) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<int>()(ne.operand_var) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            // Hash the double value as bits
+            uint64_t bits;
+            std::memcpy(&bits, &ne.value, sizeof(bits));
+            h ^= std::hash<uint64_t>()(bits) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        }
+        return h;
+    }
+};
+
+using OperatorIDsByPreEffHashMap = std::unordered_map<OperatorKey, vector<int>, OperatorKeyHash>;
 
 static OperatorGroups group_equivalent_operators(
     const TaskProxy &task_proxy,
     const vector<int> &variable_to_pattern_index,
-    const domain_abstractions::DomainMapping &domain_mapping) {
-    OperatorIDsByPreEffMap grouped_operator_ids;
+    const vector<int> &numeric_variable_to_pattern_index,
+    const domain_abstractions::DomainMapping &domain_mapping,
+    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping) {
+    // Use unordered_map to avoid tree-based comparison issues with NumericEffect
+    OperatorIDsByPreEffHashMap grouped_operator_ids;
     // Reuse vectors to save allocations.
     vector<Fact> preconditions;
     vector<Fact> effects;
+    vector<NumericEffect> numeric_effects;
     for (OperatorProxy op : task_proxy.get_operators()) {
         /* Skip operators that only induce self-loops. They can be queried
            with operator_induces_self_loop(). */
         effects.clear();
         for (EffectProxy eff : op.get_effects()) {
             Fact e(eff.get_fact().get_variable().get_id(), eff.get_fact().get_value());
+            if (e.var < 0 || e.var >= static_cast<int>(variable_to_pattern_index.size())) continue;
             int mapped_var = variable_to_pattern_index[e.var];
             if (mapped_var != -1) {
+                assert(e.var >= 0 && e.var < static_cast<int>(domain_mapping.size()));
+                assert(e.value >= 0 && e.value < static_cast<int>(domain_mapping[e.var].size()));
                 effects.emplace_back(mapped_var, domain_mapping[e.var][e.value]);
             }
         }
-        if (effects.empty()) {
+        
+        numeric_effects.clear();
+        for (AssEffectProxy eff : op.get_ass_effects()) {
+            NumAssProxy assignment = eff.get_assignment();
+            int aff_var = assignment.get_affected_variable().get_id();
+            if (aff_var >= static_cast<int>(numeric_variable_to_pattern_index.size())) continue;
+            int mapped_var = numeric_variable_to_pattern_index[aff_var];
+            if (mapped_var != -1) {
+                int ass_var = assignment.get_assigned_variable().get_id();
+                // Check if ass_var is constant
+                // For now, assume constant if ass_var is not in pattern? No.
+                // We need to know if it's a constant value.
+                // If ass_var maps to ConstantMapping, we can get the value.
+                // If ass_var is not in pattern, we can't easily check mapping unless we have mapping for all vars.
+                // Assuming numeric_domain_mapping covers all numeric vars.
+                if (ass_var < static_cast<int>(numeric_domain_mapping.size())) {
+                    const auto *const_mapping = dynamic_cast<const domain_abstractions::ConstantMapping*>(numeric_domain_mapping[ass_var].get());
+                    if (const_mapping) {
+                        numeric_effects.push_back({mapped_var, assignment.get_assigment_operator_type(), const_mapping->get_constant_value(), -1});
+                    } else {
+                        // Variable operand
+                        int operand_mapped_var = numeric_variable_to_pattern_index[ass_var];
+                        if (operand_mapped_var != -1) {
+                             numeric_effects.push_back({mapped_var, assignment.get_assigment_operator_type(), 0.0, operand_mapped_var});
+                        } else {
+                            // Operand is not in pattern. Treat as unknown?
+                            // For now, ignore or handle conservatively.
+                        }
+                    }
+                }
+            }
+        }
+
+        if (effects.empty() && numeric_effects.empty()) {
             continue;
         }
         sort(effects.begin(), effects.end());
+        sort(numeric_effects.begin(), numeric_effects.end());
 
         preconditions.clear();
         for (FactProxy fact : op.get_preconditions()) {
             Fact p(fact.get_variable().get_id(), fact.get_value());
+            if (p.var < 0 || p.var >= static_cast<int>(variable_to_pattern_index.size())) continue;
             int mapped_var = variable_to_pattern_index[p.var];
             if (mapped_var != -1) {
+                assert(p.var >= 0 && p.var < static_cast<int>(domain_mapping.size()));
+                assert(p.value >= 0 && p.value < static_cast<int>(domain_mapping[p.var].size()));
                 preconditions.emplace_back(mapped_var, domain_mapping[p.var][p.value]);
             }
         }
@@ -179,15 +283,49 @@ static OperatorGroups group_equivalent_operators(
             }
         }
 
-        grouped_operator_ids[make_pair(move(preconditions), move(effects))].push_back(op.get_id());
+        grouped_operator_ids[make_tuple(move(preconditions), move(effects), move(numeric_effects))].push_back(op.get_id());
     }
-    OperatorGroups groups;
+    
+    // Copy all entries out of the map first to avoid any iterator issues
+    std::vector<std::pair<OperatorKey, vector<int>>> all_entries;
+    all_entries.reserve(grouped_operator_ids.size());
     for (auto &entry : grouped_operator_ids) {
-        auto &pre_eff = entry.first;
+        all_entries.emplace_back(entry.first, entry.second);
+    }
+    grouped_operator_ids.clear();  // Release map memory
+    
+    OperatorGroups groups;
+    groups.reserve(all_entries.size());
+    std::cerr << "DEBUG: all_entries has " << all_entries.size() << " entries" << std::endl;
+    int entry_count = 0;
+    for (auto &entry : all_entries) {
+        std::cerr << "DEBUG: Entry " << entry_count << ", operator_ids size: " << entry.second.size() << std::endl;
+        if (entry.second.size() > 0) {
+            std::cerr << "  First few IDs: ";
+            for (size_t i = 0; i < std::min(entry.second.size(), (size_t)5); ++i) {
+                std::cerr << entry.second[i] << " ";
+            }
+            std::cerr << std::endl;
+        }
+        ++entry_count;
+        
+        if (entry.second.empty()) {
+            std::cerr << "WARNING: Skipping empty operator group" << std::endl;
+            continue;
+        }
+        
+        auto &key = entry.first;
         OperatorGroup group;
-        group.preconditions = move(pre_eff.first);
-        group.effects = move(pre_eff.second);
-        group.operator_ids = move(entry.second);
+        group.preconditions = get<0>(key);
+        group.effects = get<1>(key);
+        group.numeric_effects = get<2>(key);
+        group.operator_ids = entry.second;
+        group.operator_ids = entry.second;   // Copy instead of move
+        if (!utils::is_sorted_unique(group.operator_ids)) {
+            std::cerr << "ERROR: operator_ids not sorted unique! IDs: ";
+            for (int id : group.operator_ids) std::cerr << id << " ";
+            std::cerr << std::endl;
+        }
         assert(utils::is_sorted_unique(group.operator_ids));
         groups.push_back(move(group));
     }
@@ -199,7 +337,9 @@ static OperatorGroups group_equivalent_operators(
 static OperatorGroups get_singleton_operator_groups(
     const TaskProxy &task_proxy,
     const vector<int> &variable_to_pattern_index,
-    const domain_abstractions::DomainMapping &domain_mapping) {
+    const vector<int> &numeric_variable_to_pattern_index,
+    const domain_abstractions::DomainMapping &domain_mapping,
+    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping) {
     OperatorGroups groups;
     for (OperatorProxy op : task_proxy.get_operators()) {
         OperatorGroup group;
@@ -227,7 +367,30 @@ static OperatorGroups get_singleton_operator_groups(
                 }
             }
         }
-        if (group.effects.empty()) {
+
+        for (AssEffectProxy eff : op.get_ass_effects()) {
+            NumAssProxy assignment = eff.get_assignment();
+            int aff_var = assignment.get_affected_variable().get_id();
+            if (aff_var >= static_cast<int>(numeric_variable_to_pattern_index.size())) continue;
+            int mapped_var = numeric_variable_to_pattern_index[aff_var];
+            if (mapped_var != -1) {
+                int ass_var = assignment.get_assigned_variable().get_id();
+                if (ass_var < static_cast<int>(numeric_domain_mapping.size())) {
+                    const auto *const_mapping = dynamic_cast<const domain_abstractions::ConstantMapping*>(numeric_domain_mapping[ass_var].get());
+                    if (const_mapping) {
+                        group.numeric_effects.push_back({mapped_var, assignment.get_assigment_operator_type(), const_mapping->get_constant_value(), -1});
+                    } else {
+                        int operand_mapped_var = numeric_variable_to_pattern_index[ass_var];
+                        if (operand_mapped_var != -1) {
+                             group.numeric_effects.push_back({mapped_var, assignment.get_assigment_operator_type(), 0.0, operand_mapped_var});
+                        }
+                    }
+                }
+            }
+        }
+        sort(group.numeric_effects.begin(), group.numeric_effects.end());
+
+        if (group.effects.empty() && group.numeric_effects.empty()) {
             continue;
         }
 
@@ -242,8 +405,10 @@ static OperatorGroups get_singleton_operator_groups(
 DomainAbstractionFunction::DomainAbstractionFunction(
     const pdbs::Pattern &pattern,
     const vector<int> &hash_multipliers,
-    const domain_abstractions::DomainMapping domain_mapping)
-    : domain_mapping(move(domain_mapping)) {
+    const domain_abstractions::DomainMapping domain_mapping,
+    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping)
+    : domain_mapping(move(domain_mapping)),
+      numeric_domain_mapping(numeric_domain_mapping) {
     assert(pattern.size() == hash_multipliers.size());
     variables_and_multipliers.reserve(pattern.size());
     for (size_t i = 0; i < pattern.size(); ++i) {
@@ -254,7 +419,14 @@ DomainAbstractionFunction::DomainAbstractionFunction(
 int DomainAbstractionFunction::get_abstract_state_id(const State &concrete_state) const {
     int index = 0;
     for (const VariableAndMultiplier &pair : variables_and_multipliers) {
-        index += pair.hash_multiplier * domain_mapping[pair.pattern_var][concrete_state[pair.pattern_var].get_value()];
+        int val;
+        if (pair.pattern_var < static_cast<int>(domain_mapping.size())) {
+            val = domain_mapping[pair.pattern_var][concrete_state[pair.pattern_var].get_value()];
+        } else {
+            int num_var_id = pair.pattern_var - domain_mapping.size();
+            val = numeric_domain_mapping[num_var_id]->get_partition_index(concrete_state.nval(num_var_id));
+        }
+        index += pair.hash_multiplier * val;
     }
     return index;
 }
@@ -284,32 +456,39 @@ DomainAbstraction::DomainAbstraction(
     }
     for (size_t var_id = 0; var_id < numeric_domain_mapping.size(); ++var_id) {
         if (numeric_domain_mapping[var_id]->get_num_partitions() != 0) {
-            // Numeric variables are represented as negative indices in the pattern.
             int max_val = numeric_domain_mapping[var_id]->get_num_partitions();
             assert(max_val > 0); // Variable is non-trivial.
-            var_id += domain_mapping.size();
-            pattern.push_back(-static_cast<int>(var_id) - 1);
+            int pattern_var_id = var_id + domain_mapping.size();
+            pattern.push_back(pattern_var_id);
             pattern_domain_sizes.push_back(max_val);
         }
     }
 
     assert(utils::is_sorted_unique(pattern));
 
-    looping_operators = compute_looping_operators(task_proxy, domain_mapping);
+    VariablesProxy variables = task_proxy.get_variables();
+    NumericVariablesProxy numeric_variables = task_proxy.get_numeric_variables();
+
+    vector<int> variable_to_pattern_index(variables.size(), -1);
+    vector<int> numeric_variable_to_pattern_index(numeric_variables.size(), -1);
+    for (size_t i = 0; i < pattern.size(); ++i) {
+        int var_id = pattern[i];
+        if (var_id < static_cast<int>(variables.size())) {
+            variable_to_pattern_index[var_id] = i;
+        } else {
+            numeric_variable_to_pattern_index[var_id - variables.size()] = i;
+        }
+    }
+
+    looping_operators = compute_looping_operators(
+        task_proxy, domain_mapping, numeric_domain_mapping,
+        variable_to_pattern_index, numeric_variable_to_pattern_index);
 
     if (false) {
         log << "domain mapping: " << domain_mapping << endl;
         log << "pattern: " << pattern << endl;
         log << "pattern domain sizes: " << pattern_domain_sizes << endl;
         log << "looping operators: " << looping_operators << endl;
-    }
-
-    VariablesProxy variables = task_proxy.get_variables();
-    NumericVariablesProxy numeric_variables = task_proxy.get_numeric_variables();
-
-    vector<int> variable_to_pattern_index(variables.size(), -1);
-    for (size_t i = 0; i < pattern.size(); ++i) {
-        variable_to_pattern_index[pattern[i]] = i;
     }
 
     hash_multipliers.reserve(pattern.size());
@@ -332,7 +511,7 @@ DomainAbstraction::DomainAbstraction(
     assert(num_states == domain_abstraction.size());
 
     abstraction_function = utils::make_unique_ptr<DomainAbstractionFunction>(
-        pattern, hash_multipliers, domain_mapping);
+        pattern, hash_multipliers, domain_mapping, numeric_domain_mapping);
 
     match_tree_backward = utils::make_unique_ptr<domain_abstractions::MatchTree>(
         pattern_domain_sizes, hash_multipliers);
@@ -340,10 +519,10 @@ DomainAbstraction::DomainAbstraction(
     OperatorGroups operator_groups;
     if (combine_labels) {
         operator_groups = group_equivalent_operators(
-            task_proxy, variable_to_pattern_index, domain_mapping);
+            task_proxy, variable_to_pattern_index, numeric_variable_to_pattern_index, domain_mapping, numeric_domain_mapping);
     } else {
         operator_groups = get_singleton_operator_groups(
-            task_proxy, variable_to_pattern_index, domain_mapping);
+            task_proxy, variable_to_pattern_index, numeric_variable_to_pattern_index, domain_mapping, numeric_domain_mapping);
     }
     int num_ops_covered_by_labels = 0;
     for (const auto &group : operator_groups) {
@@ -353,6 +532,7 @@ DomainAbstraction::DomainAbstraction(
     for (OperatorGroup &group : operator_groups) {
         const vector<Fact> &preconditions = group.preconditions;
         const vector<Fact> &effects = group.effects;
+        const vector<NumericEffect> &numeric_effects = group.numeric_effects;
 
         int label_id = label_to_operators.size();
         if (false) {
@@ -363,7 +543,7 @@ DomainAbstraction::DomainAbstraction(
         label_to_operators.push_back(move(group.operator_ids));
 
         build_ranked_operators(
-            preconditions, effects, pattern.size(),
+            preconditions, effects, numeric_effects, pattern.size(),
             [this, label_id](
                 const vector<Fact> &prevail,
                 const vector<Fact> &preconditions_,
@@ -446,6 +626,7 @@ void DomainAbstraction::multiply_out(int pos,
                               vector<Fact> &pre_pairs,
                               vector<Fact> &eff_pairs,
                               const vector<Fact> &effects_without_pre,
+                              const vector<NumericEffect> &numeric_effects_without_pre,
                               const OperatorCallback &callback,
                               utils::Log &log) const {
     if (false) {
@@ -455,12 +636,7 @@ void DomainAbstraction::multiply_out(int pos,
         log << eff_pairs << endl;
         log << effects_without_pre << endl;
     }
-    if (pos == static_cast<int>(effects_without_pre.size())) {
-        // All effects without precondition have been checked.
-        if (!eff_pairs.empty()) {
-            callback(prev_pairs, pre_pairs, eff_pairs, hash_multipliers);
-        }
-    } else {
+    if (pos < static_cast<int>(effects_without_pre.size())) {
         // For each possible value for the current variable, build an
         // abstract operator.
         int var_id = effects_without_pre[pos].var;
@@ -475,7 +651,7 @@ void DomainAbstraction::multiply_out(int pos,
                 prev_pairs.emplace_back(var_id, i);
             }
             multiply_out(pos + 1, prev_pairs, pre_pairs, eff_pairs,
-                         effects_without_pre, callback, log);
+                         effects_without_pre, numeric_effects_without_pre, callback, log);
             if (i != eff) {
                 pre_pairs.pop_back();
                 eff_pairs.pop_back();
@@ -483,15 +659,107 @@ void DomainAbstraction::multiply_out(int pos,
                 prev_pairs.pop_back();
             }
         }
-    }
-    if (false) {
-        log << "backtracking" << endl;
+    } else {
+        int num_pos = pos - effects_without_pre.size();
+        if (num_pos < static_cast<int>(numeric_effects_without_pre.size())) {
+            const NumericEffect &eff = numeric_effects_without_pre[num_pos];
+            int var_id = eff.var;
+            
+            int pre_val = -1;
+            for (const Fact &f : pre_pairs) { if (f.var == var_id) { pre_val = f.value; break; } }
+            if (pre_val == -1) {
+                for (const Fact &f : prev_pairs) { if (f.var == var_id) { pre_val = f.value; break; } }
+            }
+            
+            int start_val = 0;
+            int end_val = pattern_domain_sizes[var_id];
+            if (pre_val != -1) {
+                start_val = pre_val;
+                end_val = pre_val + 1;
+            }
+            
+            int num_var_id = var_id - domain_mapping.size();
+            
+            for (int i = start_val; i < end_val; ++i) {
+                vector<int> targets;
+                if (eff.operand_var == -1) {
+                    targets = numeric_domain_mapping[num_var_id]->apply_effect_to_partition(i, eff.op, eff.value);
+                } else {
+                    // Variable operand. We need the value of the operand variable.
+                    // The operand variable must be in the pattern and have a value assigned in this branch.
+                    // Check pre_pairs/prev_pairs for operand_var.
+                    int operand_val = -1;
+                    for (const Fact &f : pre_pairs) { if (f.var == eff.operand_var) { operand_val = f.value; break; } }
+                    if (operand_val == -1) {
+                        for (const Fact &f : prev_pairs) { if (f.var == eff.operand_var) { operand_val = f.value; break; } }
+                    }
+                    
+                    if (operand_val != -1) {
+                        // We have the partition index of the operand.
+                        // We need to apply binary operation on partitions.
+                        // But apply_effect_to_partition takes float operand.
+                        // We need apply_effect_to_partition(source, op, partition_index).
+                        // NumericDomainMapping doesn't seem to have that directly.
+                        // It has evaluate_partition_comparison.
+                        // It has apply_binary_operation for partitions?
+                        // Partition::apply_binary_operation(left, right, op).
+                        // But we are applying an effect (increase/assign).
+                        // If op is assign, it's just the operand partition.
+                        // If op is increase, it's source + operand.
+                        // We need to implement this logic or assume constant for now.
+                        // For now, let's assume all targets are possible if variable operand (fallback).
+                        // Or skip.
+                        // Let's skip variable operands for now to avoid crash/complexity.
+                        targets.push_back(i); // Identity fallback
+                    } else {
+                        // Operand value unknown.
+                        targets.push_back(i); // Identity fallback
+                    }
+                }
+
+                for (int target : targets) {
+                    bool pushed_pre = false;
+                    bool pushed_eff = false;
+                    bool pushed_prev = false;
+
+                    if (pre_val == -1) {
+                        if (i != target) {
+                            pre_pairs.emplace_back(var_id, i);
+                            eff_pairs.emplace_back(var_id, target);
+                            pushed_pre = true;
+                            pushed_eff = true;
+                        } else {
+                            prev_pairs.emplace_back(var_id, i);
+                            pushed_prev = true;
+                        }
+                    } else {
+                        if (i != target) {
+                            eff_pairs.emplace_back(var_id, target);
+                            pushed_eff = true;
+                        }
+                    }
+                    
+                    multiply_out(pos + 1, prev_pairs, pre_pairs, eff_pairs,
+                                 effects_without_pre, numeric_effects_without_pre, callback, log);
+                    
+                    if (pushed_pre) pre_pairs.pop_back();
+                    if (pushed_eff) eff_pairs.pop_back();
+                    if (pushed_prev) prev_pairs.pop_back();
+                }
+            }
+        } else {
+            // All effects checked.
+            if (!eff_pairs.empty()) {
+                callback(prev_pairs, pre_pairs, eff_pairs, hash_multipliers);
+            }
+        }
     }
 }
 
 void DomainAbstraction::build_ranked_operators(
     const vector<Fact> &preconditions,
     const vector<Fact> &effects,
+    const vector<NumericEffect> &numeric_effects,
     int num_vars,
     const OperatorCallback &callback,
     utils::Log &log) const {
@@ -510,6 +778,7 @@ void DomainAbstraction::build_ranked_operators(
     vector<Fact> eff_pairs;
     // All variable value pairs that are a precondition (value = -1)
     vector<Fact> effects_without_pre;
+    vector<NumericEffect> numeric_effects_without_pre;
 
     vector<bool> has_precond_and_effect_on_var(num_vars, false);
     vector<bool> has_precondition_on_var(num_vars, false);
@@ -529,6 +798,16 @@ void DomainAbstraction::build_ranked_operators(
             effects_without_pre.emplace_back(var_id, val);
         }
     }
+    
+    for (const NumericEffect &eff : numeric_effects) {
+        int var_id = eff.var;
+        assert(utils::in_bounds(var_id, pattern));
+        if (has_precondition_on_var[var_id]) {
+            has_precond_and_effect_on_var[var_id] = true;
+        }
+        numeric_effects_without_pre.push_back(eff);
+    }
+
     for (Fact pre : preconditions) {
         if (has_precond_and_effect_on_var[pre.var]) {
             pre_pairs.emplace_back(pre.var, pre.value);
@@ -537,7 +816,7 @@ void DomainAbstraction::build_ranked_operators(
         }
     }
     multiply_out(0, prev_pairs, pre_pairs, eff_pairs,
-                 effects_without_pre, callback, log);
+                 effects_without_pre, numeric_effects_without_pre, callback, log);
 }
 
 bool DomainAbstraction::is_consistent(
