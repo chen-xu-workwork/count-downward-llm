@@ -135,7 +135,7 @@ static Heuristic *_parse(OptionParser &parser) {
     if (parser.dry_run())
         return nullptr;
 
-    shared_ptr<AbstractTask> task = opts.get<shared_ptr<AbstractTask>>("transform");
+    shared_ptr<AbstractTask> task = get_task_from_options(opts);
     TaskProxy task_proxy(*task);
     vector<ap_float> costs = get_operator_costs(task_proxy);
     unique_ptr<DeadEnds> dead_ends = utils::make_unique_ptr<DeadEnds>();

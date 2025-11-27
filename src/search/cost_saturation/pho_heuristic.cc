@@ -151,7 +151,7 @@ static shared_ptr<Evaluator> _parse(OptionParser &parser) {
     }
 
     shared_ptr<AbstractTask> scaled_costs_task =
-        get_scaled_costs_task(opts.get<shared_ptr<AbstractTask>>("transform"));
+        get_scaled_costs_task(get_task_from_options(opts));
     opts.set<shared_ptr<AbstractTask>>("transform", scaled_costs_task);
 
     TaskProxy task_proxy(*scaled_costs_task);

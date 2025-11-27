@@ -209,7 +209,7 @@ shared_ptr<ScalarEvaluator> get_max_cp_heuristic(options::OptionParser &parser, 
     if (parser.dry_run())
         return nullptr;
 
-    shared_ptr<AbstractTask> task = opts.get<shared_ptr<AbstractTask>>("transform");
+    shared_ptr<AbstractTask> task = get_task_from_options(opts);
     TaskProxy task_proxy(*task);
     vector<int> int_costs = cegar::get_operator_costs(task_proxy);
     vector<ap_float> costs(int_costs.begin(), int_costs.end());

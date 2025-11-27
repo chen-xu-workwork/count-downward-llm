@@ -31,7 +31,7 @@ Abstractions DomainAbstractionGenerator::generate_abstractions(
     utils::Timer domain_abstractions_timer;
     TaskProxy task_proxy(*task);
 
-    verify_no_axioms(task_proxy);
+    //verify_no_axioms(task_proxy);
     if (has_conditional_effects(task_proxy)) {
         cerr << "Error: configuration doesn't support conditional effects. "
              << endl;
