@@ -227,6 +227,7 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
 
         ++num_iterations;
         ++goal_index;
+        cout << "Goals size: " << goals.size() << ", next goal index: " << goal_index << endl;
         goal_index = goal_index % goals.size();
         //assert(utils::in_bounds(goal_index, goals));
     }

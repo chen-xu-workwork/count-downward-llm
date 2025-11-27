@@ -268,7 +268,8 @@ DomainAbstraction::DomainAbstraction(
     utils::Log &log)
     : Abstraction(nullptr),
       task_info(task_info),
-      domain_mapping(domain_abstraction.extract_domain_mapping()) {
+      domain_mapping(domain_abstraction.extract_domain_mapping()),
+      numeric_domain_mapping(domain_abstraction.extract_numeric_domain_mapping()) {
     if (false) {
         // task_properties::dump_task(task_proxy);
     }
@@ -281,6 +282,17 @@ DomainAbstraction::DomainAbstraction(
             pattern_domain_sizes.push_back(max_val + 1);
         }
     }
+    for (size_t var_id = 0; var_id < numeric_domain_mapping.size(); ++var_id) {
+        if (numeric_domain_mapping[var_id]->get_num_partitions() != 0) {
+            // Numeric variables are represented as negative indices in the pattern.
+            int max_val = numeric_domain_mapping[var_id]->get_num_partitions();
+            assert(max_val > 0); // Variable is non-trivial.
+            var_id += domain_mapping.size();
+            pattern.push_back(-static_cast<int>(var_id) - 1);
+            pattern_domain_sizes.push_back(max_val);
+        }
+    }
+
     assert(utils::is_sorted_unique(pattern));
 
     looping_operators = compute_looping_operators(task_proxy, domain_mapping);
@@ -293,6 +305,8 @@ DomainAbstraction::DomainAbstraction(
     }
 
     VariablesProxy variables = task_proxy.get_variables();
+    NumericVariablesProxy numeric_variables = task_proxy.get_numeric_variables();
+
     vector<int> variable_to_pattern_index(variables.size(), -1);
     for (size_t i = 0; i < pattern.size(); ++i) {
         variable_to_pattern_index[pattern[i]] = i;

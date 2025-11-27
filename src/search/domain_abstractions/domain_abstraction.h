@@ -70,8 +70,12 @@ public:
         return domain_mapping;
     }
 
-    const DomainMapping &&extract_domain_mapping() {
+    DomainMapping extract_domain_mapping() {
         return std::move(domain_mapping);
+    }
+
+    NumericDomainMappingType extract_numeric_domain_mapping() {
+        return std::move(numeric_domain_mapping);
     }
     
     const NumericDomainMappingType &get_numeric_domain_mapping() const {

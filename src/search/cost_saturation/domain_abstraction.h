@@ -29,6 +29,7 @@ class LogProxy;
 namespace cost_saturation {
 class DomainAbstractionFunction : public AbstractionFunction {
     const domain_abstractions::DomainMapping domain_mapping;
+    const domain_abstractions::NumericDomainMappingType numeric_domain_mapping;
     struct VariableAndMultiplier {
         int pattern_var;
         int hash_multiplier;
@@ -57,6 +58,7 @@ class DomainAbstraction : public Abstraction {
 
     std::shared_ptr<TaskInfo> task_info;
     domain_abstractions::DomainMapping domain_mapping;
+    domain_abstractions::NumericDomainMappingType numeric_domain_mapping;
     pdbs::Pattern pattern;
     array_pool_template::ArrayPool<int> label_to_operators;
 

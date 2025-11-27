@@ -36,7 +36,7 @@ vector<Fact> get_goals_in_random_order(
         int effect_id = axiom.get_effects()[0].get_fact().get_variable().get_id();
         goal_id = effect_id;
         PreconditionsProxy conditions = axiom.get_preconditions();
-        if (conditions.size() > 1) {
+        if (conditions.size() > 0) {
             for (const FactProxy &condition : conditions) {
                 goals.push_back(Fact(condition.get_variable().get_id(), condition.get_value()));
             }
