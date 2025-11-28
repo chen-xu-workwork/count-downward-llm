@@ -283,20 +283,7 @@ private:
         int concrete_op_id,
         std::vector<AbstractOperator> &operators,
         const OperatorProxy &op);
-    
-    /**
-     * Compute all hash effects for an operator, including cascading effects
-     * from axioms. This enumerates all possible abstract state transitions
-     * considering:
-     * 1. Direct propositional effects
-     * 2. Direct numeric effects (partition transitions)
-     * 3. Cascading effects on derived numeric variables (assignment axioms)
-     * 4. Cascading effects on derived propositional variables (comparison axioms)
-     */
-    std::vector<int> compute_hash_effects_with_cascades(
-        const std::vector<Fact> &pre_pairs,
-        const std::vector<Fact> &eff_pairs,
-        const std::vector<NumAssProxy> &ass_effects);
+
     
     /**
      * NEW APPROACH: Compute hash effects WITH explicit numeric preconditions.

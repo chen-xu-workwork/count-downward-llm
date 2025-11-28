@@ -193,76 +193,7 @@ std::pair<ap_float, ap_float> NumericDomainMapping::get_range_union() const {
     return {min_lower, max_upper};
 }
 
-int NumericDomainMapping::evaluate_comparison(
-    comp_operator op,
-    ap_float left_lower, ap_float left_upper,
-    ap_float right_lower, ap_float right_upper) {
-    
-    // Evaluate based on comparison operator
-    // Returns: 0 = definitely false, 1 = definitely true, 2 = unknown
-    
-    switch (op) {
-        case comp_operator::lt: // left < right
-            // Definitely true if: max(left) < min(right), i.e., left_upper <= right_lower
-            // Definitely false if: min(left) >= max(right), i.e., left_lower >= right_upper
-            if (left_upper <= right_lower) {
-                return 0; // definitely true
-            } else if (left_lower >= right_upper) {
-                return 1; // definitely false
-            } else {
-                return 2; // unknown
-            }
-            
-        case comp_operator::le: // left <= right
-            // Definitely true if: max(left) <= min(right)
-            // Definitely false if: min(left) > max(right)
-            if (left_upper <= right_lower) {
-                return 0; // definitely true
-            } else if (left_lower > right_upper) {
-                return 1; // definitely false
-            } else {
-                return 2; // unknown
-            }
-            
-        case comp_operator::eq: // left == right
-            // Definitely true only if both ranges are the same single point
-            if (left_lower == left_upper && right_lower == right_upper && 
-                left_lower == right_lower) {
-                return 0; // definitely true (both are same point)
-            }
-            // Definitely false if ranges don't overlap
-            else if (left_upper <= right_lower || right_upper <= left_lower) {
-                return 1; // definitely false (no overlap)
-            } else {
-                return 2; // unknown
-            }
-            
-        case comp_operator::ge: // left >= right
-            // Definitely true if: min(left) >= max(right)
-            // Definitely false if: max(left) < min(right)
-            if (left_lower >= right_upper) {
-                return 0; // definitely true
-            } else if (left_upper < right_lower) {
-                return 1; // definitely false
-            } else {
-                return 2; // unknown
-            }
-            
-        case comp_operator::gt: // left > right
-            // Definitely true if: min(left) >= max(right), i.e., left_lower >= right_upper
-            // Definitely false if: max(left) <= min(right), i.e., left_upper <= right_lower
-            if (left_lower >= right_upper) {
-                return 0; // definitely true
-            } else if (left_upper <= right_lower) {
-                return 1; // definitely false
-            } else {
-                return 2; // unknown
-            }
-            
-        default:
-            return 2; // unknown for unrecognized operators
-    }
-}
+
 
 int NumericDomainMapping::evaluate_comparison_with(
     const NumericDomainMapping &other,
@@ -279,9 +210,7 @@ int NumericDomainMapping::evaluate_comparison_with(
     }
     
     // Use the static evaluation method
-    return evaluate_comparison(op,
-                              my_range->lower, my_range->upper,
-                              other_range->lower, other_range->upper);
+    return evaluate_comparison(op, *my_range, *other_range);
 }
 
 std::vector<int> NumericDomainMapping::compute_reachable_partitions(
@@ -1046,8 +975,7 @@ int Partition::evaluate_comparison(const Partition &other, comp_operator op) con
     int first_result = -1;
     for (const auto &l : ranges) {
         for (const auto &r : other.ranges) {
-            int result = NumericDomainMapping::evaluate_comparison(
-                op, l.lower, l.upper, r.lower, r.upper);
+            int result = NumericDomainMapping::evaluate_comparison(op, l, r);
             
             if (first_result == -1) {
                 first_result = result;
