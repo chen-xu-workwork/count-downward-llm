@@ -34,48 +34,6 @@ class LogProxy;
 
 namespace cost_saturation {
 
-struct NumericEffect {
-    int var;
-    f_operator op;
-    ap_float value;
-    int operand_var;
-
-private:
-    // Convert double to uint64_t for consistent total ordering
-    static uint64_t double_to_bits(ap_float d) {
-        uint64_t bits;
-        std::memcpy(&bits, &d, sizeof(bits));
-        // Make negative floats sort correctly by flipping all bits if negative,
-        // or just the sign bit if positive
-        if (bits & (1ULL << 63)) {
-            bits = ~bits;  // negative: flip all bits
-        } else {
-            bits ^= (1ULL << 63);  // positive: flip sign bit
-        }
-        return bits;
-    }
-
-public:
-    bool operator<(const NumericEffect &other) const {
-        if (var != other.var) return var < other.var;
-        if (op != other.op) return op < other.op;
-        if (operand_var != other.operand_var) return operand_var < other.operand_var;
-        // Total ordering via bit representation
-        return double_to_bits(value) < double_to_bits(other.value);
-    }
-    bool operator==(const NumericEffect &other) const {
-        // Use bit-exact comparison for consistency with operator<
-        uint64_t bits1, bits2;
-        std::memcpy(&bits1, &value, sizeof(bits1));
-        std::memcpy(&bits2, &other.value, sizeof(bits2));
-        return var == other.var && op == other.op && 
-               operand_var == other.operand_var && bits1 == bits2;
-    }
-    bool operator!=(const NumericEffect &other) const {
-        return !(*this == other);
-    }
-};
-
 class DomainAbstractionFunction : public AbstractionFunction {
     const domain_abstractions::DomainMapping domain_mapping;
     const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping;
@@ -170,37 +128,6 @@ class DomainAbstraction : public Abstraction {
             }
         }
     }
-
-    /*
-      Recursive method; called by build_abstract_operators. In the case
-      of a precondition with value = -1 in the concrete operator, all
-      multiplied-out abstract operators are computed, i.e., for all
-      possible values of the variable (with precondition = -1), one
-      abstract operator with a concrete value (!= -1) is computed.
-    */
-    void multiply_out(
-        int pos,
-        std::vector<Fact> &prev_pairs,
-        std::vector<Fact> &pre_pairs,
-        std::vector<Fact> &eff_pairs,
-        const std::vector<Fact> &effects_without_pre,
-        const std::vector<NumericEffect> &numeric_effects_without_pre,
-        const OperatorCallback &callback,
-        utils::Log &log) const;
-
-    /*
-      Compute all abstract operators for a given concrete operator. Initialize
-      data structures for initial call to recursive method multiply_out.
-      variable_to_index maps variables in the task to their index in the
-      pattern or -1.
-    */
-    void build_ranked_operators(
-        const std::vector<Fact> &preconditions,
-        const std::vector<Fact> &effects,
-        const std::vector<NumericEffect> &numeric_effects,
-        int num_vars,
-        const OperatorCallback &callback,
-        utils::Log &log) const;
 
     /*
       Return true iff all abstract facts hold in the given state.

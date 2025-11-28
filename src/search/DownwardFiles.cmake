@@ -702,6 +702,7 @@ set(DOMAIN_ABSTRACTIONS_SOURCES
     domain_abstractions/domain_abstraction_state_registry
     domain_abstractions/domain_abstraction_factory
     domain_abstractions/match_tree
+    domain_abstractions/match_tree_with_pattern
     domain_abstractions/domain_abstraction_heuristic
     domain_abstractions/domain_abstraction_generator
     domain_abstractions/domain_abstraction_generator_cegar
