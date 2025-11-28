@@ -195,13 +195,6 @@ DomainAbstraction::DomainAbstraction(
         task_proxy, domain_mapping, numeric_domain_mapping,
         variable_to_pattern_index, numeric_variable_to_pattern_index);
 
-    if (false) {
-        log << "domain mapping: " << domain_mapping << endl;
-        log << "pattern: " << pattern << endl;
-        log << "pattern domain sizes: " << pattern_domain_sizes << endl;
-        log << "looping operators: " << looping_operators << endl;
-    }
-
     hash_multipliers.reserve(pattern.size());
     num_states = 1;
     for (int dom_size : pattern_domain_sizes) {
@@ -215,10 +208,6 @@ DomainAbstraction::DomainAbstraction(
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
-    if (false) {
-        log << "hash multipliers: " << hash_multipliers << endl;
-        log << "num states: " << num_states << endl;
-    }
     assert(num_states == domain_abstraction.size());
 
     abstraction_function = utils::make_unique_ptr<DomainAbstractionFunction>(
@@ -226,15 +215,6 @@ DomainAbstraction::DomainAbstraction(
 
     match_tree_backward = utils::make_unique_ptr<domain_abstractions::MatchTreeWithPattern>(
         pattern_domain_sizes, hash_multipliers);
-
-    // Compute full_hash_multipliers
-    vector<int> full_hash_multipliers(domain_mapping.size() + numeric_domain_mapping.size(), 0);
-    for (size_t i = 0; i < pattern.size(); ++i) {
-        int var_id = pattern[i];
-        if (var_id < static_cast<int>(full_hash_multipliers.size())) {
-            full_hash_multipliers[var_id] = hash_multipliers[i];
-        }
-    }
     
     // Instantiate DomainAbstractionNumericHelper
     domain_abstractions::DomainAbstractionNumericHelper helper(
@@ -243,7 +223,7 @@ DomainAbstraction::DomainAbstraction(
         numeric_domain_mapping,
         domain_sizes,
         numeric_domain_sizes,
-        full_hash_multipliers
+        hash_multipliers
     );
     
     vector<domain_abstractions::AbstractOperator> abstract_operators = helper.build_abstract_operators(task_proxy);
