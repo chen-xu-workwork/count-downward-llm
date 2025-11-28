@@ -6,18 +6,13 @@
 #include "projection.h" // for TaskInfo and RankedOperator
 
 #include "../abstract_task.h"
-#include "../globals.h"
-#include "../utils/logging.h"
 
 #include "../algorithms/array_pool.h"
 #include "../domain_abstractions/types.h"
+#include "../domain_abstractions/numeric_helper.h"
 #include "../pdbs/types.h"
 
-#include <cmath>
-#include <cstring>
-#include <cstdint>
 #include <functional>
-#include <tuple>
 #include <vector>
 
 class OperatorProxy;
@@ -33,7 +28,6 @@ class LogProxy;
 }
 
 namespace cost_saturation {
-
 class DomainAbstractionFunction : public AbstractionFunction {
     const domain_abstractions::DomainMapping domain_mapping;
     const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping;

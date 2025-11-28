@@ -28,7 +28,6 @@ std::ostream &operator<<(std::ostream &os, const Fact &fact) {
 }
 
 namespace cost_saturation {
-
 static bool variable_is_trivial(
     int var_id, const domain_abstractions::DomainMapping &domain_mapping) {
     return domain_mapping[var_id].empty();
@@ -97,6 +96,105 @@ static vector<bool> compute_looping_operators(
     }
     return loops;
 }
+
+
+struct OperatorGroup {
+    vector<Fact> regression_preconditions;
+    int hash_effect;
+    vector<int> operator_ids;
+
+    bool operator<(const OperatorGroup &other) const {
+        if (hash_effect != other.hash_effect)
+            return hash_effect < other.hash_effect;
+        if (regression_preconditions != other.regression_preconditions)
+            return regression_preconditions < other.regression_preconditions;
+        return operator_ids < other.operator_ids;
+    }
+};
+
+using OperatorGroups = vector<OperatorGroup>;
+
+static vector<Fact> get_pattern_regression_preconditions(
+    const domain_abstractions::AbstractOperator &abs_op,
+    const vector<int> &flattened_var_to_pattern_index) {
+    
+    vector<Fact> pattern_reg_pre;
+    pattern_reg_pre.reserve(abs_op.get_regression_preconditions().size());
+    
+    for (const Fact &f : abs_op.get_regression_preconditions()) {
+        if (f.var < static_cast<int>(flattened_var_to_pattern_index.size())) {
+            int pattern_idx = flattened_var_to_pattern_index[f.var];
+            if (pattern_idx != -1) {
+                pattern_reg_pre.emplace_back(pattern_idx, f.value);
+            }
+        }
+    }
+    sort(pattern_reg_pre.begin(), pattern_reg_pre.end());
+    return pattern_reg_pre;
+}
+
+static OperatorGroups group_equivalent_operators(
+    const vector<domain_abstractions::AbstractOperator> &abstract_operators,
+    const vector<int> &variable_to_pattern_index,
+    const vector<int> &numeric_variable_to_pattern_index,
+    const domain_abstractions::DomainMapping &domain_mapping,
+    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping) {
+    
+    map<pair<vector<Fact>, int>, vector<int>> grouped_ops;
+    
+    vector<int> flattened_var_to_pattern_index(domain_mapping.size() + numeric_domain_mapping.size(), -1);
+    for (size_t i = 0; i < variable_to_pattern_index.size(); ++i) {
+        flattened_var_to_pattern_index[i] = variable_to_pattern_index[i];
+    }
+    for (size_t i = 0; i < numeric_variable_to_pattern_index.size(); ++i) {
+        flattened_var_to_pattern_index[i + domain_mapping.size()] = numeric_variable_to_pattern_index[i];
+    }
+
+    for (const auto &abs_op : abstract_operators) {
+        vector<Fact> pattern_reg_pre = get_pattern_regression_preconditions(abs_op, flattened_var_to_pattern_index);
+        grouped_ops[{pattern_reg_pre, abs_op.get_hash_effect()}].push_back(abs_op.get_concrete_op_id());
+    }
+
+    OperatorGroups groups;
+    groups.reserve(grouped_ops.size());
+    for (auto &entry : grouped_ops) {
+        OperatorGroup group;
+        group.regression_preconditions = move(entry.first.first);
+        group.hash_effect = entry.first.second;
+        group.operator_ids = move(entry.second);
+        groups.push_back(move(group));
+    }
+    sort(groups.begin(), groups.end());
+    return groups;
+}
+
+static OperatorGroups get_singleton_operator_groups(
+    const vector<domain_abstractions::AbstractOperator> &abstract_operators,
+    const vector<int> &variable_to_pattern_index,
+    const vector<int> &numeric_variable_to_pattern_index,
+    const domain_abstractions::DomainMapping &domain_mapping,
+    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping) {
+    
+    vector<int> flattened_var_to_pattern_index(domain_mapping.size() + numeric_domain_mapping.size(), -1);
+    for (size_t i = 0; i < variable_to_pattern_index.size(); ++i) {
+        flattened_var_to_pattern_index[i] = variable_to_pattern_index[i];
+    }
+    for (size_t i = 0; i < numeric_variable_to_pattern_index.size(); ++i) {
+        flattened_var_to_pattern_index[i + domain_mapping.size()] = numeric_variable_to_pattern_index[i];
+    }
+
+    OperatorGroups groups;
+    groups.reserve(abstract_operators.size());
+    for (const auto &abs_op : abstract_operators) {
+        OperatorGroup group;
+        group.regression_preconditions = get_pattern_regression_preconditions(abs_op, flattened_var_to_pattern_index);
+        group.hash_effect = abs_op.get_hash_effect();
+        group.operator_ids = {abs_op.get_concrete_op_id()};
+        groups.push_back(move(group));
+    }
+    return groups;
+}
+
 
 DomainAbstractionFunction::DomainAbstractionFunction(
     const pdbs::Pattern &pattern,
@@ -215,7 +313,7 @@ DomainAbstraction::DomainAbstraction(
 
     match_tree_backward = utils::make_unique_ptr<domain_abstractions::MatchTreeWithPattern>(
         pattern_domain_sizes, hash_multipliers);
-    
+
     // Instantiate DomainAbstractionNumericHelper
     domain_abstractions::DomainAbstractionNumericHelper helper(
         g_root_task(),
@@ -228,107 +326,57 @@ DomainAbstraction::DomainAbstraction(
     
     vector<domain_abstractions::AbstractOperator> abstract_operators = helper.build_abstract_operators(task_proxy);
     
-    // Group operators
-    map<pair<vector<Fact>, int>, vector<int>> grouped_ops;
-    
-    // Helper to map global var ID to pattern index
-    vector<int> flattened_var_to_pattern_index(domain_mapping.size() + numeric_domain_mapping.size(), -1);
-    for (size_t i = 0; i < variable_to_pattern_index.size(); ++i) {
-        flattened_var_to_pattern_index[i] = variable_to_pattern_index[i];
-    }
-    for (size_t i = 0; i < numeric_variable_to_pattern_index.size(); ++i) {
-        flattened_var_to_pattern_index[i + domain_mapping.size()] = numeric_variable_to_pattern_index[i];
-    }
-
-    for (const auto &abs_op : abstract_operators) {
-        // Convert regression preconditions to pattern indices
-        vector<Fact> pattern_reg_pre;
-        pattern_reg_pre.reserve(abs_op.get_regression_preconditions().size());
-        
-        for (const Fact &f : abs_op.get_regression_preconditions()) {
-            if (f.var < static_cast<int>(flattened_var_to_pattern_index.size())) {
-                int pattern_idx = flattened_var_to_pattern_index[f.var];
-                if (pattern_idx != -1) {
-                    pattern_reg_pre.emplace_back(pattern_idx, f.value);
-                }
-            }
-        }
-        sort(pattern_reg_pre.begin(), pattern_reg_pre.end());
-        
-        grouped_ops[{pattern_reg_pre, abs_op.get_hash_effect()}].push_back(abs_op.get_concrete_op_id());
-    }
-
-    int num_labels = grouped_ops.size();
+    OperatorGroups operator_groups;
     if (combine_labels) {
-        label_to_operators.reserve(num_labels, abstract_operators.size());
-        for (auto &entry : grouped_ops) {
-            const vector<Fact> &reg_pre = entry.first.first;
-            int hash_effect = entry.first.second;
-            vector<int> &op_ids = entry.second;
-            
-            int label_id = label_to_operators.size();
-            label_to_operators.push_back(move(op_ids));
-            
-            int precondition_hash = 0;
-            for (const Fact &f : reg_pre) {
-                precondition_hash += hash_multipliers[f.var] * f.value;
-            }
-            
-            // source_hash = target_hash - hash_effect
-            // reg_pre defines target state (prevail + effects)
-            // So precondition_hash (source) = target_hash - hash_effect
-            int source_hash = precondition_hash - hash_effect;
-            
-            ranked_operators.emplace_back(label_id, source_hash, hash_effect);
-            match_tree_backward->insert(ranked_operators.size() - 1, reg_pre);
-        }
+        operator_groups = group_equivalent_operators(
+            abstract_operators, variable_to_pattern_index, numeric_variable_to_pattern_index,
+            domain_mapping, numeric_domain_mapping);
     } else {
-        label_to_operators.reserve(abstract_operators.size(), abstract_operators.size());
-        for (const auto &abs_op : abstract_operators) {
-            int label_id = label_to_operators.size();
-            label_to_operators.push_back({abs_op.get_concrete_op_id()});
-            
-            vector<Fact> pattern_reg_pre;
-            pattern_reg_pre.reserve(abs_op.get_regression_preconditions().size());
-            for (const Fact &f : abs_op.get_regression_preconditions()) {
-                if (f.var < static_cast<int>(flattened_var_to_pattern_index.size())) {
-                    int pattern_idx = flattened_var_to_pattern_index[f.var];
-                    if (pattern_idx != -1) {
-                        pattern_reg_pre.emplace_back(pattern_idx, f.value);
-                    }
-                }
-            }
-            sort(pattern_reg_pre.begin(), pattern_reg_pre.end());
+        operator_groups = get_singleton_operator_groups(
+            abstract_operators, variable_to_pattern_index, numeric_variable_to_pattern_index,
+            domain_mapping, numeric_domain_mapping);
+    }
 
-            int target_hash = 0;
-            for (const Fact &f : pattern_reg_pre) {
-                target_hash += hash_multipliers[f.var] * f.value;
-            }
-            int source_hash = target_hash - abs_op.get_hash_effect();
-            
-            ranked_operators.emplace_back(label_id, source_hash, abs_op.get_hash_effect());
-            match_tree_backward->insert(ranked_operators.size() - 1, pattern_reg_pre);
+    int num_ops_covered_by_labels = 0;
+    for (const auto &group : operator_groups) {
+        num_ops_covered_by_labels += group.operator_ids.size();
+    }
+    label_to_operators.reserve(operator_groups.size(), num_ops_covered_by_labels);
+
+    for (OperatorGroup &group : operator_groups) {
+        int label_id = label_to_operators.size();
+        label_to_operators.push_back(move(group.operator_ids));
+        
+        int precondition_hash = 0;
+        for (const Fact &f : group.regression_preconditions) {
+            precondition_hash += hash_multipliers[f.var] * f.value;
         }
+        
+        // source_hash = target_hash - hash_effect
+        int source_hash = precondition_hash - group.hash_effect;
+        
+        ranked_operators.emplace_back(label_id, source_hash, group.hash_effect);
+        match_tree_backward->insert(ranked_operators.size() - 1, group.regression_preconditions);
     }
     
     ranked_operators.shrink_to_fit();
 
     goal_states = compute_goal_states(variable_to_pattern_index);
-    if (false) {
-        log << "goal states: " << goal_states << endl;
-    }
 }
+
 
 DomainAbstraction::~DomainAbstraction() {
 }
 
 bool DomainAbstraction::increment_to_next_state(vector<Fact> &facts) const {
-    for (Fact &fact : facts) {
-        ++fact.value;
-        if (fact.value > pattern_domain_sizes[fact.var] - 1) {
-            fact.value = 0;
-        } else {
+    for (int i = facts.size() - 1; i >= 0; --i) {
+        int var = facts[i].var;
+        int max_val = pattern_domain_sizes[var] - 1;
+        if (facts[i].value < max_val) {
+            facts[i].value++;
             return true;
+        } else {
+            facts[i].value = 0;
         }
     }
     return false;
@@ -337,20 +385,32 @@ bool DomainAbstraction::increment_to_next_state(vector<Fact> &facts) const {
 vector<int> DomainAbstraction::compute_goal_states(
     const vector<int> &variable_to_pattern_index) const {
     vector<Fact> abstract_goals;
-    for (Fact goal : task_info->get_goals()) {
-        int mapped_var = variable_to_pattern_index[goal.var];
+    for (const Fact &goal : task_info->get_goals()) {
+        int var_id = goal.var;
+        int mapped_var = variable_to_pattern_index[var_id];
         if (mapped_var != -1) {
             abstract_goals.emplace_back(
-                mapped_var, domain_mapping[goal.var][goal.value]);
+                mapped_var, domain_mapping[var_id][goal.value]);
         }
     }
+    sort(abstract_goals.begin(), abstract_goals.end());
 
     vector<int> goals;
-    for (int state_index = 0; state_index < num_states; ++state_index) {
+    vector<Fact> state;
+    state.reserve(pattern.size());
+    for (size_t i = 0; i < pattern.size(); ++i) {
+        state.emplace_back(i, 0);
+    }
+    
+    do {
+        int state_index = 0;
+        for (const Fact &fact : state) {
+            state_index += hash_multipliers[fact.var] * fact.value;
+        }
         if (is_consistent(state_index, abstract_goals)) {
             goals.push_back(state_index);
         }
-    }
+    } while (increment_to_next_state(state));
     return goals;
 }
 
@@ -437,7 +497,7 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
     vector<ap_float> distances(num_states, INF);
 
     // Initialize queue.
-    HeapQueue<int> pq;
+    AdaptiveQueue<int> pq;
     for (int goal : goal_states) {
         pq.push(0, goal);
         distances[goal] = 0;
