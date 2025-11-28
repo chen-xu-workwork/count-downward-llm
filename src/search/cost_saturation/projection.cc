@@ -76,6 +76,17 @@ static vector<int> get_variables(const OperatorProxy &op) {
     return variables;
 }
 
+static vector<int> get_numerical_variables(const OperatorProxy &op) {
+    unordered_set<int> vars;
+    vars.reserve(op.get_ass_effects().size());
+    for (AssEffectProxy ass_effect : op.get_ass_effects()) {
+        vars.insert(ass_effect.get_assignment().get_affected_variable().get_id());
+    }
+    vector<int> variables(vars.begin(), vars.end());
+    sort(variables.begin(), variables.end());
+    return variables;
+}
+
 static vector<int> get_changed_variables(const OperatorProxy &op) {
     unordered_map<int, int> var_to_precondition;
     for (FactProxy precondition : op.get_preconditions()) {
@@ -183,20 +194,30 @@ static OperatorGroups get_singleton_operator_groups(const TaskProxy &task_proxy)
 
 TaskInfo::TaskInfo(const TaskProxy &task_proxy) {
     num_variables = task_proxy.get_variables().size();
+    num_numeric_variables = task_proxy.get_numeric_variables().size();
     num_operators = task_proxy.get_operators().size();
     goals = get_fact_pairs(task_proxy.get_goals());
-    mentioned_variables.resize(num_operators * num_variables, false);
-    pre_eff_variables.resize(num_operators * num_variables, false);
-    effect_variables.resize(num_operators * num_variables, false);
+    //TODO: Save memory by storing only regular numeric variables, not all of them.
+    mentioned_variables.resize(num_operators * (num_variables + num_numeric_variables), false);
+    pre_eff_variables.resize(num_operators * (num_variables), false);
+    effect_variables.resize(num_operators * (num_variables), false);
+    numeric_effect_variables.resize(num_operators * (num_numeric_variables), false);
     for (OperatorProxy op : task_proxy.get_operators()) {
         for (int var : get_variables(op)) {
             mentioned_variables[get_index(op.get_id(), var)] = true;
+        }
+        for (int var : get_numerical_variables(op)) {
+            mentioned_variables[get_index(op.get_id(), var + num_variables)] = true;
         }
         for (int changed_var : get_changed_variables(op)) {
             pre_eff_variables[get_index(op.get_id(), changed_var)] = true;
         }
         for (EffectProxy effect : op.get_effects()) {
             int var = effect.get_fact().get_variable().get_id();
+            effect_variables[get_index(op.get_id(), var)] = true;
+        }
+        for (AssEffectProxy ass_effect : op.get_ass_effects()) {
+            int var = ass_effect.get_assignment().get_affected_variable().get_id();
             effect_variables[get_index(op.get_id(), var)] = true;
         }
     }
@@ -216,6 +237,7 @@ bool TaskInfo::operator_mentions_variable(int op_id, int var) const {
 
 bool TaskInfo::operator_induces_self_loop(const pdbs::Pattern &pattern, int op_id) const {
     // Return false iff the operator has a precondition and effect for a pattern variable.
+    //TODO: Should I always return false?
     for (int var : pattern) {
         if (pre_eff_variables[get_index(op_id, var)]) {
             return false;

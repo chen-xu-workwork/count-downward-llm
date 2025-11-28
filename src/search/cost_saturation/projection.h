@@ -21,6 +21,7 @@ class MatchTree;
 /* Precompute and store information about a task that is useful for projections. */
 class TaskInfo {
     int num_variables;
+    int num_numeric_variables;
     int num_operators;
     std::vector<Fact> goals;
 
@@ -36,8 +37,10 @@ class TaskInfo {
        has an effect on variable var. */
     std::vector<bool> effect_variables;
 
+    std::vector<bool> numeric_effect_variables;
+
     int get_index(int op_id, int var) const {
-        return op_id * num_variables + var;
+        return op_id * (num_variables + num_numeric_variables) + var;
     }
 public:
     explicit TaskInfo(const TaskProxy &task_proxy);
