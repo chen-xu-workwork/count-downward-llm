@@ -711,5 +711,6 @@ set(DOMAIN_ABSTRACTIONS_SOURCES
     domain_abstractions/domain_abstraction_collection_generator_multiple_cegar
     domain_abstractions/max_heuristic
     domain_abstractions/utils
+    utils/multiplicator
 )
 list(APPEND PLANNER_SOURCES ${DOMAIN_ABSTRACTIONS_SOURCES})

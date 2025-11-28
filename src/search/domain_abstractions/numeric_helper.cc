@@ -912,6 +912,39 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 TransitionInfo trans;
                 trans.source_partition_facts = source_facts;
                 trans.target_partition_facts = target_facts;
+
+                // Compute cascades
+                if (!changed_vars.empty()) {
+                    // 1. Direct cascades (Comparison Axioms)
+                    // Target state (NEW)
+                    vector<Fact> target_cascades = 
+                        compute_affected_comparison_axioms(changed_vars, old_parts, new_parts);
+                    
+                    // Source state (OLD) - use old_parts as new_parts to evaluate in old state
+                    vector<Fact> source_cascades = 
+                        compute_affected_comparison_axioms(changed_vars, old_parts, old_parts);
+                    
+                    // Add to transition facts
+                    trans.target_partition_facts.insert(trans.target_partition_facts.end(),
+                                                      target_cascades.begin(), target_cascades.end());
+                    trans.source_partition_facts.insert(trans.source_partition_facts.end(),
+                                                      source_cascades.begin(), source_cascades.end());
+
+                    // 2. Indirect cascades (Assignment Axioms -> Comparison Axioms)
+                    // Target state
+                    vector<Fact> target_assignment_cascades = 
+                        compute_assignment_axiom_cascades(changed_vars, old_parts, new_parts);
+                    
+                    // Source state
+                    vector<Fact> source_assignment_cascades = 
+                        compute_assignment_axiom_cascades(changed_vars, old_parts, old_parts);
+
+                    trans.target_partition_facts.insert(trans.target_partition_facts.end(),
+                                                      target_assignment_cascades.begin(), target_assignment_cascades.end());
+                    trans.source_partition_facts.insert(trans.source_partition_facts.end(),
+                                                      source_assignment_cascades.begin(), source_assignment_cascades.end());
+                }
+
                 transitions.push_back(trans);
             }
             

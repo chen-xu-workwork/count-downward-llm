@@ -8,8 +8,8 @@
 #include "../priority_queue.h"
 #include "../domain_abstractions/domain_abstraction.h"
 #include "../domain_abstractions/match_tree_with_pattern.h"
-#include "../domain_abstractions/numeric_helper.h"
 #include "../domain_abstractions/domain_abstraction_factory.h"
+#include "../utils/multiplicator.h"
 #include "../task_tools.h"
 #include "../utils/collections.h"
 #include "../utils/logging.h"
@@ -314,8 +314,8 @@ DomainAbstraction::DomainAbstraction(
     match_tree_backward = utils::make_unique_ptr<domain_abstractions::MatchTreeWithPattern>(
         pattern_domain_sizes, hash_multipliers);
 
-    // Instantiate DomainAbstractionNumericHelper
-    domain_abstractions::DomainAbstractionNumericHelper helper(
+    // Instantiate Multiplicator
+    utils::Multiplicator multiplicator(
         g_root_task(),
         domain_mapping,
         numeric_domain_mapping,
@@ -324,7 +324,11 @@ DomainAbstraction::DomainAbstraction(
         hash_multipliers
     );
     
-    vector<domain_abstractions::AbstractOperator> abstract_operators = helper.build_abstract_operators(task_proxy);
+    vector<domain_abstractions::AbstractOperator> abstract_operators;
+    OperatorsProxy operators = task_proxy.get_operators();
+    for (OperatorProxy op : operators) {
+        multiplicator.multiply_out(op, abstract_operators);
+    }
     
     OperatorGroups operator_groups;
     if (combine_labels) {
