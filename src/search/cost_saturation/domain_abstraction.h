@@ -25,7 +25,7 @@ class TaskProxy;
 class VariablesProxy;
 
 namespace domain_abstractions {
-class MatchTree;
+class MatchTreeWithPattern;
 }
 
 namespace utils {
@@ -73,7 +73,7 @@ class DomainAbstraction : public Abstraction {
     std::vector<bool> looping_operators;
 
     std::vector<RankedOperator> ranked_operators;
-    std::unique_ptr<domain_abstractions::MatchTree> match_tree_backward;
+    std::unique_ptr<domain_abstractions::MatchTreeWithPattern> match_tree_backward;
 
     // Number of abstract states in the projection.
     int num_states;

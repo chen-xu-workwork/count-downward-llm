@@ -7,7 +7,7 @@
 
 #include "../priority_queue.h"
 #include "../domain_abstractions/domain_abstraction.h"
-#include "../domain_abstractions/match_tree.h"
+#include "../domain_abstractions/match_tree_with_pattern.h"
 #include "../domain_abstractions/numeric_helper.h"
 #include "../domain_abstractions/domain_abstraction_factory.h"
 #include "../task_tools.h"
@@ -224,7 +224,7 @@ DomainAbstraction::DomainAbstraction(
     abstraction_function = utils::make_unique_ptr<DomainAbstractionFunction>(
         pattern, hash_multipliers, domain_mapping, numeric_domain_mapping);
 
-    match_tree_backward = utils::make_unique_ptr<domain_abstractions::MatchTree>(
+    match_tree_backward = utils::make_unique_ptr<domain_abstractions::MatchTreeWithPattern>(
         pattern_domain_sizes, hash_multipliers);
 
     // Compute full_hash_multipliers

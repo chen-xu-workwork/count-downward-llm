@@ -117,6 +117,7 @@ static vector<bool> compute_looping_operators(
 struct OperatorGroup {
     vector<Fact> preconditions;
     vector<Fact> effects;
+    vector<AssEffectProxy> assignment_effects;
     vector<int> operator_ids;
 
     bool operator<(const OperatorGroup &other) const {
