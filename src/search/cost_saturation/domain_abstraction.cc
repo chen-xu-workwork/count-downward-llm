@@ -17,6 +17,7 @@
 #include "../utils/memory.h"
 
 #include <cassert>
+#include <sstream>
 #include <unordered_map>
 #include <map>
 #include <tuple>
@@ -855,6 +856,49 @@ void DomainAbstraction::dump() const {
     cout << "Ranked operators: " << ranked_operators.size()
         << ", goal states: " << goal_states.size() << "/" << num_states
         << endl;
+}
+
+string DomainAbstraction::decode_state(int state_index) const {
+    stringstream ss;
+    ss << "State " << state_index << ": [";
+    
+    VariablesProxy variables = task_proxy.get_variables();
+    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+    int num_prop_vars = static_cast<int>(domain_mapping.size());
+    
+    bool first = true;
+    for (size_t pattern_idx = 0; pattern_idx < pattern.size(); ++pattern_idx) {
+        int var_id = pattern[pattern_idx];
+        int multiplier = hash_multipliers[pattern_idx];
+        int domain_size = pattern_domain_sizes[pattern_idx];
+        if (domain_size == 1) {
+            continue;
+        }
+        int value = (state_index / multiplier) % domain_size;
+        
+        if (!first) ss << ", ";
+        first = false;
+        
+        if (var_id < num_prop_vars) {
+            // Propositional variable
+            ss << variables[var_id].get_name() << "=" << value;
+        } else {
+            // Numeric variable
+            int num_var_id = var_id - num_prop_vars;
+            const domain_abstractions::NumericRange *rng = 
+                numeric_domain_mapping[num_var_id]->get_range_for_partition(value);
+            ss << num_vars[num_var_id].get_name() << "=";
+            if (rng) {
+                ss << (rng->lower_inclusive ? "[" : "(") 
+                   << rng->lower << "," << rng->upper 
+                   << (rng->upper_inclusive ? "]" : ")");
+            } else {
+                ss << "INVALID_PARTITION(" << value << ")";
+            }
+        }
+    }
+    ss << "]";
+    return ss.str();
 }
 
 vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
