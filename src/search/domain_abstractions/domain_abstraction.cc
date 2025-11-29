@@ -176,7 +176,6 @@ ap_float DomainAbstraction::get_value(const State &state) const {
 
                 cout << "distance[" << i << "] = " << distances[i] << " -> " << dec << endl;
             }
-            exit(0);
         }
 
         bool is_concrete_goal = true;

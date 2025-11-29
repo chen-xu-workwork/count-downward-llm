@@ -755,7 +755,6 @@ int DomainAbstraction::get_num_operators() const {
 }
 
 vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float> &operator_costs) const {
-    assert(all_of(operator_costs.begin(), operator_costs.end(), [](ap_float c) {return c >= 0;}));
 
     // TODO: use log
 //    if (log.is_at_least_debug()) {

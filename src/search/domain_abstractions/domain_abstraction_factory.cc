@@ -941,6 +941,7 @@ void DomainAbstractionFactory::compute_distances(
             bool all_numeric_values_match = true;
 
             for (int predecessor : possible_predecessors) {
+                assert(predecessor < num_states && 0 <= predecessor);
                 vector<Fact> pre = op.get_preconditions();
                 bool preconditions_satisfied = true;
                 string decoded_pred = 

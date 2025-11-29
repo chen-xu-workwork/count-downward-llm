@@ -331,6 +331,7 @@ Projection::Projection(
     num_states = 1;
     for (int pattern_var_id : pattern) {
         hash_multipliers.push_back(num_states);
+        assert(pattern_var_id < task_proxy.get_variables().size());
         VariableProxy var = task_proxy.get_variables()[pattern_var_id];
         if (utils::is_product_within_limit(num_states, var.get_domain_size(),
                                            numeric_limits<int>::max())) {

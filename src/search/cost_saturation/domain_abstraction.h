@@ -118,13 +118,28 @@ class DomainAbstraction : public Abstraction {
                 for (const Fact &fact : abstract_facts) {
                     state += hash_multipliers[fact.var] * fact.value;
                 }
+
+                bool is_possible_state = false; 
+                //TODO: Can be optimized by only considering most optimistic comparison evaluations
+                //      and doing logic comparisons instead of enumerating all states.
+                std::vector<int> possible_states = enumerate_states_with_evaluated_comparisons(state);
+                for (int ps : possible_states) {
+                    if (ps == state) {
+                        is_possible_state = true;
+                        break;
+                    }
+                }
+                if (is_possible_state) {
+                    int base_target = state + ranked_operator.hash_effect;
+                    std::vector<int> successors = enumerate_states_with_evaluated_comparisons(base_target);
+                    for (int succ : successors) {
+                        std::cout << "Successor: " << succ << ", Num states: " << num_states << std::endl;
+                        assert(succ < num_states && succ >= 0);
+                        callback(Transition(state,
+                                            ranked_operator.label,
+                                            succ));
+                    }
                 
-                int base_target = state + ranked_operator.hash_effect;
-                std::vector<int> successors = enumerate_states_with_evaluated_comparisons(base_target);
-                for (int succ : successors) {
-                    callback(Transition(state,
-                                        ranked_operator.label,
-                                        succ));
                 }
                 has_next_match = increment_to_next_state(abstract_facts);
             }

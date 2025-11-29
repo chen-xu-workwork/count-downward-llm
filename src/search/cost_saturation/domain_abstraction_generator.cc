@@ -23,6 +23,7 @@ DomainAbstractionGenerator::DomainAbstractionGenerator(const options::Options &o
           opts.get<shared_ptr<domain_abstractions::DomainAbstractionCollectionGenerator>>(
               "domain_abstraction_collection_generator")),
       combine_labels(opts.get<bool>("combine_labels")) {
+        cout << "DEBUG GENERATOR: Unparsed config string = '" << opts.get_unparsed_config() << "'" << std::endl;
 }
 
 Abstractions DomainAbstractionGenerator::generate_abstractions(
