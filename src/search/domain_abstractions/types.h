@@ -384,6 +384,11 @@ public:
         return constant_value;
     }
     
+    // Constants always have exactly 1 partition
+    int get_num_partitions() const {
+        return 1;
+    }
+    
     // Override validation - constants have a single range covering everything with partition 0
     bool is_valid() const override {
         if (ranges.size() != 1) {

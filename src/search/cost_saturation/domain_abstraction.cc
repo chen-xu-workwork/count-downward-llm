@@ -36,19 +36,31 @@ void compute_numeric_context(
     const domain_abstractions::DomainMapping &domain_mapping,
     const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping,
     const vector<int> &hash_multipliers,
+    const vector<int> &pattern_domain_sizes,
+    const pdbs::Pattern &pattern,
     const TaskProxy &task_proxy,
     unordered_map<int, domain_abstractions::NumericRange> &ranges_out,
     vector<int> &cur_num_partitions_out) {
     ranges_out.clear();
     cur_num_partitions_out.clear();
 
-    cur_num_partitions_out.reserve(numeric_domain_mapping.size());
-    for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
-        int abstract_var_id = static_cast<int>(domain_mapping.size()) + static_cast<int>(num_var_id);
-        int multiplier = hash_multipliers[abstract_var_id];
-        int num_parts = numeric_domain_mapping[num_var_id]->get_num_partitions();
-        int part = (state_index / multiplier) % num_parts;
-        cur_num_partitions_out.push_back(part);
+    // Initialize cur_num_partitions_out with -1 for all numeric variables
+    // (meaning "not in pattern")
+    cur_num_partitions_out.resize(numeric_domain_mapping.size(), -1);
+    
+    int num_prop_vars = static_cast<int>(domain_mapping.size());
+    
+    // Iterate over pattern positions, only processing numeric variables in the pattern
+    for (size_t pattern_idx = 0; pattern_idx < pattern.size(); ++pattern_idx) {
+        int var_id = pattern[pattern_idx];
+        // Check if this is a numeric variable (var_id >= num_prop_vars)
+        if (var_id >= num_prop_vars) {
+            int num_var_id = var_id - num_prop_vars;
+            int multiplier = hash_multipliers[pattern_idx];
+            int num_parts = pattern_domain_sizes[pattern_idx];
+            int part = (state_index / multiplier) % num_parts;
+            cur_num_partitions_out[num_var_id] = part;
+        }
     }
 
     NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
@@ -58,11 +70,14 @@ void compute_numeric_context(
             ap_float val = var.get_initial_state_value();
             ranges_out[num_var_id] = domain_abstractions::NumericRange(val, val, true, true);
         } else if (var.get_var_type() == numType::regular && num_var_id < numeric_domain_mapping.size()) {
-            const domain_abstractions::NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
             int part = cur_num_partitions_out[num_var_id];
-            const domain_abstractions::NumericRange *rng = mapping.get_range_for_partition(part);
-            if (rng) {
-                ranges_out[num_var_id] = *rng;
+            // part == -1 means this numeric variable is not in the pattern
+            if (part >= 0) {
+                const domain_abstractions::NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
+                const domain_abstractions::NumericRange *rng = mapping.get_range_for_partition(part);
+                if (rng) {
+                    ranges_out[num_var_id] = *rng;
+                }
             }
         }
     }
@@ -850,7 +865,8 @@ vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
     unordered_map<int, domain_abstractions::NumericRange> ranges;
     vector<int> cur_num_partitions;
     compute_numeric_context(base_state_index, domain_mapping, numeric_domain_mapping,
-                            hash_multipliers, task_proxy, ranges, cur_num_partitions);
+                            hash_multipliers, pattern_domain_sizes, pattern,
+                            task_proxy, ranges, cur_num_partitions);
     vector<CompEvalHelper> comparisons = evaluate_all_comparisons(
         ranges, cur_num_partitions, numeric_domain_mapping, task_proxy);
 
