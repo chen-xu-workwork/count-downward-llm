@@ -32,17 +32,8 @@ class AbstractOperator {
       effects and prevail of concrete operators.
     */
     std::vector<Fact> regression_preconditions;
-    std::vector<NumAssProxy> regression_numeric_preconditions;
     std::vector<Fact> pre;
 
-  // Forward (progression) preconditions that must hold in the PREDECESSOR
-  // state during regression. We keep these separate because the MatchTree
-  // checks only CURRENT-state conditions (prevails, effects, and target
-  // numeric partitions), while predecessor preconditions must be enforced
-  // when enumerating predecessors in Dijkstra.
-  std::vector<Fact> predecessor_preconditions;
-
-    
     /*
       Information about numeric variable transitions for cascade enumeration.
       Only populated for operators with numeric effects.
@@ -109,7 +100,6 @@ public:
 
   // Preconditions that must hold in the predecessor state (progression preconditions
   // and numeric source-partition facts).
-  const std::vector<Fact> &get_predecessor_preconditions() const { return predecessor_preconditions; }
   
   const std::vector<Fact> &get_preconditions() const { return pre; }
 

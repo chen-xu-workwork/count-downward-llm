@@ -366,6 +366,15 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
       pre(pre_pairs),
       regression_preconditions(prev_pairs) {
 
+    for (Fact prec : prev_pairs) {
+        pre.push_back(prec); 
+    }
+    //assert no duplicates in pre
+    sort(pre.begin(), pre.end());
+    for (size_t i = 1; i < pre.size(); ++i) {
+        assert(pre[i].var != pre[i - 1].var);
+    }
+
     regression_preconditions.insert(regression_preconditions.end(),
                                     eff_pairs.begin(), eff_pairs.end());
     // Sort preconditions for MatchTree construction.

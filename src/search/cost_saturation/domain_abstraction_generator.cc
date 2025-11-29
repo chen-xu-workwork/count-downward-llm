@@ -56,15 +56,6 @@ Abstractions DomainAbstractionGenerator::generate_abstractions(
     shared_ptr<TaskInfo> task_info = make_shared<TaskInfo>(task_proxy);
     Abstractions abstractions;
     for (domain_abstractions::DomainAbstraction &domain_abstraction : domain_abstractions) {
-        // Debug: check numeric_domain_mapping before extraction
-        const domain_abstractions::NumericDomainMappingType &num_map = domain_abstraction.get_numeric_domain_mapping();
-        cout << "DEBUG GENERATOR: About to wrap abstraction with " << num_map.size() << " numeric vars" << endl;
-        for (size_t i = 0; i < num_map.size(); ++i) {
-            if (!num_map[i]) {
-                cerr << "DEBUG GENERATOR: num_map[" << i << "] is NULL before extraction!" << endl;
-            }
-        }
-        
         const domain_abstractions::DomainMapping &domain_mapping = domain_abstraction.get_domain_mapping();
         unique_ptr<Abstraction> wrapped_domain_abstraction =
             utils::make_unique_ptr<DomainAbstraction>(
