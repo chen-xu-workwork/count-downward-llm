@@ -192,12 +192,42 @@ static OperatorGroups get_singleton_operator_groups(const TaskProxy &task_proxy)
     return groups;
 }
 
+static bool is_derived_variable(const TaskProxy &task_proxy, int var_id) {
+    for (OperatorProxy ax : task_proxy.get_axioms()) {
+        for (EffectProxy eff : ax.get_effects()) {
+            if (eff.get_fact().get_variable().get_id() == var_id) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static vector<Fact> compute_goals(const TaskProxy &task_proxy) {
+    vector<Fact> goals;
+    // 1. Add non-derived goals
+    for (FactProxy goal : task_proxy.get_goals()) {
+        if (!is_derived_variable(task_proxy, goal.get_variable().get_id())) {
+            goals.push_back({goal.get_variable().get_id(), goal.get_value()});
+        }
+    }
+    // 2. Add preconditions of goal axioms
+    for (OperatorProxy axiom : task_proxy.get_axioms()) {
+        if (!axiom.get_preconditions().empty() && axiom.get_effects().size() == 1) {
+            for (FactProxy pre : axiom.get_preconditions()) {
+                goals.push_back({pre.get_variable().get_id(), pre.get_value()});
+            }
+        }
+    }
+    return goals;
+}
+
 
 TaskInfo::TaskInfo(const TaskProxy &task_proxy) {
     num_variables = task_proxy.get_variables().size();
     num_numeric_variables = task_proxy.get_numeric_variables().size();
     num_operators = task_proxy.get_operators().size();
-    goals = get_fact_pairs(task_proxy.get_goals());
+    goals = compute_goals(task_proxy);
     //TODO: Save memory by storing only regular numeric variables, not all of them.
     mentioned_variables.resize(num_operators * (num_variables + num_numeric_variables), false);
     pre_eff_variables.resize(num_operators * (num_variables), false);
