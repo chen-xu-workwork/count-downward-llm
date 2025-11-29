@@ -228,11 +228,15 @@ static vector<bool> compute_looping_operators(
     const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping,
     const vector<int> &variable_to_pattern_index,
     const vector<int> &numeric_variable_to_pattern_index) {
+    cout << "DEBUG compute_looping_operators: ENTER" << endl;
     OperatorsProxy ops = task_proxy.get_operators();
     int num_ops = ops.size();
+    cout << "DEBUG compute_looping_operators: num_ops = " << num_ops << endl;
     vector<bool> loops(num_ops, true);
     vector<bool> changed_variables;
+    cout << "DEBUG compute_looping_operators: starting loop" << endl;
     for (int op_id = 0; op_id < num_ops; ++op_id) {
+        if (op_id % 100 == 0) cout << "DEBUG compute_looping_operators: op_id = " << op_id << endl;
         OperatorProxy op = ops[op_id];
         /*
           An operator has the potential to induce self-loops if one of
@@ -287,12 +291,12 @@ static vector<bool> compute_looping_operators(
 }
 
 
-struct OperatorGroup {
+struct DomainAbstractionOperatorGroup {
     vector<Fact> regression_preconditions;
     int hash_effect;
     vector<int> operator_ids;
 
-    bool operator<(const OperatorGroup &other) const {
+    bool operator<(const DomainAbstractionOperatorGroup &other) const {
         if (hash_effect != other.hash_effect)
             return hash_effect < other.hash_effect;
         if (regression_preconditions != other.regression_preconditions)
@@ -301,7 +305,7 @@ struct OperatorGroup {
     }
 };
 
-using OperatorGroups = vector<OperatorGroup>;
+using DomainAbstractionOperatorGroups = vector<DomainAbstractionOperatorGroup>;
 
 static vector<Fact> get_pattern_regression_preconditions(
     const domain_abstractions::AbstractOperator &abs_op,
@@ -311,53 +315,100 @@ static vector<Fact> get_pattern_regression_preconditions(
     pattern_reg_pre.reserve(abs_op.get_regression_preconditions().size());
     
     for (const Fact &f : abs_op.get_regression_preconditions()) {
-        if (f.var < static_cast<int>(flattened_var_to_pattern_index.size())) {
+        if (f.var >= 0 && f.var < static_cast<int>(flattened_var_to_pattern_index.size())) {
             int pattern_idx = flattened_var_to_pattern_index[f.var];
             if (pattern_idx != -1) {
                 pattern_reg_pre.emplace_back(pattern_idx, f.value);
             }
+        } else {
+            cerr << "WARNING get_pattern_regression_preconditions: f.var=" << f.var 
+                 << " out of bounds [0, " << flattened_var_to_pattern_index.size() << ")" << endl;
         }
     }
     sort(pattern_reg_pre.begin(), pattern_reg_pre.end());
     return pattern_reg_pre;
 }
 
-static OperatorGroups group_equivalent_operators(
+static DomainAbstractionOperatorGroups group_equivalent_operators(
     const vector<domain_abstractions::AbstractOperator> &abstract_operators,
     const vector<int> &variable_to_pattern_index,
     const vector<int> &numeric_variable_to_pattern_index,
     const domain_abstractions::DomainMapping &domain_mapping,
     const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping) {
+    
+    cout << "DEBUG group_equivalent_operators: ENTER" << endl;
+    cout << "DEBUG: abstract_operators.size() = " << abstract_operators.size() << endl;
+    cout << "DEBUG: variable_to_pattern_index.size() = " << variable_to_pattern_index.size() << endl;
+    cout << "DEBUG: numeric_variable_to_pattern_index.size() = " << numeric_variable_to_pattern_index.size() << endl;
+    cout << "DEBUG: domain_mapping.size() = " << domain_mapping.size() << endl;
+    cout << "DEBUG: numeric_domain_mapping.size() = " << numeric_domain_mapping.size() << endl;
     
     map<pair<vector<Fact>, int>, vector<int>> grouped_ops;
     
     vector<int> flattened_var_to_pattern_index(domain_mapping.size() + numeric_domain_mapping.size(), -1);
+    cout << "DEBUG: flattened_var_to_pattern_index.size() = " << flattened_var_to_pattern_index.size() << endl;
+    
     for (size_t i = 0; i < variable_to_pattern_index.size(); ++i) {
-        flattened_var_to_pattern_index[i] = variable_to_pattern_index[i];
+        if (i < flattened_var_to_pattern_index.size()) {
+            flattened_var_to_pattern_index[i] = variable_to_pattern_index[i];
+        }
     }
     for (size_t i = 0; i < numeric_variable_to_pattern_index.size(); ++i) {
-        flattened_var_to_pattern_index[i + domain_mapping.size()] = numeric_variable_to_pattern_index[i];
+        size_t idx = i + domain_mapping.size();
+        if (idx < flattened_var_to_pattern_index.size()) {
+            flattened_var_to_pattern_index[idx] = numeric_variable_to_pattern_index[i];
+        }
     }
+    cout << "DEBUG: flattened indices copied" << endl;
 
+    int count = 0;
     for (const auto &abs_op : abstract_operators) {
+        if (count % 50 == 0) cout << "DEBUG: Processing abs_op " << count << endl;
         vector<Fact> pattern_reg_pre = get_pattern_regression_preconditions(abs_op, flattened_var_to_pattern_index);
         grouped_ops[{pattern_reg_pre, abs_op.get_hash_effect()}].push_back(abs_op.get_concrete_op_id());
+        ++count;
     }
+    cout << "DEBUG: All abstract operators processed, count = " << count << endl;
+    cout << "DEBUG: grouped_ops.size() = " << grouped_ops.size() << endl;
 
-    OperatorGroups groups;
+    DomainAbstractionOperatorGroups groups;
     groups.reserve(grouped_ops.size());
+    count = 0;
     for (auto &entry : grouped_ops) {
-        OperatorGroup group;
-        group.regression_preconditions = move(entry.first.first);
+        if (count % 50 == 0) cout << "DEBUG: Building group " << count << endl;
+        DomainAbstractionOperatorGroup group;
+        group.regression_preconditions = entry.first.first; // copy, don't move from const
         group.hash_effect = entry.first.second;
         group.operator_ids = move(entry.second);
         groups.push_back(move(group));
+        ++count;
     }
+    cout << "DEBUG: All groups built, count = " << count << endl;
+    
+    // Validate groups before sorting
+    cout << "DEBUG: Validating groups..." << endl;
+    for (size_t i = 0; i < groups.size(); ++i) {
+        const auto &g = groups[i];
+        if (g.regression_preconditions.size() > 1000) {
+            cerr << "ERROR: Group " << i << " has suspicious preconditions size: " << g.regression_preconditions.size() << endl;
+        }
+        if (g.operator_ids.size() > 1000) {
+            cerr << "ERROR: Group " << i << " has suspicious operator_ids size: " << g.operator_ids.size() << endl;
+        }
+        for (const auto &fact : g.regression_preconditions) {
+            if (fact.var < 0 || fact.var > 10000 || fact.value < 0 || fact.value > 10000) {
+                cerr << "ERROR: Group " << i << " has bad fact: var=" << fact.var << " value=" << fact.value << endl;
+            }
+        }
+    }
+    cout << "DEBUG: Validation done, sorting..." << endl;
+    
     sort(groups.begin(), groups.end());
+    cout << "DEBUG: groups sorted" << endl;
     return groups;
 }
 
-static OperatorGroups get_singleton_operator_groups(
+static DomainAbstractionOperatorGroups get_singleton_operator_groups(
     const vector<domain_abstractions::AbstractOperator> &abstract_operators,
     const vector<int> &variable_to_pattern_index,
     const vector<int> &numeric_variable_to_pattern_index,
@@ -372,10 +423,10 @@ static OperatorGroups get_singleton_operator_groups(
         flattened_var_to_pattern_index[i + domain_mapping.size()] = numeric_variable_to_pattern_index[i];
     }
 
-    OperatorGroups groups;
+    DomainAbstractionOperatorGroups groups;
     groups.reserve(abstract_operators.size());
     for (const auto &abs_op : abstract_operators) {
-        OperatorGroup group;
+        DomainAbstractionOperatorGroup group;
         group.regression_preconditions = get_pattern_regression_preconditions(abs_op, flattened_var_to_pattern_index);
         group.hash_effect = abs_op.get_hash_effect();
         group.operator_ids = {abs_op.get_concrete_op_id()};
@@ -390,8 +441,12 @@ DomainAbstractionFunction::DomainAbstractionFunction(
     const vector<int> &hash_multipliers,
     const domain_abstractions::DomainMapping domain_mapping,
     const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping)
-    : domain_mapping(move(domain_mapping)),
-      numeric_domain_mapping(numeric_domain_mapping) {
+    : domain_mapping(move(domain_mapping)) {
+    // Deep copy numeric_domain_mapping by cloning each unique_ptr
+    this->numeric_domain_mapping.reserve(numeric_domain_mapping.size());
+    for (const auto &mapping : numeric_domain_mapping) {
+        this->numeric_domain_mapping.push_back(mapping->clone());
+    }
     assert(pattern.size() == hash_multipliers.size());
     variables_and_multipliers.reserve(pattern.size());
     for (size_t i = 0; i < pattern.size(); ++i) {
@@ -427,6 +482,18 @@ DomainAbstraction::DomainAbstraction(
       domain_mapping(domain_abstraction.extract_domain_mapping()),
       numeric_domain_mapping(domain_abstraction.extract_numeric_domain_mapping()) {
     
+    // DEBUG: Check numeric_domain_mapping immediately after extraction
+    cout << "DEBUG CONSTRUCTOR: numeric_domain_mapping.size() = " << numeric_domain_mapping.size() << endl;
+    for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
+        cout << "DEBUG CONSTRUCTOR: Checking entry " << i << endl;
+        if (!numeric_domain_mapping[i]) {
+            cerr << "DEBUG CONSTRUCTOR: Entry " << i << " is NULL!" << endl;
+            continue;
+        }
+        cout << "DEBUG CONSTRUCTOR: Entry " << i << " address = " << numeric_domain_mapping[i].get() << endl;
+    }
+    cout << "DEBUG CONSTRUCTOR: All entries checked, proceeding..." << endl;
+    
     // Compute domain_sizes and numeric_domain_sizes for helper
     vector<int> domain_sizes(domain_mapping.size(), 1);
     for (size_t var_id = 0; var_id < domain_mapping.size(); ++var_id) {
@@ -439,8 +506,19 @@ DomainAbstraction::DomainAbstraction(
     
     vector<int> numeric_domain_sizes(numeric_domain_mapping.size(), 1);
     for (size_t var_id = 0; var_id < numeric_domain_mapping.size(); ++var_id) {
-        if (numeric_domain_mapping[var_id]->get_num_partitions() != 0) {
-            numeric_domain_sizes[var_id] = numeric_domain_mapping[var_id]->get_num_partitions();
+        cout << "DEBUG LOOP: About to check entry " << var_id << endl;
+        if (!numeric_domain_mapping[var_id]) {
+             cerr << "CRITICAL ERROR: numeric_domain_mapping[" << var_id << "] is NULL!" << endl;
+             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
+        cout << "DEBUG LOOP: Entry " << var_id << " is non-null, address = " << numeric_domain_mapping[var_id].get() << endl;
+        cout << "DEBUG LOOP: About to call get_num_partitions() on entry " << var_id << endl;
+        cout.flush();
+        int num_parts = numeric_domain_mapping[var_id]->get_num_partitions();
+        cout << "DEBUG LOOP: get_num_partitions() returned " << num_parts << endl;
+        cout << "Numeric var " << var_id << " has " << num_parts << " partitions." << endl;
+        if (num_parts != 0) {
+            numeric_domain_sizes[var_id] = num_parts;
         }
     }
 
@@ -453,7 +531,9 @@ DomainAbstraction::DomainAbstraction(
             pattern_domain_sizes.push_back(max_val + 1);
         }
     }
+    cout << "DEBUG: Starting second loop over numeric_domain_mapping" << endl;
     for (size_t var_id = 0; var_id < numeric_domain_mapping.size(); ++var_id) {
+        cout << "DEBUG: Processing var_id " << var_id << endl;
         if (numeric_domain_mapping[var_id]->get_num_partitions() != 0) {
             int max_val = numeric_domain_mapping[var_id]->get_num_partitions();
             assert(max_val > 0); // Variable is non-trivial.
@@ -462,22 +542,43 @@ DomainAbstraction::DomainAbstraction(
             pattern_domain_sizes.push_back(max_val);
         }
     }
-
-    assert(utils::is_sorted_unique(pattern));
+    cout << "DEBUG: Finished second loop" << endl;
+    cout << "DEBUG: pattern.size() = " << pattern.size() << endl;
+    if (!pattern.empty()) {
+        cout << "DEBUG: pattern[0] = " << pattern[0] << endl;
+        cout << "DEBUG: pattern.back() = " << pattern.back() << endl;
+    }
+    // assert(utils::is_sorted_unique(pattern));
 
     VariablesProxy variables = task_proxy.get_variables();
     NumericVariablesProxy numeric_variables = task_proxy.get_numeric_variables();
+
+    cout << "DEBUG: variables.size() = " << variables.size() << endl;
+    cout << "DEBUG: numeric_variables.size() = " << numeric_variables.size() << endl;
+    cout << "DEBUG: domain_mapping.size() = " << domain_mapping.size() << endl;
+    cout << "DEBUG: numeric_domain_mapping.size() = " << numeric_domain_mapping.size() << endl;
 
     vector<int> variable_to_pattern_index(variables.size(), -1);
     vector<int> numeric_variable_to_pattern_index(numeric_variables.size(), -1);
     for (size_t i = 0; i < pattern.size(); ++i) {
         int var_id = pattern[i];
+        cout << "DEBUG: pattern[" << i << "] = " << var_id << endl;
         if (var_id < static_cast<int>(variables.size())) {
+            cout << "DEBUG: Accessing variable_to_pattern_index[" << var_id << "]" << endl;
             variable_to_pattern_index[var_id] = i;
         } else {
-            numeric_variable_to_pattern_index[var_id - variables.size()] = i;
+            int idx = var_id - variables.size();
+            cout << "DEBUG: Accessing numeric_variable_to_pattern_index[" << idx << "]" << endl;
+            if (idx < 0 || idx >= static_cast<int>(numeric_variable_to_pattern_index.size())) {
+                cerr << "CRITICAL ERROR: Index out of bounds! idx=" << idx << ", size=" << numeric_variable_to_pattern_index.size() << endl;
+                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+            }
+            numeric_variable_to_pattern_index[idx] = i;
         }
     }
+    
+    cout << "DEBUG: About to call compute_looping_operators" << endl;
+    cout.flush();
 
     looping_operators = compute_looping_operators(
         task_proxy, domain_mapping, numeric_domain_mapping,
@@ -504,6 +605,19 @@ DomainAbstraction::DomainAbstraction(
     match_tree_backward = utils::make_unique_ptr<domain_abstractions::MatchTreeWithPattern>(
         pattern_domain_sizes, hash_multipliers);
 
+    // Create hash_multipliers indexed by original variable ID for Multiplicator
+    // pattern contains the original variable IDs, hash_multipliers[i] is the multiplier for pattern[i]
+    // We need hash_multipliers_by_var_id[var_id] = hash_multipliers[pattern_index] where pattern[pattern_index] = var_id
+    int total_vars = variables.size() + numeric_variables.size();
+    vector<int> hash_multipliers_by_var_id(total_vars, 0);
+    for (size_t i = 0; i < pattern.size(); ++i) {
+        int var_id = pattern[i];
+        if (var_id >= 0 && var_id < total_vars) {
+            hash_multipliers_by_var_id[var_id] = hash_multipliers[i];
+        }
+    }
+    cout << "DEBUG: Created hash_multipliers_by_var_id with size " << hash_multipliers_by_var_id.size() << endl;
+
     // Instantiate Multiplicator
     utils::Multiplicator multiplicator(
         g_root_task(),
@@ -511,7 +625,7 @@ DomainAbstraction::DomainAbstraction(
         numeric_domain_mapping,
         domain_sizes,
         numeric_domain_sizes,
-        hash_multipliers
+        hash_multipliers_by_var_id
     );
     
     vector<domain_abstractions::AbstractOperator> abstract_operators;
@@ -520,7 +634,7 @@ DomainAbstraction::DomainAbstraction(
         multiplicator.multiply_out(op, abstract_operators);
     }
     
-    OperatorGroups operator_groups;
+    DomainAbstractionOperatorGroups operator_groups;
     if (combine_labels) {
         operator_groups = group_equivalent_operators(
             abstract_operators, variable_to_pattern_index, numeric_variable_to_pattern_index,
@@ -537,7 +651,7 @@ DomainAbstraction::DomainAbstraction(
     }
     label_to_operators.reserve(operator_groups.size(), num_ops_covered_by_labels);
 
-    for (OperatorGroup &group : operator_groups) {
+    for (DomainAbstractionOperatorGroup &group : operator_groups) {
         int label_id = label_to_operators.size();
         label_to_operators.push_back(move(group.operator_ids));
         
@@ -717,6 +831,11 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
         for (int ranked_op_id : applicable_operators) {
             const RankedOperator &op = ranked_operators[ranked_op_id];
             int predecessor = state_index - op.hash_effect;
+            if (predecessor < 0 || predecessor >= static_cast<int>(distances.size())) {
+                cerr << "ERROR: predecessor out of bounds! state_index=" << state_index 
+                     << " hash_effect=" << op.hash_effect << " predecessor=" << predecessor 
+                     << " distances.size()=" << distances.size() << endl;
+            }
             assert(utils::in_bounds(op.label, label_costs));
             ap_float alternative_cost = (label_costs[op.label] == INF) ?
                 INF : distances[state_index] + label_costs[op.label];

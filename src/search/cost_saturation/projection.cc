@@ -241,15 +241,18 @@ TaskInfo::TaskInfo(const TaskProxy &task_proxy) {
             mentioned_variables[get_index(op.get_id(), var + num_variables)] = true;
         }
         for (int changed_var : get_changed_variables(op)) {
-            pre_eff_variables[get_index(op.get_id(), changed_var)] = true;
+            // Use direct indexing for pre_eff_variables (propositional only)
+            pre_eff_variables[op.get_id() * num_variables + changed_var] = true;
         }
         for (EffectProxy effect : op.get_effects()) {
             int var = effect.get_fact().get_variable().get_id();
-            effect_variables[get_index(op.get_id(), var)] = true;
+            // Use direct indexing for effect_variables (propositional only)
+            effect_variables[op.get_id() * num_variables + var] = true;
         }
         for (AssEffectProxy ass_effect : op.get_ass_effects()) {
             int var = ass_effect.get_assignment().get_affected_variable().get_id();
-            effect_variables[get_index(op.get_id(), var)] = true;
+            // Use numeric_effect_variables for numeric variable effects, not effect_variables
+            numeric_effect_variables[op.get_id() * num_numeric_variables + var] = true;
         }
     }
 }
@@ -270,7 +273,11 @@ bool TaskInfo::operator_induces_self_loop(const pdbs::Pattern &pattern, int op_i
     // Return false iff the operator has a precondition and effect for a pattern variable.
     //TODO: Should I always return false?
     for (int var : pattern) {
-        if (pre_eff_variables[get_index(op_id, var)]) {
+        // Skip numeric variables (indices >= num_variables) as pre_eff_variables is propositional-only
+        if (var >= num_variables) {
+            continue;
+        }
+        if (pre_eff_variables[op_id * num_variables + var]) {
             return false;
         }
     }
@@ -279,7 +286,11 @@ bool TaskInfo::operator_induces_self_loop(const pdbs::Pattern &pattern, int op_i
 
 bool TaskInfo::operator_is_active(const pdbs::Pattern &pattern, int op_id) const {
     for (int var : pattern) {
-        if (effect_variables[get_index(op_id, var)]) {
+        // Skip numeric variables (indices >= num_variables) as effect_variables is propositional-only
+        if (var >= num_variables) {
+            continue;
+        }
+        if (effect_variables[op_id * num_variables + var]) {
             return true;
         }
     }

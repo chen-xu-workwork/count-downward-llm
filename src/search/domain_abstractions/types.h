@@ -201,6 +201,10 @@ public:
     
     // Get the number of partitions (max partition index + 1)
     int get_num_partitions() const {
+        if (this == nullptr) {
+            std::cerr << "CRITICAL ERROR: get_num_partitions called on nullptr!" << std::endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
         int max_partition = 0;
         for (const auto &range : ranges) {
             if (range.partition_index > max_partition) {

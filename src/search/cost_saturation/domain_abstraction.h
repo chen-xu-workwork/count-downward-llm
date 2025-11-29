@@ -30,7 +30,7 @@ class LogProxy;
 namespace cost_saturation {
 class DomainAbstractionFunction : public AbstractionFunction {
     const domain_abstractions::DomainMapping domain_mapping;
-    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping;
+    domain_abstractions::NumericDomainMappingType numeric_domain_mapping;
     struct VariableAndMultiplier {
         int pattern_var;
         int hash_multiplier;
