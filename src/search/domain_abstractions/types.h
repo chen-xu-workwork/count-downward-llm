@@ -285,6 +285,11 @@ public:
     // Returns: 0 = definitely false, 1 = definitely true, 2 = unknown
     static int evaluate_comparison(
         comp_operator op,
+        ap_float left_lower, ap_float left_upper,
+        ap_float right_lower, ap_float right_upper);
+
+    static int evaluate_comparison(
+        comp_operator op,
         const NumericRange &left, const NumericRange &right);
     
     // Evaluate a comparison between a partition in this mapping and a partition in another

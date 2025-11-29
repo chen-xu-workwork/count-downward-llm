@@ -23,6 +23,195 @@
 
 using namespace std;
 
+namespace {
+struct CompEvalHelper {
+    int prop_var_id;   // propositional var id of the comparison axiom
+    int true_val;      // concrete value index for TRUE branch
+    int false_val;     // concrete value index for FALSE branch
+    int eval;          // COMPARISON AXIOM EVAL (normalized): 0=true, 1=false, 2=unknown
+};
+
+void compute_numeric_context(
+    int state_index,
+    const domain_abstractions::DomainMapping &domain_mapping,
+    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping,
+    const vector<int> &hash_multipliers,
+    const TaskProxy &task_proxy,
+    unordered_map<int, domain_abstractions::NumericRange> &ranges_out,
+    vector<int> &cur_num_partitions_out) {
+    ranges_out.clear();
+    cur_num_partitions_out.clear();
+
+    cur_num_partitions_out.reserve(numeric_domain_mapping.size());
+    for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+        int abstract_var_id = static_cast<int>(domain_mapping.size()) + static_cast<int>(num_var_id);
+        int multiplier = hash_multipliers[abstract_var_id];
+        int num_parts = numeric_domain_mapping[num_var_id]->get_num_partitions();
+        int part = (state_index / multiplier) % num_parts;
+        cur_num_partitions_out.push_back(part);
+    }
+
+    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+    for (size_t num_var_id = 0; num_var_id < num_vars.size(); ++num_var_id) {
+        NumericVariableProxy var = num_vars[num_var_id];
+        if (var.get_var_type() == numType::constant) {
+            ap_float val = var.get_initial_state_value();
+            ranges_out[num_var_id] = domain_abstractions::NumericRange(val, val, true, true);
+        } else if (var.get_var_type() == numType::regular && num_var_id < numeric_domain_mapping.size()) {
+            const domain_abstractions::NumericDomainMapping &mapping = *numeric_domain_mapping[num_var_id];
+            int part = cur_num_partitions_out[num_var_id];
+            const domain_abstractions::NumericRange *rng = mapping.get_range_for_partition(part);
+            if (rng) {
+                ranges_out[num_var_id] = *rng;
+            }
+        }
+    }
+
+    AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (AssignmentAxiomProxy axiom : assignment_axioms) {
+            int derived_id = axiom.get_assignment_variable().get_id();
+            int left_id = axiom.get_left_variable().get_id();
+            int right_id = axiom.get_right_variable().get_id();
+
+            bool left_known = false;
+            domain_abstractions::NumericRange l_range;
+            if (axiom.get_left_variable().get_var_type() == numType::constant) {
+                ap_float val = axiom.get_left_variable().get_initial_state_value();
+                l_range = domain_abstractions::NumericRange(val, val, true, true);
+                left_known = true;
+            } else if (ranges_out.count(left_id)) {
+                l_range = ranges_out[left_id];
+                left_known = true;
+            }
+
+            bool right_known = false;
+            domain_abstractions::NumericRange r_range;
+            if (axiom.get_right_variable().get_var_type() == numType::constant) {
+                ap_float val = axiom.get_right_variable().get_initial_state_value();
+                r_range = domain_abstractions::NumericRange(val, val, true, true);
+                right_known = true;
+            } else if (ranges_out.count(right_id)) {
+                r_range = ranges_out[right_id];
+                right_known = true;
+            }
+            
+            if (left_known && right_known) {
+                domain_abstractions::NumericRange res = domain_abstractions::NumericDomainMapping::apply_range_operation(
+                    l_range, r_range, axiom.get_arithmetic_operator_type());
+                auto it = ranges_out.find(derived_id);
+                if (it == ranges_out.end() || 
+                    it->second.lower != res.lower || it->second.upper != res.upper ||
+                    it->second.lower_inclusive != res.lower_inclusive || 
+                    it->second.upper_inclusive != res.upper_inclusive) {
+                    ranges_out[derived_id] = res;
+                    changed = true;
+                }
+            }
+        }
+    }
+}
+
+vector<CompEvalHelper> evaluate_all_comparisons(
+    const unordered_map<int, domain_abstractions::NumericRange> &ranges,
+    const vector<int> &cur_num_partitions,
+    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping,
+    const TaskProxy &task_proxy) {
+    vector<CompEvalHelper> out;
+    ComparisonAxiomsProxy comp_axioms = task_proxy.get_comparison_axioms();
+    out.reserve(comp_axioms.size());
+
+    for (ComparisonAxiomProxy axiom : comp_axioms) {
+        int left_id = axiom.get_left_variable().get_id();
+        int right_id = axiom.get_right_variable().get_id();
+
+        domain_abstractions::NumericRange l_range;
+        bool left_known = false;
+        if (axiom.get_left_variable().get_var_type() == numType::constant) {
+            ap_float val = axiom.get_left_variable().get_initial_state_value();
+            l_range = domain_abstractions::NumericRange(val, val, true, true);
+            left_known = true;
+        } else if (ranges.count(left_id)) {
+            l_range = ranges.at(left_id);
+            left_known = true;
+        } else if (left_id >= 0 && left_id < static_cast<int>(numeric_domain_mapping.size())) {
+            const domain_abstractions::NumericDomainMapping &m = *numeric_domain_mapping[left_id];
+            int part = cur_num_partitions[left_id];
+            const domain_abstractions::NumericRange *rng = m.get_range_for_partition(part);
+            if (rng) { l_range = *rng; left_known = true; }
+        }
+
+        domain_abstractions::NumericRange r_range;
+        bool right_known = false;
+        if (axiom.get_right_variable().get_var_type() == numType::constant) {
+            ap_float val = axiom.get_right_variable().get_initial_state_value();
+            r_range = domain_abstractions::NumericRange(val, val, true, true);
+            right_known = true;
+        } else if (ranges.count(right_id)) {
+            r_range = ranges.at(right_id);
+            right_known = true;
+        } else if (right_id >= 0 && right_id < static_cast<int>(numeric_domain_mapping.size())) {
+            const domain_abstractions::NumericDomainMapping &m = *numeric_domain_mapping[right_id];
+            int part = cur_num_partitions[right_id];
+            const domain_abstractions::NumericRange *rng = m.get_range_for_partition(part);
+            if (rng) { r_range = *rng; right_known = true; }
+        }
+
+        if (left_known && right_known) {
+            int eval = 2;
+            int raw = domain_abstractions::NumericDomainMapping::evaluate_comparison(
+                axiom.get_comparison_operator_type(), l_range, r_range);
+            if (raw == 2) {
+                eval = 2;
+            } else if (raw == 0) {
+                eval = 0; 
+            } else {
+                eval = 1; 
+            }
+
+            out.push_back(CompEvalHelper{
+                axiom.get_true_fact().get_variable().get_id(),
+                axiom.get_true_fact().get_value(),
+                axiom.get_false_fact().get_value(),
+                eval
+            });
+        } else {
+             out.push_back(CompEvalHelper{
+                axiom.get_true_fact().get_variable().get_id(),
+                axiom.get_true_fact().get_value(),
+                axiom.get_false_fact().get_value(),
+                2
+            });
+        }
+    }
+    return out;
+}
+
+int reset_all_comparison_vars_to_unknown(
+    int state_index,
+    const domain_abstractions::DomainMapping &domain_mapping,
+    const vector<int> &hash_multipliers,
+    const TaskProxy &task_proxy) {
+    int delta = 0;
+    ComparisonAxiomsProxy comp_axioms = task_proxy.get_comparison_axioms();
+    for (ComparisonAxiomProxy ax : comp_axioms) {
+        int var_id = ax.get_true_fact().get_variable().get_id();
+        if (domain_mapping[var_id].empty())
+            continue;
+
+        int multiplier = hash_multipliers[var_id];
+        int abstract_size = 1;
+        for (int mapped : domain_mapping[var_id]) abstract_size = max(abstract_size, mapped + 1);
+        int cur_val = (state_index / multiplier) % abstract_size;
+        int unknown_abs = domain_mapping[var_id][2];
+        delta += (unknown_abs - cur_val) * multiplier;
+    }
+    return state_index + delta;
+}
+}
+
 std::ostream &operator<<(std::ostream &os, const Fact &fact) {
     return os << fact.var << "=" << fact.value;
 }
@@ -233,6 +422,7 @@ DomainAbstraction::DomainAbstraction(
     bool combine_labels,
     utils::Log &log)
     : Abstraction(nullptr),
+      task_proxy(task_proxy),
       task_info(task_info),
       domain_mapping(domain_abstraction.extract_domain_mapping()),
       numeric_domain_mapping(domain_abstraction.extract_numeric_domain_mapping()) {
@@ -577,5 +767,60 @@ void DomainAbstraction::dump() const {
     cout << "Ranked operators: " << ranked_operators.size()
         << ", goal states: " << goal_states.size() << "/" << num_states
         << endl;
+}
+
+vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
+    int base_state_index) const {
+    
+    vector<int> result;
+    unordered_map<int, domain_abstractions::NumericRange> ranges;
+    vector<int> cur_num_partitions;
+    compute_numeric_context(base_state_index, domain_mapping, numeric_domain_mapping,
+                            hash_multipliers, task_proxy, ranges, cur_num_partitions);
+    vector<CompEvalHelper> comparisons = evaluate_all_comparisons(
+        ranges, cur_num_partitions, numeric_domain_mapping, task_proxy);
+
+    int state_with_unknowns = reset_all_comparison_vars_to_unknown(
+        base_state_index, domain_mapping, hash_multipliers, task_proxy);
+
+    function<void(size_t, int)> enumerate_combinations = 
+        [&](size_t idx, int delta_from_unknown) {
+        if (idx == comparisons.size()) {
+            result.push_back(state_with_unknowns + delta_from_unknown);
+            return;
+        }
+        
+        const CompEvalHelper &comp = comparisons[idx];
+        int var_id = comp.prop_var_id;
+        
+        if (variable_is_trivial(var_id, domain_mapping)) {
+            enumerate_combinations(idx + 1, delta_from_unknown);
+            return;
+        }
+        
+        int multiplier = hash_multipliers[var_id];
+        int unknown_value = domain_mapping[var_id][2];
+        
+        if (comp.eval == 0) {
+            int delta = (domain_mapping[var_id][comp.true_val] - unknown_value) * multiplier;
+            enumerate_combinations(idx + 1, delta_from_unknown + delta);
+        } else if (comp.eval == 1) {
+            int delta = (domain_mapping[var_id][comp.false_val] - unknown_value) * multiplier;
+            enumerate_combinations(idx + 1, delta_from_unknown + delta);
+        } else {
+            int delta_true = (domain_mapping[var_id][comp.true_val] - unknown_value) * multiplier;
+            int delta_false = (domain_mapping[var_id][comp.false_val] - unknown_value) * multiplier;
+            enumerate_combinations(idx + 1, delta_from_unknown + delta_true);
+            enumerate_combinations(idx + 1, delta_from_unknown + delta_false);
+        }
+    };
+
+    enumerate_combinations(0, 0);
+    
+    if (result.empty()) {
+        result.push_back(state_with_unknowns);
+    }
+    
+    return result;
 }
 }

@@ -11,12 +11,12 @@
 #include "../domain_abstractions/types.h"
 #include "../domain_abstractions/numeric_helper.h"
 #include "../pdbs/types.h"
+#include "../task_proxy.h"
 
 #include <functional>
 #include <vector>
 
 class OperatorProxy;
-class TaskProxy;
 class VariablesProxy;
 
 namespace domain_abstractions {
@@ -58,6 +58,7 @@ class DomainAbstraction : public Abstraction {
     using OperatorCallback =
         std::function<void (Facts &, Facts &, Facts &, const std::vector<int> &)>;
 
+    TaskProxy task_proxy;
     std::shared_ptr<TaskInfo> task_info;
     domain_abstractions::DomainMapping domain_mapping;
     domain_abstractions::NumericDomainMappingType numeric_domain_mapping;
@@ -82,6 +83,8 @@ class DomainAbstraction : public Abstraction {
 
     std::vector<int> compute_goal_states(
         const std::vector<int> &variable_to_pattern_index) const;
+
+    std::vector<int> enumerate_states_with_evaluated_comparisons(int base_state_index) const;
 
     /*
       Given an abstract state (represented as a vector of facts), compute the
@@ -115,9 +118,14 @@ class DomainAbstraction : public Abstraction {
                 for (const Fact &fact : abstract_facts) {
                     state += hash_multipliers[fact.var] * fact.value;
                 }
-                callback(Transition(state,
-                                    ranked_operator.label,
-                                    state + ranked_operator.hash_effect));
+                
+                int base_target = state + ranked_operator.hash_effect;
+                std::vector<int> successors = enumerate_states_with_evaluated_comparisons(base_target);
+                for (int succ : successors) {
+                    callback(Transition(state,
+                                        ranked_operator.label,
+                                        succ));
+                }
                 has_next_match = increment_to_next_state(abstract_facts);
             }
         }
