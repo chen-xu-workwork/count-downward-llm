@@ -719,6 +719,13 @@ vector<ap_float> DomainAbstraction::compute_saturated_costs(
     int num_labels = label_to_operators.size();
     vector<ap_float> saturated_label_costs(num_labels, -INF);
 
+    //print all non 0 non inf h values
+    for (int i = 0; i < (int)h_values.size(); ++i) {
+        if (h_values[i] != 0 && h_values[i] != INF) {
+            //cout << "h_values[" << i << "] = " << h_values[i] << endl;
+        }
+    }
+
     for_each_label_transition(
         [&saturated_label_costs, &h_values](const Transition &t) {
             assert(utils::in_bounds(t.src, h_values));
@@ -730,6 +737,9 @@ vector<ap_float> DomainAbstraction::compute_saturated_costs(
             }
             ap_float &needed_costs = saturated_label_costs[t.op];
             needed_costs = max(needed_costs, src_h - target_h);
+            //cout << "Transition: " << t.src << " --" << t.op << "--> " << t.target
+            //     << ", src_h: " << src_h << ", target_h: " << target_h
+            //     << ", needed_costs: " << needed_costs << endl;
         });
 
     vector<ap_float> saturated_costs(num_operators, -INF);
