@@ -72,6 +72,9 @@ CostPartitioningHeuristicCollectionGenerator::generate_cost_partitionings(
     Order order_for_init = order_generator->compute_order_for_state(
         abstract_state_ids_for_init, true);
     vector<ap_float> remaining_costs = costs;
+    //print remaining costs
+
+
     CostPartitioningHeuristic cp_for_init = cp_function(
         abstractions, order_for_init, remaining_costs, abstract_state_ids_for_init);
     ap_float init_h = cp_for_init.compute_heuristic(abstract_state_ids_for_init);

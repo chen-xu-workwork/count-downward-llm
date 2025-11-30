@@ -824,6 +824,7 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
             assert(utils::in_bounds(op.label, label_costs));
             ap_float alternative_cost = (label_costs[op.label] == INF) ?
                 INF : distances[state_index] + label_costs[op.label];
+
             if (alternative_cost == INF) {
                 continue;
             }
@@ -843,15 +844,20 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
     }
 
     // print all distances
-    for (size_t i = 0; i < distances.size(); ++i) {
-        //cout << "Distance to goal for state " << i << ": " << distances[i] << endl;
-    }
+    // for (size_t i = 0; i < distances.size(); ++i) {
+    //     cout << "Distance to goal for state " << i << ": " << distances[i] << endl;
+    // }
 
     // get initial state
     int initial_state_index = abstraction_function->get_abstract_state_id(task_proxy.get_initial_state());
-    //cout << "Distance to goal from initial state: "
-    //     << distances[initial_state_index] << endl;
-    //exit(0);
+    cout << "Distance to goal from initial state!!!: "
+         << distances[initial_state_index] << endl;
+    if (distances[initial_state_index] == INF) {
+        cout << "Initial state is dead-end!!!" << endl;
+        string result = decode_domain_abstraction();
+        cout << result << endl;
+        exit(0);
+    }
     return distances;
 }
 
