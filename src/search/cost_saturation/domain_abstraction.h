@@ -106,11 +106,11 @@ class DomainAbstraction : public Abstraction {
 
         for (const RankedOperator &ranked_operator : ranked_operators) {
             // Debug: print operator info
-            std::cout << "DEBUG ranked_operator:\n" << decode_ranked_operator(ranked_operator) << std::endl;
+            //std::cout << "DEBUG ranked_operator:\n" << decode_ranked_operator(ranked_operator) << std::endl;
             
             // Choose any operator covered by the label.
             int concrete_op_id = *label_to_operators.get_slice(ranked_operator.label).begin();
-            std::cout << "DEBUG " << decode_mentioned_variables(concrete_op_id) << std::endl;
+            //std::cout << "DEBUG " << decode_mentioned_variables(concrete_op_id) << std::endl;
             
             abstract_facts.clear();
             for (size_t i = 0; i < pattern.size(); ++i) {
@@ -119,27 +119,28 @@ class DomainAbstraction : public Abstraction {
                     abstract_facts.emplace_back(i, 0);
                 }
             }
+            abstract_facts.clear();
 
             bool has_next_match = true;
             while (has_next_match) {
                 int state = ranked_operator.precondition_hash;
-                std::cout << "DEBUG precondition: " << decode_state(state) << std::endl;
+                //std::cout << "DEBUG precondition: " << decode_state(state) << std::endl;
                 for (const Fact &fact : abstract_facts) {
                     state += hash_multipliers[fact.var] * fact.value;
                     if ( hash_multipliers[fact.var] * fact.value != 0 ) {
-                        std::cout << " + var " << pattern[fact.var]
-                            << " (pattern idx " << fact.var << ")"
-                            << " value " << fact.value
-                            << " multiplier " << hash_multipliers[fact.var]
-                            << " -> partial state: " << decode_state(state) << std::endl;
+                        //std::cout << " + var " << pattern[fact.var]
+                        //    << " (pattern idx " << fact.var << ")"
+                        //    << " value " << fact.value
+                        //    << " multiplier " << hash_multipliers[fact.var]
+                        //    << " -> partial state: " << decode_state(state) << std::endl;
                     }
                 }
-                std::cout << "DEBUG base state: " << decode_state(state) << std::endl;
+                //std::cout << "DEBUG base state: " << decode_state(state) << std::endl;
                 
                 if (state >= num_states || state < 0) {
-                    std::cout << "ERROR: state out of bounds in projection with "
-                              << num_states << " states." << std::endl;
-                   std::cout << decode_domain_abstraction() << std::endl;
+                    //std::cout << "ERROR: state out of bounds in projection with "
+                    //          << num_states << " states." << std::endl;
+                    //std::cout << decode_domain_abstraction() << std::endl;
                 }
                 assert(state < num_states && state >= 0);
 
@@ -155,21 +156,25 @@ class DomainAbstraction : public Abstraction {
                 }
                 if (is_possible_state) {
                     int base_target = state + ranked_operator.hash_effect;
-                    std::cout << "DEBUG base target: " << decode_state(base_target) << std::endl;
+                    //std::cout << "DEBUG base target: " << decode_state(base_target) << std::endl;
                     std::vector<int> successors = enumerate_states_with_evaluated_comparisons(base_target);
                     for (int succ : successors) {
-                        std::cout << "DEBUG succ state: " << decode_state(succ) << std::endl;
-
+                        //std::cout << "DEBUG succ state: " << decode_state(succ) << std::endl;
                         //std::cout << "Successor: " << succ << ", Num states: " << num_states << std::endl;
                         assert(succ < num_states && succ >= 0);
+                        if (succ == state) {
+                            //std::cout << "DEBUG self-loop detected." << std::endl;
+                            continue; // Skip self-loops
+                        }
                         callback(Transition(state,
                                             ranked_operator.label,
                                             succ));
                     }
                 
                 } 
+                break;
                 has_next_match = increment_to_next_state(abstract_facts);
-                std::cout << std::endl;
+                //std::cout << std::endl;
             }
         }
     }

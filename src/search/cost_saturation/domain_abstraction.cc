@@ -1087,8 +1087,8 @@ string DomainAbstraction::decode_domain_abstraction() const {
         }
         
         int num_partitions = numeric_domain_mapping[num_var_id]->get_num_partitions();
-        if (num_partitions == 0) {
-            continue;  // Skip trivial variables
+        if (num_partitions <= 1) {
+            continue;  // Skip trivial variables (0 or 1 partition)
         }
         
         ss << "  " << num_vars[num_var_id].get_name() << " (num_id=" << num_var_id 
