@@ -126,9 +126,22 @@ class DomainAbstraction : public Abstraction {
                 std::cout << "DEBUG precondition: " << decode_state(state) << std::endl;
                 for (const Fact &fact : abstract_facts) {
                     state += hash_multipliers[fact.var] * fact.value;
+                    if ( hash_multipliers[fact.var] * fact.value != 0 ) {
+                        std::cout << " + var " << pattern[fact.var]
+                            << " (pattern idx " << fact.var << ")"
+                            << " value " << fact.value
+                            << " multiplier " << hash_multipliers[fact.var]
+                            << " -> partial state: " << decode_state(state) << std::endl;
+                    }
                 }
-                
                 std::cout << "DEBUG base state: " << decode_state(state) << std::endl;
+                
+                if (state >= num_states || state < 0) {
+                    std::cout << "ERROR: state out of bounds in projection with "
+                              << num_states << " states." << std::endl;
+                   std::cout << decode_domain_abstraction() << std::endl;
+                }
+                assert(state < num_states && state >= 0);
 
                 bool is_possible_state = false; 
                 //TODO: Can be optimized by only considering most optimistic comparison evaluations
@@ -142,6 +155,7 @@ class DomainAbstraction : public Abstraction {
                 }
                 if (is_possible_state) {
                     int base_target = state + ranked_operator.hash_effect;
+                    std::cout << "DEBUG base target: " << decode_state(base_target) << std::endl;
                     std::vector<int> successors = enumerate_states_with_evaluated_comparisons(base_target);
                     for (int succ : successors) {
                         std::cout << "DEBUG succ state: " << decode_state(succ) << std::endl;
@@ -198,6 +212,9 @@ public:
     
     // Debug helper: print names of variables mentioned by an operator (complement of abstract_facts)
     std::string decode_mentioned_variables(int concrete_op_id) const;
+    
+    // Debug helper: print complete domain abstraction info (domains, numeric ranges, partitions)
+    std::string decode_domain_abstraction() const;
 };
 }
 

@@ -475,7 +475,7 @@ DomainAbstraction::DomainAbstraction(
       domain_mapping(domain_abstraction.extract_domain_mapping()),
       numeric_domain_mapping(domain_abstraction.extract_numeric_domain_mapping()) {
     
-    // Compute domain_sizes and numeric_domain_sizes for helper
+    // Compute domain_sizes and numeric_domain_sizes for multiplicator
     vector<int> domain_sizes(domain_mapping.size(), 1);
     for (size_t var_id = 0; var_id < domain_mapping.size(); ++var_id) {
         if (!domain_mapping[var_id].empty()) {
@@ -507,13 +507,11 @@ DomainAbstraction::DomainAbstraction(
         }
     }
     for (size_t var_id = 0; var_id < numeric_domain_mapping.size(); ++var_id) {
-        if (numeric_domain_mapping[var_id]->get_num_partitions() != 0) {
-            int max_val = numeric_domain_mapping[var_id]->get_num_partitions();
-            assert(max_val > 0); // Variable is non-trivial.
-            int pattern_var_id = var_id + domain_mapping.size();
-            pattern.push_back(pattern_var_id);
-            pattern_domain_sizes.push_back(max_val);
-        }
+        int max_val = numeric_domain_mapping[var_id]->get_num_partitions();
+        assert(max_val > 0); // Variable is non-trivial.
+        int pattern_var_id = var_id + domain_mapping.size();
+        pattern.push_back(pattern_var_id);
+        pattern_domain_sizes.push_back(max_val);
     }
     // assert(utils::is_sorted_unique(pattern));
 
@@ -565,12 +563,11 @@ DomainAbstraction::DomainAbstraction(
     // pattern contains the original variable IDs, hash_multipliers[i] is the multiplier for pattern[i]
     // We need hash_multipliers_by_var_id[var_id] = hash_multipliers[pattern_index] where pattern[pattern_index] = var_id
     int total_vars = variables.size() + numeric_variables.size();
-    hash_multipliers_by_var_id.resize(total_vars, 0);
+    hash_multipliers_by_var_id.resize(total_vars, 1);
     for (size_t i = 0; i < pattern.size(); ++i) {
         int var_id = pattern[i];
-        if (var_id >= 0 && var_id < total_vars) {
-            hash_multipliers_by_var_id[var_id] = hash_multipliers[i];
-        }
+        assert(var_id >= 0 && var_id < total_vars);
+        hash_multipliers_by_var_id[var_id] = hash_multipliers[i];
     }
 
     // Instantiate Multiplicator
@@ -998,8 +995,8 @@ vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
     int state_with_unknowns = reset_all_comparison_vars_to_unknown(
         base_state_index, domain_mapping, hash_multipliers_by_var_id, task_proxy);
 
-    cout << "Unknown state: " << 
-        decode_state(state_with_unknowns) << endl;
+    //cout << "Unknown state: " << 
+    //    decode_state(state_with_unknowns) << endl;
 
     function<void(size_t, int)> enumerate_combinations = 
         [&](size_t idx, int delta_from_unknown) {
@@ -1046,5 +1043,95 @@ vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
     }
     
     return result;
+}
+
+string DomainAbstraction::decode_domain_abstraction() const {
+    stringstream ss;
+    VariablesProxy variables = task_proxy.get_variables();
+    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+    
+    ss << "=== DOMAIN ABSTRACTION DEBUG ===" << endl;
+    ss << "Pattern size: " << pattern.size() << endl;
+    ss << "Num states: " << num_states << endl;
+    ss << endl;
+    
+    // Print propositional domain mapping
+    ss << "--- Propositional Domain Mapping ---" << endl;
+    for (size_t var_id = 0; var_id < domain_mapping.size(); ++var_id) {
+        if (domain_mapping[var_id].empty()) {
+            continue;  // Skip trivial variables not in abstraction
+        }
+        ss << "  " << variables[var_id].get_name() << " (id=" << var_id << "):" << endl;
+        ss << "    Original domain size: " << variables[var_id].get_domain_size() << endl;
+        ss << "    Abstract domain size: ";
+        int abstract_size = 0;
+        for (int mapped : domain_mapping[var_id]) {
+            abstract_size = max(abstract_size, mapped + 1);
+        }
+        ss << abstract_size << endl;
+        ss << "    Mapping: [";
+        for (size_t val = 0; val < domain_mapping[var_id].size(); ++val) {
+            if (val > 0) ss << ", ";
+            ss << val << "->" << domain_mapping[var_id][val];
+        }
+        ss << "]" << endl;
+    }
+    ss << endl;
+    
+    // Print numeric domain mapping
+    ss << "--- Numeric Domain Mapping ---" << endl;
+    for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
+        if (!numeric_domain_mapping[num_var_id]) {
+            ss << "  Numeric var " << num_var_id << ": NULL mapping" << endl;
+            continue;
+        }
+        
+        int num_partitions = numeric_domain_mapping[num_var_id]->get_num_partitions();
+        if (num_partitions == 0) {
+            continue;  // Skip trivial variables
+        }
+        
+        ss << "  " << num_vars[num_var_id].get_name() << " (num_id=" << num_var_id 
+           << ", pattern_var=" << (num_var_id + domain_mapping.size()) << "):" << endl;
+        ss << "    Num partitions: " << num_partitions << endl;
+        ss << "    Partitions:" << endl;
+        
+        for (int part = 0; part < num_partitions; ++part) {
+            const domain_abstractions::NumericRange *rng = 
+                numeric_domain_mapping[num_var_id]->get_range_for_partition(part);
+            ss << "      [" << part << "]: ";
+            if (rng) {
+                ss << (rng->lower_inclusive ? "[" : "(") 
+                   << rng->lower << ", " << rng->upper 
+                   << (rng->upper_inclusive ? "]" : ")");
+            } else {
+                ss << "INVALID";
+            }
+            ss << endl;
+        }
+    }
+    ss << endl;
+    
+    // Print pattern with hash multipliers
+    ss << "--- Pattern & Hash Multipliers ---" << endl;
+    for (size_t i = 0; i < pattern.size(); ++i) {
+        int var_id = pattern[i];
+        ss << "  pattern[" << i << "]: var " << var_id << " (";
+        if (var_id < static_cast<int>(domain_mapping.size())) {
+            ss << variables[var_id].get_name();
+        } else {
+            int num_var_id = var_id - domain_mapping.size();
+            if (num_var_id < static_cast<int>(num_vars.size())) {
+                ss << num_vars[num_var_id].get_name();
+            } else {
+                ss << "INVALID";
+            }
+        }
+        ss << "), multiplier=" << hash_multipliers[i] 
+           << ", domain_size=" << pattern_domain_sizes[i] << endl;
+    }
+    ss << "=================================" << endl;
+    
+    return ss.str();
 }
 }
