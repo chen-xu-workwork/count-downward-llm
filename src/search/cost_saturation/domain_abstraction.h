@@ -73,8 +73,11 @@ class DomainAbstraction : public Abstraction {
     // Number of abstract states in the projection.
     int num_states;
 
-    // Multipliers for each variable for perfect hash function.
+    // Multipliers for each variable for perfect hash function (indexed by pattern position).
     std::vector<int> hash_multipliers;
+
+    // Hash multipliers indexed by original variable ID (for functions that iterate by var_id)
+    std::vector<int> hash_multipliers_by_var_id;
 
     // Domain size of each variable in the pattern.
     std::vector<int> pattern_domain_sizes;
@@ -107,6 +110,8 @@ class DomainAbstraction : public Abstraction {
             
             // Choose any operator covered by the label.
             int concrete_op_id = *label_to_operators.get_slice(ranked_operator.label).begin();
+            std::cout << "DEBUG " << decode_mentioned_variables(concrete_op_id) << std::endl;
+            
             abstract_facts.clear();
             for (size_t i = 0; i < pattern.size(); ++i) {
                 int var = pattern[i];
@@ -150,6 +155,7 @@ class DomainAbstraction : public Abstraction {
                 
                 } 
                 has_next_match = increment_to_next_state(abstract_facts);
+                std::cout << std::endl;
             }
         }
     }
@@ -189,6 +195,9 @@ public:
     
     // Debug helper: decode ranked operator into human-readable format
     std::string decode_ranked_operator(const RankedOperator &ranked_op) const;
+    
+    // Debug helper: print names of variables mentioned by an operator (complement of abstract_facts)
+    std::string decode_mentioned_variables(int concrete_op_id) const;
 };
 }
 

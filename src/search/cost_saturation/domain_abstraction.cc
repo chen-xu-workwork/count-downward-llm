@@ -208,7 +208,7 @@ vector<CompEvalHelper> evaluate_all_comparisons(
 int reset_all_comparison_vars_to_unknown(
     int state_index,
     const domain_abstractions::DomainMapping &domain_mapping,
-    const vector<int> &hash_multipliers,
+    const vector<int> &hash_multipliers_by_var_id,
     const TaskProxy &task_proxy) {
     int delta = 0;
     ComparisonAxiomsProxy comp_axioms = task_proxy.get_comparison_axioms();
@@ -217,7 +217,9 @@ int reset_all_comparison_vars_to_unknown(
         if (domain_mapping[var_id].empty())
             continue;
 
-        int multiplier = hash_multipliers[var_id];
+        // Use hash_multipliers_by_var_id since var_id is an original variable ID, not pattern index
+        int multiplier = hash_multipliers_by_var_id[var_id];
+        if (multiplier == 0) continue;  // Variable not in pattern
         int abstract_size = 1;
         for (int mapped : domain_mapping[var_id]) abstract_size = max(abstract_size, mapped + 1);
         int cur_val = (state_index / multiplier) % abstract_size;
@@ -559,11 +561,11 @@ DomainAbstraction::DomainAbstraction(
     match_tree_backward = utils::make_unique_ptr<domain_abstractions::MatchTreeWithPattern>(
         pattern_domain_sizes, hash_multipliers);
 
-    // Create hash_multipliers indexed by original variable ID for Multiplicator
+    // Create hash_multipliers indexed by original variable ID for Multiplicator and comparison evaluation
     // pattern contains the original variable IDs, hash_multipliers[i] is the multiplier for pattern[i]
     // We need hash_multipliers_by_var_id[var_id] = hash_multipliers[pattern_index] where pattern[pattern_index] = var_id
     int total_vars = variables.size() + numeric_variables.size();
-    vector<int> hash_multipliers_by_var_id(total_vars, 0);
+    hash_multipliers_by_var_id.resize(total_vars, 0);
     for (size_t i = 0; i < pattern.size(); ++i) {
         int var_id = pattern[i];
         if (var_id >= 0 && var_id < total_vars) {
@@ -922,6 +924,64 @@ string DomainAbstraction::decode_ranked_operator(const RankedOperator &ranked_op
     return ss.str();
 }
 
+string DomainAbstraction::decode_mentioned_variables(int concrete_op_id) const {
+    stringstream ss;
+    ss << "Mentioned variables: [";
+    
+    VariablesProxy variables = task_proxy.get_variables();
+    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+    int num_prop_vars = static_cast<int>(domain_mapping.size());
+    int num_vars_in_task = static_cast<int>(variables.size());
+    
+    // Debug: Show pattern contents and TaskInfo lookup results
+    ss << "\n  Pattern size: " << pattern.size() << ", num_prop_vars (domain_mapping.size): " << num_prop_vars;
+    ss << ", num_vars in task: " << num_vars_in_task << "\n";
+    ss << "  Pattern contents: [";
+    for (size_t i = 0; i < pattern.size(); ++i) {
+        if (i > 0) ss << ", ";
+        ss << pattern[i];
+    }
+    ss << "]\n";
+    
+    ss << "  Per-variable analysis:\n";
+    for (size_t i = 0; i < pattern.size(); ++i) {
+        int var = pattern[i];
+        bool mentioned = task_info->operator_mentions_variable(concrete_op_id, var);
+        
+        ss << "    pattern[" << i << "] = var " << var << ": ";
+        if (var < num_prop_vars) {
+            ss << variables[var].get_name();
+        } else {
+            int num_var_id = var - num_prop_vars;
+            if (num_var_id < static_cast<int>(num_vars.size())) {
+                ss << num_vars[num_var_id].get_name();
+            } else {
+                ss << "INVALID_NUM_VAR";
+            }
+        }
+        ss << " -> mentioned=" << (mentioned ? "YES" : "NO") << "\n";
+    }
+    
+    ss << "  Mentioned: [";
+    bool first = true;
+    for (size_t i = 0; i < pattern.size(); ++i) {
+        int var = pattern[i];
+        if (task_info->operator_mentions_variable(concrete_op_id, var)) {
+            if (!first) ss << ", ";
+            first = false;
+            
+            if (var < num_prop_vars) {
+                ss << variables[var].get_name() << " (id=" << var << ", pattern_idx=" << i << ")";
+            } else {
+                int num_var_id = var - num_prop_vars;
+                ss << num_vars[num_var_id].get_name() << " (num_id=" << num_var_id << ", var=" << var << ", pattern_idx=" << i << ")";
+            }
+        }
+    }
+    ss << "]";
+    return ss.str();
+}
+
 vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
     int base_state_index) const {
     
@@ -934,8 +994,9 @@ vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
     vector<CompEvalHelper> comparisons = evaluate_all_comparisons(
         ranges, cur_num_partitions, numeric_domain_mapping, task_proxy);
 
+    // Use hash_multipliers_by_var_id since reset function uses variable IDs, not pattern indices
     int state_with_unknowns = reset_all_comparison_vars_to_unknown(
-        base_state_index, domain_mapping, hash_multipliers, task_proxy);
+        base_state_index, domain_mapping, hash_multipliers_by_var_id, task_proxy);
 
     cout << "Unknown state: " << 
         decode_state(state_with_unknowns) << endl;
@@ -955,7 +1016,13 @@ vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
             return;
         }
         
-        int multiplier = hash_multipliers[var_id];
+        // Use hash_multipliers_by_var_id since var_id is an original variable ID, not pattern index
+        int multiplier = hash_multipliers_by_var_id[var_id];
+        if (multiplier == 0) {
+            // Variable not in pattern, skip
+            enumerate_combinations(idx + 1, delta_from_unknown);
+            return;
+        }
         int unknown_value = domain_mapping[var_id][2];
         
         if (comp.eval == 0) {
