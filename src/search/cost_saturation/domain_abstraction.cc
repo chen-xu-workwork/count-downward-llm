@@ -563,7 +563,8 @@ DomainAbstraction::DomainAbstraction(
     // pattern contains the original variable IDs, hash_multipliers[i] is the multiplier for pattern[i]
     // We need hash_multipliers_by_var_id[var_id] = hash_multipliers[pattern_index] where pattern[pattern_index] = var_id
     int total_vars = variables.size() + numeric_variables.size();
-    hash_multipliers_by_var_id.resize(total_vars, 1);
+    // Initialize with 0: variables not in the pattern have multiplier 0
+    hash_multipliers_by_var_id.resize(total_vars, 0);
     for (size_t i = 0; i < pattern.size(); ++i) {
         int var_id = pattern[i];
         assert(var_id >= 0 && var_id < total_vars);
@@ -778,11 +779,15 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
 
     vector<ap_float> distances(num_states, INF);
 
-    // Initialize queue.
+    // Initialize queue with goal states that are numerically/comparison-feasible.
     AdaptiveQueue<int> pq;
     for (int goal : goal_states) {
-        pq.push(0, goal);
-        distances[goal] = 0;
+        // Enumerate all states compatible with comparison evaluations starting from this goal.
+        vector<int> alt_states = enumerate_states_with_evaluated_comparisons(goal);
+        if (find(alt_states.begin(), alt_states.end(), goal) != alt_states.end()) {
+            pq.push(0, goal);
+            distances[goal] = 0;
+        }
     }
 
     // Reuse vector to save allocations.
@@ -798,20 +803,29 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
             continue;
         }
 
-        // Regress abstract state.
+        // Regress abstract state, taking into account ambiguity in comparison axioms.
         applicable_operators.clear();
         match_tree_backward->get_applicable_operator_ids(
             state_index, applicable_operators);
         for (int ranked_op_id : applicable_operators) {
             const RankedOperator &op = ranked_operators[ranked_op_id];
-            int predecessor = state_index - op.hash_effect;
             assert(utils::in_bounds(op.label, label_costs));
             ap_float alternative_cost = (label_costs[op.label] == INF) ?
                 INF : distances[state_index] + label_costs[op.label];
-            assert(utils::in_bounds(predecessor, distances));
-            if (alternative_cost < distances[predecessor]) {
-                distances[predecessor] = alternative_cost;
-                pq.push(alternative_cost, predecessor);
+            if (alternative_cost == INF) {
+                continue;
+            }
+
+            // Compute the canonical predecessor and then enumerate all
+            // comparison-consistent variants.
+            int base_predecessor = state_index - op.hash_effect;
+            vector<int> predecessors = enumerate_states_with_evaluated_comparisons(base_predecessor);
+            for (int predecessor : predecessors) {
+                assert(utils::in_bounds(predecessor, distances));
+                if (alternative_cost < distances[predecessor]) {
+                    distances[predecessor] = alternative_cost;
+                    pq.push(alternative_cost, predecessor);
+                }
             }
         }
     }
