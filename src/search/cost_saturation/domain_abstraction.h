@@ -102,6 +102,9 @@ class DomainAbstraction : public Abstraction {
         std::vector<Fact> abstract_facts;
 
         for (const RankedOperator &ranked_operator : ranked_operators) {
+            // Debug: print operator info
+            std::cout << "DEBUG ranked_operator:\n" << decode_ranked_operator(ranked_operator) << std::endl;
+            
             // Choose any operator covered by the label.
             int concrete_op_id = *label_to_operators.get_slice(ranked_operator.label).begin();
             abstract_facts.clear();
@@ -115,12 +118,12 @@ class DomainAbstraction : public Abstraction {
             bool has_next_match = true;
             while (has_next_match) {
                 int state = ranked_operator.precondition_hash;
-                //std::cout << "DEBUG precondition: " << decode_state(state) << std::endl;
+                std::cout << "DEBUG precondition: " << decode_state(state) << std::endl;
                 for (const Fact &fact : abstract_facts) {
                     state += hash_multipliers[fact.var] * fact.value;
                 }
                 
-                //std::cout << "DEBUG base state: " << decode_state(state) << std::endl;
+                std::cout << "DEBUG base state: " << decode_state(state) << std::endl;
 
                 bool is_possible_state = false; 
                 //TODO: Can be optimized by only considering most optimistic comparison evaluations
@@ -136,7 +139,7 @@ class DomainAbstraction : public Abstraction {
                     int base_target = state + ranked_operator.hash_effect;
                     std::vector<int> successors = enumerate_states_with_evaluated_comparisons(base_target);
                     for (int succ : successors) {
-                        //std::cout << "DEBUG succ state: " << decode_state(succ) << std::endl;
+                        std::cout << "DEBUG succ state: " << decode_state(succ) << std::endl;
 
                         //std::cout << "Successor: " << succ << ", Num states: " << num_states << std::endl;
                         assert(succ < num_states && succ >= 0);
@@ -183,6 +186,9 @@ public:
     
     // Debug helper: decode state index into human-readable variable->value mapping
     std::string decode_state(int state_index) const;
+    
+    // Debug helper: decode ranked operator into human-readable format
+    std::string decode_ranked_operator(const RankedOperator &ranked_op) const;
 };
 }
 

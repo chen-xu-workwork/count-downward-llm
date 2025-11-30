@@ -901,6 +901,27 @@ string DomainAbstraction::decode_state(int state_index) const {
     return ss.str();
 }
 
+string DomainAbstraction::decode_ranked_operator(const RankedOperator &ranked_op) const {
+    stringstream ss;
+    
+    // Get operator name from label
+    int concrete_op_id = *label_to_operators.get_slice(ranked_op.label).begin();
+    string op_name = task_proxy.get_operators()[concrete_op_id].get_name();
+    
+    ss << "Operator: " << op_name << " (label=" << ranked_op.label << ")\n";
+    
+    // Decode precondition_hash as a state
+    ss << "  Precondition: " << decode_state(ranked_op.precondition_hash) << "\n";
+    
+    // Show hash_effect and target state
+    ss << "  Effect hash: " << ranked_op.hash_effect << "\n";
+    
+    int target_hash = ranked_op.precondition_hash + ranked_op.hash_effect;
+    ss << "  Target: " << decode_state(target_hash);
+    
+    return ss.str();
+}
+
 vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
     int base_state_index) const {
     
@@ -915,6 +936,9 @@ vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
 
     int state_with_unknowns = reset_all_comparison_vars_to_unknown(
         base_state_index, domain_mapping, hash_multipliers, task_proxy);
+
+    cout << "Unknown state: " << 
+        decode_state(state_with_unknowns) << endl;
 
     function<void(size_t, int)> enumerate_combinations = 
         [&](size_t idx, int delta_from_unknown) {
