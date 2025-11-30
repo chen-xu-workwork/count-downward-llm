@@ -69,7 +69,6 @@ ap_float CostPartitioningHeuristic::compute_heuristic(
         sum_h += h;
         assert(sum_h >= 0);
     }
-    exit(0);
     return sum_h;
 }
 

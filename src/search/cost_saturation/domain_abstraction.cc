@@ -824,7 +824,7 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
             assert(utils::in_bounds(op.label, label_costs));
             ap_float alternative_cost = (label_costs[op.label] == INF) ?
                 INF : distances[state_index] + label_costs[op.label];
-
+            //alternative_cost =  distances[state_index] + 1;
             if (alternative_cost == INF) {
                 continue;
             }
