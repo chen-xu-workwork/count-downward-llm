@@ -815,8 +815,10 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
 
         // Regress abstract state, taking into account ambiguity in comparison axioms.
         applicable_operators.clear();
+        int base_state = reset_all_comparison_vars_to_unknown(
+            state_index, domain_mapping, hash_multipliers_by_var_id, task_proxy);
         match_tree_backward->get_applicable_operator_ids(
-            state_index, applicable_operators);
+            base_state, applicable_operators);
         for (int ranked_op_id : applicable_operators) {
             const RankedOperator &op = ranked_operators[ranked_op_id];
             assert(utils::in_bounds(op.label, label_costs));
@@ -828,7 +830,7 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
 
             // Compute the canonical predecessor and then enumerate all
             // comparison-consistent variants.
-            int base_predecessor = state_index - op.hash_effect;
+            int base_predecessor = base_state - op.hash_effect;
             vector<int> predecessors = enumerate_states_with_evaluated_comparisons(base_predecessor);
             for (int predecessor : predecessors) {
                 assert(utils::in_bounds(predecessor, distances));
@@ -839,9 +841,17 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
             }
         }
     }
-//    if (log.is_at_least_debug()) {
-//        log << "distances: " << distances << endl;
-//    }
+
+    // print all distances
+    for (size_t i = 0; i < distances.size(); ++i) {
+        //cout << "Distance to goal for state " << i << ": " << distances[i] << endl;
+    }
+
+    // get initial state
+    int initial_state_index = abstraction_function->get_abstract_state_id(task_proxy.get_initial_state());
+    //cout << "Distance to goal from initial state: "
+    //     << distances[initial_state_index] << endl;
+    //exit(0);
     return distances;
 }
 
