@@ -466,7 +466,6 @@ pair<int, vector<int>> CEGAR::get_random_init_goal_partition_split(
 
 static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_precondition_flaws(
     const OperatorProxy &op, const vector<int> &current_state,
-    const vector<ap_float> &numeric_state,
     const unordered_set<int> &blacklisted_variables, std::unordered_map<int, std::unordered_set<int>> deps) {
     vector<Fact> flaws;
     vector<vector<pair<int, ap_float>>> regular_numeric_flaws;
@@ -478,8 +477,7 @@ static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_precondition_
             regular_numeric_flaws.emplace_back();
             regular_numeric_flaws.back().reserve(deps[var_id].size());
             for (int dep_var_id : deps[var_id]) {
-                // Use numeric_state for numeric variable values, not current_state
-                ap_float concrete_value = numeric_state[dep_var_id];
+                ap_float concrete_value = current_state[dep_var_id];
                 regular_numeric_flaws.back().emplace_back(dep_var_id, concrete_value); 
             }
 
@@ -503,7 +501,6 @@ static bool is_derived_variable(const TaskProxy &task_proxy, int var_id) {
 
 static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_goal_flaws(
     const TaskProxy &task_proxy, const vector<int> &current_state,
-    const vector<ap_float> &numeric_state,
     const unordered_set<int> &blacklisted_variables,
     std::unordered_map<int, std::unordered_set<int>> deps) {
     vector<Fact> flaws;
@@ -519,8 +516,7 @@ static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_goal_flaws(
                 regular_numeric_flaws.emplace_back();
                 regular_numeric_flaws.back().reserve(deps[var_id].size());
                 for (int dep_var_id : deps[var_id]) {
-                    // Use numeric_state for numeric variable values, not current_state
-                    ap_float concrete_value = numeric_state[dep_var_id];
+                    ap_float concrete_value = current_state[dep_var_id];
                     regular_numeric_flaws.back().emplace_back(dep_var_id, concrete_value);
                 }
             }
@@ -544,8 +540,7 @@ static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_goal_flaws(
                     regular_numeric_flaws.emplace_back();
                     regular_numeric_flaws.back().reserve(deps[var_id].size());
                     for (int dep_var_id : deps[var_id]) {
-                        // Use numeric_state for numeric variable values, not current_state
-                        ap_float concrete_value = numeric_state[dep_var_id];
+                        ap_float concrete_value = current_state[dep_var_id];
                         regular_numeric_flaws.back().emplace_back(dep_var_id, concrete_value);
                     }
                 }
@@ -728,7 +723,7 @@ vector<Fact> CEGAR::get_flaws(
             // Check propositional preconditions
             pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> flaw_data =
                 get_precondition_flaws(
-                    op, current_state, numeric_state, blacklisted_variables, comparison_axiom_dependencies);
+                    op, current_state, blacklisted_variables, comparison_axiom_dependencies);
 
             vector<Fact> operator_flaws = flaw_data.first;
             vector<vector<pair<int, ap_float>>> regular_numeric_flaws = flaw_data.second;
@@ -873,7 +868,7 @@ vector<Fact> CEGAR::get_flaws(
     assert(flaws.empty());
     
     pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> goal_flaw_data =
-        get_goal_flaws(task_proxy, current_state, numeric_state, blacklisted_variables,
+        get_goal_flaws(task_proxy, current_state, blacklisted_variables,
                        comparison_axiom_dependencies);
     
     vector<Fact> goal_flaws = goal_flaw_data.first;
