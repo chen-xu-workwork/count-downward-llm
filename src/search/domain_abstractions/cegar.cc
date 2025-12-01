@@ -44,7 +44,7 @@ private:
 
     std::vector<int> local_to_global_regular_numeric_var_ids;
     std::vector<int> global_to_local_regular_numeric_var_ids; // NOTE: Not used yet(?)
-    std::vector<std::vector<ap_float>> already_split;
+    std::vector<std::unordered_set<ap_float>> already_split;
     mutable std::vector<std::vector<ap_float>> regular_numeric_var_values;
     
     const int max_abstraction_size;
@@ -153,6 +153,10 @@ private:
     ap_float extract_threshold_from_comparison(int prop_var_id, 
                                                const TaskProxy &task_proxy) const;
     
+    // Check if a propositional variable is derived from a comparison axiom
+    bool is_comparison_axiom_variable(int var_id) const {
+        return comparison_axiom_dependencies.count(var_id) > 0;
+    }
     
     bool fix_numeric_flaws(const std::vector<NumericFlaw> &numeric_flaws,
                           int abstraction_size,
@@ -205,8 +209,7 @@ CEGAR::CEGAR(
         NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
         if (num_var.get_var_type() == numType::regular || num_var.get_var_type() == numType::constant) {
             local_to_global_regular_numeric_var_ids.push_back(i);
-            vector<ap_float> empty_vector;
-            already_split.push_back(empty_vector);
+            already_split.push_back(std::unordered_set<ap_float>());
             global_to_local_regular_numeric_var_ids[i] =
                 static_cast<int>(local_to_global_regular_numeric_var_ids.size()) - 1;
         }
@@ -668,8 +671,7 @@ vector<Fact> CEGAR::get_flaws(
         if (num_var.get_var_type() == numType::regular || num_var.get_var_type() == numType::constant) {
             vector<ap_float> values;
             if (i < already_split.size() && 
-                find(already_split[i].begin(), already_split[i].end(),
-                        numeric_state[var_id]) == already_split[i].end()) {
+                already_split[i].count(numeric_state[var_id]) == 0) {
                 values.push_back(numeric_state[var_id]);
             }
             regular_numeric_var_values.push_back(values);
@@ -742,10 +744,11 @@ vector<Fact> CEGAR::get_flaws(
                 for (size_t i = 0; i < local_to_global_regular_numeric_var_ids.size(); ++i) {
                     int var_id = local_to_global_regular_numeric_var_ids[i];
                     // Use index i (not var_id) to access already_split since it's indexed by position in regular_numeric_var_ids
+                    ap_float val = numeric_state[var_id];
                     if (i < already_split.size() && 
-                        find(already_split[i].begin(), already_split[i].end(),
-                                numeric_state[var_id]) == already_split[i].end()) {
-                        regular_numeric_var_values[i].push_back(numeric_state[var_id]);
+                        already_split[i].count(val) == 0 &&
+                        find(regular_numeric_var_values[i].begin(), regular_numeric_var_values[i].end(), val) == regular_numeric_var_values[i].end()) {
+                        regular_numeric_var_values[i].push_back(val);
                     }
                 }
 
@@ -855,10 +858,11 @@ vector<Fact> CEGAR::get_flaws(
     for (size_t i = 0; i < local_to_global_regular_numeric_var_ids.size(); ++i) {
         int var_id = local_to_global_regular_numeric_var_ids[i];
         // Use index i (not var_id) to access already_split since it's indexed by position in regular_numeric_var_ids
+        ap_float val = numeric_state[var_id];
         if (i < already_split.size() && 
-            find(already_split[i].begin(), already_split[i].end(),
-                    numeric_state[var_id]) == already_split[i].end()) {
-            regular_numeric_var_values[i].push_back(numeric_state[var_id]);
+            already_split[i].count(val) == 0 &&
+            find(regular_numeric_var_values[i].begin(), regular_numeric_var_values[i].end(), val) == regular_numeric_var_values[i].end()) {
+            regular_numeric_var_values[i].push_back(val);
         }
     }
 
@@ -940,9 +944,16 @@ bool CEGAR::fix_single_random_flaw(
         if (can_refine_variable(abstraction_size, fact.var)) {
             add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
             
-            domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
-            
-            abstract_domain_sizes[fact.var] += 1;
+            if (is_comparison_axiom_variable(fact.var)) {
+                // Comparison axiom variables have domain {0=true, 1=false, 2=unevaluated}
+                // Flaws always occur with value 0 (true), and refinement splits true from {false, unevaluated}
+                assert(fact.value == 0);
+                domain_mapping[fact.var][0] = 1;
+                abstract_domain_sizes[fact.var] = 2;
+            } else {
+                domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
+                abstract_domain_sizes[fact.var] += 1;
+            }
             // Record the chosen propositional flaw variable
             last_selected_prop_flaw_vars.clear();
             last_selected_prop_flaw_vars.insert(fact.var);
@@ -983,8 +994,16 @@ bool CEGAR::fix_single_flaw_max_refined(
     Fact fact (flaws[*rng->choose(current_flaw_candidates)]);
     if (can_refine_variable(abstraction_size, fact.var)) {
         add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
-        domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
-        abstract_domain_sizes[fact.var] += 1;
+        if (is_comparison_axiom_variable(fact.var)) {
+            // Comparison axiom variables have domain {0=true, 1=false, 2=unevaluated}
+            // Flaws always occur with value 0 (true), and refinement splits true from {false, unevaluated}
+            assert(fact.value == 0);
+            domain_mapping[fact.var][0] = 1;
+            abstract_domain_sizes[fact.var] = 2;
+        } else {
+            domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
+            abstract_domain_sizes[fact.var] += 1;
+        }
         // Record the chosen propositional flaw variable
         last_selected_prop_flaw_vars.clear();
         last_selected_prop_flaw_vars.insert(fact.var);
@@ -1006,9 +1025,17 @@ bool CEGAR::fix_flaws_per_atom(
         }
         if (can_refine_variable(abstraction_size, flaw.var)) {
             add_variable_to_abstraction_if_necessary(flaw.var, domain_mapping);
-            domain_mapping[flaw.var][flaw.value] =
-                abstract_domain_sizes[flaw.var];
-            abstract_domain_sizes[flaw.var] += 1;
+            if (is_comparison_axiom_variable(flaw.var)) {
+                // Comparison axiom variables have domain {0=true, 1=false, 2=unevaluated}
+                // Flaws always occur with value 0 (true), and refinement splits true from {false, unevaluated}
+                assert(flaw.value == 0);
+                domain_mapping[flaw.var][0] = 1;
+                abstract_domain_sizes[flaw.var] = 2;
+            } else {
+                domain_mapping[flaw.var][flaw.value] =
+                    abstract_domain_sizes[flaw.var];
+                abstract_domain_sizes[flaw.var] += 1;
+            }
             // Track all propositional flaws we refine
             last_selected_prop_flaw_vars.insert(flaw.var);
             last_flaw = flaw;
@@ -1029,15 +1056,25 @@ bool CEGAR::fix_flaws_per_variable(
             /* Introduce new abstract value only for every new variable,
                opposed to for every atom as in *fix_flaws_per_atom* above. */
             add_variable_to_abstraction_if_necessary(flaw.var, domain_mapping);
-            abstract_domain_sizes[flaw.var] += 1;
+            if (is_comparison_axiom_variable(flaw.var)) {
+                // Comparison axiom variables have domain {0=true, 1=false, 2=unevaluated}
+                // Flaws always occur with value 0 (true), and refinement splits true from {false, unevaluated}
+                assert(flaw.value == 0);
+                domain_mapping[flaw.var][0] = 1;
+                abstract_domain_sizes[flaw.var] = 2;
+            } else {
+                abstract_domain_sizes[flaw.var] += 1;
+            }
             // Track each variable we refine
             last_selected_prop_flaw_vars.insert(flaw.var);
         } else if (flaw.var != last_flaw.var || flaw.value == last_flaw.value) {
             // Duplicate or does not fit size limit.
             continue;
         }
-        domain_mapping[flaw.var][flaw.value] =
-            abstract_domain_sizes[flaw.var] - 1;
+        if (!is_comparison_axiom_variable(flaw.var)) {
+            domain_mapping[flaw.var][flaw.value] =
+                abstract_domain_sizes[flaw.var] - 1;
+        }
         last_flaw = flaw;
     }
     return last_flaw != Fact(-1, -1);
@@ -1857,7 +1894,7 @@ bool CEGAR::fix_numeric_flaws(
 
             int after_concrete_split = numeric_domain_mapping[split_var_id]->split_at(split_value);
             assert(already_split.size() > static_cast<size_t>(local_id));
-            already_split[local_id].push_back(split_value);
+            already_split[local_id].insert(split_value);
             int new_num_partitions = after_concrete_split;
             
             if (new_num_partitions > old_num_partitions) {
