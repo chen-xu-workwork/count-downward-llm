@@ -61,7 +61,7 @@ ap_float CostPartitioningHeuristic::compute_heuristic(
         int state_id = abstract_state_ids[lookup_table.abstraction_id];
         assert(utils::in_bounds(state_id, lookup_table.h_values));
         ap_float h = lookup_table.h_values[state_id];
-        cout << "HHHH: " << h << endl;
+        //cout << "HHHH: " << h << endl;
         assert(h >= 0);
         if (isinf(h)) {
             return INF;

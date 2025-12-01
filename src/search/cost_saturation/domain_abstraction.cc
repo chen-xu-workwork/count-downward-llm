@@ -746,7 +746,7 @@ vector<ap_float> DomainAbstraction::compute_saturated_costs(
     /* To prevent negative cost cycles, we ensure that all operators inducing
        self-loops (among possibly other transitions) have non-negative costs. */
     for (int op_id = 0; op_id < num_operators; ++op_id) {
-        if (operator_induces_self_loop(op_id)) {
+        if (operator_induces_self_loop(op_id) || true) {
             saturated_costs[op_id] = 0;
         }
     }
@@ -850,8 +850,8 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
 
     // get initial state
     int initial_state_index = abstraction_function->get_abstract_state_id(task_proxy.get_initial_state());
-    cout << "Distance to goal from initial state!!!: "
-         << distances[initial_state_index] << endl;
+    //cout << "Distance to goal from initial state!!!: "
+    //     << distances[initial_state_index] << endl;
     if (distances[initial_state_index] == INF) {
         cout << "Initial state is dead-end!!!" << endl;
         string result = decode_domain_abstraction();
