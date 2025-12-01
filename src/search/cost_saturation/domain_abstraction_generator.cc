@@ -92,7 +92,7 @@ static shared_ptr<AbstractionGenerator> _parse(OptionParser &parser) {
     parser.add_option<bool>(
         "combine_labels",
         "group labels that only induce parallel transitions",
-        "true");
+        "false");
     //utils::add_log_options_to_parser(parser);
 
     Options opts = parser.parse();
