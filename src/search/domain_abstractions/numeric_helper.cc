@@ -486,13 +486,23 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                     utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
                 }
 
+                // Build a set of variables already in pre_pairs to avoid duplicates
+                // (Cascade facts may overlap with explicit operator preconditions on comparison axioms)
+                unordered_set<int> vars_in_pre_pairs;
+                for (const Fact &f : pre_pairs) {
+                    vars_in_pre_pairs.insert(f.var);
+                }
 
-                extended_pre_pairs.insert(extended_pre_pairs.end(),
-                                         trans.source_partition_facts.begin(),
-                                         trans.source_partition_facts.end());
-                extended_eff_pairs.insert(extended_eff_pairs.end(),
-                                         trans.target_partition_facts.begin(),
-                                         trans.target_partition_facts.end());
+                // Add cascade facts, but skip any that would duplicate existing pre_pairs variables
+                for (size_t i = 0; i < trans.source_partition_facts.size(); ++i) {
+                    int var_id = trans.source_partition_facts[i].var;
+                    if (vars_in_pre_pairs.count(var_id) == 0) {
+                        extended_pre_pairs.push_back(trans.source_partition_facts[i]);
+                        extended_eff_pairs.push_back(trans.target_partition_facts[i]);
+                    }
+                    // If already in pre_pairs, skip - the original precondition takes precedence
+                }
+                
                 extended_prev_pairs.insert(extended_prev_pairs.end(),
                                          trans.prevail_facts.begin(),
                                          trans.prevail_facts.end());
@@ -1173,18 +1183,12 @@ vector<Fact> DomainAbstractionNumericHelper::compute_affected_comparison_axioms(
             } else if (eval_result == 1) {
                 // Definitely true
                 affected_facts.emplace_back(prop_var_id, true_fact.get_value());
-            } else {
-                // Unknown - add both possibilities (conservative)
-                affected_facts.emplace_back(prop_var_id, true_fact.get_value());
-                affected_facts.emplace_back(prop_var_id, false_fact.get_value());
             }
-        } else {
-            // Partitions didn't change, but numeric values DID change
-            // We can't determine the exact result, so be conservative
-            // and add BOTH possible truth values
-            affected_facts.emplace_back(prop_var_id, true_fact.get_value());
-            affected_facts.emplace_back(prop_var_id, false_fact.get_value());
+            // If unknown (eval_result == 2): don't add any fact - the comparison
+            // could go either way and we can't constrain the operator preconditions
         }
+        // If partitions didn't change: don't add any fact - the comparison axiom
+        // value doesn't change due to this numeric variable change
     }
     
     return affected_facts;

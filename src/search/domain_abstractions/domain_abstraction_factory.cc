@@ -372,6 +372,16 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
     //assert no duplicates in pre
     sort(pre.begin(), pre.end());
     for (size_t i = 1; i < pre.size(); ++i) {
+        if (pre[i].var == pre[i - 1].var) {
+            cerr << "DUPLICATE VAR in pre! var=" << pre[i].var 
+                 << " values: " << pre[i-1].value << " and " << pre[i].value << endl;
+            cerr << "pre_pairs:";
+            for (const Fact &f : pre_pairs) cerr << " (v" << f.var << "=" << f.value << ")";
+            cerr << endl;
+            cerr << "prev_pairs:";
+            for (const Fact &f : prev_pairs) cerr << " (v" << f.var << "=" << f.value << ")";
+            cerr << endl;
+        }
         assert(pre[i].var != pre[i - 1].var);
     }
 
