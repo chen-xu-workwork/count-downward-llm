@@ -9,7 +9,7 @@
 #include "../domain_abstractions/domain_abstraction.h"
 #include "../domain_abstractions/match_tree_with_pattern.h"
 #include "../domain_abstractions/domain_abstraction_factory.h"
-#include "../utils/multiplicator.h"
+#include "../domain_abstractions/numeric_helper.h"
 #include "../task_tools.h"
 #include "../utils/collections.h"
 #include "../utils/logging.h"
@@ -571,21 +571,19 @@ DomainAbstraction::DomainAbstraction(
         hash_multipliers_by_var_id[var_id] = hash_multipliers[i];
     }
 
-    // Instantiate Multiplicator
-    utils::Multiplicator multiplicator(
+    // Instantiate DomainAbstractionNumericHelper to build abstract operators
+    domain_abstractions::DomainAbstractionNumericHelper helper(
         g_root_task(),
         domain_mapping,
         numeric_domain_mapping,
         domain_sizes,
         numeric_domain_sizes,
-        hash_multipliers_by_var_id
+        hash_multipliers_by_var_id,
+        nullptr  // No logger for cost saturation
     );
     
-    vector<domain_abstractions::AbstractOperator> abstract_operators;
-    OperatorsProxy operators = task_proxy.get_operators();
-    for (OperatorProxy op : operators) {
-        multiplicator.multiply_out(op, abstract_operators);
-    }
+    vector<domain_abstractions::AbstractOperator> abstract_operators =
+        helper.build_abstract_operators(task_proxy);
     
     DomainAbstractionOperatorGroups operator_groups;
     if (combine_labels) {
