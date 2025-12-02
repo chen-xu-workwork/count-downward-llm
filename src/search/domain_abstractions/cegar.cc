@@ -5,6 +5,8 @@
 #include "domain_abstraction_factory.h"
 
 #include "../axioms.h"
+
+#include <cmath>
 #include "../globals.h"
 #include "../option_parser.h"
 #include "../task_proxy.h"
@@ -480,8 +482,8 @@ static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_precondition_
             regular_numeric_flaws.emplace_back();
             regular_numeric_flaws.back().reserve(deps[var_id].size());
             for (int dep_var_id : deps[var_id]) {
-                ap_float concrete_value = current_state[dep_var_id];
-                regular_numeric_flaws.back().emplace_back(dep_var_id, concrete_value); 
+                // Use NaN as placeholder - actual split value is determined later in get_flaws
+                regular_numeric_flaws.back().emplace_back(dep_var_id, std::numeric_limits<ap_float>::quiet_NaN()); 
             }
 
         }
@@ -519,8 +521,8 @@ static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_goal_flaws(
                 regular_numeric_flaws.emplace_back();
                 regular_numeric_flaws.back().reserve(deps[var_id].size());
                 for (int dep_var_id : deps[var_id]) {
-                    ap_float concrete_value = current_state[dep_var_id];
-                    regular_numeric_flaws.back().emplace_back(dep_var_id, concrete_value);
+                    // Use NaN as placeholder - actual split value is determined later in get_flaws
+                    regular_numeric_flaws.back().emplace_back(dep_var_id, std::numeric_limits<ap_float>::quiet_NaN());
                 }
             }
         }
@@ -543,8 +545,8 @@ static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_goal_flaws(
                     regular_numeric_flaws.emplace_back();
                     regular_numeric_flaws.back().reserve(deps[var_id].size());
                     for (int dep_var_id : deps[var_id]) {
-                        ap_float concrete_value = current_state[dep_var_id];
-                        regular_numeric_flaws.back().emplace_back(dep_var_id, concrete_value);
+                        // Use NaN as placeholder - actual split value is determined later in get_flaws
+                        regular_numeric_flaws.back().emplace_back(dep_var_id, std::numeric_limits<ap_float>::quiet_NaN());
                     }
                 }
             }
@@ -1739,6 +1741,13 @@ bool CEGAR::can_refine_variable(
         return false;
     }
     
+    // Comparison axiom variables can only be refined once (size 1 -> 2).
+    // If already refined (size >= 2), return true to signal that the underlying
+    // numeric variables can still be refined, but skip propositional refinement.
+    if (is_comparison_axiom_variable(var_id) && abstract_domain_sizes[var_id] >= 2) {
+        return true;
+    }
+    
     int domain_size = abstract_domain_sizes[var_id];
 
     int abs_size_without_var = old_abstraction_size / domain_size;
@@ -1860,82 +1869,85 @@ bool CEGAR::fix_numeric_flaws(
         return true;
     }
     
-    bool refined_any = false;
+    // Build list of valid candidates: non-blacklisted numeric vars with split values not already split
+    struct Candidate {
+        int numeric_var_id;
+        ap_float split_value;
+        int local_id;
+    };
+    vector<Candidate> valid_candidates;
     
     for (const NumericFlaw &flaw : numeric_flaws) {
         int numeric_var_id = flaw.numeric_var_id;
-        ap_float concrete_value = flaw.concrete_value;
-        int prop_var_id = flaw.prop_var_id;
+        ap_float split_value = flaw.concrete_value;
         
-        // Try to use backward solving for equal comparison flaws on derived variables
-        ap_float split_value = concrete_value;  // Default: split at concrete value
-        int split_var_id = numeric_var_id;      // Default: split the original variable
-        bool used_backward_solve = false;
-        
-        // Check if this flaw came from an equality comparison
-        // Look up the comparison axiom info that we built during abstraction construction
-        auto comp_it = comparison_axiom_info.find(prop_var_id);
-        
-       
-        if (can_refine_numeric_variable(abstraction_size, split_var_id, task_proxy)) {
-            // Bounds check
-            if (split_var_id < 0 || split_var_id >= (int)numeric_domain_mapping.size()) {
-                logger->log(Verbosity::INFO, "ERROR: split_var_id ", split_var_id,
-                               " is out of bounds! numeric_domain_mapping.size()=",
-                               numeric_domain_mapping.size());
-                continue;
-            }
-            
-            // Split at the determined value (backward-solved or concrete)
-            int old_num_partitions = numeric_domain_mapping[split_var_id]->get_num_partitions();
-            
-            // Split at the value (backward-solved if available, otherwise concrete)
-            int local_id = global_to_local_regular_numeric_var_ids[split_var_id];
-
-            int after_concrete_split = numeric_domain_mapping[split_var_id]->split_at(split_value);
-            assert(already_split.size() > static_cast<size_t>(local_id));
-            already_split[local_id].insert(split_value);
-            int new_num_partitions = after_concrete_split;
-            
-            if (new_num_partitions > old_num_partitions) {
-                // Successfully split - created at least one new partition
-                numeric_domain_sizes[split_var_id] = new_num_partitions;
-                refined_any = true;
-                
-                // Increment refinement counter for the SPLIT variable (not the original flaw variable)
-                numeric_var_refinement_count[split_var_id]++;
-                
-                if (used_backward_solve) {
-                    logger->log(Verbosity::INFO, "Refined num_", split_var_id,
-                                   " at backward-solved value ", split_value,
-                                   " (originally flaw on num_", numeric_var_id, " at ", concrete_value, ")",
-                                   " (partitions: ", old_num_partitions, " -> ", new_num_partitions, ")");
-                } else {
-                    logger->log(Verbosity::INFO, "Refined num_", split_var_id,
-                                   " at value ", split_value,
-                                   " (partitions: ", old_num_partitions, " -> ", new_num_partitions, ")");
-                }
-            } else {
-                // No new partitions created - splits already exist
-                logger->log(Verbosity::DEBUG, "DEBUG: Flaw for num_", numeric_var_id,
-                               " at value ", concrete_value,
-                               " - splits already exist on num_", split_var_id,
-                               " at value ", split_value,
-                               " (no refinement needed)");
-            } 
-        } else {
-            logger->log(Verbosity::DEBUG, "DEBUG: Cannot refine num_", split_var_id,
+        // Check if we can refine this numeric variable
+        if (!can_refine_numeric_variable(abstraction_size, numeric_var_id, task_proxy)) {
+            logger->log(Verbosity::DEBUG, "DEBUG: Cannot refine num_", numeric_var_id,
                            " (blacklisted or size limit)");
+            continue;
         }
+        
+        // Bounds check
+        if (numeric_var_id < 0 || numeric_var_id >= (int)numeric_domain_mapping.size()) {
+            logger->log(Verbosity::INFO, "ERROR: numeric_var_id ", numeric_var_id,
+                           " is out of bounds! numeric_domain_mapping.size()=",
+                           numeric_domain_mapping.size());
+            continue;
+        }
+        
+        int local_id = global_to_local_regular_numeric_var_ids[numeric_var_id];
+        assert(already_split.size() > static_cast<size_t>(local_id));
+        
+        // Check if this split value has already been used
+        if (already_split[local_id].count(split_value)) {
+            logger->log(Verbosity::DEBUG, "DEBUG: Split value ", split_value,
+                           " for num_", numeric_var_id, " already in already_split");
+            continue;
+        }
+        
+        valid_candidates.push_back({numeric_var_id, split_value, local_id});
     }
     
-    if (!refined_any) {
-        logger->log(Verbosity::INFO, "WARNING: fix_numeric_flaws() called but no numeric variables were refined!");
-        logger->log(Verbosity::INFO, "  This usually means all flaws are at partition boundaries,");
-        logger->log(Verbosity::INFO, "  which indicates the abstraction is already distinguishing these values.");
+    // If no valid candidates, return false (no blacklisting - candidates may exist in future iterations)
+    if (valid_candidates.empty()) {
+        logger->log(Verbosity::DEBUG, "DEBUG: No valid numeric flaw candidates to refine");
+        return false;
     }
     
-    return refined_any;
+    // Select ONE random candidate
+    const Candidate &selected = *rng->choose(valid_candidates);
+    int numeric_var_id = selected.numeric_var_id;
+    ap_float split_value = selected.split_value;
+    int local_id = selected.local_id;
+    
+    // Assert that split_value is not NaN (it should have been replaced in get_flaws)
+    assert(!std::isnan(split_value));
+    
+    int old_num_partitions = numeric_domain_mapping[numeric_var_id]->get_num_partitions();
+    
+    int after_concrete_split = numeric_domain_mapping[numeric_var_id]->split_at(split_value);
+    already_split[local_id].insert(split_value);
+    int new_num_partitions = after_concrete_split;
+    
+    if (new_num_partitions > old_num_partitions) {
+        // Successfully split - created at least one new partition
+        numeric_domain_sizes[numeric_var_id] = new_num_partitions;
+        
+        // Increment refinement counter
+        numeric_var_refinement_count[numeric_var_id]++;
+        
+        logger->log(Verbosity::INFO, "Refined num_", numeric_var_id,
+                       " at value ", split_value,
+                       " (partitions: ", old_num_partitions, " -> ", new_num_partitions, ")");
+        return true;
+    } else {
+        // No new partitions created - splits already exist
+        logger->log(Verbosity::DEBUG, "DEBUG: Flaw for num_", numeric_var_id,
+                       " at value ", split_value,
+                       " - splits already exist (no refinement needed)");
+        return false;
+    }
 }
 
 DomainAbstraction generate_domain_abstraction_with_cegar(
