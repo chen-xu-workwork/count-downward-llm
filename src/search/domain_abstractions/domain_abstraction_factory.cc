@@ -372,16 +372,6 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
     //assert no duplicates in pre
     sort(pre.begin(), pre.end());
     for (size_t i = 1; i < pre.size(); ++i) {
-        if (pre[i].var == pre[i - 1].var) {
-            cerr << "DUPLICATE VAR in pre! var=" << pre[i].var 
-                 << " values: " << pre[i-1].value << " and " << pre[i].value << endl;
-            cerr << "pre_pairs:";
-            for (const Fact &f : pre_pairs) cerr << " (v" << f.var << "=" << f.value << ")";
-            cerr << endl;
-            cerr << "prev_pairs:";
-            for (const Fact &f : prev_pairs) cerr << " (v" << f.var << "=" << f.value << ")";
-            cerr << endl;
-        }
         assert(pre[i].var != pre[i - 1].var);
     }
 
@@ -555,6 +545,9 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     //for (const Fact &g : abstract_goals) {
     //    cout << "  Goal: var" << g.var << " -> " << g.value << endl;
     //}
+
+    // Dump domain mapping information for debugging
+    dump_domain_mappings(domain_sizes);
 
     compute_distances(task_proxy, operators, match_tree, abstract_goals,
                       domain_sizes, compute_plan);
@@ -964,6 +957,36 @@ void DomainAbstractionFactory::compute_distances(
 
             for (int predecessor : possible_predecessors) {
                 assert(predecessor < num_states && 0 <= predecessor);
+
+                int debug_successor = predecessor - base_hash_effect;
+
+                vector<int> debug_states = enumerate_states_with_evaluated_comparisons(
+                    debug_successor,
+                    task_proxy);
+                assert(find(debug_states.begin(),
+                            debug_states.end(),
+                            state_index) != debug_states.end());
+
+                // Assertion: verify op.pre is subset of decoded predecessor facts
+                // This checks that the operator's preconditions match the predecessor state
+#ifndef NDEBUG
+                {
+                    const vector<Fact> &check_pre = op.get_preconditions();
+                    for (const Fact &p : check_pre) {
+                        int var_id = p.var;
+                        int expected_value = p.value;
+                        int multiplier = hash_multipliers[var_id];
+                        bool is_numeric = (var_id >= static_cast<int>(task_proxy.get_variables().size()));
+                        int dom_size = is_numeric ? 
+                            numeric_domain_mapping[var_id - task_proxy.get_variables().size()]->get_num_partitions() :
+                            domain_sizes[var_id];
+                        int actual_value = (predecessor / multiplier) % dom_size;
+                        assert(actual_value == expected_value && 
+                               "Operator precondition not satisfied by predecessor state");
+                    }
+                }
+#endif
+
                 vector<Fact> pre = op.get_preconditions();
                 bool preconditions_satisfied = true;
                 string decoded_pred = 
@@ -1198,7 +1221,7 @@ void DomainAbstractionFactory::compute_distances(
             }
             
             logger->log_no_endl(Verbosity::DEBUG, "\n");
-            break;
+            //break;
         }
         logger->log_no_endl(Verbosity::DEBUG, "\n");
     }
@@ -1289,6 +1312,8 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 base_successor,
                 task_proxy);
 
+            assert(!possible_successors.empty());
+
             ap_float lowest_so_far = distances[current_state];
             for (int candidate_successor : possible_successors) {
                 assert(candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()));
@@ -1297,20 +1322,16 @@ void DomainAbstractionFactory::compute_abstract_plan(
                             (distances[candidate_successor] == distances[current_state] && op.get_cost() == 0)) {
                         hash_effect = candidate_hash_effect;
                         successor_state = candidate_successor;
-                        //cout << "Successor: " << decode_abstract_state(successor_state, domain_sizes,
-                        //                                  numeric_domain_mapping, hash_multipliers)
-                        //     << " with distance " << distances[successor_state] << endl;
+                        
                         lowest_so_far = distances[candidate_successor];
                     }
-                    
-                    
+                    cout << "Successor: " << decode_abstract_state(successor_state, domain_sizes,
+                                                          numeric_domain_mapping, hash_multipliers, task_proxy)
+                             << " with distance " << distances[successor_state] << endl;    
                 }
             }
 
-            //enumerate abstract operators
-            for (AbstractOperator abs_op : operators) {
-
-            }
+            cout << "OP cost: " << op.get_cost() << endl;
 
             if (successor_state == -1) {
                 if (logger) {
@@ -1324,7 +1345,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
 
             assert(lowest_so_far < distances[current_state] || op.get_cost() == 0);
 
-            // Report this plan step: operator and abstract effects
             {
                 OperatorsProxy concrete_ops = task_proxy.get_operators();
                 int concrete_id = op.get_concrete_op_id();
@@ -1333,22 +1353,35 @@ void DomainAbstractionFactory::compute_abstract_plan(
 
                 string decoded_state = decode_abstract_state(current_state, domain_sizes,
                                                       numeric_domain_mapping, hash_multipliers, task_proxy);
-                //cout << "[ABSTRACT PLAN] " << decoded_state << ", " << op_name << endl;
+                cout << "[ABSTRACT PLAN] " << decoded_state << ", " << op_name << endl;
                 //cout << "OP ID: " << op_id << endl;
                 //op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
             }
 
-            // Compute equivalent ops
-            // We need to find all operators that can take us from current_state to successor_state
-            // with the same cost as the generating operator
             vector<int> cheapest_operators;
             vector<int> applicable_operator_ids;
+
+            unordered_set<string> op_names;
+
             match_tree.get_applicable_operator_ids(base_successor, applicable_operator_ids);
             for (int applicable_op_id : applicable_operator_ids) {
                 const AbstractOperator &applicable_op = operators[applicable_op_id];
 
+                OperatorsProxy concrete_ops = task_proxy.get_operators();
+                int concrete_id = op.get_concrete_op_id();
+                string op_name = (concrete_id >= 0 && concrete_id < (int)concrete_ops.size()) ?
+                                  concrete_ops[concrete_id].get_name() : ("<unknown>(" + to_string(concrete_id) + ")");
+                if (op_names.count(op_name) == 0) {
+                    cout << op_name << endl;
+                }
+                op_names.insert(op_name);
+
                 // Check if this operator has the same cost
                 if (applicable_op.get_cost() != op.get_cost()) {
+                    concrete_id = op.get_concrete_op_id();
+                    op_name = (concrete_id >= 0 && concrete_id < (int)concrete_ops.size()) ?
+                                  concrete_ops[concrete_id].get_name() : ("<unknown>(" + to_string(concrete_id) + ")");
+                    cout << "DIFFERENT COST: " << op.get_cost() << ", " << op_name << endl;
                     continue;
                 }
                 
@@ -1383,8 +1416,17 @@ void DomainAbstractionFactory::compute_abstract_plan(
                                                       numeric_domain_mapping, hash_multipliers, task_proxy);
                 string decoded_successor_state = decode_abstract_state(successor_state, domain_sizes,
                                                       numeric_domain_mapping, hash_multipliers, task_proxy);
+                string decoded_base_state = decode_abstract_state(base_successor, domain_sizes,
+                                                      numeric_domain_mapping, hash_multipliers, task_proxy);
+                string decoded_no_reset_base_state = decode_abstract_state(current_state - candidate_hash_effect, domain_sizes,
+                                                      numeric_domain_mapping, hash_multipliers, task_proxy);
                 cerr << "  Current: " << decoded_current_state << endl;
                 cerr << "  Successor: " << decoded_successor_state << endl;
+                cerr << "  Base: " << decoded_base_state << endl;
+                cerr << "  No reset base: " << decoded_no_reset_base_state << endl;
+                cerr << "  Distance - current: " << distances[current_state] << endl;
+                cerr << "  Distance - successor: " << distances[successor_state] << endl;
+                op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
             }
             
@@ -1437,16 +1479,16 @@ bool DomainAbstractionFactory::is_goal_state(
     
     // DEBUG: Print goals being checked (only once)
     if (logger && logger->should_log(Verbosity::DEBUG)) {
-        logger->log(Verbosity::DEBUG, "\n=== is_goal_state DEBUG ===");
-        logger->log(Verbosity::DEBUG, "Abstract (propositional) goals:");
+        logger->log(Verbosity::VERBOSE, "\n=== is_goal_state DEBUG ===");
+        logger->log(Verbosity::VERBOSE, "Abstract (propositional) goals:");
         for (const Fact &goal : abstract_goals) {
-            logger->log(Verbosity::DEBUG, "  var", goal.var, " = ", goal.value);
+            logger->log(Verbosity::VERBOSE, "  var", goal.var, " = ", goal.value);
         }
-        logger->log(Verbosity::DEBUG, "Numeric goal conditions:");
+        logger->log(Verbosity::VERBOSE, "Numeric goal conditions:");
         for (const auto &ng : numeric_goal_conditions) {
-            logger->log(Verbosity::DEBUG, "  var", ng.numeric_var_id, " ", ng.op, " ", ng.constant);
+            logger->log(Verbosity::VERBOSE, "  var", ng.numeric_var_id, " ", ng.op, " ", ng.constant);
         }
-        logger->log(Verbosity::DEBUG, "===================================\n");
+        logger->log(Verbosity::VERBOSE, "===================================\n");
     }
     
     // Check propositional goals
@@ -1488,6 +1530,115 @@ bool DomainAbstractionFactory::operator_has_numeric_effects(const OperatorProxy 
         }
     }
     return false;
+}
+
+void DomainAbstractionFactory::dump_domain_mappings(const vector<int> &domain_sizes) const {
+    if (!logger || !logger->should_log(Verbosity::DEBUG)) {
+        return;
+    }
+    
+    int num_variables = task_proxy.get_variables().size();
+    int num_numeric_variables = numeric_domain_mapping.size();
+    
+    // Compute statistics for propositional variables
+    int num_trivial_variables = 0;
+    int num_complete_variables = 0;
+    for (int i = 0; i < num_variables; ++i) {
+        if (domain_sizes[i] <= 1) {
+            num_trivial_variables++;
+        } else if (domain_sizes[i] == task_proxy.get_variables()[i].get_domain_size()) {
+            num_complete_variables++;
+        }
+    }
+    
+    // Compute statistics for numeric variables
+    int num_trivial_numeric_vars = 0;
+    int num_refined_numeric_vars = 0;
+    int total_numeric_partitions = 0;
+    for (int i = 0; i < num_numeric_variables; ++i) {
+        int num_parts = numeric_domain_sizes[i];
+        total_numeric_partitions += num_parts;
+        if (num_parts <= 1) {
+            num_trivial_numeric_vars++;
+        } else {
+            num_refined_numeric_vars++;
+        }
+    }
+    double avg_numeric_partitions = 0.0;
+    if (num_numeric_variables > 0) {
+        avg_numeric_partitions = ((double)total_numeric_partitions) / num_numeric_variables;
+    }
+    
+    logger->log(Verbosity::DEBUG, "\n=== Factory Domain Mapping Statistics ===");
+    logger->log(Verbosity::DEBUG, "Abstraction size: ", num_states);
+    
+    logger->log(Verbosity::DEBUG, "\nPropositional variables:");
+    logger->log(Verbosity::DEBUG, "  Total: ", num_variables);
+    logger->log(Verbosity::DEBUG, "  Trivial (size 1): ", num_trivial_variables);
+    logger->log(Verbosity::DEBUG, "  Complete (not abstracted): ", num_complete_variables);
+    
+    // Print details of non-trivial propositional variables
+    logger->log(Verbosity::DEBUG, "\n  Non-trivial propositional variables:");
+    for (int i = 0; i < num_variables; ++i) {
+        if (domain_sizes[i] > 1) {
+            VariableProxy var = task_proxy.get_variables()[i];
+            int original_size = var.get_domain_size();
+            logger->log(Verbosity::DEBUG, "    var", i, " (", var.get_name(), "): ",
+                            "abstract_size=", domain_sizes[i],
+                            ", original_size=", original_size);
+            
+            // Print the domain mapping if it's not too large
+            if (domain_sizes[i] <= 10 && original_size <= 20) {
+                logger->log_no_endl(Verbosity::DEBUG, "      mapping: [");
+                for (int val = 0; val < original_size; ++val) {
+                    if (val > 0) logger->log_no_endl(Verbosity::DEBUG, ", ");
+                    logger->log_no_endl(Verbosity::DEBUG, val, "->", domain_mapping[i][val]);
+                }
+                logger->log(Verbosity::DEBUG, "]");
+            }
+        }
+    }
+    
+    logger->log(Verbosity::DEBUG, "\nNumeric variables:");
+    logger->log(Verbosity::DEBUG, "  Total: ", num_numeric_variables);
+    logger->log(Verbosity::DEBUG, "  Trivial (1 partition): ", num_trivial_numeric_vars);
+    logger->log(Verbosity::DEBUG, "  Refined (>1 partition): ", num_refined_numeric_vars);
+    logger->log(Verbosity::DEBUG, "  Total partitions: ", total_numeric_partitions);
+    logger->log(Verbosity::DEBUG, "  Average partitions per variable: ", avg_numeric_partitions);
+    
+    // Print details of refined numeric variables
+    logger->log(Verbosity::DEBUG, "\n  Refined numeric variables:");
+    for (int i = 0; i < num_numeric_variables; ++i) {
+        if (numeric_domain_sizes[i] > 1) {
+            NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
+            logger->log(Verbosity::DEBUG, "    var", i, " (", num_var.get_name(), "): ",
+                            numeric_domain_sizes[i], " partitions");
+            
+            // Print the ranges for this variable
+            const vector<NumericRange> &ranges = numeric_domain_mapping[i]->get_ranges();
+            for (size_t j = 0; j < ranges.size(); ++j) {
+                logger->log_no_endl(Verbosity::DEBUG, "      partition ", ranges[j].partition_index, ": ");
+                // Print lower bound with correct bracket
+                logger->log_no_endl(Verbosity::DEBUG, (ranges[j].lower_inclusive ? "[" : "("));
+                if (ranges[j].lower == -numeric_limits<ap_float>::infinity()) {
+                    logger->log_no_endl(Verbosity::DEBUG, "-inf");
+                } else {
+                    logger->log_no_endl(Verbosity::DEBUG, ranges[j].lower);
+                }
+                logger->log_no_endl(Verbosity::DEBUG, ", ");
+                // Print upper bound
+                if (ranges[j].upper == numeric_limits<ap_float>::infinity()) {
+                    logger->log_no_endl(Verbosity::DEBUG, "inf");
+                } else {
+                    logger->log_no_endl(Verbosity::DEBUG, ranges[j].upper);
+                }
+                // Print upper bracket
+                logger->log(Verbosity::DEBUG, (ranges[j].upper_inclusive ? "]" : ")"));
+            }
+        }
+    }
+    
+    logger->log(Verbosity::DEBUG, "==========================================\n");
 }
 
 

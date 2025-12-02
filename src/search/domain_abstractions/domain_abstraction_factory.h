@@ -179,6 +179,9 @@ class DomainAbstractionFactory {
     
     // Helper methods for numeric variables
     bool operator_has_numeric_effects(const OperatorProxy &op) const;
+    
+    // Dump domain mapping information for debugging
+    void dump_domain_mappings(const std::vector<int> &domain_sizes) const;
 
 public:
     DomainAbstractionFactory(

@@ -9,7 +9,8 @@ namespace domain_abstractions {
 enum class Verbosity {
     NONE,   // No output
     INFO,   // Important milestones and summaries
-    DEBUG   // Detailed debugging information
+    DEBUG,   // Detailed debugging information
+    VERBOSE
 };
 
 // Simple logger that respects verbosity levels
