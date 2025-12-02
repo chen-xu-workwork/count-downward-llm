@@ -1699,7 +1699,7 @@ DomainAbstraction CEGAR::build_abstraction(
         DomainAbstractionFactory new_factory(
             task_proxy, domain_mapping, abstract_domain_sizes,
             numeric_domain_mapping, numeric_domain_sizes,
-            true, rng, true);
+            true, rng, true, logger);
         
         abstraction = new_factory.generate();
         ++iteration;

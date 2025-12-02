@@ -35,20 +35,34 @@ static std::vector<int> get_domain_sizes_from_mapping(const DomainMapping &domai
 
 // Decode an abstract state index into a human-readable string representation.
 // This mirrors the implementation in DomainAbstractionFactory::decode_abstract_state
+// Includes variable names from TaskProxy for more informative debug output
 static std::string decode_abstract_state(int state_index, const std::vector<int> &domain_sizes,
                                          const NumericDomainMappingType &numeric_domain_mapping,
-                                         const std::vector<int> &hash_multipliers) {
+                                         const std::vector<int> &hash_multipliers,
+                                         const TaskProxy &task_proxy) {
     std::stringstream ss;
     ss << "State " << state_index << ": [";
+    
+    VariablesProxy vars = task_proxy.get_variables();
+    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+    
+    bool first = true;
     int remaining = state_index;
+    
     // Propositional variables
     for (size_t var_id = 0; var_id < domain_sizes.size(); ++var_id) {
         if (domain_sizes[var_id] <= 1) continue;
         int multiplier = hash_multipliers[var_id];
         int value = (remaining / multiplier) % domain_sizes[var_id];
-        ss << "v" << var_id << "=" << value;
-        if (var_id < domain_sizes.size() - 1 || !numeric_domain_mapping.empty()) ss << ", ";
+        
+        if (!first) ss << ", ";
+        first = false;
+        
+        // Get variable name if available
+        std::string var_name = (var_id < vars.size()) ? vars[var_id].get_name() : "?";
+        ss << var_name << "(v" << var_id << ")=" << value;
     }
+    
     // Numeric partitions
     for (size_t num_var_id = 0; num_var_id < numeric_domain_mapping.size(); ++num_var_id) {
         if (numeric_domain_mapping[num_var_id]->get_num_partitions() <= 1) continue;
@@ -56,6 +70,13 @@ static std::string decode_abstract_state(int state_index, const std::vector<int>
         int multiplier = hash_multipliers[multiplier_idx];
         int num_partitions = numeric_domain_mapping[num_var_id]->get_num_partitions();
         int partition = (remaining / multiplier) % num_partitions;
+        
+        if (!first) ss << ", ";
+        first = false;
+        
+        // Get numeric variable name if available
+        std::string num_var_name = (num_var_id < num_vars.size()) ? num_vars[num_var_id].get_name() : "?";
+        
         const NumericRange *rng = numeric_domain_mapping[num_var_id]->get_range_for_partition(partition);
         if (rng) {
             ap_float lower = rng->lower;
@@ -64,11 +85,10 @@ static std::string decode_abstract_state(int state_index, const std::vector<int>
             bool upper_incl = rng->upper_inclusive;
             std::string lower_str = lower_incl ? "[" : "(";
             std::string upper_str = upper_incl ? "]" : ")";
-            ss << "num" << num_var_id << "=" << lower_str << lower << "," << upper << upper_str;
+            ss << num_var_name << "(num" << num_var_id << ")=" << lower_str << lower << "," << upper << upper_str;
         } else {
-            ss << "num" << num_var_id << "=INVALID";
+            ss << num_var_name << "(num" << num_var_id << ")=INVALID";
         }
-        if (num_var_id < numeric_domain_mapping.size() - 1) ss << ", ";
     }
     ss << "]";
     return ss.str();
@@ -168,7 +188,8 @@ ap_float DomainAbstraction::get_value(const State &state) const {
                 string dec = decode_abstract_state(i, 
                                             get_domain_sizes_from_mapping(domain_mapping), 
                                             numeric_domain_mapping, 
-                                            hash_multipliers);
+                                            hash_multipliers,
+                                            task_proxy);
 
                 int sum = 0;
 

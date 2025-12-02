@@ -759,11 +759,18 @@ vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
 }
 
 // Helper function to decode an abstract state index into its variable values
+// Includes variable names from TaskProxy for more informative debug output
 string decode_abstract_state(int state_index, const vector<int> &domain_sizes,
                               const NumericDomainMappingType &numeric_domain_mapping,
-                              const vector<int> &hash_multipliers) {
+                              const vector<int> &hash_multipliers,
+                              const TaskProxy &task_proxy) {
     stringstream ss;
     ss << "State " << state_index << ": [";
+    
+    VariablesProxy vars = task_proxy.get_variables();
+    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+    
+    bool first = true;
     
     // Decode propositional variables
     int remaining = state_index;
@@ -773,10 +780,13 @@ string decode_abstract_state(int state_index, const vector<int> &domain_sizes,
         }
         int multiplier = hash_multipliers[var_id];
         int value = (remaining / multiplier) % domain_sizes[var_id];
-        ss << "v" << var_id << "=" << value;
-        if (var_id < domain_sizes.size() - 1 || !numeric_domain_mapping.empty()) {
-            ss << ", ";
-        }
+        
+        if (!first) ss << ", ";
+        first = false;
+        
+        // Get variable name if available
+        string var_name = (var_id < vars.size()) ? vars[var_id].get_name() : "?";
+        ss << var_name << "(v" << var_id << ")=" << value;
     }
     
     // Decode numeric variables (partitions)
@@ -788,6 +798,13 @@ string decode_abstract_state(int state_index, const vector<int> &domain_sizes,
         int multiplier = hash_multipliers[multiplier_idx];
         int num_partitions = numeric_domain_mapping[num_var_id]->get_num_partitions();
         int partition = (remaining / multiplier) % num_partitions;
+        
+        if (!first) ss << ", ";
+        first = false;
+        
+        // Get numeric variable name if available
+        string num_var_name = (num_var_id < num_vars.size()) ? num_vars[num_var_id].get_name() : "?";
+        
         const NumericRange *rng = numeric_domain_mapping[num_var_id]->get_range_for_partition(partition);
         if (rng) {
             ap_float lower = rng->lower;
@@ -796,14 +813,9 @@ string decode_abstract_state(int state_index, const vector<int> &domain_sizes,
             bool upper_incl = rng->upper_inclusive;
             string lower_str = lower_incl ? "[" : "(";
             string upper_str = upper_incl ? "]" : ")";
-            ss << "num" << num_var_id << "=" << lower_str << lower << "," << upper << upper_str;
+            ss << num_var_name << "(num" << num_var_id << ")=" << lower_str << lower << "," << upper << upper_str;
         } else {
-            ss << "num" << num_var_id << "=INVALID";
-        }
-        
-        //ss << "num" << num_var_id << "=p" << partition;
-        if (num_var_id < numeric_domain_mapping.size() - 1) {
-            ss << ", ";
+            ss << num_var_name << "(num" << num_var_id << ")=INVALID";
         }
     }
     
@@ -956,7 +968,7 @@ void DomainAbstractionFactory::compute_distances(
                 bool preconditions_satisfied = true;
                 string decoded_pred = 
                     decode_abstract_state(predecessor, domain_sizes, 
-                                          numeric_domain_mapping, hash_multipliers);
+                                          numeric_domain_mapping, hash_multipliers, task_proxy);
                 //cout << "  Checking predecessor: " << decoded_pred << endl;
                 for (const Fact &p : pre) {
                     int var_id = p.var;
@@ -987,11 +999,11 @@ void DomainAbstractionFactory::compute_distances(
                 //op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
                 string decoded_base = 
                     decode_abstract_state(base_state, domain_sizes, 
-                                          numeric_domain_mapping, hash_multipliers);
+                                          numeric_domain_mapping, hash_multipliers, task_proxy);
                 //cout << "Base: " << decoded_base << endl;
                 string decoded_pre_base = 
                     decode_abstract_state(predecessor_base, domain_sizes, 
-                                          numeric_domain_mapping, hash_multipliers);
+                                          numeric_domain_mapping, hash_multipliers, task_proxy);
                 //cout << "Predecessor base: " << decoded_pre_base << endl;
 
                 //decode hash effect into vectors
@@ -1245,7 +1257,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
     if (current_state < num_states) {
         //cout << "PLAN: Initial state details:" << endl;
         string decoded = decode_abstract_state(current_state, domain_sizes, 
-                                              numeric_domain_mapping, hash_multipliers);
+                                              numeric_domain_mapping, hash_multipliers, task_proxy);
         //cout << decoded << endl;
     }
 
@@ -1320,7 +1332,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                                   concrete_ops[concrete_id].get_name() : ("<unknown>(" + to_string(concrete_id) + ")");
 
                 string decoded_state = decode_abstract_state(current_state, domain_sizes,
-                                                      numeric_domain_mapping, hash_multipliers);
+                                                      numeric_domain_mapping, hash_multipliers, task_proxy);
                 //cout << "[ABSTRACT PLAN] " << decoded_state << ", " << op_name << endl;
                 //cout << "OP ID: " << op_id << endl;
                 //op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
@@ -1368,9 +1380,9 @@ void DomainAbstractionFactory::compute_abstract_plan(
                      << " to " << successor_state << "; aborting plan extraction." << endl;
 
                 string decoded_current_state = decode_abstract_state(current_state, domain_sizes,
-                                                      numeric_domain_mapping, hash_multipliers);
+                                                      numeric_domain_mapping, hash_multipliers, task_proxy);
                 string decoded_successor_state = decode_abstract_state(successor_state, domain_sizes,
-                                                      numeric_domain_mapping, hash_multipliers);
+                                                      numeric_domain_mapping, hash_multipliers, task_proxy);
                 cerr << "  Current: " << decoded_current_state << endl;
                 cerr << "  Successor: " << decoded_successor_state << endl;
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
@@ -1386,7 +1398,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
             }
 
             string decoded = decode_abstract_state(successor_state, domain_sizes,
-                                                      numeric_domain_mapping, hash_multipliers);
+                                                      numeric_domain_mapping, hash_multipliers, task_proxy);
 
             //cout << "[ABSTRACT PLAN] " << decoded << endl;                              
 
@@ -1397,7 +1409,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
 
         }
         string decoded = decode_abstract_state(current_state, domain_sizes,
-                                              numeric_domain_mapping, hash_multipliers);
+                                              numeric_domain_mapping, hash_multipliers, task_proxy);
         //cout << "[ABSTRACT PLAN] " << decoded << endl;  
         
         //cout << "PLAN: Wildcard plan construction complete with " 
