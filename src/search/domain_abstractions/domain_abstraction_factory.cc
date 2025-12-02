@@ -20,6 +20,7 @@
 #include <sstream>
 #include <fstream>
 #include <set>
+#include <unordered_set>
 #include <iomanip>
 
 
@@ -398,36 +399,50 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
 
 void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_mapping, NumericDomainMappingType &numeric_domain_mapping) const {
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-    vector<int> comparison_ids;
+    unordered_set<int> comparison_var_ids;
     for (ComparisonAxiomProxy ax : comparison_axioms) {
-        comparison_ids.push_back(ax.get_true_fact().get_variable().get_id());
+        comparison_var_ids.insert(ax.get_true_fact().get_variable().get_id());
     }
     int num_variables = task_proxy.get_variables().size();
+    VariablesProxy vars = task_proxy.get_variables();
 
     string op_name = task_proxy.get_operators()[concrete_op_id].get_name();
-    cout << op_name << " -- " << endl;
-    cout << "Preconditions: " << endl << "  ";
+    cout << op_name << " (concrete_id=" << concrete_op_id << ", hash_effect=" << hash_effect << ")" << endl;
+    
+    // Print preconditions
+    cout << "  Preconditions: ";
+    bool first = true;
     for (const Fact &p : pre) {
-        int var_id = p.var;
+        if (!first) cout << ", ";
+        first = false;
         
-        bool is_comparison = (find(comparison_ids.begin(), comparison_ids.end(), var_id) != comparison_ids.end());
+        int var_id = p.var;
+        bool is_comparison = (comparison_var_ids.count(var_id) > 0);
         
         if (var_id >= num_variables) {
+            // Numeric variable
             string partition = numeric_domain_mapping[var_id - num_variables]->get_ranges()[p.value].to_string();
-            cout << "num" << var_id - num_variables << "=" << partition << ", ";
+            cout << "num" << var_id - num_variables << "=" << partition;
+        } else if (is_comparison) {
+            // Comparison axiom variable - show semantic meaning
+            string val_str = (p.value == 1) ? "TRUE" : (p.value == 0) ? "FALSE" : "UNKNOWN";
+            cout << vars[var_id].get_name() << "(v" << var_id << ")=" << val_str;
         } else {
-            cout << "var" << var_id << "=" << p.value << ", ";
+            // Regular propositional variable
+            cout << vars[var_id].get_name() << "(v" << var_id << ")=" << p.value;
         }
     }
+    if (first) cout << "(none)";
     cout << endl;
 
-    bool pre_value_was_negative = false;
+    // Print effects (distinguish actual effects from prevails)
+    cout << "  Effects: ";
+    first = true;
+    for (const Fact &eff : regression_preconditions) {
+        int var_id = eff.var;
+        int eff_value = eff.value;
 
-    cout << "Effects: " << endl << "  ";
-    for (const Fact &p : regression_preconditions) {
-        int var_id = p.var;
-        int value = p.value;
-
+        // Find corresponding precondition value
         int pre_value = -1; 
         for (const Fact &pre_fact : pre) {
             if (pre_fact.var == var_id) {
@@ -436,26 +451,36 @@ void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_m
             }
         }
 
-        if (pre_value == -1) {
-            pre_value_was_negative = true;
+        // Skip prevail conditions (same value, no actual effect)
+        if (pre_value == eff_value) {
+            continue;
         }
-        //assert(pre_value != -1); // Think that should be correct.......
+
+        if (!first) cout << ", ";
+        first = false;
+        
+        bool is_comparison = (comparison_var_ids.count(var_id) > 0);
 
         if (var_id >= num_variables) {
-            string partition = numeric_domain_mapping[var_id - num_variables]->get_ranges()[value].to_string();
-            string pre_partition = pre_value != -1 ? numeric_domain_mapping[var_id - num_variables]->get_ranges()[pre_value].to_string() : "N/A";
-
-            cout << "num" << var_id - num_variables << " " << pre_partition << " -> " << partition << ", ";
-
+            // Numeric variable
+            string eff_partition = numeric_domain_mapping[var_id - num_variables]->get_ranges()[eff_value].to_string();
+            string pre_partition = (pre_value >= 0) 
+                ? numeric_domain_mapping[var_id - num_variables]->get_ranges()[pre_value].to_string() 
+                : "*";
+            cout << "num" << var_id - num_variables << ": " << pre_partition << " -> " << eff_partition;
+        } else if (is_comparison) {
+            // Comparison axiom variable
+            string pre_str = (pre_value < 0) ? "*" : (pre_value == 1) ? "TRUE" : (pre_value == 0) ? "FALSE" : "UNKNOWN";
+            string eff_str = (eff_value == 1) ? "TRUE" : (eff_value == 0) ? "FALSE" : "UNKNOWN";
+            cout << vars[var_id].get_name() << "(v" << var_id << "): " << pre_str << " -> " << eff_str;
         } else {
-            //string pre_value = pre_value_was_negative ? -1 : pre_value;
-            cout << "var" << var_id << " " << pre_value << " -> " << value << ", ";
-        }     
-        
-        
+            // Regular propositional variable
+            string pre_str = (pre_value >= 0) ? to_string(pre_value) : "*";
+            cout << vars[var_id].get_name() << "(v" << var_id << "): " << pre_str << " -> " << eff_value;
+        }
     }
-    cout << endl;   
-
+    if (first) cout << "(none)";
+    cout << endl;
 }
 
 DomainAbstractionFactory::DomainAbstractionFactory (
@@ -1325,6 +1350,9 @@ void DomainAbstractionFactory::compute_abstract_plan(
                         
                         lowest_so_far = distances[candidate_successor];
                     }
+                    cout << "Current: " << decode_abstract_state(current_state, domain_sizes,
+                                                          numeric_domain_mapping, hash_multipliers, task_proxy)
+                             << " with distance " << distances[current_state] << endl;
                     cout << "Successor: " << decode_abstract_state(successor_state, domain_sizes,
                                                           numeric_domain_mapping, hash_multipliers, task_proxy)
                              << " with distance " << distances[successor_state] << endl;    
@@ -1418,7 +1446,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                                                       numeric_domain_mapping, hash_multipliers, task_proxy);
                 string decoded_base_state = decode_abstract_state(base_successor, domain_sizes,
                                                       numeric_domain_mapping, hash_multipliers, task_proxy);
-                string decoded_no_reset_base_state = decode_abstract_state(current_state - candidate_hash_effect, domain_sizes,
+                string decoded_no_reset_base_state = decode_abstract_state(current_state - hash_effect, domain_sizes,
                                                       numeric_domain_mapping, hash_multipliers, task_proxy);
                 cerr << "  Current: " << decoded_current_state << endl;
                 cerr << "  Successor: " << decoded_successor_state << endl;
@@ -1426,6 +1454,8 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 cerr << "  No reset base: " << decoded_no_reset_base_state << endl;
                 cerr << "  Distance - current: " << distances[current_state] << endl;
                 cerr << "  Distance - successor: " << distances[successor_state] << endl;
+                cerr << "  OP hash effects: " << hash_effect << endl;
+                cerr << "  OP ID (abstract): " << op_id << endl;
                 op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
             }
