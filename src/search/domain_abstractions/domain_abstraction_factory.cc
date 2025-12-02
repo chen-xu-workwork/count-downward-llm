@@ -1363,20 +1363,16 @@ void DomainAbstractionFactory::compute_abstract_plan(
             }
 
             
-            
-           
             if (cheapest_operators.empty()) {
-                if (logger) {
-                    logger->log(Verbosity::INFO, "PLAN: No equivalent operators found from state ", current_state,
-                               " to ", successor_state, "; aborting plan extraction.");
+                cerr << "PLAN: No equivalent operators found from state " << current_state
+                     << " to " << successor_state << "; aborting plan extraction." << endl;
 
-                    string decoded_current_state = decode_abstract_state(current_state, domain_sizes,
-                                                          numeric_domain_mapping, hash_multipliers);
-                    string decoded_successor_state = decode_abstract_state(successor_state, domain_sizes,
-                                                          numeric_domain_mapping, hash_multipliers);
-                    logger->log(Verbosity::INFO, "  Current: ", decoded_current_state);
-                    logger->log(Verbosity::INFO, "  Successor: ", decoded_successor_state);
-                }
+                string decoded_current_state = decode_abstract_state(current_state, domain_sizes,
+                                                      numeric_domain_mapping, hash_multipliers);
+                string decoded_successor_state = decode_abstract_state(successor_state, domain_sizes,
+                                                      numeric_domain_mapping, hash_multipliers);
+                cerr << "  Current: " << decoded_current_state << endl;
+                cerr << "  Successor: " << decoded_successor_state << endl;
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
             }
             
