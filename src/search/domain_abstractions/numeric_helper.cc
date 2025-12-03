@@ -394,7 +394,7 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
         }
     }
 
-        for (FactProxy pre : op.get_preconditions()) {
+    for (FactProxy pre : op.get_preconditions()) {
         int var_id = pre.get_variable().get_id();
         bool is_var_id_in_comparison_axioms = is_comparison_axiom_var[var_id];
         
