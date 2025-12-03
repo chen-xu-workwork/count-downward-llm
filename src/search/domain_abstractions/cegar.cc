@@ -1747,8 +1747,9 @@ DomainAbstraction CEGAR::build_abstraction(
         
         if (!flaws_fixed || !numeric_flaws_fixed) {
             assert(max_abstraction_size != numeric_limits<int>::max());
-            logger->log(Verbosity::DEBUG, "Terminating CEGAR loop because fixing flaws ",
-                           "surpasses abstraction size limit of ", max_abstraction_size, " states.");
+            logger->log(Verbosity::INFO, "Terminating CEGAR loop because fixing flaws ",
+                           "surpasses abstraction size limit of ", max_abstraction_size, " states. ",
+                           "Generated ", abstraction.size(), " abstract states.");
             break;
         }
 
