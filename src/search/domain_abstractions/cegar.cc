@@ -238,7 +238,7 @@ CEGAR::CEGAR(
       rng(rng),
       init_split_var_ids(move(init_split_var_ids)),
       blacklisted_variables(move(blacklisted_variables)),
-      logger(make_shared<CEGARLogger>(Verbosity::DEBUG)) {
+      logger(make_shared<CEGARLogger>(Verbosity::INFO)) {
     /* TODO: Should we check somewhere that *init_split_var_ids* does not
         contain elements that are blacklisted? */
 
@@ -1234,77 +1234,77 @@ void CEGAR::print_statistics(
     if (num_numeric_variables > 0) {
         avg_numeric_partitions = ((double) total_numeric_partitions) / num_numeric_variables;
     }
-    if(logger && logger->should_log(Verbosity::DEBUG)) {
-        logger->log(Verbosity::DEBUG, "\n=== CEGAR Statistics ===");
-        logger->log(Verbosity::DEBUG, "Final abstraction size: ", abstraction_size);
-        logger->log(Verbosity::DEBUG, "\nPropositional variables:");
-        logger->log(Verbosity::DEBUG, "  Total: ", num_variables);
-        logger->log(Verbosity::DEBUG, "  Trivial (size 1): ", num_trivial_variables);
-        logger->log(Verbosity::DEBUG, "  Complete (not abstracted): ", num_complete_variables);
-        logger->log(Verbosity::DEBUG, "  Average domain size ratio: ", avg_domain_size);
+    if(logger && logger->should_log(Verbosity::INFO)) {
+        logger->log(Verbosity::INFO, "\n=== CEGAR Statistics ===");
+        logger->log(Verbosity::INFO, "Final abstraction size: ", abstraction_size);
+        logger->log(Verbosity::INFO, "\nPropositional variables:");
+        logger->log(Verbosity::INFO, "  Total: ", num_variables);
+        logger->log(Verbosity::INFO, "  Trivial (size 1): ", num_trivial_variables);
+        logger->log(Verbosity::INFO, "  Complete (not abstracted): ", num_complete_variables);
+        logger->log(Verbosity::INFO, "  Average domain size ratio: ", avg_domain_size);
         
         // Print details of non-trivial propositional variables
-        logger->log(Verbosity::DEBUG, "\n  Non-trivial propositional variables:");
+        logger->log(Verbosity::INFO, "\n  Non-trivial propositional variables:");
         for (int i = 0; i < num_variables; ++i) {
             if (abstract_domain_sizes[i] > 1) {
                 VariableProxy var = task_proxy.get_variables()[i];
                 int original_size = var.get_domain_size();
-                logger->log(Verbosity::DEBUG, "    var", i, " (", var.get_name(), "): ",
+                logger->log(Verbosity::INFO, "    var", i, " (", var.get_name(), "): ",
                                 "abstract_size=", abstract_domain_sizes[i],
                                 ", original_size=", original_size);
                 
                 // Print the domain mapping if it's not too large
                 if (abstract_domain_sizes[i] <= 10 && original_size <= 20) {
-                    logger->log_no_endl(Verbosity::DEBUG, "      mapping: [");
+                    logger->log_no_endl(Verbosity::INFO, "      mapping: [");
                     for (int val = 0; val < original_size; ++val) {
-                        if (val > 0) logger->log_no_endl(Verbosity::DEBUG, ", ");
-                        logger->log_no_endl(Verbosity::DEBUG, val, "->", domain_mapping[i][val]);
+                        if (val > 0) logger->log_no_endl(Verbosity::INFO, ", ");
+                        logger->log_no_endl(Verbosity::INFO, val, "->", domain_mapping[i][val]);
                     }
-                    logger->log(Verbosity::DEBUG, "]");
+                    logger->log(Verbosity::INFO, "]");
                 }
             }
         }
         
-        logger->log(Verbosity::DEBUG, "\nNumeric variables:");
-        logger->log(Verbosity::DEBUG, "  Total: ", num_numeric_variables);
-        logger->log(Verbosity::DEBUG, "  Trivial (1 partition): ", num_trivial_numeric_vars);
-        logger->log(Verbosity::DEBUG, "  Refined (>1 partition): ", num_refined_numeric_vars);
-        logger->log(Verbosity::DEBUG, "  Total partitions: ", total_numeric_partitions);
-        logger->log(Verbosity::DEBUG, "  Average partitions per variable: ", avg_numeric_partitions);
+        logger->log(Verbosity::INFO, "\nNumeric variables:");
+        logger->log(Verbosity::INFO, "  Total: ", num_numeric_variables);
+        logger->log(Verbosity::INFO, "  Trivial (1 partition): ", num_trivial_numeric_vars);
+        logger->log(Verbosity::INFO, "  Refined (>1 partition): ", num_refined_numeric_vars);
+        logger->log(Verbosity::INFO, "  Total partitions: ", total_numeric_partitions);
+        logger->log(Verbosity::INFO, "  Average partitions per variable: ", avg_numeric_partitions);
         
         // Print details of refined numeric variables
-        logger->log(Verbosity::DEBUG, "\n  Refined numeric variables:");
+        logger->log(Verbosity::INFO, "\n  Refined numeric variables:");
         for (int i = 0; i < num_numeric_variables; ++i) {
             if (numeric_domain_sizes[i] > 1) {
                 NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
-                logger->log(Verbosity::DEBUG, "    var", i, " (", num_var.get_name(), "): ",
+                logger->log(Verbosity::INFO, "    var", i, " (", num_var.get_name(), "): ",
                                 numeric_domain_sizes[i], " partitions");
                 
                 // Print the ranges for this variable
                 const vector<NumericRange> &ranges = numeric_domain_mapping[i]->get_ranges();
                 for (size_t j = 0; j < ranges.size(); ++j) {
-                    logger->log_no_endl(Verbosity::DEBUG, "      partition ", ranges[j].partition_index, ": ");
+                    logger->log_no_endl(Verbosity::INFO, "      partition ", ranges[j].partition_index, ": ");
                     // Print lower bound with correct bracket
-                    logger->log_no_endl(Verbosity::DEBUG, (ranges[j].lower_inclusive ? "[" : "("));
+                    logger->log_no_endl(Verbosity::INFO, (ranges[j].lower_inclusive ? "[" : "("));
                     if (ranges[j].lower == -numeric_limits<ap_float>::infinity()) {
-                        logger->log_no_endl(Verbosity::DEBUG, "-inf");
+                        logger->log_no_endl(Verbosity::INFO, "-inf");
                     } else {
-                        logger->log_no_endl(Verbosity::DEBUG, ranges[j].lower);
+                        logger->log_no_endl(Verbosity::INFO, ranges[j].lower);
                     }
-                    logger->log_no_endl(Verbosity::DEBUG, ", ");
+                    logger->log_no_endl(Verbosity::INFO, ", ");
                     // Print upper bound
                     if (ranges[j].upper == numeric_limits<ap_float>::infinity()) {
-                        logger->log_no_endl(Verbosity::DEBUG, "inf");
+                        logger->log_no_endl(Verbosity::INFO, "inf");
                     } else {
-                        logger->log_no_endl(Verbosity::DEBUG, ranges[j].upper);
+                        logger->log_no_endl(Verbosity::INFO, ranges[j].upper);
                     }
                     // Print upper bracket
-                    logger->log(Verbosity::DEBUG, (ranges[j].upper_inclusive ? "]" : ")"));
+                    logger->log(Verbosity::INFO, (ranges[j].upper_inclusive ? "]" : ")"));
                 }
             }
         }
         
-        logger->log(Verbosity::DEBUG, "========================\n");
+        logger->log(Verbosity::INFO, "========================\n");
     }
 }
 
@@ -1668,9 +1668,9 @@ DomainAbstraction CEGAR::build_abstraction(
 
         // SUMMARY: Final flaws and dependencies for this iteration
         if (!flaws.empty() || !detected_numeric_flaws.empty()) {
-            logger->log(Verbosity::INFO, "SUMMARY: Flaws after plan validation");
+            logger->log(Verbosity::DEBUG, "SUMMARY: Flaws after plan validation");
             if (!flaws.empty()) {
-                logger->log(Verbosity::INFO, "  Propositional flaws:");
+                logger->log(Verbosity::DEBUG, "  Propositional flaws:");
                 // Access variable and numeric proxies for names
                 VariablesProxy vars = task_proxy.get_variables();
                 NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
@@ -1678,27 +1678,27 @@ DomainAbstraction CEGAR::build_abstraction(
                     bool is_comp = (comparison_axiom_dependencies.find(f.var) != comparison_axiom_dependencies.end());
                     // Print propositional variable with its human-readable name
                     string prop_name = vars[f.var].get_name();
-                    logger->log(Verbosity::INFO, "    fdr_", f.var, " (", prop_name, ")=", f.value,
+                    logger->log(Verbosity::DEBUG, "    fdr_", f.var, " (", prop_name, ")=", f.value,
                                     (is_comp ? " (comparison)" : ""));
                     if (is_comp) {
                         const auto &deps = comparison_axiom_dependencies.at(f.var);
-                        logger->log_no_endl(Verbosity::INFO, "      depends on numeric: ");
+                        logger->log_no_endl(Verbosity::DEBUG, "      depends on numeric: ");
                         bool first = true;
                         for (int nv : deps) {
-                            if (!first) logger->log_no_endl(Verbosity::INFO, ", ");
+                            if (!first) logger->log_no_endl(Verbosity::DEBUG, ", ");
                             // Include numeric variable name
                             string num_name = num_vars[nv].get_name();
-                            logger->log_no_endl(Verbosity::INFO, "num_", nv, " (", num_name, ")");
+                            logger->log_no_endl(Verbosity::DEBUG, "num_", nv, " (", num_name, ")");
                             first = false;
                         }
-                        logger->log(Verbosity::INFO, "");
+                        logger->log(Verbosity::DEBUG, "");
                     }
                 }
             } else {
-                logger->log(Verbosity::INFO, "  Propositional flaws: none");
+                logger->log(Verbosity::DEBUG, "  Propositional flaws: none");
             }
             if (!detected_numeric_flaws.empty()) {
-                logger->log(Verbosity::INFO, "  Numeric flaws:");
+                logger->log(Verbosity::DEBUG, "  Numeric flaws:");
                 // Access proxies (reuse if already declared above not available in this scope)
                 VariablesProxy vars = task_proxy.get_variables();
                 NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
@@ -1706,18 +1706,18 @@ DomainAbstraction CEGAR::build_abstraction(
                     for (const NumericFlaw &nf : num_flaw_vec) {
                         string num_name = num_vars[nf.numeric_var_id].get_name();
                         string prop_name = vars[nf.prop_var_id].get_name();
-                        logger->log(Verbosity::INFO, "    num_", nf.numeric_var_id, " (", num_name, ")",
+                        logger->log(Verbosity::DEBUG, "    num_", nf.numeric_var_id, " (", num_name, ")",
                                         " at value ", nf.concrete_value,
                                         " (from axiom fdr_", nf.prop_var_id, " (", prop_name, "))");
                     }
                 }
             } else {
-                logger->log(Verbosity::INFO, "  Numeric flaws: none");
+                logger->log(Verbosity::DEBUG, "  Numeric flaws: none");
             }
         }
 
         if (flaws.empty() && detected_numeric_flaws.empty()) {
-            logger->log(Verbosity::INFO, "No more flaws found, terminating CEGAR refinement.");
+            logger->log(Verbosity::DEBUG, "No more flaws found, terminating CEGAR refinement.");
             break;
         }
 
@@ -1747,7 +1747,7 @@ DomainAbstraction CEGAR::build_abstraction(
         
         if (!flaws_fixed || !numeric_flaws_fixed) {
             assert(max_abstraction_size != numeric_limits<int>::max());
-            logger->log(Verbosity::INFO, "Terminating CEGAR loop because fixing flaws ",
+            logger->log(Verbosity::DEBUG, "Terminating CEGAR loop because fixing flaws ",
                            "surpasses abstraction size limit of ", max_abstraction_size, " states.");
             break;
         }
@@ -1762,17 +1762,17 @@ DomainAbstraction CEGAR::build_abstraction(
             int actual_partitions = numeric_domain_mapping[i]->get_num_partitions();
             int expected_partitions = numeric_domain_sizes[i];
             if (actual_partitions != expected_partitions) {
-                logger->log(Verbosity::INFO, "ERROR: num_", i, " has ", actual_partitions,
+                logger->log(Verbosity::DEBUG, "ERROR: num_", i, " has ", actual_partitions,
                                 " partitions but expected ", expected_partitions);
                 all_valid = false;
             }
             if (!numeric_domain_mapping[i]->is_valid()) {
-                logger->log(Verbosity::INFO, "ERROR: num_", i, " has invalid mapping");
+                logger->log(Verbosity::DEBUG, "ERROR: num_", i, " has invalid mapping");
                 all_valid = false;
             }
         }
         if (!all_valid) {
-            logger->log(Verbosity::INFO, "CRITICAL ERROR: Numeric domain mapping validation failed!");
+            logger->log(Verbosity::DEBUG, "CRITICAL ERROR: Numeric domain mapping validation failed!");
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
 

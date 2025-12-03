@@ -1423,16 +1423,8 @@ void DomainAbstractionFactory::compute_abstract_plan(
                         
                         lowest_so_far = distances[candidate_successor];
                     }
-                    cout << "Current: " << decode_abstract_state(current_state, domain_sizes,
-                                                          numeric_domain_mapping, hash_multipliers, task_proxy)
-                             << " with distance " << distances[current_state] << endl;
-                    cout << "Successor: " << decode_abstract_state(successor_state, domain_sizes,
-                                                          numeric_domain_mapping, hash_multipliers, task_proxy)
-                             << " with distance " << distances[successor_state] << endl;    
                 }
             }
-
-            cout << "OP cost: " << op.get_cost() << endl;
 
             if (successor_state == -1) {
                 if (logger) {
@@ -1454,7 +1446,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
 
                 string decoded_state = decode_abstract_state(current_state, domain_sizes,
                                                       numeric_domain_mapping, hash_multipliers, task_proxy);
-                cout << "[ABSTRACT PLAN] " << decoded_state << ", " << op_name << endl;
+                logger->log(Verbosity::DEBUG, "[ABSTRACT PLAN] ", decoded_state, ", ", op_name, "\n");
                 //cout << "OP ID: " << op_id << endl;
                 //op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
             }
@@ -1468,21 +1460,8 @@ void DomainAbstractionFactory::compute_abstract_plan(
             for (int applicable_op_id : applicable_operator_ids) {
                 const AbstractOperator &applicable_op = operators[applicable_op_id];
 
-                OperatorsProxy concrete_ops = task_proxy.get_operators();
-                int concrete_id = op.get_concrete_op_id();
-                string op_name = (concrete_id >= 0 && concrete_id < (int)concrete_ops.size()) ?
-                                  concrete_ops[concrete_id].get_name() : ("<unknown>(" + to_string(concrete_id) + ")");
-                if (op_names.count(op_name) == 0) {
-                    cout << op_name << endl;
-                }
-                op_names.insert(op_name);
-
                 // Check if this operator has the same cost
                 if (applicable_op.get_cost() != op.get_cost()) {
-                    concrete_id = op.get_concrete_op_id();
-                    op_name = (concrete_id >= 0 && concrete_id < (int)concrete_ops.size()) ?
-                                  concrete_ops[concrete_id].get_name() : ("<unknown>(" + to_string(concrete_id) + ")");
-                    cout << "DIFFERENT COST: " << op.get_cost() << ", " << op_name << endl;
                     continue;
                 }
                 
@@ -1766,7 +1745,7 @@ DomainAbstraction DomainAbstractionFactory::generate() {
         
         // Populate the state registry with all states from the distances vector
         // The state index IS the hash value in this abstraction
-        if (VERBOSE_DEBUG) cout << "DEBUG: Populating state registry with " << distances.size() << " states" << endl;
+        logger->log(Verbosity::INFO, "DEBUG: Populating state registry with ", distances.size(), " states");
         for (size_t state_idx = 0; state_idx < distances.size(); ++state_idx) {
             // The state_idx is the hash value for this abstract state
             DomainAbstractionState abs_state(state_idx);
