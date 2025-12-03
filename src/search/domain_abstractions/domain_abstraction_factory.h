@@ -230,6 +230,12 @@ public:
     */
     std::vector<int> enumerate_states_with_evaluated_comparisons(
         int base_state_index,
+        const TaskProxy &task_proxy,
+        const std::vector<Fact> &fixed_comparisons) const;
+    
+    // Overload for backward compatibility - no fixed comparisons
+    std::vector<int> enumerate_states_with_evaluated_comparisons(
+        int base_state_index,
         const TaskProxy &task_proxy) const;
 };
 }

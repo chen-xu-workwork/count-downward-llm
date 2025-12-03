@@ -202,13 +202,44 @@ static vector<CompEvalHelper> evaluate_all_comparisons(
     return out;
 }
 
-// Reset all comparison-axiom variables in the given abstract state to UNKNOWN (value index 2).
+// Extract comparison axiom preconditions from an operator.
+// Returns a vector of Facts that are on comparison axiom variables.
+static vector<Fact> get_comparison_preconditions(
+    const AbstractOperator &op,
+    const TaskProxy &task_proxy) {
+    vector<Fact> result;
+    
+    // Build set of comparison axiom variable IDs
+    unordered_set<int> comparison_var_ids;
+    for (ComparisonAxiomProxy ax : task_proxy.get_comparison_axioms()) {
+        comparison_var_ids.insert(ax.get_true_fact().get_variable().get_id());
+    }
+    
+    // Filter operator preconditions to only include comparison variables
+    for (const Fact &pre : op.get_preconditions()) {
+        if (comparison_var_ids.count(pre.var) > 0) {
+            result.push_back(pre);
+        }
+    }
+    
+    return result;
+}
+
+// Reset all comparison-axiom variables in the given abstract state to UNKNOWN (value index 2),
+// EXCEPT for variables that appear in fixed_comparisons - those keep their specified values.
 // Returns the adjusted abstract state index.
-static int reset_all_comparison_vars_to_unknown(
+static int reset_comparison_vars_to_unknown_except(
     int state_index,
     const DomainMapping &domain_mapping,
     const vector<int> &hash_multipliers,
-    const TaskProxy &task_proxy) {
+    const TaskProxy &task_proxy,
+    const vector<Fact> &fixed_comparisons = {}) {
+    
+    // Build set of fixed variable IDs for quick lookup
+    unordered_set<int> fixed_var_ids;
+    for (const Fact &f : fixed_comparisons) {
+        fixed_var_ids.insert(f.var);
+    }
     int delta = 0;
     ComparisonAxiomsProxy comp_axioms = task_proxy.get_comparison_axioms();
     for (ComparisonAxiomProxy ax : comp_axioms) {
@@ -216,6 +247,10 @@ static int reset_all_comparison_vars_to_unknown(
         assert(var_id >= 0 || var_id < static_cast<int>(hash_multipliers.size()));
         // Treat empty mapping as trivial; skip.
         if (domain_mapping[var_id].empty())
+            continue;
+        
+        // Skip variables that are fixed (e.g., operator preconditions during regression)
+        if (fixed_var_ids.count(var_id) > 0)
             continue;
 
         int multiplier = hash_multipliers[var_id];
@@ -227,6 +262,16 @@ static int reset_all_comparison_vars_to_unknown(
         delta += (unknown_abs - cur_val) * multiplier;
     }
     return state_index + delta;
+}
+
+// Wrapper for backward compatibility - resets ALL comparison vars to unknown
+static int reset_all_comparison_vars_to_unknown(
+    int state_index,
+    const DomainMapping &domain_mapping,
+    const vector<int> &hash_multipliers,
+    const TaskProxy &task_proxy) {
+    return reset_comparison_vars_to_unknown_except(
+        state_index, domain_mapping, hash_multipliers, task_proxy, {});
 }
 
 // Check if a goal abstract state is numerically feasible w.r.t. comparison axioms.
@@ -623,9 +668,17 @@ MatchTree DomainAbstractionFactory::build_match_tree(
 
 vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparisons(
     int base_state_index,
-    const TaskProxy &task_proxy) const {
+    const TaskProxy &task_proxy,
+    const vector<Fact> &fixed_comparisons) const {
     
     vector<int> result;
+    
+    // Build set of fixed variable IDs for quick lookup
+    unordered_map<int, int> fixed_var_values;  // var_id -> required value
+    for (const Fact &f : fixed_comparisons) {
+        fixed_var_values[f.var] = f.value;
+    }
+    
     // Build numeric context and evaluate all comparisons
     unordered_map<int, NumericRange> ranges;
     vector<int> cur_num_partitions;
@@ -634,16 +687,12 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     vector<CompEvalHelper> comparisons = evaluate_all_comparisons(
         ranges, cur_num_partitions, numeric_domain_mapping, task_proxy);
 
-    //for (const auto& r : ranges) {
-    //    cout << "DEBUG ENUM: var" << r.first 
-    //         << " range=" << r.second.to_string() << endl;
-    //}   
-
-    // Reset ALL comparison axiom variables to UNKNOWN using shared helper
-    int state_with_unknowns = reset_all_comparison_vars_to_unknown(
-        base_state_index, domain_mapping, hash_multipliers, task_proxy);
+    // Reset comparison axiom variables to UNKNOWN, EXCEPT fixed ones
+    int state_with_unknowns = reset_comparison_vars_to_unknown_except(
+        base_state_index, domain_mapping, hash_multipliers, task_proxy, fixed_comparisons);
 
     // Enumerate all possible combinations of comparison results.
+    // For fixed comparisons, use the fixed value.
     // For deterministic evaluations (TRUE/FALSE), fix the value.
     // For UNKNOWN evaluations, branch on both TRUE and FALSE.
     function<void(size_t, int)> enumerate_combinations = 
@@ -663,6 +712,17 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
         
         int multiplier = hash_multipliers[var_id];
         int unknown_value = domain_mapping[var_id][2];
+        
+        // Check if this comparison variable is fixed by operator preconditions
+        auto fixed_it = fixed_var_values.find(var_id);
+        if (fixed_it != fixed_var_values.end()) {
+            // Use the fixed value - don't evaluate or branch
+            int fixed_val = fixed_it->second;
+            // The state already has the correct value (not reset to unknown),
+            // so delta is 0 relative to the current state value
+            enumerate_combinations(idx + 1, delta_from_unknown);
+            return;
+        }
         
         if (comp.eval == 0) {
             // Definitely TRUE (normalized mapping)
@@ -689,6 +749,13 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     }
     
     return result;
+}
+
+// Overload for backward compatibility - no fixed comparisons
+vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparisons(
+    int base_state_index,
+    const TaskProxy &task_proxy) const {
+    return enumerate_states_with_evaluated_comparisons(base_state_index, task_proxy, {});
 }
 
 // Helper function to check if a variable is derived (appears in axiom effects)
@@ -970,10 +1037,16 @@ void DomainAbstractionFactory::compute_distances(
             int predecessor_base = base_state + base_hash_effect;
             assert(predecessor_base < num_states && 0 <= predecessor_base);
 
+            // Get comparison preconditions - these must be preserved during enumeration
+            // because we know the operator is applicable (we're regressing from a valid state)
+            vector<Fact> comparison_preconds = get_comparison_preconditions(op, task_proxy);
+
             // Enumerate all possible predecessors considering comparison axiom cascades
+            // Pass comparison preconditions to preserve their values (not reset/re-evaluate)
             vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                 predecessor_base,
-                task_proxy);
+                task_proxy,
+                comparison_preconds);
 
 
             if (logger && logger->should_log(Verbosity::DEBUG)) {
@@ -1418,12 +1491,16 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 // Compute base predecessor (without comparison axiom evaluation)
                 int base_predecessor = base_successor + applicable_hash_effect;
                 
+                // Get comparison preconditions - these must be preserved during enumeration
+                vector<Fact> comparison_preconds = get_comparison_preconditions(applicable_op, task_proxy);
+                
                 // Enumerate all possible predecessors with evaluated comparison axioms
                 // This is the REVERSE of progression: we're checking if applying this operator
                 // to current_state leads to successor_state
                 vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                     base_predecessor,
-                    task_proxy);
+                    task_proxy,
+                    comparison_preconds);
                 
                 
                 // Check if current_state is among the possible predecessors
