@@ -160,6 +160,44 @@ private:
         return comparison_axiom_dependencies.count(var_id) > 0;
     }
     
+    // Check if a comparison axiom flaw should be added:
+    // - Non-comparison variables: always add
+    // - Comparison variables: add only if at least one dependent numeric variable 
+    //   has observed values (not already split)
+    bool should_add_comparison_flaw(int prop_var_id) const {
+        // Non-comparison axiom variables are always valid flaws
+        if (!is_comparison_axiom_variable(prop_var_id)) {
+            logger->log(Verbosity::DEBUG, "    should_add_comparison_flaw(var", prop_var_id, 
+                       "): YES (not a comparison axiom)");
+            return true;
+        }
+        
+        // For comparison axioms, we need at least one dependent numeric var with observed values
+        auto it = comparison_axiom_dependencies.find(prop_var_id);
+        if (it == comparison_axiom_dependencies.end()) {
+            logger->log(Verbosity::DEBUG, "    should_add_comparison_flaw(var", prop_var_id, 
+                       "): NO (no dependencies found)");
+            return false;  // No dependencies found (shouldn't happen)
+        }
+        
+        for (int numeric_var_id : it->second) {
+            int local_idx = global_to_local_regular_numeric_var_ids[numeric_var_id];
+            if (local_idx >= 0 && 
+                local_idx < static_cast<int>(regular_numeric_var_values.size()) &&
+                !regular_numeric_var_values[local_idx].empty()) {
+                logger->log(Verbosity::DEBUG, "    should_add_comparison_flaw(var", prop_var_id, 
+                           "): YES (num_", numeric_var_id, " has ", 
+                           regular_numeric_var_values[local_idx].size(), " observed values)");
+                return true;
+            }
+        }
+        
+        // No observed values for any dependent numeric variable
+        logger->log(Verbosity::DEBUG, "    should_add_comparison_flaw(var", prop_var_id, 
+                   "): NO (all ", it->second.size(), " dependent numeric vars have empty observed values)");
+        return false;
+    }
+    
     bool fix_numeric_flaws(const std::vector<NumericFlaw> &numeric_flaws,
                           int abstraction_size,
                           const TaskProxy &task_proxy);
@@ -762,6 +800,14 @@ vector<Fact> CEGAR::get_flaws(
                 for (size_t i = 0; i < operator_flaws.size(); ++i) {
                     Fact &flaw = operator_flaws[i];
                     vector<pair<int, ap_float>> &reg_numeric_flaws = regular_numeric_flaws[i];
+                    
+                    // Skip comparison flaws that are already refined and have no new split values
+                    if (!should_add_comparison_flaw(flaw.var)) {
+                        logger->log(Verbosity::DEBUG, "  Skipping comparison flaw var=", flaw.var,
+                                    " (already refined, no new observed values)");
+                        continue;
+                    }
+                    
                     flaws.push_back(flaw);
 
                     // Build inner vector of numeric flaws for this propositional flaw
@@ -804,7 +850,6 @@ vector<Fact> CEGAR::get_flaws(
                     }
                     // Add the inner vector to the 2D structure
                     detected_numeric_flaws.push_back(numeric_flaws_for_this_prop_flaw);
-                    flaws.emplace_back(flaw.var, flaw.value);
                 }
             }
         }
@@ -885,6 +930,14 @@ vector<Fact> CEGAR::get_flaws(
     for (size_t i = 0; i < goal_flaws.size(); ++i) {
         Fact &flaw = goal_flaws[i];
         vector<pair<int, ap_float>> &reg_numeric_flaws = goal_numeric_flaws[i];
+        
+        // Skip comparison flaws that are already refined and have no new split values
+        if (!should_add_comparison_flaw(flaw.var)) {
+            logger->log(Verbosity::DEBUG, "  Skipping comparison goal flaw var=", flaw.var,
+                        " (already refined, no new observed values)");
+            continue;
+        }
+        
         flaws.push_back(flaw);
         
         // Build inner vector of numeric flaws for this propositional flaw
@@ -913,6 +966,58 @@ vector<Fact> CEGAR::get_flaws(
         
         // Add the inner vector to the 2D structure
         detected_numeric_flaws.push_back(numeric_flaws_for_this_prop_flaw);
+    }
+
+    // DEBUG: Print goal flaw summary with already_split and observed values
+    if (!goal_flaws.empty()) {
+        logger->log(Verbosity::DEBUG, "\n=== GOAL FLAW DEBUG ===");
+        logger->log(Verbosity::DEBUG, "  Number of goal flaws: ", goal_flaws.size());
+        for (size_t i = 0; i < goal_flaws.size(); ++i) {
+            const Fact &flaw = goal_flaws[i];
+            logger->log(Verbosity::DEBUG, "  Goal flaw [", i, "]: var", flaw.var, 
+                       " = ", flaw.value);
+            
+            // Check if this is a comparison axiom
+            if (is_comparison_axiom_variable(flaw.var)) {
+                logger->log(Verbosity::DEBUG, "    (comparison axiom variable)");
+            }
+            
+            // Show associated numeric flaws  
+            if (i < detected_numeric_flaws.size()) {
+                logger->log(Verbosity::DEBUG, "    numeric flaws: ", detected_numeric_flaws[i].size());
+                for (const NumericFlaw &nf : detected_numeric_flaws[i]) {
+                    logger->log(Verbosity::DEBUG, "      num_", nf.numeric_var_id, 
+                               " concrete_value=", nf.concrete_value,
+                               " prop_var_id=", nf.prop_var_id);
+                    
+                    // Check already_split status for the numeric variable
+                    int local_idx = global_to_local_regular_numeric_var_ids[nf.numeric_var_id];
+                    if (local_idx >= 0 && local_idx < static_cast<int>(already_split.size())) {
+                        logger->log_no_endl(Verbosity::DEBUG, "        already_split values: {");
+                        bool first = true;
+                        for (ap_float v : already_split[local_idx]) {
+                            if (!first) logger->log_no_endl(Verbosity::DEBUG, ", ");
+                            first = false;
+                            logger->log_no_endl(Verbosity::DEBUG, v);
+                        }
+                        logger->log(Verbosity::DEBUG, "}");
+                    }
+                    
+                    // Check observed values
+                    if (local_idx >= 0 && local_idx < static_cast<int>(regular_numeric_var_values.size())) {
+                        logger->log_no_endl(Verbosity::DEBUG, "        observed values: {");
+                        bool first = true;
+                        for (ap_float v : regular_numeric_var_values[local_idx]) {
+                            if (!first) logger->log_no_endl(Verbosity::DEBUG, ", ");
+                            first = false;
+                            logger->log_no_endl(Verbosity::DEBUG, v);
+                        }
+                        logger->log(Verbosity::DEBUG, "}");
+                    }
+                }
+            }
+        }
+        logger->log(Verbosity::DEBUG, "=== END GOAL FLAW DEBUG ===\n");
     }
 
     return flaws;
@@ -1769,7 +1874,7 @@ bool CEGAR::can_refine_numeric_variable(
     // Constants should always have exactly 1 partition at their value
     // Derived variables are implicitly abstracted based on their source variables
     NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
-    if (numeric_var_id >= 0 && numeric_var_id < num_vars.size()) {
+    if (numeric_var_id >= 0 && static_cast<size_t>(numeric_var_id) < num_vars.size()) {
         NumericVariableProxy num_var = num_vars[numeric_var_id];
         numType var_type = num_var.get_var_type();
         
@@ -1959,6 +2064,7 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         NumericSplitStrategy numeric_split_strategy,
         const shared_ptr<utils::RandomNumberGenerator> &rng,
         const TaskProxy &task_proxy,
+
         unordered_set<int> &&init_split_var_ids,
         unordered_set<int> &&blacklisted_variables) {
     CEGAR cegar(
