@@ -74,9 +74,10 @@ private:
     // (mutable because get_flaws is const but needs to store flaws)
     mutable std::vector<std::vector<NumericFlaw>> detected_numeric_flaws;
     
-    // Track which propositional flaws we actually chose/refined in this iteration.
-    // Used to restrict numeric refinements to only those caused by the selected propositional flaws.
-    mutable std::unordered_set<int> last_selected_prop_flaw_vars;
+    // Track the INDICES of selected propositional flaws in the flaws vector.
+    // This is used to correctly access detected_numeric_flaws (which is indexed by position).
+    // Empty means no flaws were selected.
+    mutable std::vector<int> last_selected_flaw_indices;
     
     // Mapping from propositional variables (derived from comparison axioms)
     // to the numeric variables they depend on.
@@ -160,10 +161,46 @@ private:
         return comparison_axiom_dependencies.count(var_id) > 0;
     }
     
+    // Check if a comparison axiom has any dependent numeric variable with at least
+    // one observed value that hasn't been split yet.
+    bool comparison_has_unsplit_numeric_values(int prop_var_id) const {
+        auto it = comparison_axiom_dependencies.find(prop_var_id);
+        if (it == comparison_axiom_dependencies.end()) {
+            return false;  // No dependencies found
+        }
+        
+        for (int numeric_var_id : it->second) {
+            int local_idx = global_to_local_regular_numeric_var_ids[numeric_var_id];
+            if (local_idx < 0 || local_idx >= static_cast<int>(regular_numeric_var_values.size())) {
+                continue;
+            }
+            
+            // Check if any observed value for this numeric var hasn't been split yet
+            const auto &observed = regular_numeric_var_values[local_idx];
+            const auto &split_set = (local_idx < static_cast<int>(already_split.size())) 
+                                    ? already_split[local_idx] 
+                                    : std::unordered_set<ap_float>();
+            
+            for (ap_float val : observed) {
+                if (split_set.count(val) == 0) {
+                    // Found an unsplit value
+                    return true;
+                }
+            }
+        }
+        
+        return false;  // All observed values have been split
+    }
+    
     // Check if a comparison axiom flaw should be added:
     // - Non-comparison variables: always add
-    // - Comparison variables: add only if at least one dependent numeric variable 
-    //   has observed values (not already split)
+    // - Comparison variables: always add (don't filter based on current iteration's
+    //   observed values, as they vary semi-randomly between iterations)
+    // 
+    // We avoid early blacklisting because:
+    // - Observed values are cleared each iteration and depend on the abstract plan
+    // - A comparison with no splittable values NOW may have them in future iterations
+    // - The numeric refinement step will naturally handle "no valid candidates"
     bool should_add_comparison_flaw(int prop_var_id) const {
         // Non-comparison axiom variables are always valid flaws
         if (!is_comparison_axiom_variable(prop_var_id)) {
@@ -172,30 +209,11 @@ private:
             return true;
         }
         
-        // For comparison axioms, we need at least one dependent numeric var with observed values
-        auto it = comparison_axiom_dependencies.find(prop_var_id);
-        if (it == comparison_axiom_dependencies.end()) {
-            logger->log(Verbosity::DEBUG, "    should_add_comparison_flaw(var", prop_var_id, 
-                       "): NO (no dependencies found)");
-            return false;  // No dependencies found (shouldn't happen)
-        }
-        
-        for (int numeric_var_id : it->second) {
-            int local_idx = global_to_local_regular_numeric_var_ids[numeric_var_id];
-            if (local_idx >= 0 && 
-                local_idx < static_cast<int>(regular_numeric_var_values.size()) &&
-                !regular_numeric_var_values[local_idx].empty()) {
-                logger->log(Verbosity::DEBUG, "    should_add_comparison_flaw(var", prop_var_id, 
-                           "): YES (num_", numeric_var_id, " has ", 
-                           regular_numeric_var_values[local_idx].size(), " observed values)");
-                return true;
-            }
-        }
-        
-        // No observed values for any dependent numeric variable
+        // For comparison axioms, always add - don't filter based on current observed values
+        // The numeric refinement step will handle the case when no valid candidates exist
         logger->log(Verbosity::DEBUG, "    should_add_comparison_flaw(var", prop_var_id, 
-                   "): NO (all ", it->second.size(), " dependent numeric vars have empty observed values)");
-        return false;
+                   "): YES (comparison axiom - always allow, numeric refinement will filter)");
+        return true;
     }
     
     bool fix_numeric_flaws(const std::vector<NumericFlaw> &numeric_flaws,
@@ -1046,7 +1064,9 @@ bool CEGAR::fix_single_random_flaw(
     // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
     int repetitions = ceil(1 + std::log(flaws.size()));
     for (int i = 0; i < repetitions; ++i) {
-        Fact fact(*rng->choose(flaws));
+        // Choose a random index to preserve the mapping to detected_numeric_flaws
+        int chosen_idx = rng->random(flaws.size());
+        Fact fact = flaws[chosen_idx];
         
         if (can_refine_variable(abstraction_size, fact.var)) {
             add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
@@ -1055,15 +1075,29 @@ bool CEGAR::fix_single_random_flaw(
                 // Comparison axiom variables have domain {0=true, 1=false, 2=unevaluated}
                 // Flaws always occur with value 0 (true), and refinement splits true from {false, unevaluated}
                 assert(fact.value == 0);
-                domain_mapping[fact.var][0] = 1;
-                abstract_domain_sizes[fact.var] = 2;
+                
+                // If already refined propositionally (size >= 2), only do numeric refinement
+                if (abstract_domain_sizes[fact.var] >= 2) {
+                    logger->log(Verbosity::INFO, "Comparison axiom var ", fact.var,
+                               " already refined propositionally, selecting for numeric refinement");
+                } else {
+                    // Do the propositional refinement
+                    domain_mapping[fact.var][0] = 1;
+                    abstract_domain_sizes[fact.var] = 2;
+                    logger->log(Verbosity::INFO, "Refined propositional var ", fact.var,
+                               " (comparison axiom) at value ", fact.value);
+                }
             } else {
+                int old_size = abstract_domain_sizes[fact.var];
                 domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
                 abstract_domain_sizes[fact.var] += 1;
+                logger->log(Verbosity::INFO, "Refined propositional var ", fact.var,
+                           " at value ", fact.value,
+                           " (abstract domain size: ", old_size, " -> ", abstract_domain_sizes[fact.var], ")");
             }
-            // Record the chosen propositional flaw variable
-            last_selected_prop_flaw_vars.clear();
-            last_selected_prop_flaw_vars.insert(fact.var);
+            // Record the chosen flaw INDEX (not var ID) for numeric flaw lookup
+            last_selected_flaw_indices.clear();
+            last_selected_flaw_indices.push_back(chosen_idx);
 
             return true;
         } else {
@@ -1098,22 +1132,25 @@ bool CEGAR::fix_single_flaw_max_refined(
     }
     /* We do not repeat the selection of flaws since with this Method the abstraction size increase can not get lower
      * with another choice -> If the first choice does not work, none will! */
-    Fact fact (flaws[*rng->choose(current_flaw_candidates)]);
+    int chosen_idx = *rng->choose(current_flaw_candidates);
+    Fact fact(flaws[chosen_idx]);
     if (can_refine_variable(abstraction_size, fact.var)) {
         add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
         if (is_comparison_axiom_variable(fact.var)) {
             // Comparison axiom variables have domain {0=true, 1=false, 2=unevaluated}
             // Flaws always occur with value 0 (true), and refinement splits true from {false, unevaluated}
             assert(fact.value == 0);
-            domain_mapping[fact.var][0] = 1;
-            abstract_domain_sizes[fact.var] = 2;
+            if (abstract_domain_sizes[fact.var] < 2) {
+                domain_mapping[fact.var][0] = 1;
+                abstract_domain_sizes[fact.var] = 2;
+            }
         } else {
             domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
             abstract_domain_sizes[fact.var] += 1;
         }
-        // Record the chosen propositional flaw variable
-        last_selected_prop_flaw_vars.clear();
-        last_selected_prop_flaw_vars.insert(fact.var);
+        // Record the chosen flaw INDEX for numeric flaw lookup
+        last_selected_flaw_indices.clear();
+        last_selected_flaw_indices.push_back(chosen_idx);
         return true;
     }
     return false;
@@ -1123,9 +1160,19 @@ bool CEGAR::fix_flaws_per_atom(
     vector<Fact> &&flaws, DomainMapping &domain_mapping,
     int abstraction_size) {
     // FIXME: Bias for variables with low index.
-    sort(flaws.begin(), flaws.end());
+    // NOTE: Sorting breaks the correspondence with detected_numeric_flaws!
+    // We need to track original indices before sorting.
+    vector<pair<Fact, int>> flaws_with_indices;
+    for (size_t i = 0; i < flaws.size(); ++i) {
+        flaws_with_indices.push_back({flaws[i], static_cast<int>(i)});
+    }
+    sort(flaws_with_indices.begin(), flaws_with_indices.end(),
+         [](const pair<Fact, int> &a, const pair<Fact, int> &b) {
+             return a.first < b.first;
+         });
+    
     Fact last_flaw(-1, -1);
-    for (const Fact &flaw : flaws) {
+    for (const auto &[flaw, orig_idx] : flaws_with_indices) {
         if (flaw == last_flaw) {
             // duplicate
             continue;
@@ -1136,15 +1183,17 @@ bool CEGAR::fix_flaws_per_atom(
                 // Comparison axiom variables have domain {0=true, 1=false, 2=unevaluated}
                 // Flaws always occur with value 0 (true), and refinement splits true from {false, unevaluated}
                 assert(flaw.value == 0);
-                domain_mapping[flaw.var][0] = 1;
-                abstract_domain_sizes[flaw.var] = 2;
+                if (abstract_domain_sizes[flaw.var] < 2) {
+                    domain_mapping[flaw.var][0] = 1;
+                    abstract_domain_sizes[flaw.var] = 2;
+                }
             } else {
                 domain_mapping[flaw.var][flaw.value] =
                     abstract_domain_sizes[flaw.var];
                 abstract_domain_sizes[flaw.var] += 1;
             }
-            // Track all propositional flaws we refine
-            last_selected_prop_flaw_vars.insert(flaw.var);
+            // Track all flaw indices we refine
+            last_selected_flaw_indices.push_back(orig_idx);
             last_flaw = flaw;
         }
     }
@@ -1155,9 +1204,19 @@ bool CEGAR::fix_flaws_per_variable(
     vector<Fact> &&flaws, DomainMapping &domain_mapping,
     int abstraction_size) {
     // FIXME: Bias for variables with low index.
-    sort(flaws.begin(), flaws.end());
+    // NOTE: Sorting breaks the correspondence with detected_numeric_flaws!
+    // We need to track original indices before sorting.
+    vector<pair<Fact, int>> flaws_with_indices;
+    for (size_t i = 0; i < flaws.size(); ++i) {
+        flaws_with_indices.push_back({flaws[i], static_cast<int>(i)});
+    }
+    sort(flaws_with_indices.begin(), flaws_with_indices.end(),
+         [](const pair<Fact, int> &a, const pair<Fact, int> &b) {
+             return a.first < b.first;
+         });
+    
     Fact last_flaw(-1, -1);
-    for (const Fact &flaw : flaws) {
+    for (const auto &[flaw, orig_idx] : flaws_with_indices) {
         if (flaw.var > last_flaw.var
             && can_refine_variable(abstraction_size, flaw.var)) {
             /* Introduce new abstract value only for every new variable,
@@ -1167,13 +1226,15 @@ bool CEGAR::fix_flaws_per_variable(
                 // Comparison axiom variables have domain {0=true, 1=false, 2=unevaluated}
                 // Flaws always occur with value 0 (true), and refinement splits true from {false, unevaluated}
                 assert(flaw.value == 0);
-                domain_mapping[flaw.var][0] = 1;
-                abstract_domain_sizes[flaw.var] = 2;
+                if (abstract_domain_sizes[flaw.var] < 2) {
+                    domain_mapping[flaw.var][0] = 1;
+                    abstract_domain_sizes[flaw.var] = 2;
+                }
             } else {
                 abstract_domain_sizes[flaw.var] += 1;
             }
-            // Track each variable we refine
-            last_selected_prop_flaw_vars.insert(flaw.var);
+            // Track each flaw index we refine
+            last_selected_flaw_indices.push_back(orig_idx);
         } else if (flaw.var != last_flaw.var || flaw.value == last_flaw.value) {
             // Duplicate or does not fit size limit.
             continue;
@@ -1663,8 +1724,54 @@ DomainAbstraction CEGAR::build_abstraction(
 
         vector<Fact> flaws =
             get_flaws(task_proxy, concrete_init, abstraction);
-        // Reset the set of selected propositional flaws for this refinement step
-        last_selected_prop_flaw_vars.clear();
+        // Reset the selected flaw indices for this refinement step
+        last_selected_flaw_indices.clear();
+        
+        // FILTERING: Remove comparison axiom flaws that have no refinable underlying numeric flaws.
+        // This prevents wasted iterations where a comparison is selected but has nothing to refine.
+        // We keep the flaws and detected_numeric_flaws vectors synchronized (same indexing).
+        vector<Fact> filtered_flaws;
+        vector<vector<NumericFlaw>> filtered_detected_numeric_flaws;
+        
+        for (size_t i = 0; i < flaws.size(); ++i) {
+            const Fact &flaw = flaws[i];
+            
+            // Non-comparison flaws: always keep
+            if (!is_comparison_axiom_variable(flaw.var)) {
+                filtered_flaws.push_back(flaw);
+                if (i < detected_numeric_flaws.size()) {
+                    filtered_detected_numeric_flaws.push_back(detected_numeric_flaws[i]);
+                } else {
+                    filtered_detected_numeric_flaws.push_back({});
+                }
+                continue;
+            }
+            
+            // Comparison flaw: check if any underlying numeric flaw can be refined
+            bool has_refinable_numeric = false;
+            if (i < detected_numeric_flaws.size()) {
+                for (const NumericFlaw &nf : detected_numeric_flaws[i]) {
+                    int local_idx = global_to_local_regular_numeric_var_ids[nf.numeric_var_id];
+                    if (local_idx >= 0 && static_cast<size_t>(local_idx) < already_split.size() &&
+                        already_split[local_idx].count(nf.concrete_value) == 0) {
+                        has_refinable_numeric = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (has_refinable_numeric) {
+                filtered_flaws.push_back(flaw);
+                filtered_detected_numeric_flaws.push_back(detected_numeric_flaws[i]);
+            } else {
+                logger->log(Verbosity::DEBUG, "Filtering out comparison flaw var=", flaw.var,
+                           " (no refinable underlying numeric flaws)");
+            }
+        }
+        
+        // Replace with filtered versions
+        flaws = std::move(filtered_flaws);
+        detected_numeric_flaws = std::move(filtered_detected_numeric_flaws);
 
         // SUMMARY: Final flaws and dependencies for this iteration
         if (!flaws.empty() || !detected_numeric_flaws.empty()) {
@@ -1725,25 +1832,35 @@ DomainAbstraction CEGAR::build_abstraction(
         bool flaws_fixed = true;
         if (!flaws.empty()) {
             flaws_fixed = fix_flaws(move(flaws), domain_mapping, abstraction.size());
+            if (!flaws_fixed) {
+                logger->log(Verbosity::INFO, "Could not fix any propositional flaws (all at size limit or blacklisted)");
+            }
+        } else {
+            logger->log(Verbosity::INFO, "No propositional flaws to fix");
         }
         
         // Then try to fix numeric flaws (if any)
         bool numeric_flaws_fixed = true;
 
-        // Filter numeric flaws to only those originating from the propositional flaws
-        // we actually selected/refined above. If none were selected (e.g., no propositional
-        // refinement possible), fall back to all numeric flaws.
-        std::vector<NumericFlaw> filtered_numeric_flaws;
-        for (size_t last_id = 0; last_id < last_selected_prop_flaw_vars.size(); ++last_id) {
-            logger->log(Verbosity::DEBUG, "LAST ID: ", last_id, " detected_flaw size: ", detected_numeric_flaws.size());
-            logger->log(Verbosity::DEBUG, "last_selected_prop_flaw_vars: ", last_selected_prop_flaw_vars.size());
-            vector<NumericFlaw> regular_numeric_flaws = detected_numeric_flaws[last_id];
-            filtered_numeric_flaws.insert(filtered_numeric_flaws.end(),
-                                            regular_numeric_flaws.begin(),
-                                            regular_numeric_flaws.end());
+        // Get numeric flaws from the selected propositional flaws (by indices)
+        std::vector<NumericFlaw> selected_numeric_flaws;
+        for (int flaw_idx : last_selected_flaw_indices) {
+            if (flaw_idx >= 0 && 
+                static_cast<size_t>(flaw_idx) < detected_numeric_flaws.size()) {
+                const vector<NumericFlaw> &nflaws = detected_numeric_flaws[flaw_idx];
+                selected_numeric_flaws.insert(selected_numeric_flaws.end(),
+                                              nflaws.begin(), nflaws.end());
+            }
         }
+        logger->log(Verbosity::DEBUG, "Collected ", selected_numeric_flaws.size(), 
+                   " numeric flaws from ", last_selected_flaw_indices.size(), " flaw indices");
 
-        numeric_flaws_fixed = fix_numeric_flaws(filtered_numeric_flaws, abstraction.size(), task_proxy);
+        if (selected_numeric_flaws.empty()) {
+            logger->log(Verbosity::INFO, "No numeric flaws to fix (selected list is empty)");
+        } else {
+            logger->log(Verbosity::INFO, "Attempting to fix ", selected_numeric_flaws.size(), " numeric flaws");
+        }
+        numeric_flaws_fixed = fix_numeric_flaws(selected_numeric_flaws, abstraction.size(), task_proxy);
         
         if (!flaws_fixed || !numeric_flaws_fixed) {
             assert(max_abstraction_size != numeric_limits<int>::max());
@@ -1848,9 +1965,15 @@ bool CEGAR::can_refine_variable(
     }
     
     // Comparison axiom variables can only be refined once (size 1 -> 2).
-    // If already refined (size >= 2), return true to signal that the underlying
-    // numeric variables can still be refined, but skip propositional refinement.
+    // If already refined (size >= 2), still return true to allow numeric refinement.
+    // We don't check for unsplit values here because:
+    // - Observed values vary semi-randomly between iterations
+    // - A comparison with no splittable values NOW may have them later
+    // - The fix_single_random_flaw will skip the no-op propositional refinement
+    // - The numeric refinement step will naturally handle "no valid candidates"
     if (is_comparison_axiom_variable(var_id) && abstract_domain_sizes[var_id] >= 2) {
+        logger->log(Verbosity::DEBUG, "Comparison axiom var ", var_id,
+                   " already refined, allowing for potential numeric refinement");
         return true;
     }
     
@@ -2007,8 +2130,10 @@ bool CEGAR::fix_numeric_flaws(
         
         // Check if this split value has already been used
         if (already_split[local_id].count(split_value)) {
-            logger->log(Verbosity::DEBUG, "DEBUG: Split value ", split_value,
-                           " for num_", numeric_var_id, " already in already_split");
+            logger->log(Verbosity::INFO, "WARNING: Split value ", split_value,
+                           " for num_", numeric_var_id, " already in already_split - flaw detection produced duplicate!");
+            // This should not happen - if we already split at this value, the flaw should have been resolved
+            // Continue for now but log at INFO level to help diagnose
             continue;
         }
         
@@ -2017,7 +2142,7 @@ bool CEGAR::fix_numeric_flaws(
     
     // If no valid candidates, return false (no blacklisting - candidates may exist in future iterations)
     if (valid_candidates.empty()) {
-        logger->log(Verbosity::DEBUG, "DEBUG: No valid numeric flaw candidates to refine");
+        logger->log(Verbosity::INFO, "No valid numeric flaw candidates to refine (all already split or blacklisted)");
         return false;
     }
     
