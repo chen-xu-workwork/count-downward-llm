@@ -216,6 +216,14 @@ private:
         return true;
     }
     
+    // Determine split direction for numeric refinement
+    bool determine_include_in_lower(
+        int prop_var_id,
+        int split_var_id,
+        ap_float split_value,
+        const std::unordered_map<int, ap_float> &concrete_values,
+        const TaskProxy &task_proxy) const;
+    
     bool fix_numeric_flaws(const std::vector<NumericFlaw> &numeric_flaws,
                           int abstraction_size,
                           const TaskProxy &task_proxy);
@@ -1547,6 +1555,10 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         // Store the mapping
         comparison_axiom_dependencies[prop_var_id] = regular_vars;
         
+        // Store comparison axiom info for determining split direction
+        comp_operator comp_op = axiom.get_comparison_operator_type();
+        comparison_axiom_info[prop_var_id] = ComparisonInfo{left_var_id, right_var_id, static_cast<int>(comp_op)};
+        
         // Debug output for ALL comparison axioms
         logger->log(Verbosity::DEBUG, "  fdr_", prop_var_id, " depends on:");
         logger->log(Verbosity::DEBUG, "    left_var=num_", left_var_id,
@@ -2091,6 +2103,217 @@ ap_float CEGAR::extract_threshold_from_comparison(
     return threshold;
 }
 
+// Helper function to compute ranges for all numeric variables given a set of 
+// base ranges for regular variables. Propagates through assignment axioms.
+// This follows the same pattern as domain_abstraction_factory.cc
+static std::unordered_map<int, NumericRange> compute_all_numeric_ranges(
+    const std::unordered_map<int, NumericRange> &base_ranges,
+    const TaskProxy &task_proxy) {
+    
+    std::unordered_map<int, NumericRange> ranges = base_ranges;
+    
+    // Add constants
+    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+    for (size_t i = 0; i < num_vars.size(); ++i) {
+        if (num_vars[i].get_var_type() == numType::constant) {
+            ap_float val = num_vars[i].get_initial_state_value();
+            ranges[i] = NumericRange(val, val, true, true);
+        }
+    }
+    
+    // Propagate through assignment axioms (fixpoint)
+    AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+    bool changed = true;
+    int iterations = 0;
+    const int MAX_ITERATIONS = 100;  // Safety cap
+    
+    while (changed && iterations < MAX_ITERATIONS) {
+        changed = false;
+        iterations++;
+        
+        for (AssignmentAxiomProxy axiom : assignment_axioms) {
+            int derived_id = axiom.get_assignment_variable().get_id();
+            int left_id = axiom.get_left_variable().get_id();
+            int right_id = axiom.get_right_variable().get_id();
+            
+            // Check if both operands are known
+            if (ranges.count(left_id) == 0 || ranges.count(right_id) == 0) {
+                continue;
+            }
+            
+            NumericRange l_range = ranges[left_id];
+            NumericRange r_range = ranges[right_id];
+            
+            NumericRange res = NumericDomainMapping::apply_range_operation(
+                l_range, r_range, axiom.get_arithmetic_operator_type());
+            
+            auto it = ranges.find(derived_id);
+            if (it == ranges.end() || 
+                it->second.lower != res.lower || it->second.upper != res.upper ||
+                it->second.lower_inclusive != res.lower_inclusive || 
+                it->second.upper_inclusive != res.upper_inclusive) {
+                ranges[derived_id] = res;
+                changed = true;
+            }
+        }
+    }
+    
+    return ranges;
+}
+
+// Helper function to evaluate a comparison axiom given computed ranges.
+// Returns: 0 = definitely true, 1 = definitely false, 2 = unknown/ambiguous
+static int evaluate_comparison_with_ranges(
+    int prop_var_id,
+    const std::unordered_map<int, NumericRange> &ranges,
+    const TaskProxy &task_proxy) {
+    
+    // Find the comparison axiom for this prop_var_id
+    ComparisonAxiomsProxy comp_axioms = task_proxy.get_comparison_axioms();
+    for (ComparisonAxiomProxy axiom : comp_axioms) {
+        if (axiom.get_true_fact().get_variable().get_id() != prop_var_id) {
+            continue;
+        }
+        
+        int left_id = axiom.get_left_variable().get_id();
+        int right_id = axiom.get_right_variable().get_id();
+        
+        // Get ranges for left and right operands
+        auto left_it = ranges.find(left_id);
+        auto right_it = ranges.find(right_id);
+        
+        if (left_it == ranges.end() || right_it == ranges.end()) {
+            // Missing range - return unknown
+            return 2;
+        }
+        
+        return NumericDomainMapping::evaluate_comparison(
+            axiom.get_comparison_operator_type(), left_it->second, right_it->second);
+    }
+    
+    // Comparison axiom not found
+    return 2;
+}
+
+// Helper function to determine the split direction for a numeric variable.
+// Returns true if include_in_lower should be true (split value goes in lower range).
+// 
+// The goal is to choose the split direction such that the abstract comparison
+// evaluates to FALSE (not UNKNOWN) for the partition containing the concrete value.
+//
+// Algorithm:
+// 1. Get the set of regular numeric variables that the comparison depends on
+// 2. Create base ranges: singleton [v, v] for all variables except split_var
+// 3. Test both split directions for split_var:
+//    - include_in_lower=true: use range (-inf, split_value]
+//    - include_in_lower=false: use range [split_value, inf)
+// 4. Propagate through assignment axioms to get derived variable ranges
+// 5. Evaluate the comparison and prefer the direction that gives FALSE (=1)
+bool CEGAR::determine_include_in_lower(
+    int prop_var_id,
+    int split_var_id,
+    ap_float split_value,
+    const std::unordered_map<int, ap_float> &concrete_values,
+    const TaskProxy &task_proxy) const {
+    
+    // Get the set of regular variables this comparison depends on
+    auto deps_it = comparison_axiom_dependencies.find(prop_var_id);
+    if (deps_it == comparison_axiom_dependencies.end()) {
+        logger->log(Verbosity::DEBUG, "determine_include_in_lower: No dependencies for prop_var_id ",
+                   prop_var_id, ", defaulting to false");
+        return false;
+    }
+    
+    const std::unordered_set<int> &dependent_vars = deps_it->second;
+    
+    // Build base ranges: singleton [v, v] for all variables except split_var
+    std::unordered_map<int, NumericRange> base_ranges_lower;  // For include_in_lower=true
+    std::unordered_map<int, NumericRange> base_ranges_upper;  // For include_in_lower=false
+    
+    for (int var_id : dependent_vars) {
+        if (var_id == split_var_id) {
+            // For the variable being split, use the two test ranges
+            // include_in_lower=true: (-inf, split_value]
+            base_ranges_lower[var_id] = NumericRange(
+                -std::numeric_limits<ap_float>::infinity(), split_value, 
+                false, true);  // (-inf, split_value]
+            
+            // include_in_lower=false: [split_value, inf)
+            base_ranges_upper[var_id] = NumericRange(
+                split_value, std::numeric_limits<ap_float>::infinity(),
+                true, false);  // [split_value, inf)
+        } else {
+            // For other variables, use singleton range at concrete value
+            auto val_it = concrete_values.find(var_id);
+            if (val_it != concrete_values.end()) {
+                NumericRange singleton(val_it->second, val_it->second, true, true);
+                base_ranges_lower[var_id] = singleton;
+                base_ranges_upper[var_id] = singleton;
+            } else {
+                // No concrete value available - use full range
+                // This shouldn't happen if concrete_values is built correctly
+                logger->log(Verbosity::DEBUG, "determine_include_in_lower: Missing concrete value for var ",
+                           var_id, ", using full range");
+                NumericRange full(-std::numeric_limits<ap_float>::infinity(),
+                                 std::numeric_limits<ap_float>::infinity(),
+                                 false, false);
+                base_ranges_lower[var_id] = full;
+                base_ranges_upper[var_id] = full;
+            }
+        }
+    }
+    
+    // Compute all ranges (including derived variables) for both cases
+    std::unordered_map<int, NumericRange> all_ranges_lower = 
+        compute_all_numeric_ranges(base_ranges_lower, task_proxy);
+    std::unordered_map<int, NumericRange> all_ranges_upper = 
+        compute_all_numeric_ranges(base_ranges_upper, task_proxy);
+    
+    // Evaluate the comparison for both cases
+    // Returns: 0 = definitely true, 1 = definitely false, 2 = unknown
+    int eval_lower = evaluate_comparison_with_ranges(prop_var_id, all_ranges_lower, task_proxy);
+    int eval_upper = evaluate_comparison_with_ranges(prop_var_id, all_ranges_upper, task_proxy);
+    
+    logger->log(Verbosity::DEBUG, "determine_include_in_lower for prop_var_id=", prop_var_id,
+               ", split_var=", split_var_id, ", split_value=", split_value);
+    logger->log(Verbosity::DEBUG, "  eval with (-inf, ", split_value, "]: ", 
+               (eval_lower == 0 ? "TRUE" : (eval_lower == 1 ? "FALSE" : "UNKNOWN")));
+    logger->log(Verbosity::DEBUG, "  eval with [", split_value, ", inf): ",
+               (eval_upper == 0 ? "TRUE" : (eval_upper == 1 ? "FALSE" : "UNKNOWN")));
+    
+    // Prefer FALSE (=1) over UNKNOWN (=2) over TRUE (=0)
+    // We want the comparison to be FALSE in the abstract state
+    if (eval_lower == 1 && eval_upper != 1) {
+        // Only include_in_lower=true gives FALSE
+        logger->log(Verbosity::DEBUG, "  -> Choosing include_in_lower=true (gives FALSE)");
+        return true;
+    } else if (eval_upper == 1 && eval_lower != 1) {
+        // Only include_in_lower=false gives FALSE
+        logger->log(Verbosity::DEBUG, "  -> Choosing include_in_lower=false (gives FALSE)");
+        return false;
+    } else if (eval_lower == 1 && eval_upper == 1) {
+        // Both give FALSE - either works, default to false
+        logger->log(Verbosity::DEBUG, "  -> Both give FALSE, defaulting to include_in_lower=false");
+        return false;
+    } else if (eval_lower == 2 && eval_upper == 2) {
+        // Both give UNKNOWN - this shouldn't happen in theory, but default to false
+        logger->log(Verbosity::DEBUG, "  -> Both give UNKNOWN, defaulting to include_in_lower=false");
+        return false;
+    } else if (eval_lower == 2) {
+        // Only lower gives UNKNOWN (upper gives TRUE) - prefer UNKNOWN over TRUE
+        logger->log(Verbosity::DEBUG, "  -> Choosing include_in_lower=true (gives UNKNOWN over TRUE)");
+        return true;
+    } else if (eval_upper == 2) {
+        // Only upper gives UNKNOWN (lower gives TRUE) - prefer UNKNOWN over TRUE
+        logger->log(Verbosity::DEBUG, "  -> Choosing include_in_lower=false (gives UNKNOWN over TRUE)");
+        return false;
+    } else {
+        // Both give TRUE - doesn't matter, default to false
+        logger->log(Verbosity::DEBUG, "  -> Both give TRUE, defaulting to include_in_lower=false");
+        return false;
+    }
+}
+
 bool CEGAR::fix_numeric_flaws(
     const vector<NumericFlaw> &numeric_flaws, int abstraction_size, const TaskProxy &task_proxy) {
     
@@ -2098,11 +2321,19 @@ bool CEGAR::fix_numeric_flaws(
         return true;
     }
     
+    // Build a map of concrete values for each numeric variable and prop_var_id
+    // This is needed for determine_include_in_lower
+    std::unordered_map<int, std::unordered_map<int, ap_float>> concrete_values_by_prop_var;
+    for (const NumericFlaw &flaw : numeric_flaws) {
+        concrete_values_by_prop_var[flaw.prop_var_id][flaw.numeric_var_id] = flaw.concrete_value;
+    }
+    
     // Build list of valid candidates: non-blacklisted numeric vars with split values not already split
     struct Candidate {
         int numeric_var_id;
         ap_float split_value;
         int local_id;
+        int prop_var_id;  // Added to track which comparison axiom this flaw is from
     };
     vector<Candidate> valid_candidates;
     
@@ -2137,7 +2368,7 @@ bool CEGAR::fix_numeric_flaws(
             continue;
         }
         
-        valid_candidates.push_back({numeric_var_id, split_value, local_id});
+        valid_candidates.push_back({numeric_var_id, split_value, local_id, flaw.prop_var_id});
     }
     
     // If no valid candidates, return false (no blacklisting - candidates may exist in future iterations)
@@ -2151,13 +2382,23 @@ bool CEGAR::fix_numeric_flaws(
     int numeric_var_id = selected.numeric_var_id;
     ap_float split_value = selected.split_value;
     int local_id = selected.local_id;
+    int prop_var_id = selected.prop_var_id;
     
     // Assert that split_value is not NaN (it should have been replaced in get_flaws)
     assert(!std::isnan(split_value));
     
+    // Determine split direction to ensure the comparison evaluates to FALSE
+    // in the abstract state containing the concrete flaw state
+    const std::unordered_map<int, ap_float> &concrete_values = concrete_values_by_prop_var[prop_var_id];
+    bool include_in_lower = determine_include_in_lower(
+        prop_var_id, numeric_var_id, split_value, concrete_values, task_proxy);
+    
+    logger->log(Verbosity::DEBUG, "Split direction for num_", numeric_var_id,
+               " at ", split_value, ": include_in_lower=", include_in_lower);
+    
     int old_num_partitions = numeric_domain_mapping[numeric_var_id]->get_num_partitions();
     
-    int after_concrete_split = numeric_domain_mapping[numeric_var_id]->split_at(split_value);
+    int after_concrete_split = numeric_domain_mapping[numeric_var_id]->split_at(split_value, include_in_lower);
     already_split[local_id].insert(split_value);
     int new_num_partitions = after_concrete_split;
     
@@ -2170,7 +2411,8 @@ bool CEGAR::fix_numeric_flaws(
         
         logger->log(Verbosity::INFO, "Refined num_", numeric_var_id,
                        " at value ", split_value,
-                       " (partitions: ", old_num_partitions, " -> ", new_num_partitions, ")");
+                       " (partitions: ", old_num_partitions, " -> ", new_num_partitions, ")",
+                       " include_in_lower=", include_in_lower);
         return true;
     } else {
         // No new partitions created - splits already exist
