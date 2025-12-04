@@ -107,24 +107,16 @@ int DomainAbstraction::hash_index(const vector<int> &state) const {
 
 ap_float DomainAbstraction::get_value(const State &state) const {
     if (!has_numeric_variables) {
-        // Purely propositional case - use direct hash indexing
-        // Build the abstract state from the concrete state (only propositional variables)
         vector<int> abstract_state(state.size());
         for (size_t i = 0; i < state.size(); ++i) {
             abstract_state[i] = state[i].get_value();
         }
         
-        // Compute the hash index for the abstract state
         int index = hash_index(abstract_state);
 
         
-        // Return the distance value from the distances vector
         return distances[index];
     } else {
-        // Mixed propositional and numeric case - use state registry
-        
-        // Compute the abstract state hash using the utility function that includes
-        // full cascade evaluation of derived numeric variables and comparison axioms
         size_t state_hash = compute_abstract_state_hash(
             state, task_proxy, domain_mapping, 
             numeric_domain_mapping, hash_multipliers);
@@ -177,11 +169,20 @@ ap_float DomainAbstraction::get_value(const State &state) const {
             cout << "  State hash: " << state_hash << "\n";
         }
 
-        // Create DomainAbstractionState and look it up in state registry
-        DomainAbstractionState abs_state(state_hash);
-        
         assert(state_hash < distances.size() && state_hash >= 0);
         ap_float distance = distances[state_hash];
+        if (distance < 0) {
+            for (size_t i = 0; i < distances.size(); ++i) {
+                string dec = decode_abstract_state(i, 
+                                            get_domain_sizes_from_mapping(domain_mapping), 
+                                            numeric_domain_mapping, 
+                                            hash_multipliers,
+                                            task_proxy);
+
+
+                cout << "distance[" << i << "] = " << distances[i] << " -> " << dec << endl;
+            }
+        }
 
         if (false) {
             for (size_t i = 0; i < distances.size(); ++i) {
@@ -190,9 +191,6 @@ ap_float DomainAbstraction::get_value(const State &state) const {
                                             numeric_domain_mapping, 
                                             hash_multipliers,
                                             task_proxy);
-
-                int sum = 0;
-
 
 
                 cout << "distance[" << i << "] = " << distances[i] << " -> " << dec << endl;
@@ -211,7 +209,6 @@ ap_float DomainAbstraction::get_value(const State &state) const {
         if (!is_concrete_goal) {
             distance = std::max(distance, min_operator_cost);
         }
-
         return distance;
     }
 }
