@@ -997,6 +997,14 @@ void DomainAbstractionFactory::compute_distances(
     int dijkstra_iterations = 0;
     int total_expansions = 0;
     bool first_goal_expanded = false;
+
+    int init_hash = compute_abstract_state_hash(
+                        task_proxy.get_initial_state(),
+                        task_proxy,
+                        domain_mapping,
+                        numeric_domain_mapping,
+                        hash_multipliers);
+                        
     while (!pq.empty()) {
         pair<int, int> node = pq.pop();
         int distance = node.first;
@@ -1171,12 +1179,7 @@ void DomainAbstractionFactory::compute_distances(
                 if (alternative_cost < distances[predecessor]) {
                     total_expansions++;
 
-                    int init_hash = compute_abstract_state_hash(
-                        task_proxy.get_initial_state(),
-                        task_proxy,
-                        domain_mapping,
-                        numeric_domain_mapping,
-                        hash_multipliers);
+                    
 
                     distances[predecessor] = alternative_cost;
                     

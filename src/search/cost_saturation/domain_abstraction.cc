@@ -855,6 +855,9 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
 
     vector<ap_float> distances(num_states, INF);
 
+    // Compute initial state hash for optimization (always process initial state)
+    int init_hash = abstraction_function->get_abstract_state_id(task_proxy.get_initial_state());
+
     // Initialize queue with goal states that are numerically/comparison-feasible.
     AdaptiveQueue<int> pq;
     for (int goal : goal_states) {
@@ -911,7 +914,21 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
                 assert(utils::in_bounds(predecessor, distances));
                 if (alternative_cost < distances[predecessor]) {
                     distances[predecessor] = alternative_cost;
-                    pq.push(alternative_cost, predecessor);
+                    // Optimization: Only insert into pq if this is the canonical
+                    // (smallest index) representative among all alternatives,
+                    // OR if it equals the initial state (always insert initial).
+                    bool insert_into_pq = true;
+                    if (init_hash != predecessor) {
+                        for (int alt_state : predecessors) {
+                            if (alt_state < predecessor) {
+                                insert_into_pq = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (insert_into_pq) {
+                        pq.push(alternative_cost, predecessor);
+                    }
                 }
             }
         }
@@ -921,9 +938,6 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
     // for (size_t i = 0; i < distances.size(); ++i) {
     //     cout << "Distance to goal for state " << i << ": " << distances[i] << endl;
     // }
-
-    // get initial state
-    int initial_state_index = abstraction_function->get_abstract_state_id(task_proxy.get_initial_state());
 
     return distances;
 }
