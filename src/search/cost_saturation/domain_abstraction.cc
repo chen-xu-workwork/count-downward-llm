@@ -924,14 +924,7 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
 
     // get initial state
     int initial_state_index = abstraction_function->get_abstract_state_id(task_proxy.get_initial_state());
-    //cout << "Distance to goal from initial state!!!: "
-    //     << distances[initial_state_index] << endl;
-    if (distances[initial_state_index] == INF) {
-        cout << "Initial state is dead-end!!!" << endl;
-        string result = decode_domain_abstraction();
-        cout << result << endl;
-        exit(0);
-    }
+
     return distances;
 }
 
