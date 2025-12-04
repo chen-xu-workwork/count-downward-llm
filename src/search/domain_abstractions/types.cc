@@ -42,7 +42,7 @@ bool NumericRange::overlaps_with(ap_float other_lower, ap_float other_upper,
 }
 
 // StandardSplitMapping implementation
-int StandardSplitMapping::split_at(ap_float n) {
+int StandardSplitMapping::split_at(ap_float n, bool include_in_lower) {
     // Find the range that contains n
     int range_index = -1;
     for (size_t i = 0; i < ranges.size(); ++i) {
@@ -65,8 +65,11 @@ int StandardSplitMapping::split_at(ap_float n) {
     }
     
     // Split the range into two parts:
-    // Keep the old partition index for the lower part [old_lower, n)
-    // Create a new partition index for the upper part [n, old_upper)
+    // Keep the old partition index for the lower part
+    // Create a new partition index for the upper part
+    //
+    // If include_in_lower=false (default): [old_lower, n) and [n, old_upper)
+    // If include_in_lower=true:            [old_lower, n] and (n, old_upper)
     int num_partitions = get_num_partitions();
     int old_partition = old_range.partition_index;  // Reuse for lower part
     int new_partition = num_partitions;             // New index for upper part
@@ -76,20 +79,25 @@ int StandardSplitMapping::split_at(ap_float n) {
     bool old_lower_inclusive = old_range.lower_inclusive;
     bool old_upper_inclusive = old_range.upper_inclusive;
     
-    // Replace the old range with the lower part [old_lower, n), keeping old partition index
-    // Lower boundary comes from original range, upper boundary is exclusive at n
-    ranges[range_index] = NumericRange(old_lower, n, old_lower_inclusive, false, old_partition);
+    // Determine boundary inclusivity based on include_in_lower
+    bool lower_part_upper_inclusive = include_in_lower;   // n included in lower part?
+    bool upper_part_lower_inclusive = !include_in_lower;  // n included in upper part?
     
-    // Insert the upper part [n, old_upper) with new partition index
-    // Lower boundary is inclusive at n, upper boundary comes from original range
+    // Replace the old range with the lower part, keeping old partition index
+    ranges[range_index] = NumericRange(old_lower, n, old_lower_inclusive, 
+                                        lower_part_upper_inclusive, old_partition);
+    
+    // Insert the upper part with new partition index
     ranges.insert(ranges.begin() + range_index + 1,
-                  NumericRange(n, old_upper, true, old_upper_inclusive, new_partition));
+                  NumericRange(n, old_upper, upper_part_lower_inclusive, 
+                               old_upper_inclusive, new_partition));
     
     return get_num_partitions();
 }
 
 // ExclusionSplitMapping implementation
-int ExclusionSplitMapping::split_at(ap_float n) {
+// include_in_lower parameter is ignored for exclusion strategy
+int ExclusionSplitMapping::split_at(ap_float n, bool /*include_in_lower*/) {
     // Find the range containing n
     int range_index = -1;
     for (size_t i = 0; i < ranges.size(); ++i) {

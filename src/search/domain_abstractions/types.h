@@ -197,7 +197,11 @@ public:
     // Split at a given value n
     // Returns the number of partitions after splitting
     // Subclasses implement different splitting strategies
-    virtual int split_at(ap_float n) = 0;
+    // For StandardSplitMapping, include_in_lower determines if n is in lower range:
+    //   include_in_lower=true:  [lower, n] and (n, upper)
+    //   include_in_lower=false: [lower, n) and [n, upper) (default, current behavior)
+    // For other strategies (Exclusion, Constant), the parameter is ignored.
+    virtual int split_at(ap_float n, bool include_in_lower = false) = 0;
     
     // Get the number of partitions (max partition index + 1)
     int get_num_partitions() const {
@@ -368,7 +372,8 @@ public:
     
     // Constants cannot be split - just return current number of partitions (1)
     // This indicates no split occurred
-    int split_at(ap_float n) override {
+    // include_in_lower parameter is ignored for constants
+    int split_at(ap_float n, bool /*include_in_lower*/ = false) override {
         std::cout << "WARNING: Attempted to split constant variable with value " 
                   << constant_value << " at " << n 
                   << " - ignoring (constants have fixed value)" << std::endl;
@@ -406,7 +411,8 @@ public:
 class StandardSplitMapping : public NumericDomainMapping {
 public:
     // Split at point x: creates [lower, x) and [x, upper) with different partitions
-    int split_at(ap_float n) override;
+    // If include_in_lower=true: creates [lower, x] and (x, upper) instead
+    int split_at(ap_float n, bool include_in_lower = false) override;
     
     // Clone method for polymorphic copying
     std::unique_ptr<NumericDomainMapping> clone() const override {
@@ -419,7 +425,8 @@ public:
 class ExclusionSplitMapping : public NumericDomainMapping {
 public:
     // Split at point x: (-inf, x) and (x, inf) share one partition, [x,x] gets another
-    int split_at(ap_float n) override;
+    // include_in_lower parameter is ignored for exclusion strategy
+    int split_at(ap_float n, bool include_in_lower = false) override;
     
     // Clone method for polymorphic copying
     std::unique_ptr<NumericDomainMapping> clone() const override {
