@@ -77,11 +77,11 @@ CanonicalHeuristic::CanonicalHeuristic(const Options &opts)
 
 int CanonicalHeuristic::compute_heuristic(const State &ancestor_state) {
     State state = convert_ancestor_state(ancestor_state);
-    vector<int> h_values_for_state;
+    vector<ap_float> h_values_for_state;
     h_values_for_state.reserve(abstraction_functions.size());
     for (size_t i = 0; i < abstraction_functions.size(); ++i) {
         int state_id = abstraction_functions[i]->get_abstract_state_id(state);
-        int h = h_values_by_abstraction[i][state_id];
+        ap_float h = h_values_by_abstraction[i][state_id];
         if (h == INF) {
             return DEAD_END;
         }
@@ -90,13 +90,13 @@ int CanonicalHeuristic::compute_heuristic(const State &ancestor_state) {
     return compute_max_over_sums(h_values_for_state);
 }
 
-int CanonicalHeuristic::compute_max_over_sums(
-    const vector<int> &h_values_for_state) const {
-    int max_h = 0;
+ap_float CanonicalHeuristic::compute_max_over_sums(
+    const vector<ap_float> &h_values_for_state) const {
+    ap_float max_h = 0;
     for (const MaxAdditiveSubset &additive_subset : max_additive_subsets) {
-        int sum_h = 0;
+        ap_float sum_h = 0;
         for (int abstraction_id : additive_subset) {
-            int h = h_values_for_state[abstraction_id];
+            ap_float h = h_values_for_state[abstraction_id];
             assert(h != INF);
             sum_h += h;
             assert(sum_h >= 0);

@@ -23,10 +23,10 @@ MaxHeuristic::MaxHeuristic(const Options &opts, const Abstractions &abstractions
 
 int MaxHeuristic::compute_heuristic(const State &ancestor_state) {
     State state = convert_ancestor_state(ancestor_state);
-    int max_h = 0;
+    ap_float max_h = 0;
     for (size_t i = 0; i < abstraction_functions.size(); ++i) {
         int local_state_id = abstraction_functions[i]->get_abstract_state_id(state);
-        int h = h_values_by_abstraction[i][local_state_id];
+        ap_float h = h_values_by_abstraction[i][local_state_id];
         assert(h >= 0);
         if (h == INF) {
             return DEAD_END;

@@ -1006,8 +1006,8 @@ void DomainAbstractionFactory::compute_distances(
                         hash_multipliers);
                         
     while (!pq.empty()) {
-        pair<int, int> node = pq.pop();
-        int distance = node.first;
+        pair<ap_float, int> node = pq.pop();
+        ap_float distance = node.first;
         int state_index = node.second;
         dijkstra_iterations++;
         if (distance > distances[state_index]) {

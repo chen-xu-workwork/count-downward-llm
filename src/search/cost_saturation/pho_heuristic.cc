@@ -37,13 +37,13 @@ PhO::PhO(
     int num_abstractions = abstractions.size();
     int num_operators = costs.size();
 
-    vector<vector<int>> saturated_costs_by_abstraction;
+    vector<vector<ap_float>> saturated_costs_by_abstraction;
     saturated_costs_by_abstraction.reserve(num_abstractions);
     h_values_by_abstraction.reserve(num_abstractions);
     for (int i = 0; i < num_abstractions; ++i) {
         const Abstraction &abstraction = *abstractions[i];
-        vector<int> h_values = abstraction.compute_goal_distances(costs);
-        vector<int> saturated_costs = abstraction.compute_saturated_costs(h_values);
+        vector<ap_float> h_values = abstraction.compute_goal_distances(costs);
+        vector<ap_float> saturated_costs = abstraction.compute_saturated_costs(h_values);
         h_values_by_abstraction.push_back(move(h_values));
         saturated_costs_by_abstraction.push_back(move(saturated_costs));
     }
@@ -61,7 +61,7 @@ PhO::PhO(
         lp::LPConstraint constraint(-infinity, costs[op_id]);
         for (int i = 0; i < num_abstractions; ++i) {
             if (saturated) {
-                int scf_h = saturated_costs_by_abstraction[i][op_id];
+                ap_float scf_h = saturated_costs_by_abstraction[i][op_id];
                 if (scf_h == -INF) {
                     // The constraint is always satisfied and we can ignore it.
                     continue;
@@ -92,17 +92,17 @@ CostPartitioningHeuristic PhO::compute_cost_partitioning(
     int num_operators = costs.size();
 
     for (int i = 0; i < num_abstractions; ++i) {
-        int h = h_values_by_abstraction[i][abstract_state_ids[i]];
+        ap_float h = h_values_by_abstraction[i][abstract_state_ids[i]];
         lp_solver.set_objective_coefficient(i, h);
     }
     lp_solver.solve();
 
     if (!lp_solver.has_optimal_solution()) {
         // State is unsolvable.
-        vector<int> zero_costs(num_operators, 0);
+        vector<ap_float> zero_costs(num_operators, 0);
         CostPartitioningHeuristic cp_heuristic;
         for (int i = 0; i < num_abstractions; ++i) {
-            vector<int> h_values = abstractions[i]->compute_goal_distances(zero_costs);
+            vector<ap_float> h_values = abstractions[i]->compute_goal_distances(zero_costs);
             cp_heuristic.add_h_values(i, move(h_values));
         }
         return cp_heuristic;
@@ -120,9 +120,9 @@ CostPartitioningHeuristic PhO::compute_cost_partitioning(
             // This abstraction is assigned a weight of zero, so we can skip it.
             continue;
         }
-        vector<int> weighted_h_values;
+        vector<ap_float> weighted_h_values;
         weighted_h_values.reserve(h_values_by_abstraction[i].size());
-        for (int h : h_values_by_abstraction[i]) {
+        for (ap_float h : h_values_by_abstraction[i]) {
             assert(weight > 0);
             weighted_h_values.push_back(h == INF ? INF : weight * h);
         }
