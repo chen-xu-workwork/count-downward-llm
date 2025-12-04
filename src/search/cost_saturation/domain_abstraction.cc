@@ -920,7 +920,7 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
                     bool insert_into_pq = true;
                     if (init_hash != predecessor) {
                         for (int alt_state : predecessors) {
-                            if (alt_state < predecessor) {
+                            if (alt_state > predecessor) {
                                 insert_into_pq = false;
                                 break;
                             }

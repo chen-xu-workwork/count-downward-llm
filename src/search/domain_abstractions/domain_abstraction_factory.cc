@@ -1209,9 +1209,7 @@ void DomainAbstractionFactory::compute_distances(
     
     // DEBUG: Print initial state distance
     State initial_state = task_proxy.get_initial_state();
-    int init_hash = compute_abstract_state_hash(initial_state, task_proxy, domain_mapping, 
-                                                  numeric_domain_mapping, hash_multipliers);
-    
+   
     // Track which iteration this is for debug output
     static int iteration_count = 0;
     iteration_count++;
