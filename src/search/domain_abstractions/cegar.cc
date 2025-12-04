@@ -152,9 +152,6 @@ private:
                                  const std::vector<bool> &is_derived,
                                  const std::vector<std::vector<int>> &axiom_dependencies);
     
-    // Numeric variable refinement
-    ap_float extract_threshold_from_comparison(int prop_var_id, 
-                                               const TaskProxy &task_proxy) const;
     
     // Check if a propositional variable is derived from a comparison axiom
     bool is_comparison_axiom_variable(int var_id) const {
@@ -2054,58 +2051,6 @@ bool CEGAR::can_refine_numeric_variable(
     return false;
 }
 
-ap_float CEGAR::extract_threshold_from_comparison(
-    int prop_var_id, const TaskProxy &task_proxy) const {
-    
-    // Look up the comparison info for this propositional variable
-    auto it = comparison_axiom_info.find(prop_var_id);
-    if (it == comparison_axiom_info.end()) {
-        // No comparison info found - shouldn't happen
-        cerr << "WARNING: No comparison info for prop_var_id " << prop_var_id << endl;
-        return 0.0;
-    }
-    
-    const ComparisonInfo &info = it->second;
-    int left_var_id = info.left_var_id;
-    int right_var_id = info.right_var_id;
-    
-    // Get the numeric variables
-    NumericVariablesProxy numeric_vars = task_proxy.get_numeric_variables();
-    
-    // One of the variables should be a constant (the threshold)
-    // The other is the actual numeric variable being compared
-    ap_float threshold = 0.0;
-    bool found_threshold = false;
-    
-    if (left_var_id >= 0 && left_var_id < (int)numeric_vars.size()) {
-        NumericVariableProxy left_var = numeric_vars[left_var_id];
-        if (left_var.get_var_type() == numType::constant) {
-            threshold = left_var.get_initial_state_value();
-            found_threshold = true;
-        }
-    }
-    
-    if (right_var_id >= 0 && right_var_id < (int)numeric_vars.size()) {
-        NumericVariableProxy right_var = numeric_vars[right_var_id];
-        if (right_var.get_var_type() == numType::constant) {
-            threshold = right_var.get_initial_state_value();
-            found_threshold = true;
-        }
-    }
-    
-    if (!found_threshold) {
-        // Neither side is a constant - this is a variable-to-variable comparison
-        // In this case, there's no fixed threshold to split at
-        cerr << "WARNING: Comparison axiom " << prop_var_id 
-             << " has no constant threshold (both sides are variables)" << endl;
-    }
-    
-    return threshold;
-}
-
-// Helper function to compute ranges for all numeric variables given a set of 
-// base ranges for regular variables. Propagates through assignment axioms.
-// This follows the same pattern as domain_abstraction_factory.cc
 static std::unordered_map<int, NumericRange> compute_all_numeric_ranges(
     const std::unordered_map<int, NumericRange> &base_ranges,
     const TaskProxy &task_proxy) {
@@ -2124,19 +2069,15 @@ static std::unordered_map<int, NumericRange> compute_all_numeric_ranges(
     // Propagate through assignment axioms (fixpoint)
     AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
     bool changed = true;
-    int iterations = 0;
-    const int MAX_ITERATIONS = 100;  // Safety cap
     
-    while (changed && iterations < MAX_ITERATIONS) {
+    while (changed) {
         changed = false;
-        iterations++;
         
         for (AssignmentAxiomProxy axiom : assignment_axioms) {
             int derived_id = axiom.get_assignment_variable().get_id();
             int left_id = axiom.get_left_variable().get_id();
             int right_id = axiom.get_right_variable().get_id();
             
-            // Check if both operands are known
             if (ranges.count(left_id) == 0 || ranges.count(right_id) == 0) {
                 continue;
             }
@@ -2161,8 +2102,6 @@ static std::unordered_map<int, NumericRange> compute_all_numeric_ranges(
     return ranges;
 }
 
-// Helper function to evaluate a comparison axiom given computed ranges.
-// Returns: 0 = definitely true, 1 = definitely false, 2 = unknown/ambiguous
 static int evaluate_comparison_with_ranges(
     int prop_var_id,
     const std::unordered_map<int, NumericRange> &ranges,
@@ -2195,20 +2134,6 @@ static int evaluate_comparison_with_ranges(
     return 2;
 }
 
-// Helper function to determine the split direction for a numeric variable.
-// Returns true if include_in_lower should be true (split value goes in lower range).
-// 
-// The goal is to choose the split direction such that the abstract comparison
-// evaluates to FALSE (not UNKNOWN) for the partition containing the concrete value.
-//
-// Algorithm:
-// 1. Get the set of regular numeric variables that the comparison depends on
-// 2. Create base ranges: singleton [v, v] for all variables except split_var
-// 3. Test both split directions for split_var:
-//    - include_in_lower=true: use range (-inf, split_value]
-//    - include_in_lower=false: use range [split_value, inf)
-// 4. Propagate through assignment axioms to get derived variable ranges
-// 5. Evaluate the comparison and prefer the direction that gives FALSE (=1)
 bool CEGAR::determine_include_in_lower(
     int prop_var_id,
     int split_var_id,
@@ -2232,26 +2157,20 @@ bool CEGAR::determine_include_in_lower(
     
     for (int var_id : dependent_vars) {
         if (var_id == split_var_id) {
-            // For the variable being split, use the two test ranges
-            // include_in_lower=true: (-inf, split_value]
             base_ranges_lower[var_id] = NumericRange(
                 -std::numeric_limits<ap_float>::infinity(), split_value, 
                 false, true);  // (-inf, split_value]
             
-            // include_in_lower=false: [split_value, inf)
             base_ranges_upper[var_id] = NumericRange(
                 split_value, std::numeric_limits<ap_float>::infinity(),
                 true, false);  // [split_value, inf)
         } else {
-            // For other variables, use singleton range at concrete value
             auto val_it = concrete_values.find(var_id);
             if (val_it != concrete_values.end()) {
                 NumericRange singleton(val_it->second, val_it->second, true, true);
                 base_ranges_lower[var_id] = singleton;
                 base_ranges_upper[var_id] = singleton;
             } else {
-                // No concrete value available - use full range
-                // This shouldn't happen if concrete_values is built correctly
                 logger->log(Verbosity::DEBUG, "determine_include_in_lower: Missing concrete value for var ",
                            var_id, ", using full range");
                 NumericRange full(-std::numeric_limits<ap_float>::infinity(),
