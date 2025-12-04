@@ -19,6 +19,7 @@
 #include <cassert>
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <map>
 #include <tuple>
 
@@ -205,16 +206,31 @@ vector<CompEvalHelper> evaluate_all_comparisons(
     return out;
 }
 
-int reset_all_comparison_vars_to_unknown(
+// Reset all comparison-axiom variables in the given abstract state to UNKNOWN (value index 2),
+// EXCEPT for variables that appear in fixed_comparisons - those keep their specified values.
+// Returns the adjusted abstract state index.
+int reset_comparison_vars_to_unknown_except(
     int state_index,
     const domain_abstractions::DomainMapping &domain_mapping,
     const vector<int> &hash_multipliers_by_var_id,
-    const TaskProxy &task_proxy) {
+    const TaskProxy &task_proxy,
+    const vector<Fact> &fixed_comparisons = {}) {
+    
+    // Build set of fixed variable IDs for quick lookup
+    unordered_set<int> fixed_var_ids;
+    for (const Fact &f : fixed_comparisons) {
+        fixed_var_ids.insert(f.var);
+    }
+    
     int delta = 0;
     ComparisonAxiomsProxy comp_axioms = task_proxy.get_comparison_axioms();
     for (ComparisonAxiomProxy ax : comp_axioms) {
         int var_id = ax.get_true_fact().get_variable().get_id();
         if (domain_mapping[var_id].empty())
+            continue;
+
+        // Skip variables that are fixed (e.g., operator preconditions during regression)
+        if (fixed_var_ids.count(var_id) > 0)
             continue;
 
         // Use hash_multipliers_by_var_id since var_id is an original variable ID, not pattern index
@@ -228,6 +244,16 @@ int reset_all_comparison_vars_to_unknown(
     }
     return state_index + delta;
 }
+
+// Wrapper for backward compatibility - resets ALL comparison vars to unknown
+int reset_all_comparison_vars_to_unknown(
+    int state_index,
+    const domain_abstractions::DomainMapping &domain_mapping,
+    const vector<int> &hash_multipliers_by_var_id,
+    const TaskProxy &task_proxy) {
+    return reset_comparison_vars_to_unknown_except(
+        state_index, domain_mapping, hash_multipliers_by_var_id, task_proxy, {});
+}
 }
 
 std::ostream &operator<<(std::ostream &os, const Fact &fact) {
@@ -238,6 +264,39 @@ namespace cost_saturation {
 static bool variable_is_trivial(
     int var_id, const domain_abstractions::DomainMapping &domain_mapping) {
     return domain_mapping[var_id].empty();
+}
+
+// Build set of comparison axiom variable IDs
+static unordered_set<int> get_comparison_axiom_var_ids(const TaskProxy &task_proxy) {
+    unordered_set<int> comparison_var_ids;
+    for (ComparisonAxiomProxy ax : task_proxy.get_comparison_axioms()) {
+        comparison_var_ids.insert(ax.get_true_fact().get_variable().get_id());
+    }
+    return comparison_var_ids;
+}
+
+// Extract comparison axiom preconditions from a group's preconditions.
+// pattern_index_to_var_id maps pattern indices back to original variable IDs.
+static vector<Fact> get_comparison_preconditions_from_group(
+    const vector<Fact> &preconditions,
+    const vector<int> &pattern,
+    const unordered_set<int> &comparison_var_ids) {
+    vector<Fact> result;
+    
+    // preconditions are in pattern index space, we need to convert to var_id space
+    for (const Fact &pre : preconditions) {
+        int pattern_idx = pre.var;
+        if (pattern_idx < 0 || pattern_idx >= static_cast<int>(pattern.size())) {
+            continue;
+        }
+        int var_id = pattern[pattern_idx];
+        if (comparison_var_ids.count(var_id) > 0) {
+            // Store with original var_id, not pattern index
+            result.emplace_back(var_id, pre.value);
+        }
+    }
+    
+    return result;
 }
 
 static vector<bool> compute_looping_operators(
@@ -602,6 +661,9 @@ DomainAbstraction::DomainAbstraction(
     }
     label_to_operators.reserve(operator_groups.size(), num_ops_covered_by_labels);
 
+    // Build set of comparison axiom variable IDs for extracting comparison preconditions
+    unordered_set<int> comparison_var_ids = get_comparison_axiom_var_ids(task_proxy);
+
     for (DomainAbstractionOperatorGroup &group : operator_groups) {
         int label_id = label_to_operators.size();
         label_to_operators.push_back(move(group.operator_ids));
@@ -611,6 +673,10 @@ DomainAbstraction::DomainAbstraction(
         for (const Fact &f : group.preconditions) {
             precondition_hash += hash_multipliers[f.var] * f.value;
         }
+        
+        // Extract comparison axiom preconditions for this operator group
+        vector<Fact> comparison_preconds = get_comparison_preconditions_from_group(
+            group.preconditions, pattern, comparison_var_ids);
         
         // Compute hash_effect from matching precondition/effect pairs
         // regression_preconditions contains effects + prevail
@@ -637,7 +703,8 @@ DomainAbstraction::DomainAbstraction(
             }
         }
         
-        ranked_operators.emplace_back(label_id, precondition_hash, hash_effect);
+        ranked_operators.emplace_back(label_id, precondition_hash, hash_effect,
+                                      std::move(comparison_preconds));
         match_tree_backward->insert(ranked_operators.size() - 1, group.regression_preconditions);
     }
     
@@ -829,8 +896,16 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
 
             // Compute the canonical predecessor and then enumerate all
             // comparison-consistent variants.
-            int base_predecessor = base_state - op.hash_effect;
-            vector<int> predecessors = enumerate_states_with_evaluated_comparisons(base_predecessor);
+            // Use comparison preconditions to preserve operator requirements during regression:
+            // - Reset all comparison vars to unknown EXCEPT those in preconditions
+            // - Enumerate states with those comparison values fixed
+            int predecessor_base = reset_comparison_vars_to_unknown_except(
+                base_state, domain_mapping, hash_multipliers_by_var_id, task_proxy,
+                op.comparison_preconditions);
+            predecessor_base = predecessor_base - op.hash_effect;
+            
+            vector<int> predecessors = enumerate_states_with_evaluated_comparisons(
+                predecessor_base, op.comparison_preconditions);
             for (int predecessor : predecessors) {
                 assert(utils::in_bounds(predecessor, distances));
                 if (alternative_cost < distances[predecessor]) {
@@ -1018,9 +1093,17 @@ string DomainAbstraction::decode_mentioned_variables(int concrete_op_id) const {
 }
 
 vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
-    int base_state_index) const {
+    int base_state_index,
+    const vector<Fact> &fixed_comparisons) const {
     
     vector<int> result;
+    
+    // Build set of fixed variable IDs and their values for quick lookup
+    unordered_map<int, int> fixed_var_values;  // var_id -> required value
+    for (const Fact &f : fixed_comparisons) {
+        fixed_var_values[f.var] = f.value;
+    }
+    
     unordered_map<int, domain_abstractions::NumericRange> ranges;
     vector<int> cur_num_partitions;
     compute_numeric_context(base_state_index, domain_mapping, numeric_domain_mapping,
@@ -1029,12 +1112,9 @@ vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
     vector<CompEvalHelper> comparisons = evaluate_all_comparisons(
         ranges, cur_num_partitions, numeric_domain_mapping, task_proxy);
 
-    // Use hash_multipliers_by_var_id since reset function uses variable IDs, not pattern indices
-    int state_with_unknowns = reset_all_comparison_vars_to_unknown(
-        base_state_index, domain_mapping, hash_multipliers_by_var_id, task_proxy);
-
-    //cout << "Unknown state: " << 
-    //    decode_state(state_with_unknowns) << endl;
+    // Reset comparison axiom variables to UNKNOWN, EXCEPT fixed ones
+    int state_with_unknowns = reset_comparison_vars_to_unknown_except(
+        base_state_index, domain_mapping, hash_multipliers_by_var_id, task_proxy, fixed_comparisons);
 
     function<void(size_t, int)> enumerate_combinations = 
         [&](size_t idx, int delta_from_unknown) {
@@ -1058,6 +1138,17 @@ vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
             enumerate_combinations(idx + 1, delta_from_unknown);
             return;
         }
+        
+        // Check if this comparison variable is fixed by operator preconditions
+        auto fixed_it = fixed_var_values.find(var_id);
+        if (fixed_it != fixed_var_values.end()) {
+            // Use the fixed value - don't evaluate or branch
+            // The state already has the correct value (not reset to unknown),
+            // so delta is 0 relative to the current state value
+            enumerate_combinations(idx + 1, delta_from_unknown);
+            return;
+        }
+        
         int unknown_value = domain_mapping[var_id][2];
         
         if (comp.eval == 0) {

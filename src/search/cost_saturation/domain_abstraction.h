@@ -87,7 +87,9 @@ class DomainAbstraction : public Abstraction {
     std::vector<int> compute_goal_states(
         const std::vector<int> &variable_to_pattern_index) const;
 
-    std::vector<int> enumerate_states_with_evaluated_comparisons(int base_state_index) const;
+    std::vector<int> enumerate_states_with_evaluated_comparisons(
+        int base_state_index,
+        const std::vector<Fact> &fixed_comparisons = {}) const;
 
     /*
       Given an abstract state (represented as a vector of facts), compute the

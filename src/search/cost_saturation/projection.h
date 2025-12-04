@@ -57,11 +57,16 @@ struct RankedOperator {
     int label;
     int precondition_hash;
     int hash_effect;
+    // Comparison axiom preconditions that must be preserved during regression.
+    // These are facts on comparison axiom variables from the operator's preconditions.
+    std::vector<Fact> comparison_preconditions;
 
-    RankedOperator(int label, int precondition_hash, int hash_effect)
+    RankedOperator(int label, int precondition_hash, int hash_effect,
+                   std::vector<Fact> comparison_preconditions = {})
         : label(label),
           precondition_hash(precondition_hash),
-          hash_effect(hash_effect) {
+          hash_effect(hash_effect),
+          comparison_preconditions(std::move(comparison_preconditions)) {
     }
 };
 
