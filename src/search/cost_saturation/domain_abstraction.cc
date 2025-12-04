@@ -205,6 +205,13 @@ vector<CompEvalHelper> evaluate_all_comparisons(
     }
     return out;
 }
+}
+
+std::ostream &operator<<(std::ostream &os, const Fact &fact) {
+    return os << fact.var << "=" << fact.value;
+}
+
+namespace cost_saturation {
 
 // Reset all comparison-axiom variables in the given abstract state to UNKNOWN (value index 2),
 // EXCEPT for variables that appear in fixed_comparisons - those keep their specified values.
@@ -214,7 +221,7 @@ int reset_comparison_vars_to_unknown_except(
     const domain_abstractions::DomainMapping &domain_mapping,
     const vector<int> &hash_multipliers_by_var_id,
     const TaskProxy &task_proxy,
-    const vector<Fact> &fixed_comparisons = {}) {
+    const vector<Fact> &fixed_comparisons) {
     
     // Build set of fixed variable IDs for quick lookup
     unordered_set<int> fixed_var_ids;
@@ -254,13 +261,7 @@ int reset_all_comparison_vars_to_unknown(
     return reset_comparison_vars_to_unknown_except(
         state_index, domain_mapping, hash_multipliers_by_var_id, task_proxy, {});
 }
-}
 
-std::ostream &operator<<(std::ostream &os, const Fact &fact) {
-    return os << fact.var << "=" << fact.value;
-}
-
-namespace cost_saturation {
 static bool variable_is_trivial(
     int var_id, const domain_abstractions::DomainMapping &domain_mapping) {
     return domain_mapping[var_id].empty();

@@ -13,6 +13,7 @@
 #include "../pdbs/types.h"
 #include "../task_proxy.h"
 
+#include <algorithm>
 #include <functional>
 #include <vector>
 
@@ -28,6 +29,21 @@ class LogProxy;
 }
 
 namespace cost_saturation {
+
+// Helper functions for comparison axiom handling (defined in domain_abstraction.cc)
+int reset_comparison_vars_to_unknown_except(
+    int state_index,
+    const domain_abstractions::DomainMapping &domain_mapping,
+    const std::vector<int> &hash_multipliers_by_var_id,
+    const TaskProxy &task_proxy,
+    const std::vector<Fact> &fixed_comparisons);
+
+int reset_all_comparison_vars_to_unknown(
+    int state_index,
+    const domain_abstractions::DomainMapping &domain_mapping,
+    const std::vector<int> &hash_multipliers_by_var_id,
+    const TaskProxy &task_proxy);
+
 class DomainAbstractionFunction : public AbstractionFunction {
     const domain_abstractions::DomainMapping domain_mapping;
     domain_abstractions::NumericDomainMappingType numeric_domain_mapping;
@@ -100,9 +116,62 @@ class DomainAbstraction : public Abstraction {
     /*
       Apply a function to all state-changing transitions in the projection
       (including unreachable and unsolvable transitions).
+      
+      This implementation iterates over all abstract states as potential successors,
+      finds applicable operators via regression (match_tree_backward), and computes
+      predecessors. This mirrors the Dijkstra loop in compute_goal_distances.
     */
     template<class Callback>
     void for_each_label_transition(const Callback &callback) const {
+        // Iterate over all abstract states as potential successor states.
+        // For each state, find applicable operators (in regression) and compute predecessors.
+        // This gives us all transitions: predecessor --op--> state
+        std::vector<int> applicable_operators;
+        
+        for (int state_index = 0; state_index < num_states; ++state_index) {
+            // Check if this state is comparison-feasible (matches its numeric context)
+            std::vector<int> alt_states = enumerate_states_with_evaluated_comparisons(state_index);
+            if (std::find(alt_states.begin(), alt_states.end(), state_index) == alt_states.end()) {
+                // This state is not comparison-feasible, skip it
+                continue;
+            }
+            
+            // Find operators applicable in regression from this state
+            applicable_operators.clear();
+            int base_state = reset_all_comparison_vars_to_unknown(
+                state_index, domain_mapping, hash_multipliers_by_var_id, task_proxy);
+            match_tree_backward->get_applicable_operator_ids(
+                base_state, applicable_operators);
+            
+            for (int ranked_op_id : applicable_operators) {
+                const RankedOperator &op = ranked_operators[ranked_op_id];
+                
+                // Compute predecessors using comparison preconditions
+                int predecessor_base = reset_comparison_vars_to_unknown_except(
+                    base_state, domain_mapping, hash_multipliers_by_var_id, task_proxy,
+                    op.comparison_preconditions);
+                predecessor_base = predecessor_base - op.hash_effect;
+                
+                std::vector<int> predecessors = enumerate_states_with_evaluated_comparisons(
+                    predecessor_base, op.comparison_preconditions);
+                
+                for (int predecessor : predecessors) {
+                    if (predecessor < 0 || predecessor >= num_states) {
+                        continue; // Invalid predecessor, skip
+                    }
+                    if (predecessor == state_index) {
+                        continue; // Skip self-loops
+                    }
+                    // Emit transition: predecessor --label--> state_index
+                    callback(Transition(predecessor, op.label, state_index));
+                }
+            }
+        }
+    }
+
+    // Backup of original implementation (kept for reference/debugging)
+    template<class Callback>
+    void for_each_label_transition2(const Callback &callback) const {
         // Reuse vector to save allocations.
         std::vector<Fact> abstract_facts;
 
