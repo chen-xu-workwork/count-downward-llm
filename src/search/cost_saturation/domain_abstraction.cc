@@ -341,6 +341,18 @@ static vector<bool> compute_looping_operators(
         }
         for (EffectProxy effect : op.get_effects()) {
             const Fact eff(effect.get_fact().get_variable().get_id(), effect.get_fact().get_value());
+            // check if eff var id is comparison
+            //ComparisonAxiomsProxy axioms = task_proxy.get_comparison_axioms();
+            //bool is_comparison = false;
+            //for (ComparisonAxiomProxy ax : axioms) {
+            //    if (ax.get_true_fact().get_variable().get_id() == eff.var) {
+            //        is_comparison = true;
+            //        break;
+            //    }
+            //}
+            //if (is_comparison) {
+            //    continue;
+            //}
             if (var_to_precondition.count(eff.var) > 0
                 && !variable_is_trivial(eff.var, domain_mapping)
                 && var_to_precondition[eff.var]
@@ -349,17 +361,16 @@ static vector<bool> compute_looping_operators(
                 break;
             }
         }
-        if (!loops[op_id]) continue;
-
-        for (AssEffectProxy eff : op.get_ass_effects()) {
-            int aff_var = eff.get_assignment().get_affected_variable().get_id();
-            if (aff_var < static_cast<int>(numeric_variable_to_pattern_index.size()) &&
-                numeric_variable_to_pattern_index[aff_var] != -1) {
-                // If there is a numeric effect on a pattern variable, assume it changes state.
-                loops[op_id] = false;
-                break;
-            }
-        }
+        //if (!loops[op_id]) continue;
+        //for (AssEffectProxy eff : op.get_ass_effects()) {
+        //    int aff_var = eff.get_assignment().get_affected_variable().get_id();
+        //    if (aff_var < static_cast<int>(numeric_variable_to_pattern_index.size()) &&
+        //        numeric_variable_to_pattern_index[aff_var] != -1) {
+        //        // If there is a numeric effect on a pattern variable, assume it changes state.
+        //        loops[op_id] = false;
+        //        break;
+        //    }
+        //}
     }
     return loops;
 }
@@ -812,7 +823,7 @@ vector<ap_float> DomainAbstraction::compute_saturated_costs(
     /* To prevent negative cost cycles, we ensure that all operators inducing
        self-loops (among possibly other transitions) have non-negative costs. */
     for (int op_id = 0; op_id < num_operators; ++op_id) {
-        if (operator_induces_self_loop(op_id) || true) {
+        if (operator_induces_self_loop(op_id) || false) { //TODO: Change back
             saturated_costs[op_id] = 0;
         }
     }
