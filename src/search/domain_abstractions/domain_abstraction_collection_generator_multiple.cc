@@ -39,7 +39,7 @@ DomainAbstractionCollectionGeneratorMultiple::DomainAbstractionCollectionGenerat
 
 void DomainAbstractionCollectionGeneratorMultiple::check_blacklist_trigger_timer(
     const utils::CountdownTimer &timer) {
-    // Check if blacklisting should be started.
+
     if (!blacklisting && timer.get_elapsed_time() > blacklisting_start_time) {
         blacklisting = true;
         /*
@@ -65,6 +65,10 @@ unordered_set<int> DomainAbstractionCollectionGeneratorMultiple::get_blacklisted
         blacklisted_variables.insert(
             blacklist_candidates.begin(), blacklist_candidates.begin() + blacklist_size);
     }
+
+   
+
+
     return blacklisted_variables;
 }
 
@@ -161,8 +165,6 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
 
     utils::CountdownTimer timer(total_max_time);
 
-
-    // Store the set of goals in random order.
     vector<Fact> goals = get_goals_in_random_order(task_proxy, *rng);
     cout << "Goals in random order: ";
     for (const Fact &goal : goals) {
@@ -170,18 +172,15 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
     }
     cout << endl;
 
-    // Store candidates for potential blacklisting.
     vector<int> blacklist_candidates =
-        get_candidates(task_proxy, blacklist_variables);
+        get_candidates(task_proxy, blacklist_variables, true);
 
-    // Store candidates for initialization.
     vector<int> init_split_candidates =
-        get_candidates(task_proxy, init_split_variables);
+        get_candidates(task_proxy, init_split_variables, false);
 
 
     initialize(task_proxy);
 
-    // Collect all unique domain abstractions and their domain mappings.
     set<DomainMapping> generated_domain_mappings;
     DomainAbstractionCollection generated_abstractions;
 
@@ -236,23 +235,116 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
 }
 
 vector<int> DomainAbstractionCollectionGeneratorMultiple::get_candidates(
-    const TaskProxy &task_proxy, VariableSubset option) {
+    const TaskProxy &task_proxy, VariableSubset option, bool include_numeric) {
     vector<int> candidates;
+    
+    int num_prop_vars = task_proxy.get_variables().size();
+    
+    unordered_set<int> logic_axiom_effect_vars;
+    for (OperatorProxy axiom : task_proxy.get_axioms()) {
+        for (EffectProxy eff : axiom.get_effects()) {
+            logic_axiom_effect_vars.insert(eff.get_fact().get_variable().get_id());
+        }
+    }
+    
+    unordered_set<int> comparison_axiom_vars;
+    for (ComparisonAxiomProxy axiom : task_proxy.get_comparison_axioms()) {
+        comparison_axiom_vars.insert(axiom.get_true_fact().get_variable().get_id());
+    }
+    
+    unordered_map<int, int> goal_axiom_map;  // effect_var_id -> axiom_index
+    int axiom_idx = 0;
+    for (OperatorProxy axiom : task_proxy.get_axioms()) {
+        if (!axiom.get_preconditions().empty() && axiom.get_effects().size() == 1) {
+            int effect_var_id = axiom.get_effects()[0].get_fact().get_variable().get_id();
+            goal_axiom_map[effect_var_id] = axiom_idx;
+        }
+        axiom_idx++;
+    }
+    
+    unordered_set<int> goal_var_ids;
+    for (FactProxy goal : task_proxy.get_goals()) {
+        int var_id = goal.get_variable().get_id();
+        auto it = goal_axiom_map.find(var_id);
+        if (it != goal_axiom_map.end()) {
+            // This is a "fake" goal (axiom effect) - extract its preconditions as actual goals
+            OperatorProxy goal_axiom = task_proxy.get_axioms()[it->second];
+            for (FactProxy pre : goal_axiom.get_preconditions()) {
+                int pre_var_id = pre.get_variable().get_id();
+                // These preconditions are always comparison axiom variables
+                assert(comparison_axiom_vars.count(pre_var_id) > 0);
+                goal_var_ids.insert(pre_var_id);
+            }
+        } else {
+            // Regular goal
+            goal_var_ids.insert(var_id);
+        }
+    }
+    
     switch (option) {
     case VariableSubset::GOALS: {
-        const GoalsProxy &goals_proxy = task_proxy.get_goals();
-        candidates.reserve(goals_proxy.size());
-        for (const FactProxy &goal : goals_proxy) {
-            candidates.push_back(goal.get_variable().get_id());
+        // Add goal variables (which include the comparison axiom goal preconditions)
+        for (int var_id : goal_var_ids) {
+            // Exclude logic axiom effects (instrumentation)
+            if (logic_axiom_effect_vars.count(var_id) == 0) {
+                candidates.push_back(var_id);
+            }
+        }
+        // Numeric variables are never goals, so nothing to add
+        break;
+    }
+    case VariableSubset::NON_GOALS: {
+        // Add non-goal propositional variables:
+        // - Exclude logic axiom effects (instrumentation)
+        // - Exclude goal variables (including goal comparison axiom vars)
+        // - Exclude non-goal comparison axiom variables (never want to blacklist them)
+        for (int var_id = 0; var_id < num_prop_vars; ++var_id) {
+            if (goal_var_ids.count(var_id) == 0 
+                && logic_axiom_effect_vars.count(var_id) == 0
+                && comparison_axiom_vars.count(var_id) == 0) {
+                candidates.push_back(var_id);
+            }
+        }
+        // Add numeric variables if requested (they are all non-goals)
+        // Encoded as: num_prop_vars + numeric_var_id
+        if (include_numeric) {
+            int num_numeric_vars = task_proxy.get_numeric_variables().size();
+            for (int num_var_id = 0; num_var_id < num_numeric_vars; ++num_var_id) {
+                // Only add regular numeric variables (not constants or derived)
+                NumericVariableProxy num_var = task_proxy.get_numeric_variables()[num_var_id];
+                if (num_var.get_var_type() == numType::regular) {
+                    candidates.push_back(num_prop_vars + num_var_id);
+                }
+            }
         }
         break;
     }
-    case VariableSubset::NON_GOALS:
-        candidates = get_non_goal_variables(task_proxy);
+    case VariableSubset::ALL: {
+        // Add all propositional variables:
+        // - Exclude logic axiom effects (instrumentation)
+        // - Exclude non-goal comparison axiom variables (never want to blacklist them)
+        // - But INCLUDE goal comparison axiom variables
+        for (int var_id = 0; var_id < num_prop_vars; ++var_id) {
+            if (logic_axiom_effect_vars.count(var_id) == 0) {
+                // Include if it's a goal comparison var, exclude if non-goal comparison var
+                if (comparison_axiom_vars.count(var_id) == 0 || goal_var_ids.count(var_id) > 0) {
+                    candidates.push_back(var_id);
+                }
+            }
+        }
+        // Add numeric variables if requested
+        // Encoded as: num_prop_vars + numeric_var_id
+        if (include_numeric) {
+            int num_numeric_vars = task_proxy.get_numeric_variables().size();
+            for (int num_var_id = 0; num_var_id < num_numeric_vars; ++num_var_id) {
+                NumericVariableProxy num_var = task_proxy.get_numeric_variables()[num_var_id];
+                if (num_var.get_var_type() == numType::regular) {
+                    candidates.push_back(num_prop_vars + num_var_id);
+                }
+            }
+        }
         break;
-    case VariableSubset::ALL:
-        candidates.resize(task_proxy.get_variables().size());
-        iota(candidates.begin(), candidates.end(), 0);
+    }
     }
     return candidates;
 }

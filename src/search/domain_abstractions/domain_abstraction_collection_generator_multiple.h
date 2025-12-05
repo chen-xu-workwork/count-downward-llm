@@ -97,7 +97,8 @@ private:
         const TaskProxy &task_proxy) override;
 
     std::vector<int> get_candidates(const TaskProxy &task_proxy,
-                                    VariableSubset option);
+                                    VariableSubset option,
+                                    bool include_numeric);
 public:
     explicit DomainAbstractionCollectionGeneratorMultiple(options::Options &opts);
     virtual ~DomainAbstractionCollectionGeneratorMultiple() override = default;
