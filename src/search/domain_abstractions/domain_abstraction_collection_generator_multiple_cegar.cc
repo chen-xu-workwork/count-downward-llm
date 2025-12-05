@@ -38,7 +38,23 @@ DomainAbstraction DomainAbstractionCollectionGeneratorMultipleCegar::compute_abs
     const Fact &,
     unordered_set<int> &&init_split_var_ids,
     unordered_set<int> &&blacklisted_variables) {
-    // TODO: use goal?
+    // Split blacklisted_variables into propositional and numeric variables.
+    // Convention: IDs >= num_propositional_vars are numeric variable IDs (offset by num_prop_vars).
+    int num_prop_vars = task_proxy.get_variables().size();
+    
+    unordered_set<int> blacklisted_prop_vars;
+    unordered_set<int> blacklisted_numeric_vars;
+    
+    for (int var_id : blacklisted_variables) {
+        if (var_id >= num_prop_vars) {
+            // This is a numeric variable (encoded as prop_vars + numeric_var_id)
+            blacklisted_numeric_vars.insert(var_id - num_prop_vars);
+        } else {
+            // This is a propositional variable
+            blacklisted_prop_vars.insert(var_id);
+        }
+    }
+    
     return generate_domain_abstraction_with_cegar(
         max_abstraction_size,
         max_time,
@@ -49,7 +65,8 @@ DomainAbstraction DomainAbstractionCollectionGeneratorMultipleCegar::compute_abs
         rng,
         task_proxy,
         move(init_split_var_ids),
-        move(blacklisted_variables));
+        move(blacklisted_prop_vars),
+        move(blacklisted_numeric_vars));
 }
 
 static shared_ptr<DomainAbstractionCollectionGenerator> _parse(OptionParser &parser) {

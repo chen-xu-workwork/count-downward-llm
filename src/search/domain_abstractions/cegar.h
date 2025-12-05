@@ -59,7 +59,8 @@ extern DomainAbstraction generate_domain_abstraction_with_cegar(
             const std::shared_ptr <utils::RandomNumberGenerator> &rng,
             const TaskProxy &task_proxy,
             std::unordered_set<int> &&init_split_var_ids = std::unordered_set<int>(),
-            std::unordered_set<int> &&blacklisted_variables = std::unordered_set<int>());
+            std::unordered_set<int> &&blacklisted_variables = std::unordered_set<int>(),
+            std::unordered_set<int> &&blacklisted_numeric_variables = std::unordered_set<int>());
 
 
 extern void add_cegar_implementation_notes_to_parser(

@@ -234,7 +234,8 @@ public:
           const shared_ptr<utils::RandomNumberGenerator> &rng,
           const TaskProxy &task_proxy,
           unordered_set<int> &&init_split_var_ids,
-          unordered_set<int> &&blacklisted_variables);
+          unordered_set<int> &&blacklisted_variables,
+          unordered_set<int> &&blacklisted_numeric_variables);
 
     DomainAbstraction build_abstraction(const TaskProxy &task_proxy);
     void build_comparison_axiom_mapping(const TaskProxy &task_proxy);
@@ -251,7 +252,8 @@ CEGAR::CEGAR(
         const shared_ptr<utils::RandomNumberGenerator> &rng,
         const TaskProxy &task_proxy,
         unordered_set<int> &&init_split_var_ids,
-        unordered_set<int> &&blacklisted_variables)
+        unordered_set<int> &&blacklisted_variables,
+        unordered_set<int> &&blacklisted_numeric_variables)
     : max_abstraction_size(max_abstraction_size),
       max_time(max_time),
       use_wildcard_plans(use_wildcard_plans),
@@ -261,6 +263,7 @@ CEGAR::CEGAR(
       rng(rng),
       init_split_var_ids(move(init_split_var_ids)),
       blacklisted_variables(move(blacklisted_variables)),
+      blacklisted_numeric_variables(move(blacklisted_numeric_variables)),
       logger(make_shared<CEGARLogger>(Verbosity::INFO)) {
     /* TODO: Should we check somewhere that *init_split_var_ids* does not
         contain elements that are blacklisted? */
@@ -2357,9 +2360,9 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         NumericSplitStrategy numeric_split_strategy,
         const shared_ptr<utils::RandomNumberGenerator> &rng,
         const TaskProxy &task_proxy,
-
         unordered_set<int> &&init_split_var_ids,
-        unordered_set<int> &&blacklisted_variables) {
+        unordered_set<int> &&blacklisted_variables,
+        unordered_set<int> &&blacklisted_numeric_variables) {
     CEGAR cegar(
         max_abstraction_size,
         max_time,
@@ -2370,7 +2373,8 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         rng,
         task_proxy,
         move(init_split_var_ids),
-        move(blacklisted_variables));  
+        move(blacklisted_variables),
+        move(blacklisted_numeric_variables));  
         
     // Build mapping from comparison axiom propositional variables to numeric variables
     cegar.build_comparison_axiom_mapping(task_proxy);

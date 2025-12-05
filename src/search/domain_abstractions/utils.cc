@@ -84,7 +84,8 @@ vector<vector<int>> compute_cg_neighbors(
     bool bidirectional) {
     const ::CausalGraph &cg = task_proxy.get_causal_graph();
     int num_vars = task_proxy.get_variables().size();
-    vector<vector<int>> cg_neighbors(num_vars);
+    int num_numeric_vars = task_proxy.get_numeric_variables().size();
+    vector<vector<int>> cg_neighbors(num_vars + num_numeric_vars);
     for (int var_id = 0; var_id < num_vars; ++var_id) {
         cg_neighbors[var_id] = cg.get_predecessors(var_id);
         if (bidirectional) {
