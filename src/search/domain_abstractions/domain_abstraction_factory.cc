@@ -406,8 +406,8 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
                                    const vector<Fact> &eff_pairs,
                                    ap_float cost,
                                    const vector<int> &hash_multipliers,
-                                   int concrete_op_id)
-    : concrete_op_id(concrete_op_id),
+                                   vector<int> &&concrete_op_ids)
+    : concrete_op_ids(move(concrete_op_ids)),
       cost(cost),
       pre(pre_pairs),
       regression_preconditions(prev_pairs) {
@@ -451,8 +451,18 @@ void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_m
     int num_variables = task_proxy.get_variables().size();
     VariablesProxy vars = task_proxy.get_variables();
 
-    string op_name = task_proxy.get_operators()[concrete_op_id].get_name();
-    cout << op_name << " (concrete_id=" << concrete_op_id << ", hash_effect=" << hash_effect << ")" << endl;
+    // Print all concrete operator IDs
+    cout << "AbstractOperator (concrete_ids=[";
+    for (size_t i = 0; i < concrete_op_ids.size(); ++i) {
+        if (i > 0) cout << ", ";
+        int op_id = concrete_op_ids[i];
+        if (op_id >= 0 && op_id < static_cast<int>(task_proxy.get_operators().size())) {
+            cout << task_proxy.get_operators()[op_id].get_name();
+        } else {
+            cout << op_id;
+        }
+    }
+    cout << "], hash_effect=" << hash_effect << ")" << endl;
     
     // Print preconditions
     cout << "  Preconditions: ";
@@ -641,6 +651,7 @@ vector<AbstractOperator> DomainAbstractionFactory::compute_abstract_operators(
     
     // Create numeric helper to handle all operator construction
     // The helper handles both propositional and numeric effects, including cascades
+    // Use group_operators=true to reduce redundant abstract operators
     DomainAbstractionNumericHelper helper(
         g_root_task(),
         domain_mapping,
@@ -648,6 +659,7 @@ vector<AbstractOperator> DomainAbstractionFactory::compute_abstract_operators(
         domain_sizes,
         numeric_domain_sizes,
         hash_multipliers,
+        true,  // group_operators
         logger);
     
     // Let the helper build all abstract operators
@@ -1441,7 +1453,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
 
             {
                 OperatorsProxy concrete_ops = task_proxy.get_operators();
-                int concrete_id = op.get_concrete_op_id();
+                int concrete_id = op.get_concrete_op_ids().empty() ? -1 : op.get_concrete_op_ids()[0];
                 string op_name = (concrete_id >= 0 && concrete_id < (int)concrete_ops.size()) ?
                                   concrete_ops[concrete_id].get_name() : ("<unknown>(" + to_string(concrete_id) + ")");
 
@@ -1487,8 +1499,11 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 if (find(possible_predecessors.begin(), possible_predecessors.end(), current_state) 
                     != possible_predecessors.end()) {
                     // This operator can take us from current_state to successor_state!
-                    cheapest_operators.emplace_back(applicable_op.get_concrete_op_id());
-                    break; // Only add once per operator
+                    // Add all concrete operator IDs (may be multiple due to label reduction)
+                    for (int concrete_op_id : applicable_op.get_concrete_op_ids()) {
+                        cheapest_operators.emplace_back(concrete_op_id);
+                    }
+                    break; // Only add once per abstract operator
                 }
             }
 

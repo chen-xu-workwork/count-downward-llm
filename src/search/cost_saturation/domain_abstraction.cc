@@ -456,7 +456,10 @@ static DomainAbstractionOperatorGroups group_equivalent_operators(
     for (const auto &abs_op : abstract_operators) {
         vector<Fact> pattern_pre = get_pattern_preconditions(abs_op, flattened_var_to_pattern_index);
         vector<Fact> pattern_reg_pre = get_pattern_regression_preconditions(abs_op, flattened_var_to_pattern_index);
-        grouped_ops[{pattern_pre, pattern_reg_pre}].push_back(abs_op.get_concrete_op_id());
+        // Add all concrete operator IDs (may be multiple due to label reduction)
+        for (int concrete_op_id : abs_op.get_concrete_op_ids()) {
+            grouped_ops[{pattern_pre, pattern_reg_pre}].push_back(concrete_op_id);
+        }
     }
 
     DomainAbstractionOperatorGroups groups;
@@ -493,7 +496,7 @@ static DomainAbstractionOperatorGroups get_singleton_operator_groups(
         DomainAbstractionOperatorGroup group;
         group.preconditions = get_pattern_preconditions(abs_op, flattened_var_to_pattern_index);
         group.regression_preconditions = get_pattern_regression_preconditions(abs_op, flattened_var_to_pattern_index);
-        group.operator_ids = {abs_op.get_concrete_op_id()};
+        group.operator_ids = abs_op.get_concrete_op_ids();
         groups.push_back(move(group));
     }
     return groups;
@@ -643,6 +646,7 @@ DomainAbstraction::DomainAbstraction(
     }
 
     // Instantiate DomainAbstractionNumericHelper to build abstract operators
+    // Use group_operators=false since cost saturation does its own grouping
     domain_abstractions::DomainAbstractionNumericHelper helper(
         g_root_task(),
         domain_mapping,
@@ -650,6 +654,7 @@ DomainAbstraction::DomainAbstraction(
         domain_sizes,
         numeric_domain_sizes,
         hash_multipliers_by_var_id,
+        false,  // group_operators
         nullptr  // No logger for cost saturation
     );
     

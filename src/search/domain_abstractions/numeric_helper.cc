@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cassert>
 #include <queue>
+#include <unordered_map>
 #include <unordered_set>
 #include <optional>
 
@@ -16,6 +17,51 @@ using namespace arithmetic_expression;
 using namespace numeric_condition;
 
 namespace domain_abstractions {
+
+// Hash function for vector of Facts
+struct VectorFactHash {
+    size_t operator()(const vector<Fact> &facts) const {
+        size_t hash = 0;
+        for (const Fact &f : facts) {
+            // Combine var and value into hash using FNV-1a style mixing
+            hash ^= (static_cast<size_t>(f.var) * 31 + f.value) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+        }
+        return hash;
+    }
+};
+
+// Key for operator grouping: (prev_pairs, pre_pairs, eff_pairs, cost)
+struct OperatorSignature {
+    vector<Fact> prev_pairs;
+    vector<Fact> pre_pairs;
+    vector<Fact> eff_pairs;
+    ap_float cost;
+    
+    bool operator==(const OperatorSignature &other) const {
+        return cost == other.cost && 
+               prev_pairs == other.prev_pairs && 
+               pre_pairs == other.pre_pairs && 
+               eff_pairs == other.eff_pairs;
+    }
+};
+
+struct OperatorSignatureHash {
+    VectorFactHash fact_hash;
+    
+    size_t operator()(const OperatorSignature &sig) const {
+        size_t h1 = fact_hash(sig.prev_pairs);
+        size_t h2 = fact_hash(sig.pre_pairs);
+        size_t h3 = fact_hash(sig.eff_pairs);
+        // Hash the cost as well
+        size_t h4 = hash<ap_float>{}(sig.cost);
+        // Combine all hashes
+        size_t result = h1;
+        result ^= h2 + 0x9e3779b9 + (result << 6) + (result >> 2);
+        result ^= h3 + 0x9e3779b9 + (result << 6) + (result >> 2);
+        result ^= h4 + 0x9e3779b9 + (result << 6) + (result >> 2);
+        return result;
+    }
+};
 
 static int debug_counter = 0;
 
@@ -27,6 +73,7 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
     const vector<int> &domain_sizes,
     const vector<int> &numeric_domain_sizes,
     const vector<int> &hash_multipliers,
+    bool group_operators,
     shared_ptr<CEGARLogger> logger)
     : task(task), 
       task_proxy(*task),
@@ -35,6 +82,7 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
       domain_sizes(domain_sizes),
       numeric_domain_sizes(numeric_domain_sizes),
       hash_multipliers(hash_multipliers),
+      group_operators(group_operators),
       logger(logger) {
 
     debug_counter++;
@@ -280,6 +328,10 @@ vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operator
     //    }
     //}
     
+    // Create grouping map if grouping is enabled
+    OperatorGroupingMap grouping_map;
+    OperatorGroupingMap *grouping_map_ptr = group_operators ? &grouping_map : nullptr;
+    
     for (OperatorProxy op : operators) {
         ap_float cost = op.get_cost();
         assert(cost >= 0);
@@ -292,7 +344,7 @@ vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operator
 
         
 
-        build_abstract_operator(op, abstract_operators);
+        build_abstract_operator(op, abstract_operators, grouping_map_ptr);
     }
     
     return abstract_operators;
@@ -300,7 +352,8 @@ vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operator
 
 void DomainAbstractionNumericHelper::build_abstract_operator(
     const OperatorProxy &op,
-    vector<AbstractOperator> &operators) {
+    vector<AbstractOperator> &operators,
+    OperatorGroupingMap *grouping_map) {
     
     // Build abstract operator following the same pattern as factory's
     // build_abstract_operators, but adapted for numeric effects
@@ -421,7 +474,7 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     enumerate_abstract_transitions(
         op, prev_pairs, pre_pairs, eff_pairs,
         effects_without_pre, ass_effects,
-        op.get_id(), operators);
+        op.get_id(), operators, grouping_map);
 }
 
 void DomainAbstractionNumericHelper::enumerate_abstract_transitions(
@@ -432,7 +485,8 @@ void DomainAbstractionNumericHelper::enumerate_abstract_transitions(
     const vector<Fact> &effects_without_pre,
     const vector<NumAssProxy> &ass_effects,
     int concrete_op_id,
-    vector<AbstractOperator> &operators) {
+    vector<AbstractOperator> &operators,
+    OperatorGroupingMap *grouping_map) {
     
     // This method is recursive and handles two types of enumeration:
     // 1. Propositional effects without preconditions (multiply_out pattern)
@@ -444,7 +498,7 @@ void DomainAbstractionNumericHelper::enumerate_abstract_transitions(
     
     multiply_out_propositional(
         0, op.get_cost(), prev_pairs, pre_pairs, eff_pairs,
-        effects_without_pre, ass_effects, concrete_op_id, operators, op);
+        effects_without_pre, ass_effects, concrete_op_id, operators, op, grouping_map);
 }
 
 void DomainAbstractionNumericHelper::multiply_out_propositional(
@@ -455,7 +509,8 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
     const vector<NumAssProxy> &ass_effects,
     int concrete_op_id,
     vector<AbstractOperator> &operators,
-    const OperatorProxy &op) {
+    const OperatorProxy &op,
+    OperatorGroupingMap *grouping_map) {
     
     if (pos == static_cast<int>(effects_without_pre.size())) {
         // All effects without precondition have been checked.
@@ -525,14 +580,37 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
                     target_partitions_list.push_back(trans.target_partition_facts[i].value);
                 }
 
-                operators.emplace_back(
-                    extended_prev_pairs,        // prevail conditions (propositional only)
-                    extended_pre_pairs,         // preconditions (propositional + source partitions)
-                    extended_eff_pairs,         // effects (propositional + target partitions)
-                    cost,                       // operator cost
-                    hash_multipliers,           // hash multipliers
-                    concrete_op_id              // concrete operator ID
-                );                            
+                // Check if grouping is enabled and operator signature exists
+                if (grouping_map) {
+                    OperatorSignature sig{extended_prev_pairs, extended_pre_pairs, extended_eff_pairs, cost};
+                    auto it = grouping_map->find(sig);
+                    if (it != grouping_map->end()) {
+                        // Operator with same signature exists - add concrete op id to it
+                        operators[it->second].add_concrete_op_id(concrete_op_id);
+                    } else {
+                        // New signature - create operator and add to map
+                        size_t new_idx = operators.size();
+                        operators.emplace_back(
+                            extended_prev_pairs,        // prevail conditions (propositional only)
+                            extended_pre_pairs,         // preconditions (propositional + source partitions)
+                            extended_eff_pairs,         // effects (propositional + target partitions)
+                            cost,                       // operator cost
+                            hash_multipliers,           // hash multipliers
+                            vector<int>{concrete_op_id} // concrete operator ID
+                        );
+                        (*grouping_map)[sig] = new_idx;
+                    }
+                } else {
+                    // No grouping - create operator as before
+                    operators.emplace_back(
+                        extended_prev_pairs,        // prevail conditions (propositional only)
+                        extended_pre_pairs,         // preconditions (propositional + source partitions)
+                        extended_eff_pairs,         // effects (propositional + target partitions)
+                        cost,                       // operator cost
+                        hash_multipliers,           // hash multipliers
+                        vector<int>{concrete_op_id} // concrete operator ID
+                    );
+                }
             }
         }
     } else {
@@ -552,7 +630,7 @@ void DomainAbstractionNumericHelper::multiply_out_propositional(
 
             multiply_out_propositional(
                 pos + 1, cost, prev_pairs, pre_pairs, eff_pairs,
-                effects_without_pre, ass_effects, concrete_op_id, operators, op);
+                effects_without_pre, ass_effects, concrete_op_id, operators, op, grouping_map);
             if (i != eff) {
                 pre_pairs.pop_back();
                 eff_pairs.pop_back();

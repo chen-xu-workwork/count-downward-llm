@@ -22,8 +22,12 @@ class AbstractOperator {
       number, abstract operators don't have "usual" effects but "hash
       effects", i.e. the change (as number) the abstract operator
       implies on a given abstract state.
+      
+      When operator grouping is enabled, multiple concrete operators
+      with identical abstract behavior are merged into a single
+      AbstractOperator, storing all their IDs in concrete_op_ids.
     */
-    int concrete_op_id;
+    std::vector<int> concrete_op_ids;
     int hash_effect;
     ap_float cost;
 
@@ -58,7 +62,7 @@ public:
                     const std::vector<Fact> &eff_pairs,
                     ap_float cost,
                     const std::vector<int> &hash_multipliers,
-                    int concrete_op_id);
+                    std::vector<int> &&concrete_op_ids);
     
 
     ~AbstractOperator() = default;
@@ -80,8 +84,13 @@ public:
     */
     const int &get_hash_effect() const {return hash_effect;}
 
-    int get_concrete_op_id() const {
-        return concrete_op_id;
+    const std::vector<int> &get_concrete_op_ids() const {
+        return concrete_op_ids;
+    }
+    
+    // Add a concrete operator ID to this abstract operator (for grouping)
+    void add_concrete_op_id(int op_id) {
+        concrete_op_ids.push_back(op_id);
     }
 
     /*

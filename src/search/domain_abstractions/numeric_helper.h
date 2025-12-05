@@ -57,6 +57,11 @@ struct TransitionInfo {
 // Forward declaration - AbstractOperator is defined in domain_abstraction_factory.h
 class AbstractOperator;
 
+// Forward declarations for grouping support
+struct OperatorSignature;
+struct OperatorSignatureHash;
+using OperatorGroupingMap = std::unordered_map<OperatorSignature, size_t, OperatorSignatureHash>;
+
 /**
  * Main helper class for domain abstractions with numeric variables.
  * 
@@ -88,6 +93,7 @@ public:
      * @param domain_sizes Abstract domain sizes for propositional variables
      * @param numeric_domain_sizes Number of partitions per numeric variable
      * @param hash_multipliers Hash multipliers for perfect hashing
+     * @param group_operators Whether to group operators with identical abstract behavior
      * @param logger Shared logger for output (optional)
      */
     explicit DomainAbstractionNumericHelper(
@@ -97,6 +103,7 @@ public:
         const std::vector<int> &domain_sizes,
         const std::vector<int> &numeric_domain_sizes,
         const std::vector<int> &hash_multipliers,
+        bool group_operators,
         std::shared_ptr<CEGARLogger> logger = nullptr);
     
     // Access to numeric task information
@@ -205,6 +212,9 @@ private:
     const std::vector<int> &numeric_domain_sizes;
     const std::vector<int> &hash_multipliers;
     
+    // Whether to group operators with identical abstract behavior
+    const bool group_operators;
+    
     // Shared logger for output
     std::shared_ptr<CEGARLogger> logger;
     
@@ -246,7 +256,8 @@ private:
     // Helper methods for building abstract operators
     void build_abstract_operator(
         const OperatorProxy &op,
-        std::vector<AbstractOperator> &operators);
+        std::vector<AbstractOperator> &operators,
+        OperatorGroupingMap *grouping_map);
     
     /**
      * Given a concrete operator, compute all possible abstract transitions.
@@ -267,11 +278,15 @@ private:
         const std::vector<Fact> &effects_without_pre,
         const std::vector<NumAssProxy> &ass_effects,
         int concrete_op_id,
-        std::vector<AbstractOperator> &operators);
+        std::vector<AbstractOperator> &operators,
+        OperatorGroupingMap *grouping_map);
     
     /**
      * Recursive helper to multiply out propositional effects without preconditions.
      * This implements the multiply_out pattern from the factory.
+     * 
+     * @param grouping_map If non-null, used to group operators with identical behavior.
+     *                     Maps operator signatures to their indices in the operators vector.
      */
     void multiply_out_propositional(
         int pos, ap_float cost,
@@ -282,7 +297,8 @@ private:
         const std::vector<NumAssProxy> &ass_effects,
         int concrete_op_id,
         std::vector<AbstractOperator> &operators,
-        const OperatorProxy &op);
+        const OperatorProxy &op,
+        OperatorGroupingMap *grouping_map);
 
     
     /**
