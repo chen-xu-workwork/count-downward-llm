@@ -731,7 +731,7 @@ vector<Fact> CEGAR::get_flaws(
     for (size_t i = 0; i < local_to_global_regular_numeric_var_ids.size(); ++i) {
         int var_id = local_to_global_regular_numeric_var_ids[i];
         NumericVariableProxy num_var = task_proxy.get_numeric_variables()[var_id];
-        if (num_var.get_var_type() == numType::regular || num_var.get_var_type() == numType::constant) {
+        if (num_var.get_var_type() == numType::regular || num_var.get_var_type() == numType::constant) { //TODO: Why constants?
             vector<ap_float> values;
             if (i < already_split.size() && 
                 already_split[i].count(numeric_state[var_id]) == 0) {
@@ -775,7 +775,7 @@ vector<Fact> CEGAR::get_flaws(
     
     int step_num = 0;
     for (vector<int> &equivalent_ops : wildcard_plan) {
-        assert(flaws.empty());
+        //assert(flaws.empty()); RANDOM FLAW
 
         
         
@@ -794,8 +794,8 @@ vector<Fact> CEGAR::get_flaws(
             vector<vector<pair<int, ap_float>>> regular_numeric_flaws = flaw_data.second;
             if (operator_flaws.empty()) {
                 // Propositional preconditions satisfied - apply operator
-                flaws.clear();
-                detected_numeric_flaws.clear();
+                //flaws.clear(); RANDOM FLAW
+                //detected_numeric_flaws.clear(); RANDOM FLAW
                 
                 string decoded_state = decode_abstract_state_compact(current_state, numeric_state);
                 logger->log(Verbosity::DEBUG, "[PLAN] ", decoded_state, ", ", op_name);
@@ -874,6 +874,12 @@ vector<Fact> CEGAR::get_flaws(
                     // Add the inner vector to the 2D structure
                     detected_numeric_flaws.push_back(numeric_flaws_for_this_prop_flaw);
                 }
+
+                // NEXT FOUR LINES: RANDOM FLAW
+                apply_op_to_state(current_state, op);
+                apply_numeric_effects(numeric_state, op);
+                g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_state);
+                g_axiom_evaluator->evaluate(current_state, numeric_state);
             }
         }
 
@@ -916,7 +922,7 @@ vector<Fact> CEGAR::get_flaws(
                 logger->log(Verbosity::DEBUG, "");
             }
            
-            return flaws;
+            //return flaws; RANDOM FLAW
         }
         logger->log(Verbosity::DEBUG, "");
         step_num++;
@@ -939,7 +945,7 @@ vector<Fact> CEGAR::get_flaws(
  
 
     // Check goal flaws
-    assert(flaws.empty());
+    //assert(flaws.empty()); RANDOM FLAW
     
     pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> goal_flaw_data =
         get_goal_flaws(task_proxy, current_state, blacklisted_variables,
@@ -955,7 +961,7 @@ vector<Fact> CEGAR::get_flaws(
         vector<pair<int, ap_float>> &reg_numeric_flaws = goal_numeric_flaws[i];
         
         // Skip comparison flaws that are already refined and have no new split values
-        if (!should_add_comparison_flaw(flaw.var)) {
+        if (!should_add_comparison_flaw(flaw.var)) { //TODO: I think that is deprecated....
             logger->log(Verbosity::DEBUG, "  Skipping comparison goal flaw var=", flaw.var,
                         " (already refined, no new observed values)");
             continue;
@@ -2441,7 +2447,7 @@ void add_domain_abstraction_cegar_options_to_parser(
     parser.add_option<bool>(
         "use_wildcard_plans",
         "Consider parallel transitions in abstraction.",
-        "false");
+        "true");
     vector<string> init_split_method;
     init_split_method.emplace_back("goal_value");
     init_split_method.emplace_back("goal_value_or_random_if_non_goal");
