@@ -56,6 +56,13 @@ public:
         return this;
     }
 
+    virtual AbstractQueue<Value> *convert_now() {
+        /* Force conversion to heap-based queue immediately.
+           Default implementation returns this (no conversion needed for HeapQueue).
+        */
+        return this;
+    }
+
     /* The following method is a bit of a hack to influence the
        conversion strategy to convert to the heap-based queue less
        aggressively in the incremental LM-cut configurations. A better
@@ -219,6 +226,13 @@ public:
         return this;
     }
 
+    virtual AbstractQueue<Value> *convert_now() {
+        std::vector<Entry> entries;
+        extract_sorted_entries(entries);
+        return HeapQueue<Value>::create_from_sorted_entries_destructively(
+            entries);
+    }
+
     virtual void add_virtual_pushes(int num_extra_pushes) {
         num_pushes += num_extra_pushes;
     }
@@ -264,6 +278,14 @@ public:
 
     void add_virtual_pushes(int num_extra_pushes) {
         wrapped_queue->add_virtual_pushes(num_extra_pushes);
+    }
+
+    void convert_now() {
+        AbstractQueue<Value> *q = wrapped_queue->convert_now();
+        if (q != wrapped_queue) {
+            delete wrapped_queue;
+            wrapped_queue = q;
+        }
     }
 };
 
