@@ -129,6 +129,11 @@ public:
         return is_derived_prop_var[var_id];
     }
     
+    // Check if all operator costs are integers (set after build_abstract_operators)
+    bool get_all_costs_are_ints() const {
+        return all_costs_are_ints;
+    }
+    
     /**
      * Build all abstract operators for the given task.
      * This computes operators that account for:
@@ -187,6 +192,9 @@ private:
     
     // Whether to group operators with identical abstract behavior (label reduction)
     const bool combine_labels;
+    
+    // Whether all operator costs are integers (set by build_abstract_operators)
+    bool all_costs_are_ints = true;
     
     // Shared logger for output
     std::shared_ptr<CEGARLogger> logger;

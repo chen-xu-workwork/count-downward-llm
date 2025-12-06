@@ -135,6 +135,8 @@ class DomainAbstractionFactory {
     NumericDomainMappingType numeric_domain_mapping;
     std::vector<int> numeric_domain_sizes;
     std::shared_ptr<CEGARLogger> logger;
+
+    bool costs_are_ints = false;
     
     /*
       final h-values for abstract-states.

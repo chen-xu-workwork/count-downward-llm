@@ -287,9 +287,18 @@ vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operator
     OperatorGroupingMap grouping_map;
     OperatorGroupingMap *grouping_map_ptr = combine_labels ? &grouping_map : nullptr;
     
+    // Check if all costs are integers
+    all_costs_are_ints = true;
+    
     for (OperatorProxy op : operators) {
         ap_float cost = op.get_cost();
         assert(cost >= 0);
+        
+        // Check if cost is an integer
+        if (all_costs_are_ints && cost != static_cast<ap_float>(static_cast<int>(cost))) {
+            all_costs_are_ints = false;
+        }
+        
         // Check which numeric variables this operator modifies
         for (auto ass_eff_proxy : op.get_ass_effects()) {
             NumAssProxy ass_eff = ass_eff_proxy.get_assignment();

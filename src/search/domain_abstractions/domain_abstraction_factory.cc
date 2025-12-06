@@ -663,7 +663,9 @@ vector<AbstractOperator> DomainAbstractionFactory::compute_abstract_operators(
         logger);
     
     // Let the helper build all abstract operators
-    return helper.build_abstract_operators(task_proxy);
+    vector<AbstractOperator> operators = helper.build_abstract_operators(task_proxy);
+    costs_are_ints = helper.get_all_costs_are_ints();
+    return operators;
 }
 
 //A match tree exists to compute applicaple operators, given a state
@@ -961,6 +963,10 @@ void DomainAbstractionFactory::compute_distances(
     distances.reserve(num_states);
     // first implicit entry: priority, second entry: index for an abstract state
     AdaptiveQueue<int> pq;
+
+    if (!costs_are_ints) {
+        pq.add_virtual_pushes(100);
+    }
 
     // initialize queue
     int first_goal_state = -1;
