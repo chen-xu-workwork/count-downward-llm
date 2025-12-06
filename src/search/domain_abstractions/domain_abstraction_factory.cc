@@ -983,7 +983,8 @@ void DomainAbstractionFactory::compute_distances(
     AdaptiveQueue<int> pq;
 
     if (!costs_are_ints) {
-        pq.add_virtual_pushes(100);
+        //pq.add_virtual_pushes(100);
+        pq.convert_now();
     }
 
     // initialize queue
@@ -1459,6 +1460,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                         successor_state = candidate_successor;
                         
                         lowest_so_far = distances[candidate_successor];
+
                     }
                 }
             }
@@ -1474,7 +1476,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 break;
             }
 
-            assert(lowest_so_far == distances[current_state] - op.get_cost());
+            assert(abs(lowest_so_far - distances[current_state] + op.get_cost()) < 1e-6); // Floating point tolerance
             assert(lowest_so_far < distances[current_state] || op.get_cost() == 0);
 
             {

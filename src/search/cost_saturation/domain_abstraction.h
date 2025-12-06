@@ -89,6 +89,8 @@ class DomainAbstraction : public Abstraction {
     // Number of abstract states in the projection.
     int num_states;
 
+    bool use_int_costs = false;
+
     // Multipliers for each variable for perfect hash function (indexed by pattern position).
     std::vector<int> hash_multipliers;
 

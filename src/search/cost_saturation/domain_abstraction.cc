@@ -622,6 +622,8 @@ DomainAbstraction::DomainAbstraction(
     
     vector<domain_abstractions::AbstractOperator> abstract_operators =
         helper.build_abstract_operators(task_proxy);
+
+    use_int_costs = helper.get_all_costs_are_ints();
     
     // Convert abstract operators to operator groups with pattern-projected preconditions
     // No additional grouping needed - the helper already grouped if combine_labels was true
@@ -833,6 +835,12 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
 
     // Initialize queue with goal states that are numerically/comparison-feasible.
     AdaptiveQueue<int> pq;
+
+    if (!use_int_costs) {
+        pq.convert_now();
+    }
+
+
     for (int goal : goal_states) {
         // Enumerate all states compatible with comparison evaluations starting from this goal.
         vector<int> alt_states = enumerate_states_with_evaluated_comparisons(goal);
@@ -847,9 +855,12 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
 
     // Run Dijkstra loop.
     while (!pq.empty()) {
+
         pair<ap_float, int> node = pq.pop();
         ap_float distance = node.first;
         int state_index = node.second;
+
+        //cout << "Processing state " << state_index << " with distance " << distance << endl;
         assert(utils::in_bounds(state_index, distances));
         if (distance > distances[state_index]) {
             continue;
@@ -900,12 +911,17 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
                         }
                     }
                     if (insert_into_pq) {
+                        //cout << "Current distance: " << distances[predecessor]
+                        //     << ", pushing predecessor state " << predecessor
+                        //     << " with alternative cost " << alternative_cost << endl;
                         pq.push(alternative_cost, predecessor);
                     }
                 }
             }
         }
     }
+
+    //exit(0);
 
     // print all distances
     // for (size_t i = 0; i < distances.size(); ++i) {
