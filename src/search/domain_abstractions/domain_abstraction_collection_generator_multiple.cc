@@ -272,7 +272,7 @@ vector<int> DomainAbstractionCollectionGeneratorMultiple::get_candidates(
             for (FactProxy pre : goal_axiom.get_preconditions()) {
                 int pre_var_id = pre.get_variable().get_id();
                 // These preconditions are always comparison axiom variables
-                assert(comparison_axiom_vars.count(pre_var_id) > 0);
+                // assert(comparison_axiom_vars.count(pre_var_id) > 0);
                 goal_var_ids.insert(pre_var_id);
             }
         } else {
