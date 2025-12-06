@@ -93,7 +93,7 @@ public:
      * @param domain_sizes Abstract domain sizes for propositional variables
      * @param numeric_domain_sizes Number of partitions per numeric variable
      * @param hash_multipliers Hash multipliers for perfect hashing
-     * @param group_operators Whether to group operators with identical abstract behavior
+     * @param combine_labels Whether to group operators with identical abstract behavior (label reduction)
      * @param logger Shared logger for output (optional)
      */
     explicit DomainAbstractionNumericHelper(
@@ -103,7 +103,7 @@ public:
         const std::vector<int> &domain_sizes,
         const std::vector<int> &numeric_domain_sizes,
         const std::vector<int> &hash_multipliers,
-        bool group_operators,
+        bool combine_labels,
         std::shared_ptr<CEGARLogger> logger = nullptr);
     
     // Access to numeric task information
@@ -185,8 +185,8 @@ private:
     const std::vector<int> &numeric_domain_sizes;
     const std::vector<int> &hash_multipliers;
     
-    // Whether to group operators with identical abstract behavior
-    const bool group_operators;
+    // Whether to group operators with identical abstract behavior (label reduction)
+    const bool combine_labels;
     
     // Shared logger for output
     std::shared_ptr<CEGARLogger> logger;

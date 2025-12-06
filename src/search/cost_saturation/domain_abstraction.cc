@@ -430,15 +430,14 @@ static vector<Fact> get_pattern_regression_preconditions(
     return pattern_reg_pre;
 }
 
-static DomainAbstractionOperatorGroups group_equivalent_operators(
+// Convert abstract operators to operator groups with pattern-projected preconditions.
+// The abstract operators are already grouped by the numeric helper if combine_labels was enabled.
+static DomainAbstractionOperatorGroups get_operator_groups_from_abstract_ops(
     const vector<domain_abstractions::AbstractOperator> &abstract_operators,
     const vector<int> &variable_to_pattern_index,
     const vector<int> &numeric_variable_to_pattern_index,
     const domain_abstractions::DomainMapping &domain_mapping,
     const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping) {
-    
-    // Group by (preconditions, regression_preconditions) pairs
-    map<pair<vector<Fact>, vector<Fact>>, vector<int>> grouped_ops;
     
     vector<int> flattened_var_to_pattern_index(domain_mapping.size() + numeric_domain_mapping.size(), -1);
     for (size_t i = 0; i < variable_to_pattern_index.size(); ++i) {
@@ -451,43 +450,6 @@ static DomainAbstractionOperatorGroups group_equivalent_operators(
         if (idx < flattened_var_to_pattern_index.size()) {
             flattened_var_to_pattern_index[idx] = numeric_variable_to_pattern_index[i];
         }
-    }
-
-    for (const auto &abs_op : abstract_operators) {
-        vector<Fact> pattern_pre = get_pattern_preconditions(abs_op, flattened_var_to_pattern_index);
-        vector<Fact> pattern_reg_pre = get_pattern_regression_preconditions(abs_op, flattened_var_to_pattern_index);
-        // Add all concrete operator IDs (may be multiple due to label reduction)
-        for (int concrete_op_id : abs_op.get_concrete_op_ids()) {
-            grouped_ops[{pattern_pre, pattern_reg_pre}].push_back(concrete_op_id);
-        }
-    }
-
-    DomainAbstractionOperatorGroups groups;
-    groups.reserve(grouped_ops.size());
-    for (auto &entry : grouped_ops) {
-        DomainAbstractionOperatorGroup group;
-        group.preconditions = entry.first.first;
-        group.regression_preconditions = entry.first.second;
-        group.operator_ids = move(entry.second);
-        groups.push_back(move(group));
-    }
-    sort(groups.begin(), groups.end());
-    return groups;
-}
-
-static DomainAbstractionOperatorGroups get_singleton_operator_groups(
-    const vector<domain_abstractions::AbstractOperator> &abstract_operators,
-    const vector<int> &variable_to_pattern_index,
-    const vector<int> &numeric_variable_to_pattern_index,
-    const domain_abstractions::DomainMapping &domain_mapping,
-    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping) {
-    
-    vector<int> flattened_var_to_pattern_index(domain_mapping.size() + numeric_domain_mapping.size(), -1);
-    for (size_t i = 0; i < variable_to_pattern_index.size(); ++i) {
-        flattened_var_to_pattern_index[i] = variable_to_pattern_index[i];
-    }
-    for (size_t i = 0; i < numeric_variable_to_pattern_index.size(); ++i) {
-        flattened_var_to_pattern_index[i + domain_mapping.size()] = numeric_variable_to_pattern_index[i];
     }
 
     DomainAbstractionOperatorGroups groups;
@@ -646,7 +608,7 @@ DomainAbstraction::DomainAbstraction(
     }
 
     // Instantiate DomainAbstractionNumericHelper to build abstract operators
-    // Use group_operators=false since cost saturation does its own grouping
+    // Pass combine_labels to let the helper do label reduction if enabled
     domain_abstractions::DomainAbstractionNumericHelper helper(
         g_root_task(),
         domain_mapping,
@@ -654,23 +616,18 @@ DomainAbstraction::DomainAbstraction(
         domain_sizes,
         numeric_domain_sizes,
         hash_multipliers_by_var_id,
-        false,  // group_operators
+        combine_labels,  // Let helper do label reduction
         nullptr  // No logger for cost saturation
     );
     
     vector<domain_abstractions::AbstractOperator> abstract_operators =
         helper.build_abstract_operators(task_proxy);
     
-    DomainAbstractionOperatorGroups operator_groups;
-    if (combine_labels) {
-        operator_groups = group_equivalent_operators(
-            abstract_operators, variable_to_pattern_index, numeric_variable_to_pattern_index,
-            domain_mapping, numeric_domain_mapping);
-    } else {
-        operator_groups = get_singleton_operator_groups(
-            abstract_operators, variable_to_pattern_index, numeric_variable_to_pattern_index,
-            domain_mapping, numeric_domain_mapping);
-    }
+    // Convert abstract operators to operator groups with pattern-projected preconditions
+    // No additional grouping needed - the helper already grouped if combine_labels was true
+    DomainAbstractionOperatorGroups operator_groups = get_operator_groups_from_abstract_ops(
+        abstract_operators, variable_to_pattern_index, numeric_variable_to_pattern_index,
+        domain_mapping, numeric_domain_mapping);
 
     int num_ops_covered_by_labels = 0;
     for (const auto &group : operator_groups) {

@@ -651,7 +651,7 @@ vector<AbstractOperator> DomainAbstractionFactory::compute_abstract_operators(
     
     // Create numeric helper to handle all operator construction
     // The helper handles both propositional and numeric effects, including cascades
-    // Use group_operators=true to reduce redundant abstract operators
+    // Use combine_labels=true to reduce redundant abstract operators
     DomainAbstractionNumericHelper helper(
         g_root_task(),
         domain_mapping,
@@ -659,7 +659,7 @@ vector<AbstractOperator> DomainAbstractionFactory::compute_abstract_operators(
         domain_sizes,
         numeric_domain_sizes,
         hash_multipliers,
-        true,  // group_operators
+        true,  // combine_labels
         logger);
     
     // Let the helper build all abstract operators
