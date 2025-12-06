@@ -264,7 +264,7 @@ CEGAR::CEGAR(
       init_split_var_ids(move(init_split_var_ids)),
       blacklisted_variables(move(blacklisted_variables)),
       blacklisted_numeric_variables(move(blacklisted_numeric_variables)),
-      logger(make_shared<CEGARLogger>(Verbosity::INFO)) {
+      logger(make_shared<CEGARLogger>(Verbosity::NONE)) {
     /* TODO: Should we check somewhere that *init_split_var_ids* does not
         contain elements that are blacklisted? */
 
@@ -2479,7 +2479,6 @@ void add_domain_abstraction_cegar_options_to_parser(
     vector<string> numeric_split_strategy;
     numeric_split_strategy.emplace_back("standard");
     numeric_split_strategy.emplace_back("exclusion");
-    std::cout << "DEBUG PARSER: Registering numeric_split_strategy option with values: standard, exclusion, default=standard" << std::endl;
     parser.add_enum_option(
         "numeric_split_strategy",
         numeric_split_strategy,
@@ -2487,7 +2486,6 @@ void add_domain_abstraction_cegar_options_to_parser(
         "'standard' creates [lower, x) and [x, upper) with different partitions, "
         "'exclusion' creates R\\{x} (two disjoint ranges) and {x} as separate partitions.",
         "standard", {});
-    std::cout << "DEBUG PARSER: numeric_split_strategy option registered successfully" << std::endl;
 }
 }
 

@@ -442,7 +442,7 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
     }
 }
 
-void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_mapping, NumericDomainMappingType &numeric_domain_mapping) const {
+void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_mapping, NumericDomainMappingType &numeric_domain_mapping, shared_ptr<CEGARLogger> logger) const {
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
     unordered_set<int> comparison_var_ids;
     for (ComparisonAxiomProxy ax : comparison_axioms) {
@@ -451,24 +451,32 @@ void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_m
     int num_variables = task_proxy.get_variables().size();
     VariablesProxy vars = task_proxy.get_variables();
 
-    // Print all concrete operator IDs
-    cout << "AbstractOperator (concrete_ids=[";
+    // Build concrete operator names string
+    stringstream op_names;
+    op_names << "AbstractOperator (concrete_ids=[";
     for (size_t i = 0; i < concrete_op_ids.size(); ++i) {
-        if (i > 0) cout << ", ";
+        if (i > 0) op_names << ", ";
         int op_id = concrete_op_ids[i];
         if (op_id >= 0 && op_id < static_cast<int>(task_proxy.get_operators().size())) {
-            cout << task_proxy.get_operators()[op_id].get_name();
+            op_names << task_proxy.get_operators()[op_id].get_name();
         } else {
-            cout << op_id;
+            op_names << op_id;
         }
     }
-    cout << "], hash_effect=" << hash_effect << ")" << endl;
+    op_names << "], hash_effect=" << hash_effect << ")";
     
-    // Print preconditions
-    cout << "  Preconditions: ";
+    if (logger) {
+        logger->log(Verbosity::INFO, op_names.str());
+    } else {
+        cout << op_names.str() << endl;
+    }
+    
+    // Build preconditions string
+    stringstream pre_ss;
+    pre_ss << "  Preconditions: ";
     bool first = true;
     for (const Fact &p : pre) {
-        if (!first) cout << ", ";
+        if (!first) pre_ss << ", ";
         first = false;
         
         int var_id = p.var;
@@ -477,21 +485,27 @@ void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_m
         if (var_id >= num_variables) {
             // Numeric variable
             string partition = numeric_domain_mapping[var_id - num_variables]->get_ranges()[p.value].to_string();
-            cout << "num" << var_id - num_variables << "=" << partition;
+            pre_ss << "num" << var_id - num_variables << "=" << partition;
         } else if (is_comparison) {
             // Comparison axiom variable - show semantic meaning
             string val_str = (p.value == 1) ? "TRUE" : (p.value == 0) ? "FALSE" : "UNKNOWN";
-            cout << vars[var_id].get_name() << "(v" << var_id << ")=" << val_str;
+            pre_ss << vars[var_id].get_name() << "(v" << var_id << ")=" << val_str;
         } else {
             // Regular propositional variable
-            cout << vars[var_id].get_name() << "(v" << var_id << ")=" << p.value;
+            pre_ss << vars[var_id].get_name() << "(v" << var_id << ")=" << p.value;
         }
     }
-    if (first) cout << "(none)";
-    cout << endl;
+    if (first) pre_ss << "(none)";
+    
+    if (logger) {
+        logger->log(Verbosity::INFO, pre_ss.str());
+    } else {
+        cout << pre_ss.str() << endl;
+    }
 
-    // Print effects (distinguish actual effects from prevails)
-    cout << "  Effects: ";
+    // Build effects string (distinguish actual effects from prevails)
+    stringstream eff_ss;
+    eff_ss << "  Effects: ";
     first = true;
     for (const Fact &eff : regression_preconditions) {
         int var_id = eff.var;
@@ -511,7 +525,7 @@ void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_m
             continue;
         }
 
-        if (!first) cout << ", ";
+        if (!first) eff_ss << ", ";
         first = false;
         
         bool is_comparison = (comparison_var_ids.count(var_id) > 0);
@@ -522,20 +536,25 @@ void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_m
             string pre_partition = (pre_value >= 0) 
                 ? numeric_domain_mapping[var_id - num_variables]->get_ranges()[pre_value].to_string() 
                 : "*";
-            cout << "num" << var_id - num_variables << ": " << pre_partition << " -> " << eff_partition;
+            eff_ss << "num" << var_id - num_variables << ": " << pre_partition << " -> " << eff_partition;
         } else if (is_comparison) {
             // Comparison axiom variable
             string pre_str = (pre_value < 0) ? "*" : (pre_value == 1) ? "TRUE" : (pre_value == 0) ? "FALSE" : "UNKNOWN";
             string eff_str = (eff_value == 1) ? "TRUE" : (eff_value == 0) ? "FALSE" : "UNKNOWN";
-            cout << vars[var_id].get_name() << "(v" << var_id << "): " << pre_str << " -> " << eff_str;
+            eff_ss << vars[var_id].get_name() << "(v" << var_id << "): " << pre_str << " -> " << eff_str;
         } else {
             // Regular propositional variable
             string pre_str = (pre_value >= 0) ? to_string(pre_value) : "*";
-            cout << vars[var_id].get_name() << "(v" << var_id << "): " << pre_str << " -> " << eff_value;
+            eff_ss << vars[var_id].get_name() << "(v" << var_id << "): " << pre_str << " -> " << eff_value;
         }
     }
-    if (first) cout << "(none)";
-    cout << endl;
+    if (first) eff_ss << "(none)";
+    
+    if (logger) {
+        logger->log(Verbosity::INFO, eff_ss.str());
+    } else {
+        cout << eff_ss.str() << endl;
+    }
 }
 
 DomainAbstractionFactory::DomainAbstractionFactory (
@@ -578,8 +597,7 @@ DomainAbstractionFactory::DomainAbstractionFactory (
                                            numeric_limits<int>::max())) {
             num_states *= domain_sizes[var_id];
         } else {
-            cerr << "Given domain mapping is too large! (Overflow occurred). "
-                 << "Domain sizes: " << domain_sizes << endl;
+            logger->log(Verbosity::INFO, "Given domain mapping is too large! (Overflow occurred). Domain sizes: ", domain_sizes);
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
@@ -592,7 +610,7 @@ DomainAbstractionFactory::DomainAbstractionFactory (
                                            numeric_limits<int>::max())) {
             num_states *= num_partitions;
         } else {
-            cerr << "Domain abstraction with numeric variables is too large! (Overflow occurred)." << endl;
+            logger->log(Verbosity::INFO, "Domain abstraction with numeric variables is too large! (Overflow occurred).");
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
@@ -1517,8 +1535,8 @@ void DomainAbstractionFactory::compute_abstract_plan(
 
             
             if (cheapest_operators.empty()) {
-                cerr << "PLAN: No equivalent operators found from state " << current_state
-                     << " to " << successor_state << "; aborting plan extraction." << endl;
+                logger->log(Verbosity::INFO, "PLAN: No equivalent operators found from state ", current_state,
+                     " to ", successor_state, "; aborting plan extraction.");
 
                 string decoded_current_state = decode_abstract_state(current_state, domain_sizes,
                                                       numeric_domain_mapping, hash_multipliers, task_proxy);
@@ -1528,15 +1546,15 @@ void DomainAbstractionFactory::compute_abstract_plan(
                                                       numeric_domain_mapping, hash_multipliers, task_proxy);
                 string decoded_no_reset_base_state = decode_abstract_state(current_state - hash_effect, domain_sizes,
                                                       numeric_domain_mapping, hash_multipliers, task_proxy);
-                cerr << "  Current: " << decoded_current_state << endl;
-                cerr << "  Successor: " << decoded_successor_state << endl;
-                cerr << "  Base: " << decoded_base_state << endl;
-                cerr << "  No reset base: " << decoded_no_reset_base_state << endl;
-                cerr << "  Distance - current: " << distances[current_state] << endl;
-                cerr << "  Distance - successor: " << distances[successor_state] << endl;
-                cerr << "  OP hash effects: " << hash_effect << endl;
-                cerr << "  OP ID (abstract): " << op_id << endl;
-                op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
+                logger->log(Verbosity::INFO, "  Current: ", decoded_current_state);
+                logger->log(Verbosity::INFO, "  Successor: ", decoded_successor_state);
+                logger->log(Verbosity::INFO, "  Base: ", decoded_base_state);
+                logger->log(Verbosity::INFO, "  No reset base: ", decoded_no_reset_base_state);
+                logger->log(Verbosity::INFO, "  Distance - current: ", distances[current_state]);
+                logger->log(Verbosity::INFO, "  Distance - successor: ", distances[successor_state]);
+                logger->log(Verbosity::INFO, "  OP hash effects: ", hash_effect);
+                logger->log(Verbosity::INFO, "  OP ID (abstract): ", op_id);
+                op.dump(task_proxy, domain_mapping, numeric_domain_mapping, logger);
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
             }
             

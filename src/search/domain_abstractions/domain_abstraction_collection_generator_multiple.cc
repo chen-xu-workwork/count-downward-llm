@@ -166,7 +166,6 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
     utils::CountdownTimer timer(total_max_time);
 
     vector<Fact> goals = get_goals_in_random_order(task_proxy, *rng);
-    cout << "Goals in random order: ";
     for (const Fact &goal : goals) {
         cout << task_proxy.get_variables()[goal.var].get_name() << "=" << goal.value << " ";
     }
@@ -226,7 +225,6 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
 
         ++num_iterations;
         ++goal_index;
-        cout << "Goals size: " << goals.size() << ", next goal index: " << goal_index << endl;
         goal_index = goal_index % goals.size();
         //assert(utils::in_bounds(goal_index, goals));
     }

@@ -112,7 +112,7 @@ public:
   
   const std::vector<Fact> &get_preconditions() const { return pre; }
 
-  void dump(const TaskProxy &task_proxy, DomainMapping &domain_mapping, NumericDomainMappingType &numeric_domain_mapping) const;
+  void dump(const TaskProxy &task_proxy, DomainMapping &domain_mapping, NumericDomainMappingType &numeric_domain_mapping, std::shared_ptr<CEGARLogger> logger = nullptr) const;
 };
 
 // Structure to store numeric goal conditions
