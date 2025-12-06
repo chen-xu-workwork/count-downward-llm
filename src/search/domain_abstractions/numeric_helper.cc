@@ -84,11 +84,6 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
       hash_multipliers(hash_multipliers),
       combine_labels(combine_labels),
       logger(logger) {
-
-    debug_counter++;
-    if (debug_counter == 11) {
-        //exit(0);
-    }
     
     // Verify this is a valid numeric task
     verify_no_non_numeric_axioms(task_proxy);
@@ -108,7 +103,6 @@ DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
     // Build internal data structures
     find_derived_variables();
     build_axiom_dependencies();
-    print_axiom_dependency_trees();  // DEBUG: Print dependency trees
 }
 
 
@@ -210,56 +204,6 @@ void DomainAbstractionNumericHelper::build_axiom_dependencies() {
     // This is handled in compute_affected_comparison_axioms().
 }
 
-void DomainAbstractionNumericHelper::print_axiom_dependency_trees() {
-    
-    AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
-    
-    for (AssignmentAxiomProxy axiom : assignment_axioms) {
-        int derived_id = axiom.get_assignment_variable().get_id();
-        int left_id = axiom.get_left_variable().get_id();
-        int right_id = axiom.get_right_variable().get_id();
-        cal_operator op = axiom.get_arithmetic_operator_type();
-        
-        string op_str;
-        switch (op) {
-            case cal_operator::sum: op_str = "+"; break;
-            case cal_operator::diff: op_str = "-"; break;
-            case cal_operator::mult: op_str = "*"; break;
-            case cal_operator::divi: op_str = "/"; break;
-            default: op_str = "?"; break;
-        }
-        
-        NumericVariableProxy derived_var = axiom.get_assignment_variable();
-        NumericVariableProxy left_var = axiom.get_left_variable();
-        NumericVariableProxy right_var = axiom.get_right_variable();
-    }
-    
-    // Print comparison axiom dependencies (numeric -> propositional)
-    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-    
-    for (ComparisonAxiomProxy axiom : comparison_axioms) {
-        NumericVariableProxy left_var = axiom.get_left_variable();
-        NumericVariableProxy right_var = axiom.get_right_variable();
-        comp_operator op = axiom.get_comparison_operator_type();
-        FactProxy true_fact = axiom.get_true_fact();
-        
-        int left_id = left_var.get_id();
-        int right_id = right_var.get_id();
-        int prop_var_id = true_fact.get_variable().get_id();
-        
-        string op_str;
-        switch (op) {
-            case comp_operator::lt: op_str = "<"; break;
-            case comp_operator::le: op_str = "<="; break;
-            case comp_operator::eq: op_str = "=="; break;
-            case comp_operator::ge: op_str = ">="; break;
-            case comp_operator::gt: op_str = ">"; break;
-            default: op_str = "?"; break;
-        }
-    }
-    
-}
-
 vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operators(const TaskProxy &task_proxy) {
     vector<AbstractOperator> abstract_operators;
     
@@ -269,19 +213,6 @@ vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operator
     // Track which numeric variables are modified by operators
     unordered_set<int> modified_numeric_vars;
 
-    // Debug domain mapping
-    //for (size_t var_id = 0; var_id < domain_mapping.size(); ++var_id) {
-    //    if (domain_mapping[var_id].empty()) {
-    //        continue;
-    //    }
-    //    if (logger) {
-    //        logger->log_no_endl(Verbosity::DEBUG, "Var", var_id, " mapping: ");
-    //        for (size_t v = 0; v < domain_mapping[var_id].size(); ++v) {
-    //            logger->log_no_endl(Verbosity::DEBUG, domain_mapping[var_id][v], " ");
-    //        }
-    //        logger->log(Verbosity::DEBUG, "");
-    //    }
-    //}
     
     // Create grouping map if label reduction is enabled
     OperatorGroupingMap grouping_map;
