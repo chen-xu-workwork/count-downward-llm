@@ -1439,6 +1439,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 }
             }
 
+
             if (successor_state == -1) {
                 if (logger) {
                     logger->log(Verbosity::INFO, "PLAN: No valid successor from state ", current_state,
@@ -1449,6 +1450,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 break;
             }
 
+            assert(lowest_so_far == distances[current_state] - op.get_cost());
             assert(lowest_so_far < distances[current_state] || op.get_cost() == 0);
 
             {
