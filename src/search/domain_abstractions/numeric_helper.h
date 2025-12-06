@@ -147,33 +147,6 @@ public:
     }
     
     
-    // Get initial numeric values
-    const std::vector<ap_float> &get_initial_numeric_values() const {
-        return initial_numeric_values;
-    }
-    
-    /**
-     * Get all numeric variables that are transitively affected by a change to var_id.
-     * This includes variables computed via assignment axioms that depend on var_id.
-     * 
-     * Example: If we have axioms:
-     *   derived1 := x + y
-     *   derived2 := derived1 * 2
-     * Then get_affected_variables(x) returns {x, derived1, derived2}
-     */
-    std::vector<int> get_affected_variables(int var_id) const;
-    
-    /**
-     * Given a numeric variable and its new value, compute all derived variables
-     * that need to be updated and return their new values.
-     * 
-     * Returns: vector of pairs (var_id, new_value) for all affected derived variables
-     */
-    std::vector<std::pair<int, ap_float>> compute_derived_updates(
-        int changed_var_id,
-        ap_float new_value,
-        const std::vector<ap_float> &current_state) const;
-    
     /**
      * Apply numeric effects of an operator to a state.
      * Returns the new numeric state after applying additive and assignment effects,

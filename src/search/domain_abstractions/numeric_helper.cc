@@ -261,50 +261,6 @@ void DomainAbstractionNumericHelper::print_axiom_dependency_trees() {
     
 }
 
-vector<int> DomainAbstractionNumericHelper::get_affected_variables(int var_id) const {
-    // Compute transitive closure of reverse dependencies
-    vector<int> affected;
-    vector<bool> visited(n_numeric_variables, false);
-    queue<int> to_process;
-    
-    to_process.push(var_id);
-    visited[var_id] = true;
-    affected.push_back(var_id);
-    
-    while (!to_process.empty()) {
-        int current = to_process.front();
-        to_process.pop();
-        
-        // Add all variables that depend on current
-        for (int derived_var : reverse_axiom_dependencies[current]) {
-            if (!visited[derived_var]) {
-                visited[derived_var] = true;
-                affected.push_back(derived_var);
-                to_process.push(derived_var);
-            }
-        }
-    }
-    
-    return affected;
-}
-
-vector<pair<int, ap_float>> DomainAbstractionNumericHelper::compute_derived_updates(
-    int changed_var_id,
-    ap_float new_value,
-    const vector<ap_float> &current_state) const {
-    
-    vector<pair<int, ap_float>> updates;
-    
-    // TODO: Implement proper derived variable computation
-    // This requires:
-    // 1. Get all variables affected by changed_var_id
-    // 2. Compute their new values in topological order
-    // 3. Return the list of (var_id, new_value) pairs
-    
-    // For now, return empty (no derived variables)
-    return updates;
-}
-
 vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operators(const TaskProxy &task_proxy) {
     vector<AbstractOperator> abstract_operators;
     
