@@ -95,7 +95,7 @@ CostPartitioningHeuristicCollectionGenerator::generate_cost_partitionings(
     ap_float avg_cost = get_average_operator_cost(task_proxy);
 
     unique_ptr<Diversifier> diversifier;
-    if (diversify) {
+    if (diversify && timer.get_remaining_time() > 5) {
         double max_sampling_time = timer.get_remaining_time();
         utils::CountdownTimer sampling_timer(max_sampling_time);
         g_log << "Start sampling" << endl;
@@ -108,6 +108,9 @@ CostPartitioningHeuristicCollectionGenerator::generate_cost_partitionings(
 
         diversifier = utils::make_unique_ptr<Diversifier>(
             convert_samples_to_abstract_ids(abstractions, samples));
+    } else {
+        cout << "Skipping diversification" << endl;
+        cout << "diversify=" << diversify << ", remaining_time=" << timer.get_remaining_time() << endl;
     }
 
     g_log << "Start computing cost partitionings" << endl;
