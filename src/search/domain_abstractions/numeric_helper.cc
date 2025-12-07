@@ -639,9 +639,12 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                         ap_float val = axiom.get_left_variable().get_initial_state_value();
                         left_range = NumericRange(val, val, true, true);
                         left_known = true;
-                    } else if (ranges.count(ax_left_id)) {
-                        left_range = ranges[ax_left_id];
-                        left_known = true;
+                    } else {
+                        auto left_it = ranges.find(ax_left_id);
+                        if (left_it != ranges.end()) {
+                            left_range = left_it->second;
+                            left_known = true;
+                        }
                     }
                     
                     // Get right operand range
@@ -652,9 +655,12 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                         ap_float val = axiom.get_right_variable().get_initial_state_value();
                         right_range = NumericRange(val, val, true, true);
                         right_known = true;
-                    } else if (ranges.count(ax_right_id)) {
-                        right_range = ranges[ax_right_id];
-                        right_known = true;
+                    } else {
+                        auto right_it = ranges.find(ax_right_id);
+                        if (right_it != ranges.end()) {
+                            right_range = right_it->second;
+                            right_known = true;
+                        }
                     }
                     
                     // Compute derived range if both operands known
@@ -710,8 +716,11 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 if (matching_axiom.get_left_variable().get_var_type() == numType::constant) {
                     ap_float val = matching_axiom.get_left_variable().get_initial_state_value();
                     left_range = NumericRange(val, val, true, true);
-                } else if (ranges.count(left_id)) {
-                    left_range = ranges[left_id];
+                } else {
+                    auto left_it = ranges.find(left_id);
+                    if (left_it != ranges.end()) {
+                        left_range = left_it->second;
+                    }
                 }
                 
                 // Get right operand range
@@ -719,8 +728,11 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 if (matching_axiom.get_right_variable().get_var_type() == numType::constant) {
                     ap_float val = matching_axiom.get_right_variable().get_initial_state_value();
                     right_range = NumericRange(val, val, true, true);
-                } else if (ranges.count(right_id)) {
-                    right_range = ranges[right_id];
+                } else {
+                    auto right_it = ranges.find(right_id);
+                    if (right_it != ranges.end()) {
+                        right_range = right_it->second;
+                    }
                 }
                 
                 // Evaluate comparison: 0=true, 1=false, 2=unknown

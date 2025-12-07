@@ -422,7 +422,7 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
       pre(pre_pairs),
       regression_preconditions(prev_pairs) {
 
-    for (Fact prec : prev_pairs) {
+    for (const Fact &prec : prev_pairs) {
         pre.push_back(prec); 
     }
     //assert no duplicates in pre
@@ -1071,6 +1071,9 @@ void DomainAbstractionFactory::compute_distances(
                         domain_mapping,
                         numeric_domain_mapping,
                         hash_multipliers);
+    
+    // Reusable vectors to avoid reallocations in Dijkstra loop
+    vector<int> applicable_operator_ids;
                         
     while (!pq.empty()) {
         pair<ap_float, int> node = pq.pop();
@@ -1097,7 +1100,7 @@ void DomainAbstractionFactory::compute_distances(
  
         // Regress using abstract operators (from match tree)
         // These handle both propositional-only and numeric operators
-        vector<int> applicable_operator_ids;
+        applicable_operator_ids.clear();
         match_tree.get_applicable_operator_ids(base_state, applicable_operator_ids);
 
         

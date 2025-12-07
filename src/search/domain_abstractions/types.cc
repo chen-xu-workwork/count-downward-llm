@@ -386,8 +386,9 @@ std::pair<ap_float, ap_float> NumericDomainMapping::apply_range_operation(
                     left_upper * right_lower,
                     left_upper * right_upper
                 };
-                result_lower = *std::min_element(products, products + 4);
-                result_upper = *std::max_element(products, products + 4);
+                auto [min_it, max_it] = std::minmax_element(products, products + 4);
+                result_lower = *min_it;
+                result_upper = *max_it;
             }
             break;
             
@@ -411,8 +412,9 @@ std::pair<ap_float, ap_float> NumericDomainMapping::apply_range_operation(
                         left_upper / right_lower,
                         left_upper / right_upper
                     };
-                    result_lower = *std::min_element(quotients, quotients + 4);
-                    result_upper = *std::max_element(quotients, quotients + 4);
+                    auto [min_it, max_it] = std::minmax_element(quotients, quotients + 4);
+                    result_lower = *min_it;
+                    result_upper = *max_it;
                 }
             }
             break;

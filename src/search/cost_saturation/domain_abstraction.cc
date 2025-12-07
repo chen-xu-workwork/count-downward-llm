@@ -99,9 +99,12 @@ void compute_numeric_context(
                 ap_float val = axiom.get_left_variable().get_initial_state_value();
                 l_range = domain_abstractions::NumericRange(val, val, true, true);
                 left_known = true;
-            } else if (ranges_out.count(left_id)) {
-                l_range = ranges_out[left_id];
-                left_known = true;
+            } else {
+                auto left_it = ranges_out.find(left_id);
+                if (left_it != ranges_out.end()) {
+                    l_range = left_it->second;
+                    left_known = true;
+                }
             }
 
             bool right_known = false;
@@ -110,9 +113,12 @@ void compute_numeric_context(
                 ap_float val = axiom.get_right_variable().get_initial_state_value();
                 r_range = domain_abstractions::NumericRange(val, val, true, true);
                 right_known = true;
-            } else if (ranges_out.count(right_id)) {
-                r_range = ranges_out[right_id];
-                right_known = true;
+            } else {
+                auto right_it = ranges_out.find(right_id);
+                if (right_it != ranges_out.end()) {
+                    r_range = right_it->second;
+                    right_known = true;
+                }
             }
             
             if (left_known && right_known) {
@@ -150,14 +156,17 @@ vector<CompEvalHelper> evaluate_all_comparisons(
             ap_float val = axiom.get_left_variable().get_initial_state_value();
             l_range = domain_abstractions::NumericRange(val, val, true, true);
             left_known = true;
-        } else if (ranges.count(left_id)) {
-            l_range = ranges.at(left_id);
-            left_known = true;
-        } else if (left_id >= 0 && left_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const domain_abstractions::NumericDomainMapping &m = *numeric_domain_mapping[left_id];
-            int part = cur_num_partitions[left_id];
-            const domain_abstractions::NumericRange *rng = m.get_range_for_partition(part);
-            if (rng) { l_range = *rng; left_known = true; }
+        } else {
+            auto left_it = ranges.find(left_id);
+            if (left_it != ranges.end()) {
+                l_range = left_it->second;
+                left_known = true;
+            } else if (left_id >= 0 && left_id < static_cast<int>(numeric_domain_mapping.size())) {
+                const domain_abstractions::NumericDomainMapping &m = *numeric_domain_mapping[left_id];
+                int part = cur_num_partitions[left_id];
+                const domain_abstractions::NumericRange *rng = m.get_range_for_partition(part);
+                if (rng) { l_range = *rng; left_known = true; }
+            }
         }
 
         domain_abstractions::NumericRange r_range;
@@ -166,14 +175,17 @@ vector<CompEvalHelper> evaluate_all_comparisons(
             ap_float val = axiom.get_right_variable().get_initial_state_value();
             r_range = domain_abstractions::NumericRange(val, val, true, true);
             right_known = true;
-        } else if (ranges.count(right_id)) {
-            r_range = ranges.at(right_id);
-            right_known = true;
-        } else if (right_id >= 0 && right_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const domain_abstractions::NumericDomainMapping &m = *numeric_domain_mapping[right_id];
-            int part = cur_num_partitions[right_id];
-            const domain_abstractions::NumericRange *rng = m.get_range_for_partition(part);
-            if (rng) { r_range = *rng; right_known = true; }
+        } else {
+            auto right_it = ranges.find(right_id);
+            if (right_it != ranges.end()) {
+                r_range = right_it->second;
+                right_known = true;
+            } else if (right_id >= 0 && right_id < static_cast<int>(numeric_domain_mapping.size())) {
+                const domain_abstractions::NumericDomainMapping &m = *numeric_domain_mapping[right_id];
+                int part = cur_num_partitions[right_id];
+                const domain_abstractions::NumericRange *rng = m.get_range_for_partition(part);
+                if (rng) { r_range = *rng; right_known = true; }
+            }
         }
 
         if (left_known && right_known) {
