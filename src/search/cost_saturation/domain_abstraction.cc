@@ -938,10 +938,10 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
                 }
             }
             
-            int predecessor_base = reset_comparison_vars_to_unknown_except(
-                base_state, domain_mapping, hash_multipliers_by_var_id, task_proxy,
-                fixed_comparisons);
-            predecessor_base = predecessor_base - op.hash_effect;
+            // Compute predecessor base using simple arithmetic.
+            // enumerate_states_with_evaluated_comparisons will handle resetting
+            // comparison vars internally.
+            int predecessor_base = base_state - op.hash_effect;
             
             vector<int> predecessors = enumerate_states_with_evaluated_comparisons(
                 predecessor_base, fixed_comparisons);
