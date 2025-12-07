@@ -1272,23 +1272,9 @@ void DomainAbstractionFactory::compute_distances(
                 
                 if (alternative_cost < distances[predecessor]) {
                     total_expansions++;
-
-                    
-
                     distances[predecessor] = alternative_cost;
                     
-                    bool insert_into_pq = true;
-                    if (init_hash != predecessor) {
-                        for (auto alt_state : possible_predecessors) {
-                            if (alt_state > predecessor) {
-                                insert_into_pq = false;
-                                break;
-                            }
-                        }
-                    }
-                    if (insert_into_pq) {
-                        pq.push(alternative_cost, predecessor);
-                    }
+                    pq.push(alternative_cost, predecessor);
                     if (compute_plan) {
                         generating_op_ids[predecessor] = op_id;
 
