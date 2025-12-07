@@ -28,7 +28,7 @@ using namespace std;
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
 
-static Verbosity log_verbosity = Verbosity::NONE;
+static Verbosity log_verbosity = Verbosity::DEBUG;
 
 class CEGAR {
 private:

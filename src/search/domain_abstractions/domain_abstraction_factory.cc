@@ -1486,10 +1486,46 @@ void DomainAbstractionFactory::compute_abstract_plan(
             // TODO: Changed the code a bit. Not sure if that is needed anymore. 
             base_successor = reset_all_comparison_vars_to_unknown(
                 base_successor, domain_mapping, hash_multipliers, task_proxy);
+
+            vector<Fact> comparison_preconds_succ = get_comparison_preconditions(op, task_proxy);
+            
+            // IMPORTANT: We must also fix comparisons that are TRUE in current_state and
+            // unaffected by this operator. During Dijkstra regression, when we computed the
+            // distance for current_state, we constrained the enumeration using comparisons
+            // TRUE or FALSE in the successor state that were unaffected by the operator. Since those
+            // comparisons are unaffected, they have the same value in both predecessor
+            // (current_state) and successor. We must replicate the same constraint here to
+            // find the correct successor.
+
+            vector<Fact> unaffected_comparisons_succ;
+            const vector<int> &concrete_op_ids = op.get_concrete_op_ids();
+            unaffected_comparisons_succ = get_unaffected_comparison_facts(
+                concrete_op_ids[0], current_state,
+                comparison_axiom_dependencies,
+                domain_mapping, hash_multipliers, task_proxy);
+            
+            // Combine: operator preconditions + unaffected comparisons
+            vector<Fact> fixed_comparisons_succ;// = comparison_preconds_succ;
+            cout << "Num unaffected_comparisons_succ: " << unaffected_comparisons_succ.size() << endl;
+            for (const Fact &f : unaffected_comparisons_succ) {
+                bool already_in = false;
+                for (const Fact &p : comparison_preconds_succ) {
+                    if (p.var == f.var) {
+                        already_in = true;
+                        break;
+                    }
+                }
+                if (!already_in) {
+                    //debug f
+                    cout << "Fixing comparison var " << f.var << " to value " << f.value << " in successor enumeration." << endl;
+                    fixed_comparisons_succ.push_back(f);
+                }
+            }
             
             vector<int> possible_successors = enumerate_states_with_evaluated_comparisons(
                 base_successor,
-                task_proxy);
+                task_proxy,
+                fixed_comparisons_succ);
 
             assert(!possible_successors.empty());
 
@@ -1557,13 +1593,39 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 // Get comparison preconditions - these must be preserved during enumeration
                 vector<Fact> comparison_preconds = get_comparison_preconditions(applicable_op, task_proxy);
                 
+                vector<int> operator_ids = applicable_op.get_concrete_op_ids();
+
+                vector<Fact> unaffected_comparisons_pred;
+                unaffected_comparisons_pred = get_unaffected_comparison_facts(
+                    operator_ids[0], successor_state,
+                    comparison_axiom_dependencies,
+                    domain_mapping, hash_multipliers, task_proxy);
+                
+                // Combine: operator preconditions + unaffected comparisons
+                vector<Fact> fixed_comparisons_pred = comparison_preconds;
+                if (true) {
+                    for (const Fact &f : unaffected_comparisons_pred) {
+                        bool already_in = false;
+                        for (const Fact &p : comparison_preconds) {
+                            if (p.var == f.var) {
+                                already_in = true;
+                                break;
+                            }
+                        }
+                        if (!already_in) {
+                            fixed_comparisons_pred.push_back(f);
+                        }
+                    }
+
+                }
+
                 // Enumerate all possible predecessors with evaluated comparison axioms
                 // This is the REVERSE of progression: we're checking if applying this operator
                 // to current_state leads to successor_state
                 vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                     base_predecessor,
                     task_proxy,
-                    comparison_preconds);
+                    fixed_comparisons_pred);
                 
                 
                 // Check if current_state is among the possible predecessors
