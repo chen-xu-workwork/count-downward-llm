@@ -226,7 +226,7 @@ static vector<Fact> get_comparison_preconditions(
 }
 
 // Reset all comparison-axiom variables in the given abstract state to UNKNOWN (value index 2),
-// EXCEPT for variables that appear in fixed_comparisons - those are SET to their specified values.
+// EXCEPT for variables that appear in fixed_comparisons - those keep their specified values.
 // Returns the adjusted abstract state index.
 static int reset_comparison_vars_to_unknown_except(
     int state_index,
@@ -235,10 +235,10 @@ static int reset_comparison_vars_to_unknown_except(
     const TaskProxy &task_proxy,
     const vector<Fact> &fixed_comparisons = {}) {
     
-    // Build map of fixed variable IDs -> required abstract value for quick lookup
-    unordered_map<int, int> fixed_var_values;
+    // Build set of fixed variable IDs for quick lookup
+    unordered_set<int> fixed_var_ids;
     for (const Fact &f : fixed_comparisons) {
-        fixed_var_values[f.var] = f.value;
+        fixed_var_ids.insert(f.var);
     }
     int delta = 0;
     ComparisonAxiomsProxy comp_axioms = task_proxy.get_comparison_axioms();
@@ -248,24 +248,18 @@ static int reset_comparison_vars_to_unknown_except(
         // Treat empty mapping as trivial; skip.
         if (domain_mapping[var_id].empty())
             continue;
+        
+        // Skip variables that are fixed (e.g., operator preconditions during regression)
+        if (fixed_var_ids.count(var_id) > 0)
+            continue;
 
         int multiplier = hash_multipliers[var_id];
         // Determine abstract domain size (1 + max mapped value) guarding empties
         int abstract_size = 1;
         for (int mapped : domain_mapping[var_id]) abstract_size = max(abstract_size, mapped + 1);
         int cur_val = (state_index / multiplier) % abstract_size;
-        
-        // Check if this variable is fixed to a specific value
-        auto fixed_it = fixed_var_values.find(var_id);
-        if (fixed_it != fixed_var_values.end()) {
-            // SET to the fixed value (not skip!)
-            int target_abs = fixed_it->second;
-            delta += (target_abs - cur_val) * multiplier;
-        } else {
-            // Reset to UNKNOWN
-            int unknown_abs = domain_mapping[var_id][2];
-            delta += (unknown_abs - cur_val) * multiplier;
-        }
+        int unknown_abs = domain_mapping[var_id][2];
+        delta += (unknown_abs - cur_val) * multiplier;
     }
     return state_index + delta;
 }
@@ -576,8 +570,7 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     : task_proxy(task_proxy),
       domain_mapping(domain_mapping),
       numeric_domain_sizes(numeric_domain_sizes),
-      logger(logger),
-      comparison_axiom_dependencies(compute_comparison_axiom_dependencies(task_proxy)) {
+      logger(logger) {
         // Deep copy numeric_domain_mapping using clone() (can't copy unique_ptr directly)
         for (const auto &mapping : numeric_domain_mapping) {
             this->numeric_domain_mapping.push_back(mapping->clone());
@@ -990,8 +983,7 @@ void DomainAbstractionFactory::compute_distances(
     AdaptiveQueue<int> pq;
 
     if (!costs_are_ints) {
-        //pq.add_virtual_pushes(100);
-        pq.convert_now();
+        pq.add_virtual_pushes(100);
     }
 
     // initialize queue
@@ -1092,39 +1084,13 @@ void DomainAbstractionFactory::compute_distances(
             // Get comparison preconditions - these must be preserved during enumeration
             // because we know the operator is applicable (we're regressing from a valid state)
             vector<Fact> comparison_preconds = get_comparison_preconditions(op, task_proxy);
-            
-            // Get comparison axioms that are TRUE or FALSE in current state and depend only on
-            // numeric variables NOT affected by this operator. These cannot change,
-            // so we fix them to avoid spurious branching during enumeration.
-            // For abstract operators with multiple concrete ops, find the intersection.
-            vector<Fact> unaffected_comparisons = get_unaffected_comparison_facts_intersection(
-                op.get_concrete_op_ids(), state_index, comparison_axiom_dependencies,
-                domain_mapping, hash_multipliers, task_proxy);
-        
-            
-            // Combine: operator preconditions + unaffected comparisons
-            // Both should be fixed during predecessor enumeration
-            vector<Fact> fixed_comparisons = comparison_preconds;
-            for (const Fact &f : unaffected_comparisons) {
-                // Avoid duplicates (preconditions take precedence)
-                bool already_in = false;
-                for (const Fact &p : comparison_preconds) {
-                    if (p.var == f.var) {
-                        already_in = true;
-                        break;
-                    }
-                }
-                if (!already_in) {
-                    fixed_comparisons.push_back(f);
-                }
-            }
 
             // Enumerate all possible predecessors considering comparison axiom cascades
-            // Pass fixed comparisons to preserve their values (not reset/re-evaluate)
+            // Pass comparison preconditions to preserve their values (not reset/re-evaluate)
             vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                 predecessor_base,
                 task_proxy,
-                fixed_comparisons);
+                comparison_preconds);
 
 
             if (logger && logger->should_log(Verbosity::DEBUG)) {
@@ -1248,9 +1214,23 @@ void DomainAbstractionFactory::compute_distances(
                 
                 if (alternative_cost < distances[predecessor]) {
                     total_expansions++;
+
+                    
+
                     distances[predecessor] = alternative_cost;
                     
-                    pq.push(alternative_cost, predecessor);
+                    bool insert_into_pq = true;
+                    if (init_hash != predecessor) {
+                        for (auto alt_state : possible_predecessors) {
+                            if (alt_state > predecessor) {
+                                insert_into_pq = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (insert_into_pq) {
+                        pq.push(alternative_cost, predecessor);
+                    }
                     if (compute_plan) {
                         generating_op_ids[predecessor] = op_id;
 
@@ -1447,13 +1427,11 @@ void DomainAbstractionFactory::compute_abstract_plan(
     if (distances[current_state] != numeric_limits<ap_float>::max()) {
         int plan_step = 0;
         //cout << "PLAN: Executing abstract plan..." << endl;
-
-        vector <int> seen_states;
         while (!is_goal_state(current_state, abstract_goals, domain_sizes)) {
             int op_id = generating_op_ids[current_state];
             assert(op_id != -1);
             const AbstractOperator &op = operators[op_id];
-
+            
             int hash_effect = -1;
             int successor_state = -1;
 
@@ -1464,57 +1442,16 @@ void DomainAbstractionFactory::compute_abstract_plan(
             // TODO: Changed the code a bit. Not sure if that is needed anymore. 
             base_successor = reset_all_comparison_vars_to_unknown(
                 base_successor, domain_mapping, hash_multipliers, task_proxy);
-
-            vector<Fact> comparison_preconds_succ = get_comparison_preconditions(op, task_proxy);
-            
-            // IMPORTANT: We must also fix comparisons that are TRUE in current_state and
-            // unaffected by this operator. During Dijkstra regression, when we computed the
-            // distance for current_state, we constrained the enumeration using comparisons
-            // TRUE or FALSE in the successor state that were unaffected by the operator. Since those
-            // comparisons are unaffected, they have the same value in both predecessor
-            // (current_state) and successor. We must replicate the same constraint here to
-            // find the correct successor.
-
-            vector<Fact> unaffected_comparisons_succ;
-            const vector<int> &concrete_op_ids = op.get_concrete_op_ids();
-            unaffected_comparisons_succ = get_unaffected_comparison_facts_intersection(
-                concrete_op_ids, current_state,
-                comparison_axiom_dependencies,
-                domain_mapping, hash_multipliers, task_proxy);
-            
-            // Combine: operator preconditions + unaffected comparisons
-            vector<Fact> fixed_comparisons_succ;// = comparison_preconds_succ;
-            for (const Fact &f : unaffected_comparisons_succ) {
-                bool already_in = false;
-                for (const Fact &p : comparison_preconds_succ) {
-                    if (p.var == f.var) {
-                        already_in = true;
-                        break;
-                    }
-                }
-                if (!already_in) {
-                    //debug f
-                    fixed_comparisons_succ.push_back(f);
-                }
-            }
             
             vector<int> possible_successors = enumerate_states_with_evaluated_comparisons(
                 base_successor,
-                task_proxy,
-                fixed_comparisons_succ);
+                task_proxy);
 
             assert(!possible_successors.empty());
 
             ap_float lowest_so_far = distances[current_state];
             for (int candidate_successor : possible_successors) {
                 assert(candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()));
-                if (candidate_successor == current_state) {
-                    continue; // Can't be its own successor
-                }
-                if (seen_states.end() !=
-                    find(seen_states.begin(), seen_states.end(), candidate_successor)) {
-                    continue; // Avoid cycles
-                }
                 if (candidate_successor > successor_state) {
                     if((distances[candidate_successor] < distances[current_state] && op.get_cost() > 0) || 
                             (distances[candidate_successor] == distances[current_state] && op.get_cost() == 0)) {
@@ -1522,7 +1459,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
                         successor_state = candidate_successor;
                         
                         lowest_so_far = distances[candidate_successor];
-
                     }
                 }
             }
@@ -1537,9 +1473,8 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
                 break;
             }
-            seen_states.push_back(current_state);
 
-            assert(abs(lowest_so_far - distances[current_state] + op.get_cost()) < 1e-6); // Floating point tolerance
+            assert(lowest_so_far == distances[current_state] - op.get_cost());
             assert(lowest_so_far < distances[current_state] || op.get_cost() == 0);
 
             {
@@ -1577,39 +1512,13 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 // Get comparison preconditions - these must be preserved during enumeration
                 vector<Fact> comparison_preconds = get_comparison_preconditions(applicable_op, task_proxy);
                 
-                vector<int> operator_ids = applicable_op.get_concrete_op_ids();
-
-                vector<Fact> unaffected_comparisons_pred;
-                unaffected_comparisons_pred = get_unaffected_comparison_facts_intersection(
-                    operator_ids, successor_state,
-                    comparison_axiom_dependencies,
-                    domain_mapping, hash_multipliers, task_proxy);
-                
-                // Combine: operator preconditions + unaffected comparisons
-                vector<Fact> fixed_comparisons_pred = comparison_preconds;
-                if (true) {
-                    for (const Fact &f : unaffected_comparisons_pred) {
-                        bool already_in = false;
-                        for (const Fact &p : comparison_preconds) {
-                            if (p.var == f.var) {
-                                already_in = true;
-                                break;
-                            }
-                        }
-                        if (!already_in) {
-                            fixed_comparisons_pred.push_back(f);
-                        }
-                    }
-
-                }
-
                 // Enumerate all possible predecessors with evaluated comparison axioms
                 // This is the REVERSE of progression: we're checking if applying this operator
                 // to current_state leads to successor_state
                 vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                     base_predecessor,
                     task_proxy,
-                    fixed_comparisons_pred);
+                    comparison_preconds);
                 
                 
                 // Check if current_state is among the possible predecessors

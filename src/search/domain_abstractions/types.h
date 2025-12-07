@@ -2,7 +2,6 @@
 #define DOMAIN_ABSTRACTIONS_TYPES_H
 
 #include "../globals.h"
-#include "../task_proxy.h"
 #include "../utils/system.h"
 #include <vector>
 #include <limits>
@@ -10,8 +9,6 @@
 #include <string>
 #include <iostream>
 #include <algorithm>
-#include <unordered_map>
-#include <unordered_set>
 
 namespace domain_abstractions {
 class DomainAbstraction;
@@ -25,10 +22,6 @@ class NumericDomainMapping;
 // For numeric variables: one NumericDomainMapping per numeric variable in the abstraction
 // Uses unique_ptr for polymorphism (StandardSplitMapping or ExclusionSplitMapping)
 using NumericDomainMappingType = std::vector<std::unique_ptr<NumericDomainMapping>>;
-
-// Maps propositional variable ID (comparison axiom output) -> set of regular numeric variable IDs
-// that the comparison depends on. Used to identify which comparisons are unaffected by an operator.
-using ComparisonAxiomDependencies = std::unordered_map<int, std::unordered_set<int>>;
 
 // For numeric variables: represents a range with configurable boundaries
 // Examples: [lower, upper), (lower, upper], [lower, upper], (lower, upper)
@@ -464,60 +457,6 @@ struct DomainAbstractionStateHash {
 };
 
 using DomainAbstractionCollection = std::vector<DomainAbstraction>;
-
-// Compute comparison axiom dependencies: maps each comparison axiom's propositional
-// variable ID to the set of regular numeric variable IDs it depends on.
-// This traces through derived variables to find the base regular variables.
-ComparisonAxiomDependencies compute_comparison_axiom_dependencies(const TaskProxy &task_proxy);
-
-// Get comparison axiom Facts that are TRUE or FALSE in the current state and whose
-// dependent numeric variables are NOT affected by the operator's numeric effects.
-// These comparisons cannot change their truth value, so we fix them to their current
-// value to avoid spurious branching during state enumeration.
-//
-// Parameters:
-//   - concrete_op_id: ID of the concrete operator being applied
-//   - state_index: The current state index (with evaluated comparisons)
-//   - comparison_axiom_dependencies: Map from comparison var ID to dependent numeric var IDs
-//   - domain_mapping: Domain mapping for propositional variables
-//   - hash_multipliers_by_var_id: Hash multipliers indexed by original variable ID
-//   - task_proxy: Task for accessing comparison axioms and operators
-//
-// Returns:
-//   Vector of Facts for comparison variables that:
-//   1. Are TRUE or FALSE (not UNKNOWN) in the current state
-//   2. Depend only on numeric variables NOT affected by the operator
-std::vector<Fact> get_unaffected_comparison_facts(
-    int concrete_op_id,
-    int state_index,
-    const ComparisonAxiomDependencies &comparison_axiom_dependencies,
-    const DomainMapping &domain_mapping,
-    const std::vector<int> &hash_multipliers_by_var_id,
-    const TaskProxy &task_proxy);
-
-// Computes the intersection of unaffected comparison facts across multiple concrete operators.
-// For abstract operators that map to multiple concrete operators, a comparison fact is only
-// considered "unaffected" if it is unaffected by ALL concrete operators in the set.
-//
-// Parameters:
-//   - concrete_op_ids: Vector of concrete operator IDs (from abstract operator)
-//   - state_index: The current state index (with evaluated comparisons)
-//   - comparison_axiom_dependencies: Map from comparison var ID to dependent numeric var IDs
-//   - domain_mapping: Domain mapping for propositional variables
-//   - hash_multipliers_by_var_id: Hash multipliers indexed by original variable ID
-//   - task_proxy: Task for accessing comparison axioms and operators
-//
-// Returns:
-//   Intersection of unaffected comparison facts across all concrete operators.
-//   Empty if concrete_op_ids is empty or no common unaffected comparisons exist.
-std::vector<Fact> get_unaffected_comparison_facts_intersection(
-    const std::vector<int> &concrete_op_ids,
-    int state_index,
-    const ComparisonAxiomDependencies &comparison_axiom_dependencies,
-    const DomainMapping &domain_mapping,
-    const std::vector<int> &hash_multipliers_by_var_id,
-    const TaskProxy &task_proxy);
-
 }
 
 #endif

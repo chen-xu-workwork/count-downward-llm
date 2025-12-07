@@ -28,8 +28,6 @@ using namespace std;
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
 
-static Verbosity log_verbosity = Verbosity::NONE;
-
 class CEGAR {
 private:
     // Structure to represent a numeric flaw
@@ -266,7 +264,7 @@ CEGAR::CEGAR(
       init_split_var_ids(move(init_split_var_ids)),
       blacklisted_variables(move(blacklisted_variables)),
       blacklisted_numeric_variables(move(blacklisted_numeric_variables)),
-      logger(make_shared<CEGARLogger>(log_verbosity)) {
+      logger(make_shared<CEGARLogger>(Verbosity::NONE)) {
     /* TODO: Should we check somewhere that *init_split_var_ids* does not
         contain elements that are blacklisted? */
 

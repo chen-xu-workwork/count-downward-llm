@@ -153,9 +153,6 @@ class DomainAbstractionFactory {
 
     int num_states;
     
-    // Maps comparison axiom propositional var ID -> set of regular numeric var IDs it depends on
-    ComparisonAxiomDependencies comparison_axiom_dependencies;
-    
     // Operators that have numeric effects
     std::vector<int> numeric_operators;
     

@@ -214,7 +214,7 @@ std::ostream &operator<<(std::ostream &os, const Fact &fact) {
 namespace cost_saturation {
 
 // Reset all comparison-axiom variables in the given abstract state to UNKNOWN (value index 2),
-// EXCEPT for variables that appear in fixed_comparisons - those are SET to their specified values.
+// EXCEPT for variables that appear in fixed_comparisons - those keep their specified values.
 // Returns the adjusted abstract state index.
 int reset_comparison_vars_to_unknown_except(
     int state_index,
@@ -223,10 +223,10 @@ int reset_comparison_vars_to_unknown_except(
     const TaskProxy &task_proxy,
     const vector<Fact> &fixed_comparisons) {
     
-    // Build map of fixed variable IDs -> required abstract value for quick lookup
-    unordered_map<int, int> fixed_var_values;
+    // Build set of fixed variable IDs for quick lookup
+    unordered_set<int> fixed_var_ids;
     for (const Fact &f : fixed_comparisons) {
-        fixed_var_values[f.var] = f.value;
+        fixed_var_ids.insert(f.var);
     }
     
     int delta = 0;
@@ -236,24 +236,18 @@ int reset_comparison_vars_to_unknown_except(
         if (domain_mapping[var_id].empty())
             continue;
 
+        // Skip variables that are fixed (e.g., operator preconditions during regression)
+        if (fixed_var_ids.count(var_id) > 0)
+            continue;
+
         // Use hash_multipliers_by_var_id since var_id is an original variable ID, not pattern index
         int multiplier = hash_multipliers_by_var_id[var_id];
         if (multiplier == 0) continue;  // Variable not in pattern
         int abstract_size = 1;
         for (int mapped : domain_mapping[var_id]) abstract_size = max(abstract_size, mapped + 1);
         int cur_val = (state_index / multiplier) % abstract_size;
-        
-        // Check if this variable is fixed to a specific value
-        auto fixed_it = fixed_var_values.find(var_id);
-        if (fixed_it != fixed_var_values.end()) {
-            // SET to the fixed value (not skip!)
-            int target_abs = fixed_it->second;
-            delta += (target_abs - cur_val) * multiplier;
-        } else {
-            // Reset to UNKNOWN
-            int unknown_abs = domain_mapping[var_id][2];
-            delta += (unknown_abs - cur_val) * multiplier;
-        }
+        int unknown_abs = domain_mapping[var_id][2];
+        delta += (unknown_abs - cur_val) * multiplier;
     }
     return state_index + delta;
 }
@@ -515,8 +509,7 @@ DomainAbstraction::DomainAbstraction(
       task_proxy(task_proxy),
       task_info(task_info),
       domain_mapping(domain_abstraction.extract_domain_mapping()),
-      numeric_domain_mapping(domain_abstraction.extract_numeric_domain_mapping()),
-      comparison_axiom_dependencies(domain_abstractions::compute_comparison_axiom_dependencies(task_proxy)) {
+      numeric_domain_mapping(domain_abstraction.extract_numeric_domain_mapping()) {
     
     // Compute domain_sizes and numeric_domain_sizes for multiplicator
     vector<int> domain_sizes(domain_mapping.size(), 1);
@@ -629,8 +622,6 @@ DomainAbstraction::DomainAbstraction(
     
     vector<domain_abstractions::AbstractOperator> abstract_operators =
         helper.build_abstract_operators(task_proxy);
-
-    use_int_costs = helper.get_all_costs_are_ints();
     
     // Convert abstract operators to operator groups with pattern-projected preconditions
     // No additional grouping needed - the helper already grouped if combine_labels was true
@@ -842,12 +833,6 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
 
     // Initialize queue with goal states that are numerically/comparison-feasible.
     AdaptiveQueue<int> pq;
-
-    if (!use_int_costs) {
-        pq.convert_now();
-    }
-
-
     for (int goal : goal_states) {
         // Enumerate all states compatible with comparison evaluations starting from this goal.
         vector<int> alt_states = enumerate_states_with_evaluated_comparisons(goal);
@@ -862,12 +847,9 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
 
     // Run Dijkstra loop.
     while (!pq.empty()) {
-
         pair<ap_float, int> node = pq.pop();
         ap_float distance = node.first;
         int state_index = node.second;
-
-        //cout << "Processing state " << state_index << " with distance " << distance << endl;
         assert(utils::in_bounds(state_index, distances));
         if (distance > distances[state_index]) {
             continue;
@@ -891,51 +873,39 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
 
             // Compute the canonical predecessor and then enumerate all
             // comparison-consistent variants.
-            // Use comparison preconditions + unaffected comparisons to preserve
-            // operator requirements and unchangeable comparisons during regression.
-            
-            // Get unaffected comparisons - for labels with multiple concrete operators,
-            // compute intersection (only comparisons unaffected by ALL operators)
-            auto op_slice = label_to_operators.get_slice(op.label);
-            vector<int> concrete_op_ids(op_slice.begin(), op_slice.end());
-            vector<Fact> unaffected_comparisons = domain_abstractions::get_unaffected_comparison_facts_intersection(
-                concrete_op_ids, state_index, comparison_axiom_dependencies,
-                domain_mapping, hash_multipliers_by_var_id, task_proxy);
-            
-            // Combine: operator preconditions + unaffected comparisons
-            vector<Fact> fixed_comparisons = op.comparison_preconditions;
-            for (const Fact &f : unaffected_comparisons) {
-                bool already_in = false;
-                for (const Fact &p : op.comparison_preconditions) {
-                    if (p.var == f.var) {
-                        already_in = true;
-                        break;
-                    }
-                }
-                if (!already_in) {
-                    fixed_comparisons.push_back(f);
-                }
-            }
-            
-            // Compute predecessor base using simple arithmetic.
-            // enumerate_states_with_evaluated_comparisons will handle resetting
-            // comparison vars internally.
-            int predecessor_base = base_state - op.hash_effect;
+            // Use comparison preconditions to preserve operator requirements during regression:
+            // - Reset all comparison vars to unknown EXCEPT those in preconditions
+            // - Enumerate states with those comparison values fixed
+            int predecessor_base = reset_comparison_vars_to_unknown_except(
+                base_state, domain_mapping, hash_multipliers_by_var_id, task_proxy,
+                op.comparison_preconditions);
+            predecessor_base = predecessor_base - op.hash_effect;
             
             vector<int> predecessors = enumerate_states_with_evaluated_comparisons(
-                predecessor_base, fixed_comparisons);
+                predecessor_base, op.comparison_preconditions);
             for (int predecessor : predecessors) {
                 assert(utils::in_bounds(predecessor, distances));
                 if (alternative_cost < distances[predecessor]) {
                     distances[predecessor] = alternative_cost;
-
-                    pq.push(alternative_cost, predecessor);
+                    // Optimization: Only insert into pq if this is the canonical
+                    // (smallest index) representative among all alternatives,
+                    // OR if it equals the initial state (always insert initial).
+                    bool insert_into_pq = true;
+                    if (init_hash != predecessor) {
+                        for (int alt_state : predecessors) {
+                            if (alt_state > predecessor) {
+                                insert_into_pq = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (insert_into_pq) {
+                        pq.push(alternative_cost, predecessor);
+                    }
                 }
             }
         }
     }
-
-    //exit(0);
 
     // print all distances
     // for (size_t i = 0; i < distances.size(); ++i) {

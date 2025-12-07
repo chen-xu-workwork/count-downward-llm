@@ -97,12 +97,6 @@ void reduce_costs(vector<ap_float> &remaining_costs, const vector<ap_float> &sat
     for (size_t i = 0; i < remaining_costs.size(); ++i) {
         ap_float &remaining = remaining_costs[i];
         ap_float saturated = saturated_costs[i];
-
-        //HAcky fix due to double precision issues when subtracting very small values from very big values
-        if (!(isinf(remaining) && isinf(saturated))) {
-            saturated = min(remaining, saturated);
-        }
-
         assert(remaining >= 0);
         assert(saturated <= remaining || (isinf(remaining) && isinf(saturated)));
         if (isinf(remaining)) {
