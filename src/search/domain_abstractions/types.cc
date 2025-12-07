@@ -6,6 +6,7 @@
 #include <cassert>
 #include <iostream>
 #include <sstream>
+#include <unordered_set>
 
 namespace domain_abstractions {
 
@@ -1068,18 +1069,16 @@ std::pair<ap_float, ap_float> NumericDomainMapping::get_partition_bounding_box(i
 }
 
 std::vector<int> NumericDomainMapping::get_all_partition_indices() const {
-    std::vector<int> indices;
+    std::unordered_set<int> seen;
     
-    // Collect unique partition indices
+    // Collect unique partition indices using set for O(1) lookup
     for (const auto &range : ranges) {
-        if (std::find(indices.begin(), indices.end(), range.partition_index) == indices.end()) {
-            indices.push_back(range.partition_index);
-        }
+        seen.insert(range.partition_index);
     }
     
-    // Sort for consistency
+    // Convert to vector and sort for consistency
+    std::vector<int> indices(seen.begin(), seen.end());
     std::sort(indices.begin(), indices.end());
-    
     return indices;
 }
 
@@ -1102,7 +1101,7 @@ std::vector<int> NumericDomainMapping::apply_effect_to_partition(
     Partition result = source.apply_operation(op, operand);
     
     // Determine which partition indices the result could map to
-    std::vector<int> reachable_partitions;
+    std::unordered_set<int> seen_partitions;
     
     // For each range in the result, check which partitions it overlaps with
     for (const auto &result_range : result.get_ranges()) {
@@ -1146,16 +1145,13 @@ std::vector<int> NumericDomainMapping::apply_effect_to_partition(
         for (ap_float sample : sample_points) {
             int partition_idx = get_partition_index(sample);
             if (partition_idx >= 0) {
-                // Add to reachable if not already present
-                if (std::find(reachable_partitions.begin(), reachable_partitions.end(), 
-                            partition_idx) == reachable_partitions.end()) {
-                    reachable_partitions.push_back(partition_idx);
-                }
+                seen_partitions.insert(partition_idx);
             }
         }
     }
     
-    // Sort for consistency
+    // Convert to vector and sort for consistency
+    std::vector<int> reachable_partitions(seen_partitions.begin(), seen_partitions.end());
     std::sort(reachable_partitions.begin(), reachable_partitions.end());
     
     return reachable_partitions;

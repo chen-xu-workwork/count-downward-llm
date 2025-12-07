@@ -2089,12 +2089,14 @@ static std::unordered_map<int, NumericRange> compute_all_numeric_ranges(
             int left_id = axiom.get_left_variable().get_id();
             int right_id = axiom.get_right_variable().get_id();
             
-            if (ranges.count(left_id) == 0 || ranges.count(right_id) == 0) {
+            auto left_it = ranges.find(left_id);
+            auto right_it = ranges.find(right_id);
+            if (left_it == ranges.end() || right_it == ranges.end()) {
                 continue;
             }
             
-            NumericRange l_range = ranges[left_id];
-            NumericRange r_range = ranges[right_id];
+            const NumericRange &l_range = left_it->second;
+            const NumericRange &r_range = right_it->second;
             
             NumericRange res = NumericDomainMapping::apply_range_operation(
                 l_range, r_range, axiom.get_arithmetic_operator_type());
