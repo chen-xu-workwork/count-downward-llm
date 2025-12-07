@@ -130,7 +130,9 @@ void DomainAbstractionNumericHelper::find_derived_variables() {
     // Comparison axioms have the form: (left_var comp_op right_var) 
     // which creates a derived propositional fact (boolean variable)
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-    for (ComparisonAxiomProxy axiom : comparison_axioms) {
+    comparison_axiom_by_var_id.reserve(comparison_axioms.size());
+    for (size_t axiom_idx = 0; axiom_idx < comparison_axioms.size(); ++axiom_idx) {
+        ComparisonAxiomProxy axiom = comparison_axioms[axiom_idx];
         // The axiom produces a true_fact when the comparison holds
         // and a false_fact when it doesn't
         FactProxy true_fact = axiom.get_true_fact();
@@ -141,6 +143,7 @@ void DomainAbstractionNumericHelper::find_derived_variables() {
         // Mark this propositional variable as derived from a comparison
         if (var_id >= 0 && var_id < static_cast<int>(is_derived_prop_var.size())) {
             is_derived_prop_var[var_id] = true;
+            comparison_axiom_by_var_id[var_id] = axiom_idx;
         }
         
         // Sanity check: true_fact and false_fact should be on same variable
@@ -265,16 +268,8 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     // All variable value pairs that are an effect without precondition
     vector<Fact> effects_without_pre;
 
-    vector<bool> is_comparison_axiom_var(n_propositional_variables, false);
-
+    // Use pre-built is_derived_prop_var instead of computing locally
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-    vector<int> comparison_axiom_var_ids;
-    for (ComparisonAxiomProxy axiom : comparison_axioms) {
-        comparison_axiom_var_ids.push_back(axiom.get_true_fact().get_variable().get_id());
-        is_comparison_axiom_var[axiom.get_true_fact().get_variable().get_id()] = true;
-        assert(axiom.get_true_fact().get_variable().get_id() == axiom.get_false_fact().get_variable().get_id());
-    }
-    
 
     int num_variables = task_proxy.get_variables().size();
     vector<int> has_precondition_on_var(num_variables, -1);
@@ -298,7 +293,7 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     for (EffectProxy eff : op.get_effects()) {
         int var_id = eff.get_fact().get_variable().get_id();
 
-        bool is_var_id_in_comparison_axioms = is_comparison_axiom_var[var_id];
+        bool is_var_id_in_comparison_axioms = is_derived_prop_var[var_id];
 
         // Comparison axiom variables cannot be modified by effects directly
         assert(!is_var_id_in_comparison_axioms);
@@ -324,7 +319,7 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
     // Classify preconditions as either pre_pairs or prev_pairs
     for (FactProxy pre : op.get_preconditions()) {
         int var_id = pre.get_variable().get_id();
-        bool is_var_id_in_comparison_axioms = is_comparison_axiom_var[var_id];
+        bool is_var_id_in_comparison_axioms = is_derived_prop_var[var_id];
         
         // Skip trivial variables - they're completely abstracted away
         if (variable_is_trivial(var_id)) {
@@ -344,7 +339,7 @@ void DomainAbstractionNumericHelper::build_abstract_operator(
 
     for (FactProxy pre : op.get_preconditions()) {
         int var_id = pre.get_variable().get_id();
-        bool is_var_id_in_comparison_axioms = is_comparison_axiom_var[var_id];
+        bool is_var_id_in_comparison_axioms = is_derived_prop_var[var_id];
         
         // Skip trivial variables - they're completely abstracted away
         if (variable_is_trivial(var_id)) {
@@ -688,23 +683,13 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 int var_id = concrete_pre.get_variable().get_id();
                 int concrete_val = concrete_pre.get_value();
                 
-                // Check if this is a comparison axiom variable
-                bool is_comparison_var = false;
-                optional<ComparisonAxiomProxy> matching_axiom_opt = std::nullopt; // Initialize to avoid warning
-
-                for (ComparisonAxiomProxy axiom : comparison_axioms) {
-                    if (axiom.get_true_fact().get_variable().get_id() == var_id) {
-                        is_comparison_var = true;
-                        matching_axiom_opt = axiom;
-                        break;
-                    }
-                }
-                
-                if (!is_comparison_var) {
+                // Check if this is a comparison axiom variable using O(1) map lookup
+                auto axiom_it = comparison_axiom_by_var_id.find(var_id);
+                if (axiom_it == comparison_axiom_by_var_id.end()) {
                     continue; // Not a comparison axiom precondition
                 }
 
-                ComparisonAxiomProxy matching_axiom = matching_axiom_opt.value();
+                ComparisonAxiomProxy matching_axiom = comparison_axioms[axiom_it->second];
                 
                 // Evaluate the comparison with propagated ranges from SOURCE state
                 int left_id = matching_axiom.get_left_variable().get_id();

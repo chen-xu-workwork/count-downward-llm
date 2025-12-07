@@ -210,6 +210,10 @@ private:
     std::vector<bool> is_derived_num_var;        // Numeric (assignment axioms)
     std::vector<bool> is_derived_prop_var;       // Propositional (comparison axioms)
     
+    // Map from propositional var_id to comparison axiom index for O(1) lookup.
+    // Only contains entries for variables that are derived from comparison axioms.
+    std::unordered_map<int, size_t> comparison_axiom_by_var_id;
+    
     // Goals
     std::vector<numeric_condition::RegularNumericCondition> numeric_goals;
     
