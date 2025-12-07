@@ -109,6 +109,12 @@ class DomainAbstraction : public Abstraction {
         int base_state_index,
         const std::vector<Fact> &fixed_comparisons = {}) const;
 
+    // Output parameter version to avoid repeated allocations.
+    void enumerate_states_with_evaluated_comparisons(
+        int base_state_index,
+        const std::vector<Fact> &fixed_comparisons,
+        std::vector<int> &result) const;
+
     /*
       Given an abstract state (represented as a vector of facts), compute the
       "next" fact. Return true iff there is a next fact.

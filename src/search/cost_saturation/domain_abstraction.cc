@@ -862,8 +862,9 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
         }
     }
 
-    // Reuse vector to save allocations.
+    // Reuse vectors to save allocations.
     vector<int> applicable_operators;
+    vector<int> predecessors;
 
     // Run Dijkstra loop.
     while (!pq.empty()) {
@@ -904,8 +905,9 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
                 op.comparison_preconditions);
             predecessor_base = predecessor_base - op.hash_effect;
             
-            vector<int> predecessors = enumerate_states_with_evaluated_comparisons(
-                predecessor_base, op.comparison_preconditions);
+            predecessors.clear();
+            enumerate_states_with_evaluated_comparisons(
+                predecessor_base, op.comparison_preconditions, predecessors);
             for (int predecessor : predecessors) {
                 assert(utils::in_bounds(predecessor, distances));
                 if (alternative_cost < distances[predecessor]) {
@@ -1101,17 +1103,21 @@ string DomainAbstraction::decode_mentioned_variables(int concrete_op_id) const {
     return ss.str();
 }
 
-vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
+void DomainAbstraction::enumerate_states_with_evaluated_comparisons(
     int base_state_index,
-    const vector<Fact> &fixed_comparisons) const {
+    const vector<Fact> &fixed_comparisons,
+    vector<int> &result) const {
     
-    vector<int> result;
-    
-    // Build set of fixed variable IDs and their values for quick lookup
-    unordered_map<int, int> fixed_var_values;  // var_id -> required value
-    for (const Fact &f : fixed_comparisons) {
-        fixed_var_values[f.var] = f.value;
-    }
+    // Build set of fixed variable IDs and their values for quick lookup.
+    // Linear search is faster than unordered_map for small vectors (typically 0-3 elements).
+    auto is_fixed = [&fixed_comparisons](int var_id) -> bool {
+        for (const Fact &f : fixed_comparisons) {
+            if (f.var == var_id) {
+                return true;
+            }
+        }
+        return false;
+    };
     
     unordered_map<int, domain_abstractions::NumericRange> ranges;
     vector<int> cur_num_partitions;
@@ -1125,61 +1131,74 @@ vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
     int state_with_unknowns = reset_comparison_vars_to_unknown_except(
         base_state_index, domain_mapping, hash_multipliers_by_var_id, task_proxy, fixed_comparisons);
 
-    function<void(size_t, int)> enumerate_combinations = 
-        [&](size_t idx, int delta_from_unknown) {
-        if (idx == comparisons.size()) {
-            result.push_back(state_with_unknowns + delta_from_unknown);
-            return;
+    // Use explicit stack instead of std::function to avoid type-erasure overhead.
+    // Stack stores (comparison_index, delta_from_unknown).
+    vector<pair<size_t, int>> stack;
+    stack.reserve(comparisons.size() + 1);
+    stack.emplace_back(0, 0);
+    
+    while (!stack.empty()) {
+        auto [idx, delta_from_unknown] = stack.back();
+        stack.pop_back();
+        
+        // Skip comparisons that don't contribute to branching
+        while (idx < comparisons.size()) {
+            const CompEvalHelper &comp = comparisons[idx];
+            int var_id = comp.prop_var_id;
+            
+            if (variable_is_trivial(var_id, domain_mapping)) {
+                ++idx;
+                continue;
+            }
+            
+            int multiplier = hash_multipliers_by_var_id[var_id];
+            if (multiplier == 0) {
+                ++idx;
+                continue;
+            }
+            
+            if (is_fixed(var_id)) {
+                ++idx;
+                continue;
+            }
+            
+            int unknown_value = domain_mapping[var_id][2];
+            
+            if (comp.eval == 0) {
+                // Only TRUE branch
+                int delta = (domain_mapping[var_id][comp.true_val] - unknown_value) * multiplier;
+                delta_from_unknown += delta;
+                ++idx;
+            } else if (comp.eval == 1) {
+                // Only FALSE branch
+                int delta = (domain_mapping[var_id][comp.false_val] - unknown_value) * multiplier;
+                delta_from_unknown += delta;
+                ++idx;
+            } else {
+                // Both branches - push FALSE onto stack, continue with TRUE
+                int delta_true = (domain_mapping[var_id][comp.true_val] - unknown_value) * multiplier;
+                int delta_false = (domain_mapping[var_id][comp.false_val] - unknown_value) * multiplier;
+                stack.emplace_back(idx + 1, delta_from_unknown + delta_false);
+                delta_from_unknown += delta_true;
+                ++idx;
+            }
         }
         
-        const CompEvalHelper &comp = comparisons[idx];
-        int var_id = comp.prop_var_id;
-        
-        if (variable_is_trivial(var_id, domain_mapping)) {
-            enumerate_combinations(idx + 1, delta_from_unknown);
-            return;
-        }
-        
-        // Use hash_multipliers_by_var_id since var_id is an original variable ID, not pattern index
-        int multiplier = hash_multipliers_by_var_id[var_id];
-        if (multiplier == 0) {
-            // Variable not in pattern, skip
-            enumerate_combinations(idx + 1, delta_from_unknown);
-            return;
-        }
-        
-        // Check if this comparison variable is fixed by operator preconditions
-        auto fixed_it = fixed_var_values.find(var_id);
-        if (fixed_it != fixed_var_values.end()) {
-            // Use the fixed value - don't evaluate or branch
-            // The state already has the correct value (not reset to unknown),
-            // so delta is 0 relative to the current state value
-            enumerate_combinations(idx + 1, delta_from_unknown);
-            return;
-        }
-        
-        int unknown_value = domain_mapping[var_id][2];
-        
-        if (comp.eval == 0) {
-            int delta = (domain_mapping[var_id][comp.true_val] - unknown_value) * multiplier;
-            enumerate_combinations(idx + 1, delta_from_unknown + delta);
-        } else if (comp.eval == 1) {
-            int delta = (domain_mapping[var_id][comp.false_val] - unknown_value) * multiplier;
-            enumerate_combinations(idx + 1, delta_from_unknown + delta);
-        } else {
-            int delta_true = (domain_mapping[var_id][comp.true_val] - unknown_value) * multiplier;
-            int delta_false = (domain_mapping[var_id][comp.false_val] - unknown_value) * multiplier;
-            enumerate_combinations(idx + 1, delta_from_unknown + delta_true);
-            enumerate_combinations(idx + 1, delta_from_unknown + delta_false);
-        }
-    };
-
-    enumerate_combinations(0, 0);
+        // Reached end of comparisons - emit result
+        result.push_back(state_with_unknowns + delta_from_unknown);
+    }
     
     if (result.empty()) {
         result.push_back(state_with_unknowns);
     }
+}
+
+vector<int> DomainAbstraction::enumerate_states_with_evaluated_comparisons(
+    int base_state_index,
+    const vector<Fact> &fixed_comparisons) const {
     
+    vector<int> result;
+    enumerate_states_with_evaluated_comparisons(base_state_index, fixed_comparisons, result);
     return result;
 }
 
