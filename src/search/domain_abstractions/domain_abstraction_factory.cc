@@ -1428,11 +1428,13 @@ void DomainAbstractionFactory::compute_abstract_plan(
     if (distances[current_state] != numeric_limits<ap_float>::max()) {
         int plan_step = 0;
         //cout << "PLAN: Executing abstract plan..." << endl;
+
+        vector <int> seen_states;
         while (!is_goal_state(current_state, abstract_goals, domain_sizes)) {
             int op_id = generating_op_ids[current_state];
             assert(op_id != -1);
             const AbstractOperator &op = operators[op_id];
-            
+
             int hash_effect = -1;
             int successor_state = -1;
 
@@ -1453,6 +1455,13 @@ void DomainAbstractionFactory::compute_abstract_plan(
             ap_float lowest_so_far = distances[current_state];
             for (int candidate_successor : possible_successors) {
                 assert(candidate_successor >= 0 && candidate_successor < static_cast<int>(distances.size()));
+                if (candidate_successor == current_state) {
+                    continue; // Can't be its own successor
+                }
+                if (seen_states.end() !=
+                    find(seen_states.begin(), seen_states.end(), candidate_successor)) {
+                    continue; // Avoid cycles
+                }
                 if (candidate_successor > successor_state) {
                     if((distances[candidate_successor] < distances[current_state] && op.get_cost() > 0) || 
                             (distances[candidate_successor] == distances[current_state] && op.get_cost() == 0)) {
@@ -1475,6 +1484,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
                 break;
             }
+            seen_states.push_back(current_state);
 
             assert(abs(lowest_so_far - distances[current_state] + op.get_cost()) < 1e-6); // Floating point tolerance
             assert(lowest_so_far < distances[current_state] || op.get_cost() == 0);
