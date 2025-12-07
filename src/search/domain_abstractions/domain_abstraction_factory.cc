@@ -226,7 +226,7 @@ static vector<Fact> get_comparison_preconditions(
 }
 
 // Reset all comparison-axiom variables in the given abstract state to UNKNOWN (value index 2),
-// EXCEPT for variables that appear in fixed_comparisons - those keep their specified values.
+// EXCEPT for variables that appear in fixed_comparisons - those are SET to their specified values.
 // Returns the adjusted abstract state index.
 static int reset_comparison_vars_to_unknown_except(
     int state_index,
@@ -235,10 +235,10 @@ static int reset_comparison_vars_to_unknown_except(
     const TaskProxy &task_proxy,
     const vector<Fact> &fixed_comparisons = {}) {
     
-    // Build set of fixed variable IDs for quick lookup
-    unordered_set<int> fixed_var_ids;
+    // Build map of fixed variable IDs -> required abstract value for quick lookup
+    unordered_map<int, int> fixed_var_values;
     for (const Fact &f : fixed_comparisons) {
-        fixed_var_ids.insert(f.var);
+        fixed_var_values[f.var] = f.value;
     }
     int delta = 0;
     ComparisonAxiomsProxy comp_axioms = task_proxy.get_comparison_axioms();
@@ -248,18 +248,24 @@ static int reset_comparison_vars_to_unknown_except(
         // Treat empty mapping as trivial; skip.
         if (domain_mapping[var_id].empty())
             continue;
-        
-        // Skip variables that are fixed (e.g., operator preconditions during regression)
-        if (fixed_var_ids.count(var_id) > 0)
-            continue;
 
         int multiplier = hash_multipliers[var_id];
         // Determine abstract domain size (1 + max mapped value) guarding empties
         int abstract_size = 1;
         for (int mapped : domain_mapping[var_id]) abstract_size = max(abstract_size, mapped + 1);
         int cur_val = (state_index / multiplier) % abstract_size;
-        int unknown_abs = domain_mapping[var_id][2];
-        delta += (unknown_abs - cur_val) * multiplier;
+        
+        // Check if this variable is fixed to a specific value
+        auto fixed_it = fixed_var_values.find(var_id);
+        if (fixed_it != fixed_var_values.end()) {
+            // SET to the fixed value (not skip!)
+            int target_abs = fixed_it->second;
+            delta += (target_abs - cur_val) * multiplier;
+        } else {
+            // Reset to UNKNOWN
+            int unknown_abs = domain_mapping[var_id][2];
+            delta += (unknown_abs - cur_val) * multiplier;
+        }
     }
     return state_index + delta;
 }
@@ -570,7 +576,8 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     : task_proxy(task_proxy),
       domain_mapping(domain_mapping),
       numeric_domain_sizes(numeric_domain_sizes),
-      logger(logger) {
+      logger(logger),
+      comparison_axiom_dependencies(compute_comparison_axiom_dependencies(task_proxy)) {
         // Deep copy numeric_domain_mapping using clone() (can't copy unique_ptr directly)
         for (const auto &mapping : numeric_domain_mapping) {
             this->numeric_domain_mapping.push_back(mapping->clone());
@@ -1085,13 +1092,63 @@ void DomainAbstractionFactory::compute_distances(
             // Get comparison preconditions - these must be preserved during enumeration
             // because we know the operator is applicable (we're regressing from a valid state)
             vector<Fact> comparison_preconds = get_comparison_preconditions(op, task_proxy);
+            
+            // Get comparison axioms that are TRUE or FALSE in current state and depend only on
+            // numeric variables NOT affected by this operator. These cannot change,
+            // so we fix them to avoid spurious branching during enumeration.
+            // For abstract operators with multiple concrete ops, find the intersection.
+            vector<Fact> unaffected_comparisons;
+            const vector<int> &concrete_op_ids = op.get_concrete_op_ids();
+            if (!concrete_op_ids.empty()) {
+                // Start with first concrete op's unaffected comparisons
+                unaffected_comparisons = get_unaffected_comparison_facts(
+                    concrete_op_ids[0], state_index, comparison_axiom_dependencies,
+                    domain_mapping, hash_multipliers, task_proxy);
+                
+                // For operators with multiple concrete ops, keep only comparisons unaffected by ALL
+                for (size_t i = 1; i < concrete_op_ids.size() && !unaffected_comparisons.empty(); ++i) {
+                    vector<Fact> other_unaffected = get_unaffected_comparison_facts(
+                        concrete_op_ids[i], state_index, comparison_axiom_dependencies,
+                        domain_mapping, hash_multipliers, task_proxy);
+                    
+                    // Intersect: keep only facts present in both
+                    unordered_set<int> other_vars;
+                    for (const Fact &f : other_unaffected) {
+                        other_vars.insert(f.var);
+                    }
+                    vector<Fact> intersection;
+                    for (const Fact &f : unaffected_comparisons) {
+                        if (other_vars.count(f.var) > 0) {
+                            intersection.push_back(f);
+                        }
+                    }
+                    unaffected_comparisons = std::move(intersection);
+                }
+            }
+            
+            // Combine: operator preconditions + unaffected comparisons
+            // Both should be fixed during predecessor enumeration
+            vector<Fact> fixed_comparisons = comparison_preconds;
+            for (const Fact &f : unaffected_comparisons) {
+                // Avoid duplicates (preconditions take precedence)
+                bool already_in = false;
+                for (const Fact &p : comparison_preconds) {
+                    if (p.var == f.var) {
+                        already_in = true;
+                        break;
+                    }
+                }
+                if (!already_in) {
+                    fixed_comparisons.push_back(f);
+                }
+            }
 
             // Enumerate all possible predecessors considering comparison axiom cascades
-            // Pass comparison preconditions to preserve their values (not reset/re-evaluate)
+            // Pass fixed comparisons to preserve their values (not reset/re-evaluate)
             vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                 predecessor_base,
                 task_proxy,
-                comparison_preconds);
+                fixed_comparisons);
 
 
             if (logger && logger->should_log(Verbosity::DEBUG)) {

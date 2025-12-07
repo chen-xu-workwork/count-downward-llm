@@ -96,6 +96,9 @@ class DomainAbstraction : public Abstraction {
 
     // Hash multipliers indexed by original variable ID (for functions that iterate by var_id)
     std::vector<int> hash_multipliers_by_var_id;
+    
+    // Maps comparison axiom propositional var ID -> set of regular numeric var IDs it depends on
+    domain_abstractions::ComparisonAxiomDependencies comparison_axiom_dependencies;
 
     // Domain size of each variable in the pattern.
     std::vector<int> pattern_domain_sizes;
@@ -148,14 +151,58 @@ class DomainAbstraction : public Abstraction {
             for (int ranked_op_id : applicable_operators) {
                 const RankedOperator &op = ranked_operators[ranked_op_id];
                 
-                // Compute predecessors using comparison preconditions
+                // Get unaffected comparisons - for labels with multiple concrete operators,
+                // compute intersection (only comparisons unaffected by ALL operators)
+                std::vector<Fact> unaffected_comparisons;
+                auto op_slice = label_to_operators.get_slice(op.label);
+                bool first_op = true;
+                for (int concrete_op_id : op_slice) {
+                    std::vector<Fact> op_unaffected = domain_abstractions::get_unaffected_comparison_facts(
+                        concrete_op_id, state_index, comparison_axiom_dependencies,
+                        domain_mapping, hash_multipliers_by_var_id, task_proxy);
+                    
+                    if (first_op) {
+                        unaffected_comparisons = std::move(op_unaffected);
+                        first_op = false;
+                    } else if (!unaffected_comparisons.empty()) {
+                        // Intersect: keep only facts present in both
+                        std::unordered_set<int> other_vars;
+                        for (const Fact &f : op_unaffected) {
+                            other_vars.insert(f.var);
+                        }
+                        std::vector<Fact> intersection;
+                        for (const Fact &f : unaffected_comparisons) {
+                            if (other_vars.count(f.var) > 0) {
+                                intersection.push_back(f);
+                            }
+                        }
+                        unaffected_comparisons = std::move(intersection);
+                    }
+                }
+                
+                // Combine: operator preconditions + unaffected comparisons
+                std::vector<Fact> fixed_comparisons = op.comparison_preconditions;
+                for (const Fact &f : unaffected_comparisons) {
+                    bool already_in = false;
+                    for (const Fact &p : op.comparison_preconditions) {
+                        if (p.var == f.var) {
+                            already_in = true;
+                            break;
+                        }
+                    }
+                    if (!already_in) {
+                        fixed_comparisons.push_back(f);
+                    }
+                }
+                
+                // Compute predecessors using fixed comparisons
                 int predecessor_base = reset_comparison_vars_to_unknown_except(
                     base_state, domain_mapping, hash_multipliers_by_var_id, task_proxy,
-                    op.comparison_preconditions);
+                    fixed_comparisons);
                 predecessor_base = predecessor_base - op.hash_effect;
                 
                 std::vector<int> predecessors = enumerate_states_with_evaluated_comparisons(
-                    predecessor_base, op.comparison_preconditions);
+                    predecessor_base, fixed_comparisons);
                 
                 for (int predecessor : predecessors) {
                     if (predecessor < 0 || predecessor >= num_states) {
