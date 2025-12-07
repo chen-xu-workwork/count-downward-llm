@@ -6,6 +6,8 @@
 
 #include "../task_proxy.h"
 
+#include <unordered_set>
+
 namespace utils {
 class LogProxy;
 class RandomNumberGenerator;
@@ -158,6 +160,9 @@ class DomainAbstractionFactory {
     
     // Numeric goal conditions extracted from comparison axioms
     std::vector<NumericGoalCondition> numeric_goal_conditions;
+    
+    // Cached set of comparison axiom variable IDs for fast lookup
+    std::unordered_set<int> comparison_var_ids;
 
     std::vector<AbstractOperator> compute_abstract_operators(
         const TaskProxy &task_proxy, const std::vector<int> &domain_sizes);

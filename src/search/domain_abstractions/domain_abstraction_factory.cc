@@ -96,9 +96,12 @@ static void compute_numeric_context(
                 ap_float val = axiom.get_left_variable().get_initial_state_value();
                 l_range = NumericRange(val, val, true, true);
                 left_known = true;
-            } else if (ranges_out.count(left_id)) {
-                l_range = ranges_out[left_id];
-                left_known = true;
+            } else {
+                auto it = ranges_out.find(left_id);
+                if (it != ranges_out.end()) {
+                    l_range = it->second;
+                    left_known = true;
+                }
             }
 
 
@@ -110,9 +113,12 @@ static void compute_numeric_context(
                 ap_float val = axiom.get_right_variable().get_initial_state_value();
                 r_range = NumericRange(val, val, true, true);
                 right_known = true;
-            } else if (ranges_out.count(right_id)) {
-                r_range = ranges_out[right_id];
-                right_known = true;
+            } else {
+                auto it = ranges_out.find(right_id);
+                if (it != ranges_out.end()) {
+                    r_range = it->second;
+                    right_known = true;
+                }
             }
             //Check if axioms are sorted
             assert(left_known && right_known);
@@ -152,14 +158,17 @@ static vector<CompEvalHelper> evaluate_all_comparisons(
             ap_float val = axiom.get_left_variable().get_initial_state_value();
             l_range = NumericRange(val, val, true, true);
             left_known = true;
-        } else if (ranges.count(left_id)) {
-            l_range = ranges.at(left_id);
-            left_known = true;
-        } else if (left_id >= 0 && left_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const NumericDomainMapping &m = *numeric_domain_mapping[left_id];
-            int part = cur_num_partitions[left_id];
-            const NumericRange *rng = m.get_range_for_partition(part);
-            if (rng) { l_range = *rng; left_known = true; }
+        } else {
+            auto it = ranges.find(left_id);
+            if (it != ranges.end()) {
+                l_range = it->second;
+                left_known = true;
+            } else if (left_id >= 0 && left_id < static_cast<int>(numeric_domain_mapping.size())) {
+                const NumericDomainMapping &m = *numeric_domain_mapping[left_id];
+                int part = cur_num_partitions[left_id];
+                const NumericRange *rng = m.get_range_for_partition(part);
+                if (rng) { l_range = *rng; left_known = true; }
+            }
         }
 
         // Right range
@@ -169,14 +178,17 @@ static vector<CompEvalHelper> evaluate_all_comparisons(
             ap_float val = axiom.get_right_variable().get_initial_state_value();
             r_range = NumericRange(val, val, true, true);
             right_known = true;
-        } else if (ranges.count(right_id)) {
-            r_range = ranges.at(right_id);
-            right_known = true;
-        } else if (right_id >= 0 && right_id < static_cast<int>(numeric_domain_mapping.size())) {
-            const NumericDomainMapping &m = *numeric_domain_mapping[right_id];
-            int part = cur_num_partitions[right_id];
-            const NumericRange *rng = m.get_range_for_partition(part);
-            if (rng) { r_range = *rng; right_known = true; }
+        } else {
+            auto it = ranges.find(right_id);
+            if (it != ranges.end()) {
+                r_range = it->second;
+                right_known = true;
+            } else if (right_id >= 0 && right_id < static_cast<int>(numeric_domain_mapping.size())) {
+                const NumericDomainMapping &m = *numeric_domain_mapping[right_id];
+                int part = cur_num_partitions[right_id];
+                const NumericRange *rng = m.get_range_for_partition(part);
+                if (rng) { r_range = *rng; right_known = true; }
+            }
         }
 
         assert(left_known && right_known);
@@ -204,16 +216,11 @@ static vector<CompEvalHelper> evaluate_all_comparisons(
 
 // Extract comparison axiom preconditions from an operator.
 // Returns a vector of Facts that are on comparison axiom variables.
+// Uses pre-built comparison_var_ids set for efficiency.
 static vector<Fact> get_comparison_preconditions(
     const AbstractOperator &op,
-    const TaskProxy &task_proxy) {
+    const unordered_set<int> &comparison_var_ids) {
     vector<Fact> result;
-    
-    // Build set of comparison axiom variable IDs
-    unordered_set<int> comparison_var_ids;
-    for (ComparisonAxiomProxy ax : task_proxy.get_comparison_axioms()) {
-        comparison_var_ids.insert(ax.get_true_fact().get_variable().get_id());
-    }
     
     // Filter operator preconditions to only include comparison variables
     for (const Fact &pre : op.get_preconditions()) {
@@ -235,11 +242,14 @@ static int reset_comparison_vars_to_unknown_except(
     const TaskProxy &task_proxy,
     const vector<Fact> &fixed_comparisons = {}) {
     
-    // Build set of fixed variable IDs for quick lookup
-    unordered_set<int> fixed_var_ids;
-    for (const Fact &f : fixed_comparisons) {
-        fixed_var_ids.insert(f.var);
-    }
+    // For small vectors, linear search is faster than building an unordered_set
+    auto is_fixed = [&fixed_comparisons](int var_id) {
+        for (const Fact &f : fixed_comparisons) {
+            if (f.var == var_id) return true;
+        }
+        return false;
+    };
+    
     int delta = 0;
     ComparisonAxiomsProxy comp_axioms = task_proxy.get_comparison_axioms();
     for (ComparisonAxiomProxy ax : comp_axioms) {
@@ -250,7 +260,7 @@ static int reset_comparison_vars_to_unknown_except(
             continue;
         
         // Skip variables that are fixed (e.g., operator preconditions during regression)
-        if (fixed_var_ids.count(var_id) > 0)
+        if (is_fixed(var_id))
             continue;
 
         int multiplier = hash_multipliers[var_id];
@@ -614,6 +624,11 @@ DomainAbstractionFactory::DomainAbstractionFactory (
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
+    
+    // Cache comparison axiom variable IDs for fast lookup
+    for (ComparisonAxiomProxy ax : task_proxy.get_comparison_axioms()) {
+        comparison_var_ids.insert(ax.get_true_fact().get_variable().get_id());
+    }
 
     // Collect operators with numeric effects
     // These are handled separately during regression because they can
@@ -705,11 +720,13 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     
     vector<int> result;
     
-    // Build set of fixed variable IDs for quick lookup
-    unordered_map<int, int> fixed_var_values;  // var_id -> required value
-    for (const Fact &f : fixed_comparisons) {
-        fixed_var_values[f.var] = f.value;
-    }
+    // For small vectors, linear search is faster than building a map
+    auto find_fixed_value = [&fixed_comparisons](int var_id) -> int {
+        for (const Fact &f : fixed_comparisons) {
+            if (f.var == var_id) return f.value;
+        }
+        return -1; // Not found
+    };
     
     // Build numeric context and evaluate all comparisons
     unordered_map<int, NumericRange> ranges;
@@ -723,57 +740,70 @@ vector<int> DomainAbstractionFactory::enumerate_states_with_evaluated_comparison
     int state_with_unknowns = reset_comparison_vars_to_unknown_except(
         base_state_index, domain_mapping, hash_multipliers, task_proxy, fixed_comparisons);
 
-    // Enumerate all possible combinations of comparison results.
-    // For fixed comparisons, use the fixed value.
-    // For deterministic evaluations (TRUE/FALSE), fix the value.
-    // For UNKNOWN evaluations, branch on both TRUE and FALSE.
-    function<void(size_t, int)> enumerate_combinations = 
-        [&](size_t idx, int delta_from_unknown) {
-        if (idx == comparisons.size()) {
-            result.push_back(state_with_unknowns + delta_from_unknown);
-            return;
-        }
-        
-        const CompEvalHelper &comp = comparisons[idx];
-        int var_id = comp.prop_var_id;
-        
-        if (variable_is_trivial(var_id)) {
-            enumerate_combinations(idx + 1, delta_from_unknown);
-            return;
-        }
-        
-        int multiplier = hash_multipliers[var_id];
-        int unknown_value = domain_mapping[var_id][2];
-        
-        // Check if this comparison variable is fixed by operator preconditions
-        auto fixed_it = fixed_var_values.find(var_id);
-        if (fixed_it != fixed_var_values.end()) {
-            // Use the fixed value - don't evaluate or branch
-            int fixed_val = fixed_it->second;
-            // The state already has the correct value (not reset to unknown),
-            // so delta is 0 relative to the current state value
-            enumerate_combinations(idx + 1, delta_from_unknown);
-            return;
-        }
-        
-        if (comp.eval == 0) {
-            // Definitely TRUE (normalized mapping)
-            int delta = (domain_mapping[var_id][comp.true_val] - unknown_value) * multiplier;
-            enumerate_combinations(idx + 1, delta_from_unknown + delta);
-        } else if (comp.eval == 1) {
-            // Definitely FALSE (normalized mapping)
-            int delta = (domain_mapping[var_id][comp.false_val] - unknown_value) * multiplier;
-            enumerate_combinations(idx + 1, delta_from_unknown + delta);
-        } else {
-            // UNKNOWN: branch on both possibilities
-            int delta_true = (domain_mapping[var_id][comp.true_val] - unknown_value) * multiplier;
-            int delta_false = (domain_mapping[var_id][comp.false_val] - unknown_value) * multiplier;
-            enumerate_combinations(idx + 1, delta_from_unknown + delta_true);
-            enumerate_combinations(idx + 1, delta_from_unknown + delta_false);
-        }
+    // Pre-compute deltas for each comparison to avoid repeated work
+    // For each comparison: delta_true, delta_false, eval, is_trivial, is_fixed
+    struct CompDelta {
+        int delta_true;
+        int delta_false;
+        int eval;  // 0=true, 1=false, 2=unknown
+        bool skip; // trivial or fixed
     };
+    vector<CompDelta> comp_deltas;
+    comp_deltas.reserve(comparisons.size());
+    
+    for (const CompEvalHelper &comp : comparisons) {
+        int var_id = comp.prop_var_id;
+        CompDelta cd;
+        
+        if (variable_is_trivial(var_id) || find_fixed_value(var_id) >= 0) {
+            cd.skip = true;
+            cd.eval = 0;
+            cd.delta_true = 0;
+            cd.delta_false = 0;
+        } else {
+            cd.skip = false;
+            cd.eval = comp.eval;
+            int multiplier = hash_multipliers[var_id];
+            int unknown_value = domain_mapping[var_id][2];
+            cd.delta_true = (domain_mapping[var_id][comp.true_val] - unknown_value) * multiplier;
+            cd.delta_false = (domain_mapping[var_id][comp.false_val] - unknown_value) * multiplier;
+        }
+        comp_deltas.push_back(cd);
+    }
 
-    enumerate_combinations(0, 0);
+    // Use explicit stack instead of std::function for better performance
+    // Stack entries: (comparison_index, accumulated_delta)
+    vector<pair<size_t, int>> stack;
+    stack.reserve(comparisons.size() + 1);
+    stack.emplace_back(0, 0);
+    
+    while (!stack.empty()) {
+        auto [idx, delta] = stack.back();
+        stack.pop_back();
+        
+        // Skip trivial/fixed comparisons
+        while (idx < comp_deltas.size() && comp_deltas[idx].skip) {
+            ++idx;
+        }
+        
+        if (idx >= comp_deltas.size()) {
+            result.push_back(state_with_unknowns + delta);
+            continue;
+        }
+        
+        const CompDelta &cd = comp_deltas[idx];
+        if (cd.eval == 0) {
+            // Definitely TRUE
+            stack.emplace_back(idx + 1, delta + cd.delta_true);
+        } else if (cd.eval == 1) {
+            // Definitely FALSE
+            stack.emplace_back(idx + 1, delta + cd.delta_false);
+        } else {
+            // UNKNOWN: branch on both (push FALSE first so TRUE is processed first)
+            stack.emplace_back(idx + 1, delta + cd.delta_false);
+            stack.emplace_back(idx + 1, delta + cd.delta_true);
+        }
+    }
     
     // Ensure we return at least one state
     if (result.empty()) {
@@ -1084,7 +1114,7 @@ void DomainAbstractionFactory::compute_distances(
 
             // Get comparison preconditions - these must be preserved during enumeration
             // because we know the operator is applicable (we're regressing from a valid state)
-            vector<Fact> comparison_preconds = get_comparison_preconditions(op, task_proxy);
+            vector<Fact> comparison_preconds = get_comparison_preconditions(op, comparison_var_ids);
 
             // Enumerate all possible predecessors considering comparison axiom cascades
             // Pass comparison preconditions to preserve their values (not reset/re-evaluate)
@@ -1522,7 +1552,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 int base_predecessor = base_successor + applicable_hash_effect;
                 
                 // Get comparison preconditions - these must be preserved during enumeration
-                vector<Fact> comparison_preconds = get_comparison_preconditions(applicable_op, task_proxy);
+                vector<Fact> comparison_preconds = get_comparison_preconditions(applicable_op, comparison_var_ids);
                 
                 // Enumerate all possible predecessors with evaluated comparison axioms
                 // This is the REVERSE of progression: we're checking if applying this operator
