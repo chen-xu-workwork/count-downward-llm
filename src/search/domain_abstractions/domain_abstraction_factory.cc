@@ -1097,34 +1097,10 @@ void DomainAbstractionFactory::compute_distances(
             // numeric variables NOT affected by this operator. These cannot change,
             // so we fix them to avoid spurious branching during enumeration.
             // For abstract operators with multiple concrete ops, find the intersection.
-            vector<Fact> unaffected_comparisons;
-            const vector<int> &concrete_op_ids = op.get_concrete_op_ids();
-            if (!concrete_op_ids.empty()) {
-                // Start with first concrete op's unaffected comparisons
-                unaffected_comparisons = get_unaffected_comparison_facts(
-                    concrete_op_ids[0], state_index, comparison_axiom_dependencies,
-                    domain_mapping, hash_multipliers, task_proxy);
-                
-                // For operators with multiple concrete ops, keep only comparisons unaffected by ALL
-                for (size_t i = 1; i < concrete_op_ids.size() && !unaffected_comparisons.empty(); ++i) {
-                    vector<Fact> other_unaffected = get_unaffected_comparison_facts(
-                        concrete_op_ids[i], state_index, comparison_axiom_dependencies,
-                        domain_mapping, hash_multipliers, task_proxy);
-                    
-                    // Intersect: keep only facts present in both
-                    unordered_set<int> other_vars;
-                    for (const Fact &f : other_unaffected) {
-                        other_vars.insert(f.var);
-                    }
-                    vector<Fact> intersection;
-                    for (const Fact &f : unaffected_comparisons) {
-                        if (other_vars.count(f.var) > 0) {
-                            intersection.push_back(f);
-                        }
-                    }
-                    unaffected_comparisons = std::move(intersection);
-                }
-            }
+            vector<Fact> unaffected_comparisons = get_unaffected_comparison_facts(
+                op.get_concrete_op_ids()[0], state_index, comparison_axiom_dependencies,
+                domain_mapping, hash_multipliers, task_proxy);
+        
             
             // Combine: operator preconditions + unaffected comparisons
             // Both should be fixed during predecessor enumeration
