@@ -495,6 +495,29 @@ std::vector<Fact> get_unaffected_comparison_facts(
     const std::vector<int> &hash_multipliers_by_var_id,
     const TaskProxy &task_proxy);
 
+// Computes the intersection of unaffected comparison facts across multiple concrete operators.
+// For abstract operators that map to multiple concrete operators, a comparison fact is only
+// considered "unaffected" if it is unaffected by ALL concrete operators in the set.
+//
+// Parameters:
+//   - concrete_op_ids: Vector of concrete operator IDs (from abstract operator)
+//   - state_index: The current state index (with evaluated comparisons)
+//   - comparison_axiom_dependencies: Map from comparison var ID to dependent numeric var IDs
+//   - domain_mapping: Domain mapping for propositional variables
+//   - hash_multipliers_by_var_id: Hash multipliers indexed by original variable ID
+//   - task_proxy: Task for accessing comparison axioms and operators
+//
+// Returns:
+//   Intersection of unaffected comparison facts across all concrete operators.
+//   Empty if concrete_op_ids is empty or no common unaffected comparisons exist.
+std::vector<Fact> get_unaffected_comparison_facts_intersection(
+    const std::vector<int> &concrete_op_ids,
+    int state_index,
+    const ComparisonAxiomDependencies &comparison_axiom_dependencies,
+    const DomainMapping &domain_mapping,
+    const std::vector<int> &hash_multipliers_by_var_id,
+    const TaskProxy &task_proxy);
+
 }
 
 #endif

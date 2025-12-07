@@ -1097,8 +1097,8 @@ void DomainAbstractionFactory::compute_distances(
             // numeric variables NOT affected by this operator. These cannot change,
             // so we fix them to avoid spurious branching during enumeration.
             // For abstract operators with multiple concrete ops, find the intersection.
-            vector<Fact> unaffected_comparisons = get_unaffected_comparison_facts(
-                op.get_concrete_op_ids()[0], state_index, comparison_axiom_dependencies,
+            vector<Fact> unaffected_comparisons = get_unaffected_comparison_facts_intersection(
+                op.get_concrete_op_ids(), state_index, comparison_axiom_dependencies,
                 domain_mapping, hash_multipliers, task_proxy);
         
             
@@ -1475,8 +1475,8 @@ void DomainAbstractionFactory::compute_abstract_plan(
 
             vector<Fact> unaffected_comparisons_succ;
             const vector<int> &concrete_op_ids = op.get_concrete_op_ids();
-            unaffected_comparisons_succ = get_unaffected_comparison_facts(
-                concrete_op_ids[0], current_state,
+            unaffected_comparisons_succ = get_unaffected_comparison_facts_intersection(
+                concrete_op_ids, current_state,
                 comparison_axiom_dependencies,
                 domain_mapping, hash_multipliers, task_proxy);
             
@@ -1570,8 +1570,8 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 vector<int> operator_ids = applicable_op.get_concrete_op_ids();
 
                 vector<Fact> unaffected_comparisons_pred;
-                unaffected_comparisons_pred = get_unaffected_comparison_facts(
-                    operator_ids[0], successor_state,
+                unaffected_comparisons_pred = get_unaffected_comparison_facts_intersection(
+                    operator_ids, successor_state,
                     comparison_axiom_dependencies,
                     domain_mapping, hash_multipliers, task_proxy);
                 

@@ -1325,6 +1325,48 @@ std::vector<Fact> get_unaffected_comparison_facts(
     return result;
 }
 
+std::vector<Fact> get_unaffected_comparison_facts_intersection(
+    const std::vector<int> &concrete_op_ids,
+    int state_index,
+    const ComparisonAxiomDependencies &comparison_axiom_dependencies,
+    const DomainMapping &domain_mapping,
+    const std::vector<int> &hash_multipliers_by_var_id,
+    const TaskProxy &task_proxy) {
+    
+    if (concrete_op_ids.empty()) {
+        return {};
+    }
+    
+    // Start with unaffected comparisons from the first operator
+    std::vector<Fact> result = get_unaffected_comparison_facts(
+        concrete_op_ids[0], state_index, comparison_axiom_dependencies,
+        domain_mapping, hash_multipliers_by_var_id, task_proxy);
+    
+    // Intersect with remaining operators
+    for (size_t i = 1; i < concrete_op_ids.size() && !result.empty(); ++i) {
+        std::vector<Fact> other_unaffected = get_unaffected_comparison_facts(
+            concrete_op_ids[i], state_index, comparison_axiom_dependencies,
+            domain_mapping, hash_multipliers_by_var_id, task_proxy);
+        
+        // Build set of vars present in other_unaffected
+        std::unordered_set<int> other_vars;
+        for (const Fact &f : other_unaffected) {
+            other_vars.insert(f.var);
+        }
+        
+        // Keep only facts whose var is present in both
+        std::vector<Fact> intersection;
+        for (const Fact &f : result) {
+            if (other_vars.count(f.var) > 0) {
+                intersection.push_back(f);
+            }
+        }
+        result = std::move(intersection);
+    }
+    
+    return result;
+}
+
 }
 
 

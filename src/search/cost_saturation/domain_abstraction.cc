@@ -896,32 +896,11 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
             
             // Get unaffected comparisons - for labels with multiple concrete operators,
             // compute intersection (only comparisons unaffected by ALL operators)
-            vector<Fact> unaffected_comparisons;
             auto op_slice = label_to_operators.get_slice(op.label);
-            bool first_op = true;
-            for (int concrete_op_id : op_slice) {
-                vector<Fact> op_unaffected = domain_abstractions::get_unaffected_comparison_facts(
-                    concrete_op_id, state_index, comparison_axiom_dependencies,
-                    domain_mapping, hash_multipliers_by_var_id, task_proxy);
-                
-                if (first_op) {
-                    unaffected_comparisons = std::move(op_unaffected);
-                    first_op = false;
-                } else if (!unaffected_comparisons.empty()) {
-                    // Intersect: keep only facts present in both
-                    unordered_set<int> other_vars;
-                    for (const Fact &f : op_unaffected) {
-                        other_vars.insert(f.var);
-                    }
-                    vector<Fact> intersection;
-                    for (const Fact &f : unaffected_comparisons) {
-                        if (other_vars.count(f.var) > 0) {
-                            intersection.push_back(f);
-                        }
-                    }
-                    unaffected_comparisons = std::move(intersection);
-                }
-            }
+            vector<int> concrete_op_ids(op_slice.begin(), op_slice.end());
+            vector<Fact> unaffected_comparisons = domain_abstractions::get_unaffected_comparison_facts_intersection(
+                concrete_op_ids, state_index, comparison_axiom_dependencies,
+                domain_mapping, hash_multipliers_by_var_id, task_proxy);
             
             // Combine: operator preconditions + unaffected comparisons
             vector<Fact> fixed_comparisons = op.comparison_preconditions;
