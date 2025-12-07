@@ -928,24 +928,8 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
                 assert(utils::in_bounds(predecessor, distances));
                 if (alternative_cost < distances[predecessor]) {
                     distances[predecessor] = alternative_cost;
-                    // Optimization: Only insert into pq if this is the canonical
-                    // (smallest index) representative among all alternatives,
-                    // OR if it equals the initial state (always insert initial).
-                    bool insert_into_pq = true;
-                    if (init_hash != predecessor) {
-                        for (int alt_state : predecessors) {
-                            if (alt_state > predecessor) {
-                                insert_into_pq = false;
-                                break;
-                            }
-                        }
-                    }
-                    if (insert_into_pq) {
-                        //cout << "Current distance: " << distances[predecessor]
-                        //     << ", pushing predecessor state " << predecessor
-                        //     << " with alternative cost " << alternative_cost << endl;
-                        pq.push(alternative_cost, predecessor);
-                    }
+
+                    pq.push(alternative_cost, predecessor);
                 }
             }
         }
