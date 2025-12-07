@@ -1482,7 +1482,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
             
             // Combine: operator preconditions + unaffected comparisons
             vector<Fact> fixed_comparisons_succ;// = comparison_preconds_succ;
-            cout << "Num unaffected_comparisons_succ: " << unaffected_comparisons_succ.size() << endl;
             for (const Fact &f : unaffected_comparisons_succ) {
                 bool already_in = false;
                 for (const Fact &p : comparison_preconds_succ) {
@@ -1493,7 +1492,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
                 }
                 if (!already_in) {
                     //debug f
-                    cout << "Fixing comparison var " << f.var << " to value " << f.value << " in successor enumeration." << endl;
                     fixed_comparisons_succ.push_back(f);
                 }
             }
