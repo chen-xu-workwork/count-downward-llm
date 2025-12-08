@@ -145,7 +145,37 @@ void DomainAbstractionCollectionGeneratorMultiple::handle_generated_abstraction(
     AbstractionKey key;
     key.domain_mapping = abstraction.get_domain_mapping();
     key.numeric_fingerprint = get_numeric_fingerprint(abstraction.get_numeric_domain_mapping());
-
+    
+    // Debug: print key
+    // cout << "Key domain mapping: [";
+    // for (size_t i = 0; i < key.domain_mapping.size(); ++i) {
+    //     cout << "[";
+    //     for (size_t j = 0; j < key.domain_mapping[i].size(); ++j) {
+    //         cout << key.domain_mapping[i][j];
+    //         if (j + 1 < key.domain_mapping[i].size()) cout << ", ";
+    //     }
+    //     cout << "]";
+    //     if (i + 1 < key.domain_mapping.size()) cout << ", ";
+    // }
+    // cout << "]\nNumeric fingerprint: [";
+    // for (size_t i = 0; i < key.numeric_fingerprint.size(); ++i) {
+    //     // Skip trivial [-inf, inf, 0, 0] entries (unsplit numeric variables)
+    //     const auto &fp = key.numeric_fingerprint[i];
+    //     if (fp.size() == 4 && 
+    //         fp[0] == -std::numeric_limits<ap_float>::infinity() &&
+    //         fp[1] == std::numeric_limits<ap_float>::infinity() &&
+    //         fp[2] == 0.0 && fp[3] == 0.0) {
+    //         continue;
+    //     }
+    //     cout << "num" << i << ":[";
+    //     for (size_t j = 0; j < fp.size(); ++j) {
+    //         cout << fp[j];
+    //         if (j + 1 < fp.size()) cout << ", ";
+    //     }
+    //     cout << "] ";
+    // }
+    // cout << "]" << endl;
+    
     if (generated_keys.insert(key).second) {
         /*
           compute_pattern generated a new pattern. Create/retrieve corresponding
