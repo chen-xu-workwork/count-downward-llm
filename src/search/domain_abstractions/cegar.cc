@@ -448,6 +448,7 @@ pair<int, vector<int>> CEGAR::get_goal_value_split(
         }
     }
 
+    // we cannot choose the axiom goal, prevented before. Otherwise goal axiom has only comparisons as precondition, so we are fine. 
     if (goal_value < 0) {
         // Variable not relevant in goal.
         return get_random_value_split(var_id, task_proxy);
@@ -475,6 +476,17 @@ pair<int, vector<int>> CEGAR::get_init_value_split(
 pair<int, vector<int>> CEGAR::get_random_value_split(
     int var_id, const TaskProxy &task_proxy) {
     int domain_size = task_proxy.get_variables()[var_id].get_domain_size();
+    
+    // For comparison axiom variables, always split at value 0 (true) instead of random
+    if (comparison_axiom_var_ids.count(var_id) > 0) {
+        logger->log(Verbosity::DEBUG, "  Variable ", var_id, " is a comparison axiom - splitting at value 0 instead of random");
+        vector<int> init_split(domain_size, 0);
+        if (domain_size > 1) {
+            init_split[0] = 1;  // Value 0 (true) goes to partition 1
+        }
+        return make_pair(min(2, domain_size), move(init_split));
+    }
+    
     int split_val = rng->random(domain_size);
     vector<int> init_split(domain_size, 0);
     init_split[split_val] = 1;
