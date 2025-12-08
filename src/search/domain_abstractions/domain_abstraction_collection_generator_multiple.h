@@ -20,6 +20,10 @@ class RandomNumberGenerator;
 }
 
 namespace domain_abstractions {
+
+// Forward declaration for AbstractionKey (defined in .cc file)
+struct AbstractionKey;
+
 enum class VariableSubset {
     GOALS,
     NON_GOALS,
@@ -76,7 +80,7 @@ private:
         std::vector<int> &init_split_candidates, int iteration);
     void handle_generated_abstraction(
         DomainAbstraction &&abstraction,
-        std::set<DomainMapping> &generated_mappings,
+        std::set<AbstractionKey> &generated_keys,
         DomainAbstractionCollection &generated_abstractions,
         const utils::CountdownTimer &timer);
     bool collection_size_limit_reached() const;

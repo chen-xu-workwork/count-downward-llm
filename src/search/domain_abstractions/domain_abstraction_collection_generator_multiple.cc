@@ -18,6 +18,47 @@
 using namespace std;
 
 namespace domain_abstractions {
+
+// Fingerprint for a NumericDomainMappingType: captures range boundaries and inclusivity.
+// Two numeric mappings are considered equal if they have identical ranges.
+// Each range is encoded as: (lower, upper, lower_inclusive, upper_inclusive)
+// where inclusivity flags are encoded as 0.0 or 1.0 for comparison purposes.
+using NumericMappingFingerprint = vector<vector<ap_float>>;
+
+static NumericMappingFingerprint get_numeric_fingerprint(
+    const NumericDomainMappingType &numeric_mapping) {
+    NumericMappingFingerprint fingerprint;
+    fingerprint.reserve(numeric_mapping.size());
+    for (const auto &mapping : numeric_mapping) {
+        vector<ap_float> boundaries;
+        const auto &ranges = mapping->get_ranges();
+        // Store range boundaries AND inclusivity flags to fully identify partitioning
+        // Format per range: lower, upper, lower_inclusive (0/1), upper_inclusive (0/1)
+        boundaries.reserve(ranges.size() * 4);
+        for (const auto &range : ranges) {
+            boundaries.push_back(range.lower);
+            boundaries.push_back(range.upper);
+            boundaries.push_back(range.lower_inclusive ? 1.0 : 0.0);
+            boundaries.push_back(range.upper_inclusive ? 1.0 : 0.0);
+        }
+        fingerprint.push_back(move(boundaries));
+    }
+    return fingerprint;
+}
+
+// Combined key for duplicate detection: propositional mapping + numeric fingerprint
+struct AbstractionKey {
+    DomainMapping domain_mapping;
+    NumericMappingFingerprint numeric_fingerprint;
+    
+    bool operator<(const AbstractionKey &other) const {
+        if (domain_mapping != other.domain_mapping) {
+            return domain_mapping < other.domain_mapping;
+        }
+        return numeric_fingerprint < other.numeric_fingerprint;
+    }
+};
+
 DomainAbstractionCollectionGeneratorMultiple::DomainAbstractionCollectionGeneratorMultiple(
     options::Options &opts)
     : DomainAbstractionCollectionGenerator(opts),
@@ -96,12 +137,16 @@ unordered_set<int> DomainAbstractionCollectionGeneratorMultiple::get_init_split_
 
 void DomainAbstractionCollectionGeneratorMultiple::handle_generated_abstraction(
     DomainAbstraction &&abstraction,
-    set<DomainMapping> &generated_mappings,
+    set<AbstractionKey> &generated_keys,
     DomainAbstractionCollection &generated_abstractions,
     const utils::CountdownTimer &timer) {
-    DomainMapping domain_mapping = abstraction.get_domain_mapping();
+    
+    // Create a combined key from both propositional and numeric mappings
+    AbstractionKey key;
+    key.domain_mapping = abstraction.get_domain_mapping();
+    key.numeric_fingerprint = get_numeric_fingerprint(abstraction.get_numeric_domain_mapping());
 
-    if (generated_mappings.insert(domain_mapping).second) {
+    if (generated_keys.insert(key).second) {
         /*
           compute_pattern generated a new pattern. Create/retrieve corresponding
           PDB, update collection size and reset time_point_of_last_new_pattern.
@@ -180,7 +225,7 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
 
     initialize(task_proxy);
 
-    set<DomainMapping> generated_domain_mappings;
+    set<AbstractionKey> generated_keys;
     DomainAbstractionCollection generated_abstractions;
 
     shared_ptr<utils::RandomNumberGenerator> pattern_computation_rng =
@@ -210,7 +255,7 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
             move(blacklisted_variables));
         handle_generated_abstraction(
             move(abstraction),
-            generated_domain_mappings,
+            generated_keys,
             generated_abstractions,
             timer);
 
