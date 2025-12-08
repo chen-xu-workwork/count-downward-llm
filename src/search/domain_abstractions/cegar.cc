@@ -88,6 +88,10 @@ private:
     // Maps: propositional_var_id -> set of numeric variable IDs
     std::unordered_map<int, std::unordered_set<int>> comparison_axiom_dependencies;
     
+    // Set of propositional variable IDs that are comparison axiom variables
+    // Populated in build_abstraction before compute_initial_domain_mapping
+    std::unordered_set<int> comparison_axiom_var_ids;
+    
     // Store comparison axiom information including threshold for refinement
     struct ComparisonInfo {
         int left_var_id;   // ID of left numeric variable (might be constant)
@@ -300,11 +304,19 @@ DomainMapping CEGAR::compute_initial_domain_mapping(
 
     DomainMapping domain_mapping(num_variables);
     if (!init_split_var_ids.empty()) {
-        vector<int> split_vars(
-            init_split_var_ids.begin(), init_split_var_ids.end());
-        rng->shuffle(split_vars);
+        // Separate propositional and numeric var IDs
+        // Numeric vars are encoded as num_prop_vars + numeric_var_id
+        vector<int> prop_split_vars;
+        for (int var_id : init_split_var_ids) {
+            if (var_id < num_variables) {
+                prop_split_vars.push_back(var_id);
+            }
+            // Numeric var IDs (>= num_variables) are handled in compute_initial_numeric_domain_mapping
+        }
+        
+        rng->shuffle(prop_split_vars);
         int abstraction_size = 1;
-        for (const int var_id : split_vars) {
+        for (const int var_id : prop_split_vars) {
             if (blacklisted_variables.count(var_id) == 0) {
                 domain_mapping[var_id] = compute_initial_split(
                     var_id, task_proxy, abstraction_size);
@@ -472,6 +484,19 @@ pair<int, vector<int>> CEGAR::get_random_value_split(
 pair<int, vector<int>> CEGAR::get_identity_split(
     int var_id, const TaskProxy &task_proxy) {
     int domain_size = task_proxy.get_variables()[var_id].get_domain_size();
+    
+    // For comparison axiom variables, a "full" identity split doesn't make sense 
+    // since they're binary (true/false). Instead, split at value 0 (true in numeric fd).
+    if (comparison_axiom_var_ids.count(var_id) > 0) {
+        logger->log(Verbosity::DEBUG, "  Variable ", var_id, " is a comparison axiom - using binary split at value 0");
+        vector<int> init_split(domain_size, 0);
+        if (domain_size > 1) {
+            init_split[0] = 1;  // Value 0 (true) goes to partition 1
+        }
+        return make_pair(min(2, domain_size), move(init_split));
+    }
+    
+    // Standard identity split: each value maps to its own partition
     vector<int> init_split(domain_size);
     for (int i = 0; i < domain_size; ++i) {
         init_split[i] = i;
@@ -1464,6 +1489,51 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
         }
     }
     
+    // Apply initial splits for numeric variables that are in init_split_var_ids
+    // Numeric var IDs are encoded as num_prop_vars + numeric_var_id
+    int num_prop_vars = task_proxy.get_variables().size();
+    
+    for (int encoded_var_id : init_split_var_ids) {
+        if (encoded_var_id < num_prop_vars) {
+            // This is a propositional variable, skip (handled in compute_initial_domain_mapping)
+            continue;
+        }
+        
+        int numeric_var_id = encoded_var_id - num_prop_vars;
+        if (numeric_var_id < 0 || numeric_var_id >= num_numeric_variables) {
+            continue;
+        }
+        
+        // Check if blacklisted
+        if (blacklisted_numeric_variables.count(numeric_var_id) > 0) {
+            continue;
+        }
+        
+        NumericVariableProxy num_var = num_vars[numeric_var_id];
+        numType var_type = num_var.get_var_type();
+        
+        // Only apply init split to regular numeric variables
+        if (var_type != numType::regular) {
+            continue;
+        }
+        
+        // For IDENTITY and GOAL_VALUE_OR_RANDOM_IF_NON_GOAL:
+        // Split at initial value with random boundary inclusion
+        // (Numeric variables are never goals, so both methods behave the same)
+        if (init_split_method == InitSplitMethod::IDENTITY ||
+            init_split_method == InitSplitMethod::GOAL_VALUE_OR_RANDOM_IF_NON_GOAL) {
+            
+            ap_float init_value = num_var.get_initial_state_value();
+            bool include_in_lower = rng->random(2) == 0;  // Random flip
+            
+            logger->log(Verbosity::DEBUG, "Initial split for numeric variable num_", numeric_var_id,
+                           " (", num_var.get_name(), ") at init value ", init_value,
+                           ", include_in_lower=", include_in_lower);
+            
+            numeric_domain_mapping[numeric_var_id]->split_at(init_value, include_in_lower);
+        }
+    }
+    
     return numeric_domain_mapping;
 }
 
@@ -1669,8 +1739,8 @@ DomainAbstraction CEGAR::build_abstraction(
     // Only comparison axioms should be refinable
     // MUST be done BEFORE compute_initial_domain_mapping!
     
-    // First, collect all comparison axiom variable IDs
-    unordered_set<int> comparison_axiom_var_ids;
+    // First, collect all comparison axiom variable IDs (into member variable)
+    comparison_axiom_var_ids.clear();
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
     for (ComparisonAxiomProxy axiom : comparison_axioms) {
         int var_id = axiom.get_true_fact().get_variable().get_id();

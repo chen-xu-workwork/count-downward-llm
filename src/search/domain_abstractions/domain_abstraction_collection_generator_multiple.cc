@@ -250,7 +250,7 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
         get_candidates(task_proxy, blacklist_variables, true);
 
     vector<int> init_split_candidates =
-        get_candidates(task_proxy, init_split_variables, false);
+        get_candidates(task_proxy, init_split_variables, true);
 
 
     initialize(task_proxy);
