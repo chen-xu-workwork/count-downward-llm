@@ -23,6 +23,7 @@ DomainAbstractionGeneratorCEGAR::DomainAbstractionGeneratorCEGAR(
       flaw_treatment(FlawTreatment(opts.get_enum("flaw_treatment"))),
       init_split_method(InitSplitMethod(opts.get_enum("init_split_method"))),
       numeric_split_strategy(NumericSplitStrategy(opts.get_enum("numeric_split_strategy"))),
+      exec_entire_plan(opts.get<bool>("exec_entire_plan")),
       init_split_option(InitSplitOptions(opts.get_enum("init_split_option"))) {
     std::cout << "DEBUG GENERATOR: Unparsed config string = '" << opts.get_unparsed_config() << "'" << std::endl;
     std::cout << "DEBUG GENERATOR: flaw_treatment enum value = " 
@@ -56,7 +57,7 @@ DomainAbstraction DomainAbstractionGeneratorCEGAR::build_abstraction(
     return generate_domain_abstraction_with_cegar(
         max_abstraction_size, max_time, use_wildcard_plans,
         flaw_treatment, init_split_method, numeric_split_strategy,
-        rng, task_proxy, move(init_split_var_ids));
+        exec_entire_plan, rng, task_proxy, move(init_split_var_ids));
 }
 
 unordered_set<int> DomainAbstractionGeneratorCEGAR::get_init_split_var_ids(

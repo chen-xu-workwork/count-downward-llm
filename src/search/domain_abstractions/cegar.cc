@@ -54,6 +54,7 @@ private:
     const int max_abstraction_size;
     const double max_time;
     const bool use_wildcard_plans;
+    const bool exec_entire_plan;
     const FlawTreatment flaw_treatment;
     const InitSplitMethod init_split_method;
     const NumericSplitStrategy numeric_split_strategy;
@@ -230,6 +231,7 @@ public:
     CEGAR(int max_abstraction_size,
           double max_time,
           bool use_wildcard_plans,
+          bool exec_entire_plan,
           FlawTreatment flaw_treatment,
           InitSplitMethod init_split_method,
           NumericSplitStrategy numeric_split_strategy,
@@ -248,6 +250,7 @@ CEGAR::CEGAR(
         int max_abstraction_size,
         double max_time,
         bool use_wildcard_plans,
+        bool exec_entire_plan,
         FlawTreatment flaw_treatment,
         InitSplitMethod init_split_method,
         NumericSplitStrategy numeric_split_strategy,
@@ -259,6 +262,7 @@ CEGAR::CEGAR(
     : max_abstraction_size(max_abstraction_size),
       max_time(max_time),
       use_wildcard_plans(use_wildcard_plans),
+      exec_entire_plan(exec_entire_plan),
       flaw_treatment(flaw_treatment),
       init_split_method(init_split_method),
       numeric_split_strategy(numeric_split_strategy),
@@ -694,9 +698,6 @@ vector<Fact> CEGAR::get_flaws(
     // Initialize numeric state
     vector<ap_float> numeric_state = g_root_task()->get_initial_state_numeric_values();
     
-    // CRITICAL: Evaluate axioms on initial state!
-    // Without this, derived variables (comparison axioms) are uninitialized,
-    // causing empty plans to incorrectly appear valid even when goals aren't satisfied.
     g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_state);
     g_axiom_evaluator->evaluate(current_state, numeric_state);
 
@@ -801,8 +802,12 @@ vector<Fact> CEGAR::get_flaws(
             vector<vector<pair<int, ap_float>>> regular_numeric_flaws = flaw_data.second;
             if (operator_flaws.empty()) {
                 // Propositional preconditions satisfied - apply operator
-                //flaws.clear(); RANDOM FLAW
-                //detected_numeric_flaws.clear(); RANDOM FLAW
+                // In standard CEGAR (exec_entire_plan=false), clear any previously accumulated flaws
+                // since we successfully applied an operator after them.
+                if (!exec_entire_plan) {
+                    flaws.clear();
+                    detected_numeric_flaws.clear();
+                }
                 
                 string decoded_state = decode_abstract_state_compact(current_state, numeric_state);
                 logger->log(Verbosity::DEBUG, "[PLAN] ", decoded_state, ", ", op_name);
@@ -882,11 +887,14 @@ vector<Fact> CEGAR::get_flaws(
                     detected_numeric_flaws.push_back(numeric_flaws_for_this_prop_flaw);
                 }
 
-                // NEXT FOUR LINES: RANDOM FLAW
-                apply_op_to_state(current_state, op);
-                apply_numeric_effects(numeric_state, op);
-                g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_state);
-                g_axiom_evaluator->evaluate(current_state, numeric_state);
+                // When exec_entire_plan=true, continue executing the plan even after flaws
+                // to accumulate all flaws for experimental analysis.
+                if (exec_entire_plan) {
+                    apply_op_to_state(current_state, op);
+                    apply_numeric_effects(numeric_state, op);
+                    g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_state);
+                    g_axiom_evaluator->evaluate(current_state, numeric_state);
+                }
             }
         }
 
@@ -929,7 +937,11 @@ vector<Fact> CEGAR::get_flaws(
                 logger->log(Verbosity::DEBUG, "");
             }
            
-            //return flaws; RANDOM FLAW
+            // In standard CEGAR (exec_entire_plan=false), return flaws immediately 
+            // when detected to refine and restart.
+            if (!exec_entire_plan) {
+                return flaws;
+            }
         }
         logger->log(Verbosity::DEBUG, "");
         step_num++;
@@ -952,7 +964,9 @@ vector<Fact> CEGAR::get_flaws(
  
 
     // Check goal flaws
-    //assert(flaws.empty()); RANDOM FLAW
+    // In standard CEGAR (exec_entire_plan=false), we should have no plan execution flaws
+    // since we return early. In exec_entire_plan mode, flaws may have accumulated.
+    assert(exec_entire_plan || flaws.empty());
     
     pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> goal_flaw_data =
         get_goal_flaws(task_proxy, current_state, blacklisted_variables,
@@ -2364,6 +2378,7 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         FlawTreatment flaw_treatment,
         InitSplitMethod init_split_method,
         NumericSplitStrategy numeric_split_strategy,
+        bool exec_entire_plan,
         const shared_ptr<utils::RandomNumberGenerator> &rng,
         const TaskProxy &task_proxy,
         unordered_set<int> &&init_split_var_ids,
@@ -2373,6 +2388,7 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         max_abstraction_size,
         max_time,
         use_wildcard_plans,
+        exec_entire_plan,
         flaw_treatment,
         init_split_method,
         numeric_split_strategy,
@@ -2492,6 +2508,13 @@ void add_domain_abstraction_cegar_options_to_parser(
         "'standard' creates [lower, x) and [x, upper) with different partitions, "
         "'exclusion' creates R\\{x} (two disjoint ranges) and {x} as separate partitions.",
         "standard", {});
+    parser.add_option<bool>(
+        "exec_entire_plan",
+        "When false (default), CEGAR returns immediately upon detecting the first flaw "
+        "and refines the abstraction. When true, CEGAR executes the entire abstract plan "
+        "and accumulates all flaws before returning. This is an experimental option for "
+        "research purposes.",
+        "false");
 }
 }
 

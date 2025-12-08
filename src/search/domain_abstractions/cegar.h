@@ -56,6 +56,7 @@ extern DomainAbstraction generate_domain_abstraction_with_cegar(
             FlawTreatment flaw_treatment,
             InitSplitMethod init_split_method,
             NumericSplitStrategy numeric_split_strategy,
+            bool exec_entire_plan,
             const std::shared_ptr <utils::RandomNumberGenerator> &rng,
             const TaskProxy &task_proxy,
             std::unordered_set<int> &&init_split_var_ids = std::unordered_set<int>(),
