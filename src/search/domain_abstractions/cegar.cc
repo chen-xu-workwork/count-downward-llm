@@ -566,7 +566,7 @@ pair<int, vector<int>> CEGAR::get_random_init_goal_partition_split(
 
 static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_precondition_flaws(
     const OperatorProxy &op, const vector<int> &current_state,
-    const unordered_set<int> &blacklisted_variables, std::unordered_map<int, std::unordered_set<int>> deps) {
+    const unordered_set<int> &blacklisted_variables, const std::unordered_map<int, std::unordered_set<int>>& deps) {
     vector<Fact> flaws;
     vector<vector<pair<int, ap_float>>> regular_numeric_flaws;
     for (FactProxy pre : op.get_preconditions()) {
@@ -575,10 +575,13 @@ static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_precondition_
             && current_state[var_id] != pre.get_value()) {
             flaws.emplace_back(var_id, pre.get_value());
             regular_numeric_flaws.emplace_back();
-            regular_numeric_flaws.back().reserve(deps[var_id].size());
-            for (int dep_var_id : deps[var_id]) {
-                // Use NaN as placeholder - actual split value is determined later in get_flaws
-                regular_numeric_flaws.back().emplace_back(dep_var_id, std::numeric_limits<ap_float>::quiet_NaN()); 
+            auto it = deps.find(var_id);
+            if (it != deps.end()) {
+                regular_numeric_flaws.back().reserve(it->second.size());
+                for (int dep_var_id : it->second) {
+                    // Use NaN as placeholder - actual split value is determined later in get_flaws
+                    regular_numeric_flaws.back().emplace_back(dep_var_id, std::numeric_limits<ap_float>::quiet_NaN()); 
+                }
             }
 
         }
@@ -602,7 +605,7 @@ static bool is_derived_variable(const TaskProxy &task_proxy, int var_id) {
 static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_goal_flaws(
     const TaskProxy &task_proxy, const vector<int> &current_state,
     const unordered_set<int> &blacklisted_variables,
-    std::unordered_map<int, std::unordered_set<int>> deps) {
+    const std::unordered_map<int, std::unordered_set<int>>& deps) {
     vector<Fact> flaws;
     vector<vector<pair<int, ap_float>>> regular_numeric_flaws;
     
@@ -614,10 +617,13 @@ static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_goal_flaws(
                 && current_state[var_id] != goal.get_value()) {
                 flaws.emplace_back(var_id, goal.get_value());
                 regular_numeric_flaws.emplace_back();
-                regular_numeric_flaws.back().reserve(deps[var_id].size());
-                for (int dep_var_id : deps[var_id]) {
-                    // Use NaN as placeholder - actual split value is determined later in get_flaws
-                    regular_numeric_flaws.back().emplace_back(dep_var_id, std::numeric_limits<ap_float>::quiet_NaN());
+                auto it = deps.find(var_id);
+                if (it != deps.end()) {
+                    regular_numeric_flaws.back().reserve(it->second.size());
+                    for (int dep_var_id : it->second) {
+                        // Use NaN as placeholder - actual split value is determined later in get_flaws
+                        regular_numeric_flaws.back().emplace_back(dep_var_id, std::numeric_limits<ap_float>::quiet_NaN());
+                    }
                 }
             }
         }
@@ -638,10 +644,13 @@ static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_goal_flaws(
                     && current_state[var_id] != pre.get_value()) {
                     flaws.emplace_back(var_id, pre.get_value());
                     regular_numeric_flaws.emplace_back();
-                    regular_numeric_flaws.back().reserve(deps[var_id].size());
-                    for (int dep_var_id : deps[var_id]) {
-                        // Use NaN as placeholder - actual split value is determined later in get_flaws
-                        regular_numeric_flaws.back().emplace_back(dep_var_id, std::numeric_limits<ap_float>::quiet_NaN());
+                    auto it = deps.find(var_id);
+                    if (it != deps.end()) {
+                        regular_numeric_flaws.back().reserve(it->second.size());
+                        for (int dep_var_id : it->second) {
+                            // Use NaN as placeholder - actual split value is determined later in get_flaws
+                            regular_numeric_flaws.back().emplace_back(dep_var_id, std::numeric_limits<ap_float>::quiet_NaN());
+                        }
                     }
                 }
             }
