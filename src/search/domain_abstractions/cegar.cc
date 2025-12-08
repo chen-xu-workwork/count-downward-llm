@@ -49,7 +49,7 @@ private:
     std::vector<int> local_to_global_regular_numeric_var_ids;
     std::vector<int> global_to_local_regular_numeric_var_ids; // NOTE: Not used yet(?)
     std::vector<std::unordered_set<ap_float>> already_split;
-    mutable std::vector<std::vector<ap_float>> regular_numeric_var_values;
+    mutable std::vector<std::unordered_set<ap_float>> regular_numeric_var_values;
     
     const int max_abstraction_size;
     const double max_time;
@@ -765,10 +765,10 @@ vector<Fact> CEGAR::get_flaws(
         int var_id = local_to_global_regular_numeric_var_ids[i];
         NumericVariableProxy num_var = task_proxy.get_numeric_variables()[var_id];
         if (num_var.get_var_type() == numType::regular || num_var.get_var_type() == numType::constant) { //TODO: Why constants?
-            vector<ap_float> values;
+            std::unordered_set<ap_float> values;
             if (i < already_split.size() && 
                 already_split[i].count(numeric_state[var_id]) == 0) {
-                values.push_back(numeric_state[var_id]);
+                values.insert(numeric_state[var_id]);
             }
             regular_numeric_var_values.push_back(std::move(values));
         }
@@ -847,8 +847,8 @@ vector<Fact> CEGAR::get_flaws(
                     ap_float val = numeric_state[var_id];
                     if (i < already_split.size() && 
                         already_split[i].count(val) == 0 &&
-                        find(regular_numeric_var_values[i].begin(), regular_numeric_var_values[i].end(), val) == regular_numeric_var_values[i].end()) {
-                        regular_numeric_var_values[i].push_back(val);
+                        regular_numeric_var_values[i].count(val) == 0) {
+                        regular_numeric_var_values[i].insert(val);
                     }
                 }
 
@@ -899,10 +899,10 @@ vector<Fact> CEGAR::get_flaws(
                         assert(local_numeric_var_index != -1);
 
                         ap_float split_value = concrete_value;
-                        if (!regular_numeric_var_values[local_numeric_var_index].empty()) { 
+                        if (!regular_numeric_var_values[local_numeric_var_index].empty()) {
+                            split_value = *regular_numeric_var_values[local_numeric_var_index].begin();
                             logger->log(Verbosity::DEBUG, "   LAST regular_numeric_var_values[", numeric_var_id, "] = ",
-                                           regular_numeric_var_values[local_numeric_var_index].back());
-                            split_value = regular_numeric_var_values[local_numeric_var_index].back();
+                                           split_value);
                         }
                         numeric_flaws_for_this_prop_flaw.emplace_back(
                             numeric_var_id, split_value, flaw.var);
@@ -981,8 +981,8 @@ vector<Fact> CEGAR::get_flaws(
         ap_float val = numeric_state[var_id];
         if (i < already_split.size() && 
             already_split[i].count(val) == 0 &&
-            find(regular_numeric_var_values[i].begin(), regular_numeric_var_values[i].end(), val) == regular_numeric_var_values[i].end()) {
-            regular_numeric_var_values[i].push_back(val);
+            regular_numeric_var_values[i].count(val) == 0) {
+            regular_numeric_var_values[i].insert(val);
         }
     }
 
@@ -1031,9 +1031,9 @@ vector<Fact> CEGAR::get_flaws(
             
             ap_float split_value = concrete_value;
             if (!regular_numeric_var_values[local_numeric_var_index].empty()) {
+                split_value = *regular_numeric_var_values[local_numeric_var_index].begin();
                 logger->log(Verbosity::DEBUG, "   LAST regular_numeric_var_values[", numeric_var_id, "] = ",
-                                regular_numeric_var_values[local_numeric_var_index].back());
-                split_value = regular_numeric_var_values[local_numeric_var_index].back();
+                                split_value);
             }
             numeric_flaws_for_this_prop_flaw.emplace_back(
                 numeric_var_id, split_value, flaw.var);
