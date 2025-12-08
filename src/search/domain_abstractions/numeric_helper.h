@@ -214,6 +214,35 @@ private:
     // Only contains entries for variables that are derived from comparison axioms.
     std::unordered_map<int, size_t> comparison_axiom_by_var_id;
     
+    // Cached assignment axiom data to avoid repeated proxy calls per state.
+    struct CachedAssignmentAxiom {
+        int derived_id;  // get_assignment_variable().get_id()
+        int left_id;     // get_left_variable().get_id()
+        int right_id;    // get_right_variable().get_id()
+        numType left_type;  // get_left_variable().get_var_type()
+        numType right_type; // get_right_variable().get_var_type()
+        ap_float left_const_val;  // get_left_variable().get_initial_state_value() if constant
+        ap_float right_const_val; // get_right_variable().get_initial_state_value() if constant
+        cal_operator op_type;     // get_arithmetic_operator_type()
+    };
+    
+    // Cached comparison axiom data to avoid repeated proxy calls per state.
+    struct CachedComparisonAxiom {
+        int left_id;      // get_left_variable().get_id()
+        int right_id;     // get_right_variable().get_id()
+        numType left_type;   // get_left_variable().get_var_type()
+        numType right_type;  // get_right_variable().get_var_type()
+        ap_float left_const_val;
+        ap_float right_const_val;
+        comp_operator op_type;  // get_comparison_operator_type()
+        int prop_var_id;  // get_true_fact().get_variable().get_id()
+        int true_val;     // get_true_fact().get_value()
+        int false_val;    // get_false_fact().get_value()
+    };
+    
+    std::vector<CachedAssignmentAxiom> cached_assignment_axioms;
+    std::vector<CachedComparisonAxiom> cached_comparison_axioms;
+    
     // Goals
     std::vector<numeric_condition::RegularNumericCondition> numeric_goals;
     

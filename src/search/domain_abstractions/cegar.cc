@@ -686,6 +686,7 @@ vector<Fact> CEGAR::get_flaws(
 
     // Initialize propositional state
     vector<int> current_state;
+    current_state.reserve(concrete_init.size());
     for (int i = 0; i < concrete_init.size(); ++i) {
         current_state.push_back(concrete_init[i].get_value());
     }
@@ -731,7 +732,8 @@ vector<Fact> CEGAR::get_flaws(
     };
 
     
-    regular_numeric_var_values.clear();  
+    regular_numeric_var_values.clear();
+    regular_numeric_var_values.reserve(local_to_global_regular_numeric_var_ids.size());
 
     for (size_t i = 0; i < local_to_global_regular_numeric_var_ids.size(); ++i) {
         int var_id = local_to_global_regular_numeric_var_ids[i];
@@ -742,7 +744,7 @@ vector<Fact> CEGAR::get_flaws(
                 already_split[i].count(numeric_state[var_id]) == 0) {
                 values.push_back(numeric_state[var_id]);
             }
-            regular_numeric_var_values.push_back(values);
+            regular_numeric_var_values.push_back(std::move(values));
         }
     }
 

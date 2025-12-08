@@ -113,6 +113,9 @@ void DomainAbstractionNumericHelper::find_derived_variables() {
     // Assignment axioms have the form: derived_var := left_var op right_var
     // where op is one of: +, -, *, /
     AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+    cached_assignment_axioms.clear();
+    cached_assignment_axioms.reserve(assignment_axioms.size());
+    
     for (AssignmentAxiomProxy axiom : assignment_axioms) {
         NumericVariableProxy derived_var = axiom.get_assignment_variable();
         int derived_id = derived_var.get_id();
@@ -122,8 +125,19 @@ void DomainAbstractionNumericHelper::find_derived_variables() {
             is_derived_num_var[derived_id] = true;
         }
         
-        // Note: The left and right variables are the sources
-        // We'll build dependency graph in build_axiom_dependencies()
+        // Cache the axiom data for hot-path performance
+        CachedAssignmentAxiom cached;
+        cached.derived_id = derived_id;
+        cached.left_id = axiom.get_left_variable().get_id();
+        cached.right_id = axiom.get_right_variable().get_id();
+        cached.left_type = axiom.get_left_variable().get_var_type();
+        cached.right_type = axiom.get_right_variable().get_var_type();
+        cached.left_const_val = (cached.left_type == numType::constant)
+            ? axiom.get_left_variable().get_initial_state_value() : 0.0;
+        cached.right_const_val = (cached.right_type == numType::constant)
+            ? axiom.get_right_variable().get_initial_state_value() : 0.0;
+        cached.op_type = axiom.get_arithmetic_operator_type();
+        cached_assignment_axioms.push_back(cached);
     }
     
     // 2. Find derived propositional variables from comparison axioms
@@ -131,6 +145,9 @@ void DomainAbstractionNumericHelper::find_derived_variables() {
     // which creates a derived propositional fact (boolean variable)
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
     comparison_axiom_by_var_id.reserve(comparison_axioms.size());
+    cached_comparison_axioms.clear();
+    cached_comparison_axioms.reserve(comparison_axioms.size());
+    
     for (size_t axiom_idx = 0; axiom_idx < comparison_axioms.size(); ++axiom_idx) {
         ComparisonAxiomProxy axiom = comparison_axioms[axiom_idx];
         // The axiom produces a true_fact when the comparison holds
@@ -148,6 +165,22 @@ void DomainAbstractionNumericHelper::find_derived_variables() {
         
         // Sanity check: true_fact and false_fact should be on same variable
         assert(var_id == false_fact.get_variable().get_id());
+        
+        // Cache the axiom data for hot-path performance
+        CachedComparisonAxiom cached;
+        cached.left_id = axiom.get_left_variable().get_id();
+        cached.right_id = axiom.get_right_variable().get_id();
+        cached.left_type = axiom.get_left_variable().get_var_type();
+        cached.right_type = axiom.get_right_variable().get_var_type();
+        cached.left_const_val = (cached.left_type == numType::constant)
+            ? axiom.get_left_variable().get_initial_state_value() : 0.0;
+        cached.right_const_val = (cached.right_type == numType::constant)
+            ? axiom.get_right_variable().get_initial_state_value() : 0.0;
+        cached.op_type = axiom.get_comparison_operator_type();
+        cached.prop_var_id = var_id;
+        cached.true_val = true_fact.get_value();
+        cached.false_val = false_fact.get_value();
+        cached_comparison_axioms.push_back(cached);
     }
 }
 
@@ -614,28 +647,23 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 }
             }
             
-            AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+            // Use cached assignment axiom data for performance.
             bool changed = true;
             int iterations = 0;
             const int MAX_ITERATIONS = 100;
             
             while (changed && iterations++ < MAX_ITERATIONS) {
                 changed = false;
-                for (AssignmentAxiomProxy axiom : assignment_axioms) {
-                    int derived_id = axiom.get_assignment_variable().get_id();
-                    int ax_left_id = axiom.get_left_variable().get_id();
-                    int ax_right_id = axiom.get_right_variable().get_id();
-                    
+                for (const CachedAssignmentAxiom &axiom : cached_assignment_axioms) {
                     // Get left operand range
                     bool left_known = false;
                     NumericRange left_range;
                     
-                    if (axiom.get_left_variable().get_var_type() == numType::constant) {
-                        ap_float val = axiom.get_left_variable().get_initial_state_value();
-                        left_range = NumericRange(val, val, true, true);
+                    if (axiom.left_type == numType::constant) {
+                        left_range = NumericRange(axiom.left_const_val, axiom.left_const_val, true, true);
                         left_known = true;
                     } else {
-                        auto left_it = ranges.find(ax_left_id);
+                        auto left_it = ranges.find(axiom.left_id);
                         if (left_it != ranges.end()) {
                             left_range = left_it->second;
                             left_known = true;
@@ -646,12 +674,11 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                     bool right_known = false;
                     NumericRange right_range;
                     
-                    if (axiom.get_right_variable().get_var_type() == numType::constant) {
-                        ap_float val = axiom.get_right_variable().get_initial_state_value();
-                        right_range = NumericRange(val, val, true, true);
+                    if (axiom.right_type == numType::constant) {
+                        right_range = NumericRange(axiom.right_const_val, axiom.right_const_val, true, true);
                         right_known = true;
                     } else {
-                        auto right_it = ranges.find(ax_right_id);
+                        auto right_it = ranges.find(axiom.right_id);
                         if (right_it != ranges.end()) {
                             right_range = right_it->second;
                             right_known = true;
@@ -661,13 +688,13 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                     // Compute derived range if both operands known
                     if (left_known && right_known) {
                         NumericRange res = NumericDomainMapping::apply_range_operation(
-                            left_range, right_range, axiom.get_arithmetic_operator_type());
+                            left_range, right_range, axiom.op_type);
                         
-                        auto it = ranges.find(derived_id);
+                        auto it = ranges.find(axiom.derived_id);
                         if (it == ranges.end() || 
                             it->second.lower != res.lower || it->second.upper != res.upper ||
                             it->second.lower_inclusive != res.lower_inclusive || it->second.upper_inclusive != res.upper_inclusive) {
-                            ranges[derived_id] = res;
+                            ranges[axiom.derived_id] = res;
                             changed = true;
                         }
                     }
@@ -677,7 +704,6 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
             // Step 4: Evaluate comparison preconditions optimistically
             // Check concrete operator preconditions directly
             bool satisfies_preconditions = true;
-            ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
             
             for (FactProxy concrete_pre : op.get_preconditions()) {
                 int var_id = concrete_pre.get_variable().get_id();
@@ -689,20 +715,15 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                     continue; // Not a comparison axiom precondition
                 }
 
-                ComparisonAxiomProxy matching_axiom = comparison_axioms[axiom_it->second];
-                
-                // Evaluate the comparison with propagated ranges from SOURCE state
-                int left_id = matching_axiom.get_left_variable().get_id();
-                int right_id = matching_axiom.get_right_variable().get_id();
-                comp_operator comp_op = matching_axiom.get_comparison_operator_type();
+                // Use cached axiom data for performance.
+                const CachedComparisonAxiom &matching_axiom = cached_comparison_axioms[axiom_it->second];
                 
                 // Get left operand range
                 NumericRange left_range;
-                if (matching_axiom.get_left_variable().get_var_type() == numType::constant) {
-                    ap_float val = matching_axiom.get_left_variable().get_initial_state_value();
-                    left_range = NumericRange(val, val, true, true);
+                if (matching_axiom.left_type == numType::constant) {
+                    left_range = NumericRange(matching_axiom.left_const_val, matching_axiom.left_const_val, true, true);
                 } else {
-                    auto left_it = ranges.find(left_id);
+                    auto left_it = ranges.find(matching_axiom.left_id);
                     if (left_it != ranges.end()) {
                         left_range = left_it->second;
                     }
@@ -710,11 +731,10 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 
                 // Get right operand range
                 NumericRange right_range;
-                if (matching_axiom.get_right_variable().get_var_type() == numType::constant) {
-                    ap_float val = matching_axiom.get_right_variable().get_initial_state_value();
-                    right_range = NumericRange(val, val, true, true);
+                if (matching_axiom.right_type == numType::constant) {
+                    right_range = NumericRange(matching_axiom.right_const_val, matching_axiom.right_const_val, true, true);
                 } else {
-                    auto right_it = ranges.find(right_id);
+                    auto right_it = ranges.find(matching_axiom.right_id);
                     if (right_it != ranges.end()) {
                         right_range = right_it->second;
                     }
@@ -722,11 +742,10 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 
                 // Evaluate comparison: 0=true, 1=false, 2=unknown
                 int eval = NumericDomainMapping::evaluate_comparison(
-                    comp_op, left_range, right_range);
+                    matching_axiom.op_type, left_range, right_range);
                 
                 // Determine required evaluation result from concrete precondition
-                int true_val = matching_axiom.get_true_fact().get_value();
-                int required_eval = (concrete_val == true_val) ? 0 : 1;
+                int required_eval = (concrete_val == matching_axiom.true_val) ? 0 : 1;
                 
                 // Optimistic filtering: only reject if definitive contradiction
                 if (eval != 2 && eval != required_eval) {
@@ -883,12 +902,12 @@ vector<Fact> DomainAbstractionNumericHelper::compute_assignment_axiom_cascades(
     vector<int> derived_new_partitions;
     
     // For each assignment axiom, check if it depends on a changed variable
-    AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
-    for (AssignmentAxiomProxy axiom : assignment_axioms) {
-        int derived_var_id = axiom.get_assignment_variable().get_id();
-        int left_var_id = axiom.get_left_variable().get_id();
-        int right_var_id = axiom.get_right_variable().get_id();
-        cal_operator op = axiom.get_arithmetic_operator_type();
+    // Use cached axiom data for performance.
+    for (const CachedAssignmentAxiom &axiom : cached_assignment_axioms) {
+        int derived_var_id = axiom.derived_id;
+        int left_var_id = axiom.left_id;
+        int right_var_id = axiom.right_id;
+        cal_operator op = axiom.op_type;
         
         // Check if this axiom depends on any changed variable
         bool depends_on_changed = false;
@@ -1083,10 +1102,10 @@ vector<Fact> DomainAbstractionNumericHelper::compute_affected_comparison_axioms(
     vector<Fact> affected_facts;
     
     // For each comparison axiom, check if it depends on any changed variable
-    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-    for (ComparisonAxiomProxy axiom : comparison_axioms) {
-        int left_var_id = axiom.get_left_variable().get_id();
-        int right_var_id = axiom.get_right_variable().get_id();
+    // Use cached axiom data for performance.
+    for (const CachedComparisonAxiom &axiom : cached_comparison_axioms) {
+        int left_var_id = axiom.left_id;
+        int right_var_id = axiom.right_id;
         
         // Check if this axiom depends on any changed variable
         bool depends_on_changed_var = false;
@@ -1122,10 +1141,7 @@ vector<Fact> DomainAbstractionNumericHelper::compute_affected_comparison_axioms(
             }
         }
         
-        // Get the facts
-        FactProxy true_fact = axiom.get_true_fact();
-        FactProxy false_fact = axiom.get_false_fact();
-        int prop_var_id = true_fact.get_variable().get_id();
+        int prop_var_id = axiom.prop_var_id;
         
         // CRITICAL FIX: Even if partitions don't change, the comparison result MIGHT change
         // because the concrete numeric values change within the partition!
@@ -1144,15 +1160,17 @@ vector<Fact> DomainAbstractionNumericHelper::compute_affected_comparison_axioms(
             int eval_left_partition = (left_partition_new != -1) ? left_partition_new : left_partition_old;
             int eval_right_partition = (right_partition_new != -1) ? right_partition_new : right_partition_old;
             
-            // Evaluate the comparison exactly
-            int eval_result = evaluate_comparison_exactly(axiom, eval_left_partition, eval_right_partition);
+            // Evaluate the comparison exactly - need to use proxy for this function
+            ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
+            ComparisonAxiomProxy ax_proxy = comparison_axioms[comparison_axiom_by_var_id.at(prop_var_id)];
+            int eval_result = evaluate_comparison_exactly(ax_proxy, eval_left_partition, eval_right_partition);
             
             if (eval_result == 0) {
                 // Definitely false
-                affected_facts.emplace_back(prop_var_id, false_fact.get_value());
+                affected_facts.emplace_back(prop_var_id, axiom.false_val);
             } else if (eval_result == 1) {
                 // Definitely true
-                affected_facts.emplace_back(prop_var_id, true_fact.get_value());
+                affected_facts.emplace_back(prop_var_id, axiom.true_val);
             }
             // If unknown (eval_result == 2): don't add any fact - the comparison
             // could go either way and we can't constrain the operator preconditions
