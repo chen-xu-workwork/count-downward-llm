@@ -64,13 +64,54 @@ unordered_set<int> DomainAbstractionGeneratorCEGAR::get_init_split_var_ids(
     const TaskProxy &task_proxy) {
 
     unordered_set<int> var_ids;
+    
+    // Build set of logic axiom effect variables (instrumentation - should be excluded)
+    unordered_set<int> logic_axiom_effect_vars;
+    for (OperatorProxy axiom : task_proxy.get_axioms()) {
+        for (EffectProxy eff : axiom.get_effects()) {
+            logic_axiom_effect_vars.insert(eff.get_fact().get_variable().get_id());
+        }
+    }
+    
+    // Build map from goal axiom effect variable to axiom index
+    // Goal axioms have preconditions and exactly one effect
+    unordered_map<int, int> goal_axiom_map;  // effect_var_id -> axiom_index
+    int axiom_idx = 0;
+    for (OperatorProxy axiom : task_proxy.get_axioms()) {
+        if (!axiom.get_preconditions().empty() && axiom.get_effects().size() == 1) {
+            int effect_var_id = axiom.get_effects()[0].get_fact().get_variable().get_id();
+            goal_axiom_map[effect_var_id] = axiom_idx;
+        }
+        axiom_idx++;
+    }
+    
+    // Build the actual goal variable set, expanding goal axioms to their preconditions
+    unordered_set<int> actual_goal_var_ids;
+    for (FactProxy goal : task_proxy.get_goals()) {
+        int var_id = goal.get_variable().get_id();
+        auto it = goal_axiom_map.find(var_id);
+        if (it != goal_axiom_map.end()) {
+            // This is a "fake" goal (axiom effect) - extract its preconditions as actual goals
+            OperatorProxy goal_axiom = task_proxy.get_axioms()[it->second];
+            for (FactProxy pre : goal_axiom.get_preconditions()) {
+                actual_goal_var_ids.insert(pre.get_variable().get_id());
+            }
+        } else {
+            // Regular goal
+            actual_goal_var_ids.insert(var_id);
+        }
+    }
+    
+    // Convert to vector for random selection
+    vector<int> actual_goal_vars(actual_goal_var_ids.begin(), actual_goal_var_ids.end());
+    
     switch (init_split_option) {
     case InitSplitOptions::NONE:
         break;
     case InitSplitOptions::RANDOM_GOAL: {
-        const GoalsProxy &goals = task_proxy.get_goals();
-        int r = rng->random(goals.size());
-        var_ids.insert(goals[r].get_variable().get_id());
+        if (!actual_goal_vars.empty()) {
+            var_ids.insert(*rng->choose(actual_goal_vars));
+        }
         break;
     }
     case InitSplitOptions::RANDOM_NON_GOAL:
@@ -83,8 +124,12 @@ unordered_set<int> DomainAbstractionGeneratorCEGAR::get_init_split_var_ids(
         break;
     }
     case InitSplitOptions::ALL_GOALS:
-        for (const FactProxy &goal : task_proxy.get_goals()) {
-            var_ids.insert(goal.get_variable().get_id());
+        // Use actual goals (expanded from goal axioms)
+        for (int var_id : actual_goal_var_ids) {
+            // Exclude logic axiom effects (instrumentation)
+            if (logic_axiom_effect_vars.count(var_id) == 0) {
+                var_ids.insert(var_id);
+            }
         }
         break;
     case InitSplitOptions::ALL_NON_GOALS: {
