@@ -182,6 +182,29 @@ void DomainAbstractionNumericHelper::find_derived_variables() {
         cached.false_val = false_fact.get_value();
         cached_comparison_axioms.push_back(cached);
     }
+    
+    // Build reverse dependency map: numeric_var_id -> comparison axiom indices.
+    // First determine the max numeric variable ID referenced by comparison axioms.
+    int max_num_var_id = 0;
+    for (const CachedComparisonAxiom &ax : cached_comparison_axioms) {
+        if (ax.left_type != numType::constant && ax.left_id > max_num_var_id) {
+            max_num_var_id = ax.left_id;
+        }
+        if (ax.right_type != numType::constant && ax.right_id > max_num_var_id) {
+            max_num_var_id = ax.right_id;
+        }
+    }
+    var_to_comparison_axiom_indices.clear();
+    var_to_comparison_axiom_indices.resize(max_num_var_id + 1);
+    for (size_t axiom_idx = 0; axiom_idx < cached_comparison_axioms.size(); ++axiom_idx) {
+        const CachedComparisonAxiom &ax = cached_comparison_axioms[axiom_idx];
+        if (ax.left_type != numType::constant && ax.left_id >= 0) {
+            var_to_comparison_axiom_indices[ax.left_id].push_back(axiom_idx);
+        }
+        if (ax.right_type != numType::constant && ax.right_id >= 0 && ax.right_id != ax.left_id) {
+            var_to_comparison_axiom_indices[ax.right_id].push_back(axiom_idx);
+        }
+    }
 }
 
 void DomainAbstractionNumericHelper::build_axiom_dependencies() {
@@ -1101,28 +1124,27 @@ vector<Fact> DomainAbstractionNumericHelper::compute_affected_comparison_axioms(
     
     vector<Fact> affected_facts;
     
-    // For each comparison axiom, check if it depends on any changed variable
-    // Use cached axiom data for performance.
-    for (const CachedComparisonAxiom &axiom : cached_comparison_axioms) {
-        int left_var_id = axiom.left_id;
-        int right_var_id = axiom.right_id;
-        
-        // Check if this axiom depends on any changed variable
-        bool depends_on_changed_var = false;
-        for (size_t i = 0; i < changed_numeric_vars.size(); ++i) {
-            int changed_id = changed_numeric_vars[i];
-            if (left_var_id == changed_id || right_var_id == changed_id) {
-                depends_on_changed_var = true;
-                break;
+    // Use reverse dependency map to find only affected axioms.
+    // Collect unique axiom indices that might be affected.
+    vector<bool> axiom_seen(cached_comparison_axioms.size(), false);
+    vector<size_t> affected_axiom_indices;
+    
+    for (int changed_var_id : changed_numeric_vars) {
+        if (changed_var_id >= 0 && changed_var_id < static_cast<int>(var_to_comparison_axiom_indices.size())) {
+            for (size_t axiom_idx : var_to_comparison_axiom_indices[changed_var_id]) {
+                if (!axiom_seen[axiom_idx]) {
+                    axiom_seen[axiom_idx] = true;
+                    affected_axiom_indices.push_back(axiom_idx);
+                }
             }
         }
-        
-        if (!depends_on_changed_var) {
-            continue;
-        }
-        
-        // This axiom depends on a changed variable
-        // Check if the truth value might change
+    }
+    
+    // Process only the affected axioms.
+    for (size_t axiom_idx : affected_axiom_indices) {
+        const CachedComparisonAxiom &axiom = cached_comparison_axioms[axiom_idx];
+        int left_var_id = axiom.left_id;
+        int right_var_id = axiom.right_id;
         
         // Get the partition ranges for left and right variables
         int left_partition_old = -1;

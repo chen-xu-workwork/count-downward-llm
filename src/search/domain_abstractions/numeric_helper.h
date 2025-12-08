@@ -243,6 +243,11 @@ private:
     std::vector<CachedAssignmentAxiom> cached_assignment_axioms;
     std::vector<CachedComparisonAxiom> cached_comparison_axioms;
     
+    // Reverse dependency map: numeric_var_id -> list of comparison axiom indices
+    // that depend on this variable (indices into cached_comparison_axioms).
+    // Used to efficiently find affected axioms when a variable changes.
+    std::vector<std::vector<size_t>> var_to_comparison_axiom_indices;
+    
     // Goals
     std::vector<numeric_condition::RegularNumericCondition> numeric_goals;
     

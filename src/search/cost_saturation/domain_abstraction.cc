@@ -60,6 +60,12 @@ thread_local vector<CachedComparisonAxiom> g_cached_comparison_axioms;
 thread_local size_t g_cached_num_ass_axioms = static_cast<size_t>(-1);
 thread_local size_t g_cached_num_cmp_axioms = static_cast<size_t>(-1);
 
+// Thread-local reusable vectors for compute_numeric_context to avoid hash overhead.
+// Using dense vector + validity flags instead of unordered_map for O(1) indexed access.
+thread_local vector<domain_abstractions::NumericRange> g_ranges_vec;
+thread_local vector<bool> g_ranges_valid;
+thread_local vector<int> g_cur_num_partitions;
+
 void ensure_axiom_cache(const TaskProxy &task_proxy) {
     size_t num_ass = task_proxy.get_assignment_axioms().size();
     size_t num_cmp = task_proxy.get_comparison_axioms().size();
@@ -127,9 +133,18 @@ void compute_numeric_context(
     const vector<int> &pattern_domain_sizes,
     const pdbs::Pattern &pattern,
     const TaskProxy &task_proxy,
-    unordered_map<int, domain_abstractions::NumericRange> &ranges_out,
+    vector<domain_abstractions::NumericRange> &ranges_out,
+    vector<bool> &ranges_valid_out,
     vector<int> &cur_num_partitions_out) {
-    ranges_out.clear();
+    
+    // Resize vectors if needed (usually no-op after first call).
+    size_t num_numeric_vars = task_proxy.get_numeric_variables().size();
+    if (ranges_out.size() < num_numeric_vars) {
+        ranges_out.resize(num_numeric_vars);
+        ranges_valid_out.resize(num_numeric_vars);
+    }
+    // Reset validity flags - O(n) but cache-friendly and avoids hash overhead.
+    fill(ranges_valid_out.begin(), ranges_valid_out.begin() + num_numeric_vars, false);
     cur_num_partitions_out.clear();
 
     // Initialize cur_num_partitions_out with -1 for all numeric variables
@@ -157,6 +172,7 @@ void compute_numeric_context(
         if (var.get_var_type() == numType::constant) {
             ap_float val = var.get_initial_state_value();
             ranges_out[num_var_id] = domain_abstractions::NumericRange(val, val, true, true);
+            ranges_valid_out[num_var_id] = true;
         } else if (var.get_var_type() == numType::regular && num_var_id < numeric_domain_mapping.size()) {
             int part = cur_num_partitions_out[num_var_id];
             // part == -1 means this numeric variable is not in the pattern
@@ -165,6 +181,7 @@ void compute_numeric_context(
                 const domain_abstractions::NumericRange *rng = mapping.get_range_for_partition(part);
                 if (rng) {
                     ranges_out[num_var_id] = *rng;
+                    ranges_valid_out[num_var_id] = true;
                 }
             }
         }
@@ -181,12 +198,9 @@ void compute_numeric_context(
             if (axiom.left_type == numType::constant) {
                 l_range = domain_abstractions::NumericRange(axiom.left_const_val, axiom.left_const_val, true, true);
                 left_known = true;
-            } else {
-                auto left_it = ranges_out.find(axiom.left_id);
-                if (left_it != ranges_out.end()) {
-                    l_range = left_it->second;
-                    left_known = true;
-                }
+            } else if (axiom.left_id >= 0 && axiom.left_id < static_cast<int>(num_numeric_vars) && ranges_valid_out[axiom.left_id]) {
+                l_range = ranges_out[axiom.left_id];
+                left_known = true;
             }
 
             bool right_known = false;
@@ -194,24 +208,26 @@ void compute_numeric_context(
             if (axiom.right_type == numType::constant) {
                 r_range = domain_abstractions::NumericRange(axiom.right_const_val, axiom.right_const_val, true, true);
                 right_known = true;
-            } else {
-                auto right_it = ranges_out.find(axiom.right_id);
-                if (right_it != ranges_out.end()) {
-                    r_range = right_it->second;
-                    right_known = true;
-                }
+            } else if (axiom.right_id >= 0 && axiom.right_id < static_cast<int>(num_numeric_vars) && ranges_valid_out[axiom.right_id]) {
+                r_range = ranges_out[axiom.right_id];
+                right_known = true;
             }
             
             if (left_known && right_known) {
                 domain_abstractions::NumericRange res = domain_abstractions::NumericDomainMapping::apply_range_operation(
                     l_range, r_range, axiom.op_type);
-                auto it = ranges_out.find(axiom.derived_id);
-                if (it == ranges_out.end() || 
-                    it->second.lower != res.lower || it->second.upper != res.upper ||
-                    it->second.lower_inclusive != res.lower_inclusive || 
-                    it->second.upper_inclusive != res.upper_inclusive) {
-                    ranges_out[axiom.derived_id] = res;
-                    changed = true;
+                // Ensure derived_id is in bounds.
+                if (axiom.derived_id >= 0 && axiom.derived_id < static_cast<int>(num_numeric_vars)) {
+                    bool needs_update = !ranges_valid_out[axiom.derived_id] ||
+                        ranges_out[axiom.derived_id].lower != res.lower || 
+                        ranges_out[axiom.derived_id].upper != res.upper ||
+                        ranges_out[axiom.derived_id].lower_inclusive != res.lower_inclusive || 
+                        ranges_out[axiom.derived_id].upper_inclusive != res.upper_inclusive;
+                    if (needs_update) {
+                        ranges_out[axiom.derived_id] = res;
+                        ranges_valid_out[axiom.derived_id] = true;
+                        changed = true;
+                    }
                 }
             }
         }
@@ -219,7 +235,8 @@ void compute_numeric_context(
 }
 
 vector<CompEvalHelper> evaluate_all_comparisons(
-    const unordered_map<int, domain_abstractions::NumericRange> &ranges,
+    const vector<domain_abstractions::NumericRange> &ranges,
+    const vector<bool> &ranges_valid,
     const vector<int> &cur_num_partitions,
     const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping,
     const TaskProxy &task_proxy) {
@@ -229,6 +246,8 @@ vector<CompEvalHelper> evaluate_all_comparisons(
     
     vector<CompEvalHelper> out;
     out.reserve(g_cached_comparison_axioms.size());
+    
+    size_t ranges_size = ranges.size();
 
     for (const CachedComparisonAxiom &axiom : g_cached_comparison_axioms) {
         domain_abstractions::NumericRange l_range;
@@ -236,17 +255,14 @@ vector<CompEvalHelper> evaluate_all_comparisons(
         if (axiom.left_type == numType::constant) {
             l_range = domain_abstractions::NumericRange(axiom.left_const_val, axiom.left_const_val, true, true);
             left_known = true;
-        } else {
-            auto left_it = ranges.find(axiom.left_id);
-            if (left_it != ranges.end()) {
-                l_range = left_it->second;
-                left_known = true;
-            } else if (axiom.left_id >= 0 && axiom.left_id < static_cast<int>(numeric_domain_mapping.size())) {
-                const domain_abstractions::NumericDomainMapping &m = *numeric_domain_mapping[axiom.left_id];
-                int part = cur_num_partitions[axiom.left_id];
-                const domain_abstractions::NumericRange *rng = m.get_range_for_partition(part);
-                if (rng) { l_range = *rng; left_known = true; }
-            }
+        } else if (axiom.left_id >= 0 && axiom.left_id < static_cast<int>(ranges_size) && ranges_valid[axiom.left_id]) {
+            l_range = ranges[axiom.left_id];
+            left_known = true;
+        } else if (axiom.left_id >= 0 && axiom.left_id < static_cast<int>(numeric_domain_mapping.size())) {
+            const domain_abstractions::NumericDomainMapping &m = *numeric_domain_mapping[axiom.left_id];
+            int part = cur_num_partitions[axiom.left_id];
+            const domain_abstractions::NumericRange *rng = m.get_range_for_partition(part);
+            if (rng) { l_range = *rng; left_known = true; }
         }
 
         domain_abstractions::NumericRange r_range;
@@ -254,17 +270,14 @@ vector<CompEvalHelper> evaluate_all_comparisons(
         if (axiom.right_type == numType::constant) {
             r_range = domain_abstractions::NumericRange(axiom.right_const_val, axiom.right_const_val, true, true);
             right_known = true;
-        } else {
-            auto right_it = ranges.find(axiom.right_id);
-            if (right_it != ranges.end()) {
-                r_range = right_it->second;
-                right_known = true;
-            } else if (axiom.right_id >= 0 && axiom.right_id < static_cast<int>(numeric_domain_mapping.size())) {
-                const domain_abstractions::NumericDomainMapping &m = *numeric_domain_mapping[axiom.right_id];
-                int part = cur_num_partitions[axiom.right_id];
-                const domain_abstractions::NumericRange *rng = m.get_range_for_partition(part);
-                if (rng) { r_range = *rng; right_known = true; }
-            }
+        } else if (axiom.right_id >= 0 && axiom.right_id < static_cast<int>(ranges_size) && ranges_valid[axiom.right_id]) {
+            r_range = ranges[axiom.right_id];
+            right_known = true;
+        } else if (axiom.right_id >= 0 && axiom.right_id < static_cast<int>(numeric_domain_mapping.size())) {
+            const domain_abstractions::NumericDomainMapping &m = *numeric_domain_mapping[axiom.right_id];
+            int part = cur_num_partitions[axiom.right_id];
+            const domain_abstractions::NumericRange *rng = m.get_range_for_partition(part);
+            if (rng) { r_range = *rng; right_known = true; }
         }
 
         if (left_known && right_known) {
@@ -1196,13 +1209,12 @@ void DomainAbstraction::enumerate_states_with_evaluated_comparisons(
         return false;
     };
     
-    unordered_map<int, domain_abstractions::NumericRange> ranges;
-    vector<int> cur_num_partitions;
+    // Use thread-local reusable vectors to avoid repeated allocations and hash overhead.
     compute_numeric_context(base_state_index, domain_mapping, numeric_domain_mapping,
                             hash_multipliers, pattern_domain_sizes, pattern,
-                            task_proxy, ranges, cur_num_partitions);
+                            task_proxy, g_ranges_vec, g_ranges_valid, g_cur_num_partitions);
     vector<CompEvalHelper> comparisons = evaluate_all_comparisons(
-        ranges, cur_num_partitions, numeric_domain_mapping, task_proxy);
+        g_ranges_vec, g_ranges_valid, g_cur_num_partitions, numeric_domain_mapping, task_proxy);
 
     // Reset comparison axiom variables to UNKNOWN, EXCEPT fixed ones
     int state_with_unknowns = reset_comparison_vars_to_unknown_except(

@@ -169,12 +169,44 @@ class NumericDomainMapping {
 protected:
     std::vector<NumericRange> ranges;
     
+    // Lookup table: partition_index -> index into ranges vector.
+    // Mutable because it's a cache that can be rebuilt from ranges.
+    mutable std::vector<int> partition_to_range_idx;
+    mutable bool partition_lookup_valid = false;
+    
+    // Rebuild the partition lookup table from ranges.
+    void rebuild_partition_lookup() const {
+        if (ranges.empty()) {
+            partition_to_range_idx.clear();
+            partition_lookup_valid = true;
+            return;
+        }
+        // Find max partition index
+        int max_partition = 0;
+        for (const auto &range : ranges) {
+            if (range.partition_index > max_partition) {
+                max_partition = range.partition_index;
+            }
+        }
+        partition_to_range_idx.assign(max_partition + 1, -1);
+        for (size_t i = 0; i < ranges.size(); ++i) {
+            partition_to_range_idx[ranges[i].partition_index] = static_cast<int>(i);
+        }
+        partition_lookup_valid = true;
+    }
+    
+    // Invalidate the lookup (call after modifying ranges).
+    void invalidate_partition_lookup() {
+        partition_lookup_valid = false;
+    }
+    
 public:
     NumericDomainMapping() {
         // Start with a single range covering everything, partition 0
         ranges.emplace_back(-std::numeric_limits<ap_float>::infinity(),
                            std::numeric_limits<ap_float>::infinity(),
                            0);
+        invalidate_partition_lookup();
     }
     
     // Virtual destructor for proper cleanup
@@ -183,14 +215,34 @@ public:
     // Clone method for polymorphic copying
     virtual std::unique_ptr<NumericDomainMapping> clone() const = 0;
     
-    // Get the partition index for a given value
+    // Get the partition index for a given value.
+    // Uses binary search since ranges are sorted by lower bound.
     int get_partition_index(ap_float value) const {
+        if (ranges.empty()) return -1;
+        
+        // Binary search: find the last range whose lower <= value
+        size_t lo = 0, hi = ranges.size();
+        while (lo < hi) {
+            size_t mid = lo + (hi - lo) / 2;
+            if (ranges[mid].lower <= value) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        // lo is now the first range with lower > value, so check lo-1
+        if (lo > 0) {
+            const NumericRange &candidate = ranges[lo - 1];
+            if (candidate.contains(value)) {
+                return candidate.partition_index;
+            }
+        }
+        // Fallback: linear search (shouldn't happen with proper ranges)
         for (const auto &range : ranges) {
             if (range.contains(value)) {
                 return range.partition_index;
             }
         }
-        // Should never happen if ranges properly cover (-inf, inf)
         return -1;
     }
     
@@ -208,6 +260,10 @@ public:
         if (this == nullptr) {
             std::cerr << "CRITICAL ERROR: get_num_partitions called on nullptr!" << std::endl;
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
+        // Use cached lookup if valid
+        if (partition_lookup_valid) {
+            return static_cast<int>(partition_to_range_idx.size());
         }
         int max_partition = 0;
         for (const auto &range : ranges) {

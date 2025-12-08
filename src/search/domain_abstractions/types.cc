@@ -93,6 +93,9 @@ int StandardSplitMapping::split_at(ap_float n, bool include_in_lower) {
                   NumericRange(n, old_upper, upper_part_lower_inclusive, 
                                old_upper_inclusive, new_partition));
     
+    // Invalidate the partition lookup cache
+    invalidate_partition_lookup();
+    
     return get_num_partitions();
 }
 
@@ -147,6 +150,9 @@ int ExclusionSplitMapping::split_at(ap_float n, bool /*include_in_lower*/) {
     ranges.insert(ranges.begin() + range_index + 2,
                   NumericRange(n, old_upper, false, old_upper_inclusive, upper_partition));
     
+    // Invalidate the partition lookup cache
+    invalidate_partition_lookup();
+    
     return get_num_partitions();
 }
 
@@ -177,12 +183,19 @@ void NumericDomainMapping::dump() const {
 
 
 const NumericRange* NumericDomainMapping::get_range_for_partition(int partition_index) const {
-    for (const auto &range : ranges) {
-        if (range.partition_index == partition_index) {
-            return &range;
-        }
+    // Ensure lookup table is valid
+    if (!partition_lookup_valid) {
+        rebuild_partition_lookup();
     }
-    return nullptr;
+    // O(1) lookup
+    if (partition_index < 0 || partition_index >= static_cast<int>(partition_to_range_idx.size())) {
+        return nullptr;
+    }
+    int range_idx = partition_to_range_idx[partition_index];
+    if (range_idx < 0 || range_idx >= static_cast<int>(ranges.size())) {
+        return nullptr;
+    }
+    return &ranges[range_idx];
 }
 
 std::pair<ap_float, ap_float> NumericDomainMapping::get_range_union() const {
