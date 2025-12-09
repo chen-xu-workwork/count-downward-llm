@@ -1320,8 +1320,12 @@ bool CEGAR::fix_single_flaw_max_refined(
     // Apply the refinement
     add_variable_to_abstraction_if_necessary(chosen.prop_var_id, domain_mapping);
     
+    // Clear flaw indices first
+    last_selected_flaw_indices.clear();
+    
     if (chosen.is_comparison) {
-        // Comparison axiom: refine propositionally if not already, then refine numeric
+        // Comparison axiom: refine propositionally if not already
+        // The numeric refinement is delegated to fix_numeric_flaws
         assert(chosen.prop_value == 0);
         
         bool prop_refined = false;
@@ -1333,39 +1337,19 @@ bool CEGAR::fix_single_flaw_max_refined(
                        " (max_refined mode)");
         }
         
-        // Now refine the numeric variable
-        // Build concrete_values map for determine_include_in_lower
-        std::unordered_map<int, ap_float> concrete_values;
-        // Gather all numeric values for this prop_var from detected_numeric_flaws
-        if (chosen.flaw_idx < static_cast<int>(detected_numeric_flaws.size())) {
-            for (const NumericFlaw &nf : detected_numeric_flaws[chosen.flaw_idx]) {
-                concrete_values[nf.numeric_var_id] = nf.concrete_value;
-            }
-        }
+        // Record the flaw index so fix_numeric_flaws can handle the numeric split
+        // This delegates the actual numeric refinement to fix_numeric_flaws
+        last_selected_flaw_indices.push_back(chosen.flaw_idx);
         
-        bool include_in_lower = determine_include_in_lower(
-            chosen.prop_var_id, chosen.numeric_var_id, chosen.split_value,
-            concrete_values, TaskProxy(*g_root_task()));
+        logger->log(Verbosity::DEBUG, "fix_single_flaw_max_refined: Selected comparison flaw idx=",
+                   chosen.flaw_idx, " prop_var=", chosen.prop_var_id,
+                   " numeric_var=", chosen.numeric_var_id,
+                   " split_value=", chosen.split_value,
+                   " - delegating numeric split to fix_numeric_flaws");
         
-        int old_partitions = numeric_domain_mapping[chosen.numeric_var_id]->get_num_partitions();
-        int new_partitions = numeric_domain_mapping[chosen.numeric_var_id]->split_at(
-            chosen.split_value, include_in_lower);
-        already_split[chosen.local_numeric_id].insert(chosen.split_value);
-        
-        if (new_partitions > old_partitions) {
-            numeric_domain_sizes[chosen.numeric_var_id] = new_partitions;
-            numeric_var_refinement_count[chosen.numeric_var_id]++;
-            logger->log(Verbosity::INFO, "Refined num_", chosen.numeric_var_id,
-                       " at ", chosen.split_value,
-                       " (partitions: ", old_partitions, " -> ", new_partitions, ")",
-                       " via max_refined mode");
-        }
-        
-        // Clear flaw indices - we've already handled the numeric refinement here
-        // so fix_numeric_flaws should NOT be called with these flaws
-        last_selected_flaw_indices.clear();
-        
-        return prop_refined || (new_partitions > old_partitions);
+        // Return true if we refined propositionally, or true to indicate we have work for fix_numeric_flaws
+        // The actual success of numeric refinement will be determined by fix_numeric_flaws
+        return prop_refined || true;  // Always return true since we have a valid candidate
     } else {
         // Non-comparison: standard propositional refinement
         domain_mapping[chosen.prop_var_id][chosen.prop_value] = abstract_domain_sizes[chosen.prop_var_id];
@@ -1377,7 +1361,6 @@ bool CEGAR::fix_single_flaw_max_refined(
                    " -> ", abstract_domain_sizes[chosen.prop_var_id], ") via max_refined mode");
         
         // Record the flaw index for potential numeric flaw lookup (though non-comparison won't have any)
-        last_selected_flaw_indices.clear();
         last_selected_flaw_indices.push_back(chosen.flaw_idx);
         return true;
     }
@@ -1701,6 +1684,14 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
                            ", include_in_lower=", include_in_lower);
             
             numeric_domain_mapping[numeric_var_id]->split_at(init_value, include_in_lower);
+            
+            // Record in already_split to prevent duplicate splits at this value
+            int local_id = global_to_local_regular_numeric_var_ids[numeric_var_id];
+            if (local_id >= 0 && static_cast<size_t>(local_id) < already_split.size()) {
+                already_split[local_id].insert(init_value);
+                logger->log(Verbosity::DEBUG, "  Added init value ", init_value, 
+                           " to already_split for local_id=", local_id);
+            }
         }
     }
     
@@ -1971,6 +1962,10 @@ DomainAbstraction CEGAR::build_abstraction(
     numeric_domain_mapping = compute_initial_numeric_domain_mapping(task_proxy);
     numeric_domain_sizes.resize(numeric_domain_mapping.size(), 1);
     
+    // Update numeric_domain_sizes to reflect any initial splits that were applied
+    for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
+        numeric_domain_sizes[i] = numeric_domain_mapping[i]->get_num_partitions();
+    }
 
     
     // DEBUG: Print all comparison axiom mappings
@@ -2156,17 +2151,17 @@ DomainAbstraction CEGAR::build_abstraction(
             int actual_partitions = numeric_domain_mapping[i]->get_num_partitions();
             int expected_partitions = numeric_domain_sizes[i];
             if (actual_partitions != expected_partitions) {
-                logger->log(Verbosity::DEBUG, "ERROR: num_", i, " has ", actual_partitions,
+                logger->log(Verbosity::NONE, "ERROR: num_", i, " has ", actual_partitions,
                                 " partitions but expected ", expected_partitions);
                 all_valid = false;
             }
             if (!numeric_domain_mapping[i]->is_valid()) {
-                logger->log(Verbosity::DEBUG, "ERROR: num_", i, " has invalid mapping");
+                logger->log(Verbosity::NONE, "ERROR: num_", i, " has invalid mapping");
                 all_valid = false;
             }
         }
         if (!all_valid) {
-            logger->log(Verbosity::DEBUG, "CRITICAL ERROR: Numeric domain mapping validation failed!");
+            logger->log(Verbosity::NONE, "CRITICAL ERROR: Numeric domain mapping validation failed!");
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
 
