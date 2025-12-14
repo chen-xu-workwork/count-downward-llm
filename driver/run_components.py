@@ -16,6 +16,8 @@ from .plan_manager import PlanManager
 VALIDATE_MEMORY_LIMIT_IN_MB = 3072
 #TODO: We might want to turn translate into a module and call it with "python -m translate".
 REL_TRANSLATE_PATH = os.path.join("translate", "translate.py")
+REL_TRANSFORM_RESTRICTED_PATH = os.path.join("translate", "simple_to_restricted_task.py")
+
 if os.name == "posix":
     REL_PREPROCESS_PATH = "preprocess"
     REL_SEARCH_PATH = "downward"
@@ -96,6 +98,20 @@ def run_translate(args):
     call_component(
         translate, args.translate_inputs + args.translate_options,
         time_limit=time_limit, memory_limit=memory_limit)
+
+
+def restricted_task_transformation(args):
+    logging.info("Running transformation from simple to restricted numeric task.")
+    time_limit = limits.get_time_limit(
+        args.translate_time_limit, args.overall_time_limit)
+    memory_limit = limits.get_memory_limit(
+        args.translate_memory_limit, args.overall_memory_limit)
+    print_component_settings(
+        "restricted task transformation", [args.preprocess_input], [],
+        time_limit, memory_limit)
+    transform = get_executable(args.build, REL_TRANSFORM_RESTRICTED_PATH)
+    call_component(
+        transform, [args.preprocess_input], time_limit=time_limit, memory_limit=memory_limit)
 
 
 def run_preprocess(args):
