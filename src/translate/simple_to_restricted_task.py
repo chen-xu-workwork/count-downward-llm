@@ -557,11 +557,16 @@ def update_var_with_formula(var):
                 # computation together with another real variable, we fail
                 # fast (requested behavior).
                 if var1 in mixed_real_vars_in_linear_computation:
-                    raise Exception(
+                    # Hard failure: this is a "wrong" assignment effect that we
+                    # must not silently keep. Exit with code 33 so callers can
+                    # distinguish this case from other errors.
+                    msg = (
                         "Unsupported assignment-like numeric effect: variable "
                         f"{var1} participates in a linear computation with another real variable. "
                         f"Offending effect: '{effect}' in operator '{operator.get('name')}'."
                     )
+                    sys.stderr.write(msg + "\n")
+                    sys.exit(33)
 
                 # Otherwise, leave the effect as-is and do not try to derive an
                 # additional linear delta for the current compiled variable.
@@ -662,11 +667,16 @@ def _validate_assignment_like_numeric_effects():
                 continue
 
             if target in mixed_real_vars_in_linear_computation:
-                raise Exception(
+                # Hard failure: this is a "wrong" assignment effect that we
+                # must not silently keep. Exit with code 33 so callers can
+                # distinguish this case from other errors.
+                msg = (
                     "Unsupported assignment-like numeric effect: affected variable "
                     f"{target} participates in a linear computation with another real variable. "
                     f"Offending effect: '{eff}' in operator '{op.get('name')}'."
                 )
+                sys.stderr.write(msg + "\n")
+                sys.exit(33)
 #print_all()
 
 # After formulas are known and all comparison LHS vars have been marked as real,
