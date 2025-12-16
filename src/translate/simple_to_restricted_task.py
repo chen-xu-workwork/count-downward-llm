@@ -301,6 +301,12 @@ def replace_var(var1, var2):
 
 formulas = {}
 
+# Real vars that occur together with at least one other real var in some
+# *linear computation* (affine formula or additive numeric effect).
+# If such a variable is affected by an assignment-like numeric effect, we
+# currently refuse to compile it (see user rule).
+mixed_real_vars_in_linear_computation = set()
+
 
 def add_or_minus_formulas(f1, f2, op):
     f3 = [0] * len(f1)
@@ -540,8 +546,26 @@ def update_var_with_formula(var):
             elif op == "-":
                 total_effect_upd_value -= formula[pos + 1] * get_var_value(var2)
             else:
-                raise Exception("Encountered assignment effect")
-                #print("SUKA BLYAT UMNOZHENIE EBANOE")
+                # Assignment-like update (e.g., :=, *=, etc.). We can ignore it
+                # for the current compiled linear delta if the current formula
+                # does not depend on this variable.
+                coeff = formula[pos + 1]
+                if coeff == 0:
+                    continue
+
+                # If the assigned variable is used in any other linear
+                # computation together with another real variable, we fail
+                # fast (requested behavior).
+                if var1 in mixed_real_vars_in_linear_computation:
+                    raise Exception(
+                        "Unsupported assignment-like numeric effect: variable "
+                        f"{var1} participates in a linear computation with another real variable. "
+                        f"Offending effect: '{effect}' in operator '{operator.get('name')}'."
+                    )
+
+                # Otherwise, leave the effect as-is and do not try to derive an
+                # additional linear delta for the current compiled variable.
+                continue
         if (total_effect_upd_value != 0):
             operator['num_effects'] += 1
             add_idx = len(numeric_vars)
@@ -568,7 +592,87 @@ for i in range(len(axioms['comparison'])):
     # Keep the RHS unchanged. The LHS variable will be updated to represent
     # the full affine value (including the constant term), so shifting the RHS
     # would be incorrect.
+
+
+def _compute_mixed_real_vars_in_linear_computation() -> set:
+    """Return real numeric vars that co-occur with another real var in a linear computation.
+
+    We conservatively mark a real variable as "mixed" if:
+      (1) it appears with at least one other real variable in any affine formula,
+          i.e., any stored formula has >= 2 non-zero real coefficients; OR
+      (2) it appears in an additive numeric effect together with another real var
+          (target and rhs both real) via '+' or '-'.
+    """
+    mixed = set()
+
+    # (1) Mixed in affine formulas.
+    for formula in formulas.values():
+        if not formula:
+            continue
+        nonzero_reals = []
+        # formula[1:] aligns with real_numeric_variables via real_var_pos.
+        for i, coeff in enumerate(formula[1:], start=0):
+            if coeff != 0:
+                if i < len(real_numeric_variables):
+                    nonzero_reals.append(real_numeric_variables[i])
+        if len(nonzero_reals) >= 2:
+            mixed.update(nonzero_reals)
+
+    # (2) Mixed directly in operator numeric effects.
+    for op in operators:
+        for eff in op.get('effects', []):
+            parts = eff.split()
+            if len(parts) < 4:
+                continue
+            try:
+                target = int(parts[1])
+                rhs = int(parts[3])
+            except ValueError:
+                continue
+            oper = parts[2]
+            if oper in ('+', '-') and is_real_variable(target) and is_real_variable(rhs):
+                mixed.add(target)
+                mixed.add(rhs)
+
+    return mixed
+
+
+def _validate_assignment_like_numeric_effects():
+    """Validate assignment-like numeric effects according to the requested rule.
+
+    Rule: if a numeric effect is assignment-like (i.e., not '+' or '-') and its
+    affected variable participates in any other linear computation with at least
+    one other real variable, throw; otherwise leave the effect as-is.
+    """
+    for op in operators:
+        for eff in op.get('effects', []):
+            parts = eff.split()
+            if len(parts) < 4:
+                continue
+            oper = parts[2]
+            if oper in ('+', '-'):
+                continue
+            try:
+                target = int(parts[1])
+            except ValueError:
+                continue
+
+            # Only meaningful for real variables (the rule talks about "other real variables").
+            if not is_real_variable(target):
+                continue
+
+            if target in mixed_real_vars_in_linear_computation:
+                raise Exception(
+                    "Unsupported assignment-like numeric effect: affected variable "
+                    f"{target} participates in a linear computation with another real variable. "
+                    f"Offending effect: '{eff}' in operator '{op.get('name')}'."
+                )
 #print_all()
+
+# After formulas are known and all comparison LHS vars have been marked as real,
+# compute which real vars are "mixed" and validate assignment-like effects.
+mixed_real_vars_in_linear_computation = _compute_mixed_real_vars_in_linear_computation()
+_validate_assignment_like_numeric_effects()
 
 for i in range(len(numeric_vars)):
     if is_real_variable(i) and i not in real_numeric_variables:
