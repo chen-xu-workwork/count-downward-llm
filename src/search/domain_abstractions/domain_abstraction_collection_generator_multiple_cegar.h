@@ -9,13 +9,14 @@ enum class InitSplitCandidates;
 enum class InitSplitQuantity;
 enum class InitSplitMethod;
 enum class NumericSplitStrategy;
+enum class ExecEntirePlanMode;
 
 class DomainAbstractionCollectionGeneratorMultipleCegar : public DomainAbstractionCollectionGeneratorMultiple {
     const bool use_wildcard_plans;
     const FlawTreatment flaw_treatment;
     const InitSplitMethod init_split_method;
     const NumericSplitStrategy numeric_split_strategy;
-    const bool exec_entire_plan;
+    const ExecEntirePlanMode exec_entire_plan;
 
     virtual std::string id() const override;
     virtual void initialize(const TaskProxy &) override {}

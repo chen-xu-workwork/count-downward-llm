@@ -13,6 +13,7 @@ namespace domain_abstractions {
 enum class FlawTreatment;
 enum class InitSplitMethod;
 enum class NumericSplitStrategy;
+enum class ExecEntirePlanMode;
 
 enum class InitSplitOptions {
     NONE,
@@ -32,7 +33,7 @@ private:
     const FlawTreatment flaw_treatment;
     const InitSplitMethod init_split_method;
     const NumericSplitStrategy numeric_split_strategy;
-    const bool exec_entire_plan;
+    const ExecEntirePlanMode exec_entire_plan;
     const InitSplitOptions init_split_option;
 
     std::unordered_set<int> get_init_split_var_ids(const TaskProxy &task_proxy);

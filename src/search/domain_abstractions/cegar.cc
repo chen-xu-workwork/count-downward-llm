@@ -54,7 +54,7 @@ private:
     const int max_abstraction_size;
     const double max_time;
     const bool use_wildcard_plans;
-    const bool exec_entire_plan;
+    const ExecEntirePlanMode exec_entire_plan;
     const FlawTreatment flaw_treatment;
     const InitSplitMethod init_split_method;
     const NumericSplitStrategy numeric_split_strategy;
@@ -126,7 +126,8 @@ private:
 
     std::vector<Fact> get_flaws(const TaskProxy &task_proxy,
                                     const State &concrete_init,
-                                    const DomainAbstraction &abstraction) const;
+                                    const DomainAbstraction &abstraction,
+                                    bool execute_entire_plan) const;
     bool fix_flaws(std::vector<Fact> &&flaws,
                    DomainMapping &domain_mapping, int abstraction_size);
     bool fix_single_random_flaw(std::vector<Fact> &&flaws,
@@ -232,10 +233,10 @@ private:
                           int abstraction_size,
                           const TaskProxy &task_proxy);
 public:
-    CEGAR(int max_abstraction_size,
+        CEGAR(int max_abstraction_size,
           double max_time,
           bool use_wildcard_plans,
-          bool exec_entire_plan,
+            ExecEntirePlanMode exec_entire_plan,
           FlawTreatment flaw_treatment,
           InitSplitMethod init_split_method,
           NumericSplitStrategy numeric_split_strategy,
@@ -254,7 +255,7 @@ CEGAR::CEGAR(
         int max_abstraction_size,
         double max_time,
         bool use_wildcard_plans,
-        bool exec_entire_plan,
+    ExecEntirePlanMode exec_entire_plan,
         FlawTreatment flaw_treatment,
         InitSplitMethod init_split_method,
         NumericSplitStrategy numeric_split_strategy,
@@ -266,7 +267,7 @@ CEGAR::CEGAR(
     : max_abstraction_size(max_abstraction_size),
       max_time(max_time),
       use_wildcard_plans(use_wildcard_plans),
-      exec_entire_plan(exec_entire_plan),
+    exec_entire_plan(exec_entire_plan),
       flaw_treatment(flaw_treatment),
       init_split_method(init_split_method),
       numeric_split_strategy(numeric_split_strategy),
@@ -729,7 +730,7 @@ static void apply_numeric_effects(vector<ap_float> &numeric_state, const Operato
 
 vector<Fact> CEGAR::get_flaws(
     const TaskProxy &task_proxy, const State &concrete_init,
-    const DomainAbstraction &abstraction) const {
+    const DomainAbstraction &abstraction, bool execute_entire_plan) const {
 
     // Clear any previously detected numeric flaws
     detected_numeric_flaws.clear();
@@ -848,9 +849,9 @@ vector<Fact> CEGAR::get_flaws(
             vector<vector<pair<int, ap_float>>> regular_numeric_flaws = flaw_data.second;
             if (operator_flaws.empty()) {
                 // Propositional preconditions satisfied - apply operator
-                // In standard CEGAR (exec_entire_plan=false), clear any previously accumulated flaws
+                // In STOP_AT_FIRST_FLAW mode, clear any previously accumulated flaws
                 // since we successfully applied an operator after them.
-                if (!exec_entire_plan) {
+                if (!execute_entire_plan) {
                     flaws.clear();
                     detected_numeric_flaws.clear();
                 }
@@ -933,9 +934,9 @@ vector<Fact> CEGAR::get_flaws(
                     detected_numeric_flaws.push_back(numeric_flaws_for_this_prop_flaw);
                 }
 
-                // When exec_entire_plan=true, continue executing the plan even after flaws
+                // When execute_entire_plan is true for this call, continue executing the plan even after flaws
                 // to accumulate all flaws for experimental analysis.
-                if (exec_entire_plan) {
+                if (execute_entire_plan) {
                     apply_op_to_state(current_state, op);
                     apply_numeric_effects(numeric_state, op);
                     g_axiom_evaluator->evaluate_arithmetic_axioms(numeric_state);
@@ -983,9 +984,9 @@ vector<Fact> CEGAR::get_flaws(
                 logger->log(Verbosity::DEBUG, "");
             }
            
-            // In standard CEGAR (exec_entire_plan=false), return flaws immediately 
+            // In STOP_AT_FIRST_FLAW mode, return flaws immediately 
             // when detected to refine and restart.
-            if (!exec_entire_plan) {
+            if (!execute_entire_plan) {
                 return flaws;
             }
         }
@@ -1010,9 +1011,9 @@ vector<Fact> CEGAR::get_flaws(
  
 
     // Check goal flaws
-    // In standard CEGAR (exec_entire_plan=false), we should have no plan execution flaws
-    // since we return early. In exec_entire_plan mode, flaws may have accumulated.
-    assert(exec_entire_plan || flaws.empty());
+    // In STOP_AT_FIRST_FLAW mode we should have no plan execution flaws
+    // since we return early. In EXECUTE_ENTIRE_PLAN mode, flaws may have accumulated.
+    assert(execute_entire_plan || flaws.empty());
     
     pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> goal_flaw_data =
         get_goal_flaws(task_proxy, current_state, blacklisted_variables,
@@ -1993,8 +1994,18 @@ DomainAbstraction CEGAR::build_abstraction(
         
         logger->log(Verbosity::INFO, "iteration #", iteration);
 
+        // Decide whether to execute the entire plan for this iteration
+        bool exec_entire_for_this_iteration;
+        if (exec_entire_plan == ExecEntirePlanMode::EXECUTE_ENTIRE_PLAN) {
+            exec_entire_for_this_iteration = true;
+        } else if (exec_entire_plan == ExecEntirePlanMode::STOP_AT_FIRST_FLAW) {
+            exec_entire_for_this_iteration = false;
+        } else { // RANDOMIZE
+            exec_entire_for_this_iteration = (rng->random(2) == 0);
+        }
+
         vector<Fact> flaws =
-            get_flaws(task_proxy, concrete_init, abstraction);
+                get_flaws(task_proxy, concrete_init, abstraction, exec_entire_for_this_iteration);
         // Reset the selected flaw indices for this refinement step
         last_selected_flaw_indices.clear();
         
@@ -2613,7 +2624,7 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         FlawTreatment flaw_treatment,
         InitSplitMethod init_split_method,
         NumericSplitStrategy numeric_split_strategy,
-        bool exec_entire_plan,
+        ExecEntirePlanMode exec_entire_plan,
         const shared_ptr<utils::RandomNumberGenerator> &rng,
         const TaskProxy &task_proxy,
         unordered_set<int> &&init_split_var_ids,
@@ -2743,13 +2754,16 @@ void add_domain_abstraction_cegar_options_to_parser(
         "'standard' creates [lower, x) and [x, upper) with different partitions, "
         "'exclusion' creates R\\{x} (two disjoint ranges) and {x} as separate partitions.",
         "standard", {});
-    parser.add_option<bool>(
+    vector<string> exec_entire_plan_modes;
+    exec_entire_plan_modes.emplace_back("stop_at_first_flaw");
+    exec_entire_plan_modes.emplace_back("execute_entire_plan");
+    exec_entire_plan_modes.emplace_back("randomize");
+    parser.add_enum_option(
         "exec_entire_plan",
-        "When false (default), CEGAR returns immediately upon detecting the first flaw "
-        "and refines the abstraction. When true, CEGAR executes the entire abstract plan "
-        "and accumulates all flaws before returning. This is an experimental option for "
-        "research purposes.",
-        "false");
+        exec_entire_plan_modes,
+        "Choose whether to execute the entire abstract plan for each iteration. "
+        "Options: stop_at_first_flaw (default), execute_entire_plan, randomize.",
+        "stop_at_first_flaw");
 }
 }
 
@@ -2767,5 +2781,10 @@ std::string TypeNamer<domain_abstractions::InitSplitMethod>::name() {
 template <>
 std::string TypeNamer<domain_abstractions::NumericSplitStrategy>::name() {
     return "NumericSplitStrategy";
+}
+
+template <>
+std::string TypeNamer<domain_abstractions::ExecEntirePlanMode>::name() {
+    return "ExecEntirePlanMode";
 }
 }
