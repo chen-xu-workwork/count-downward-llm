@@ -15,16 +15,15 @@ class LogProxy;
 
 namespace domain_abstractions {
 class DomainAbstraction {
-    // Domain mapping for propositional variables
     DomainMapping domain_mapping;
-    
-    // Domain mapping for numeric variables (one per numeric variable in the abstraction)
     NumericDomainMappingType numeric_domain_mapping;
     
     std::vector<int> hash_multipliers;
     std::vector<ap_float> distances;
     // TODO: get rid of this here and return it from the factory optionally.
     std::vector<std::vector<int>> wildcard_plan;
+    std::vector<std::vector<int>> abstract_prop_states; //used for deviation flaws
+    std::vector<std::vector<int>> abstract_numeric_states; //used for deviation flaws
     
     // State registry for handling discretized numeric variables
     
@@ -42,6 +41,8 @@ public:
                       std::vector<int> &&hash_multipliers,
                       std::vector<ap_float> &&distances,
                       std::vector<std::vector<int>> &&wildcard_plan,
+                      std::vector<std::vector<int>> &&abstract_prop_states,
+                      std::vector<std::vector<int>> &&abstract_numeric_states,
                       std::unique_ptr<DomainAbstractionStateRegistry> &&state_registry,
                       const TaskProxy &task_proxy
                       )
@@ -50,6 +51,8 @@ public:
           hash_multipliers(std::move(hash_multipliers)),
           distances(std::move(distances)),
           wildcard_plan(std::move(wildcard_plan)),
+          abstract_prop_states(std::move(abstract_prop_states)),
+          abstract_numeric_states(std::move(abstract_numeric_states)),
           task_proxy(task_proxy),
           has_numeric_variables(false),
           min_operator_cost(std::numeric_limits<ap_float>::max()) {
@@ -91,6 +94,15 @@ public:
     std::vector<std::vector<int>> get_plan() const {
         return wildcard_plan;
     }
+
+    std::vector<std::vector<int>> get_abstract_prop_states() const {
+        return abstract_prop_states;
+    }
+
+    std::vector<std::vector<int>> get_abstract_numeric_states() const {
+        return abstract_numeric_states;
+    }
+
 
     int size() const {
         return distances.size();

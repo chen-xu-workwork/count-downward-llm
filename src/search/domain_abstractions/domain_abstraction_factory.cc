@@ -1422,41 +1422,17 @@ void DomainAbstractionFactory::compute_abstract_plan(
     */
     State initial_state = task_proxy.get_initial_state();
 
-    // Compute the abstract state hash using the utility function that includes
-    // full cascade evaluation of derived numeric variables and comparison axioms
     size_t current_state_hash = compute_abstract_state_hash(
         initial_state, task_proxy, domain_mapping, 
         numeric_domain_mapping, hash_multipliers);
     
     int current_state = static_cast<int>(current_state_hash);
-    
-    //cout << "PLAN: Initial abstract state = " << current_state << endl;
-    //cout << "PLAN: Abstract state count = " << num_states << endl;
-    //cout << "PLAN: Distance to goal = " << distances[current_state] << endl;
-
-    
-    // Count how many states are reachable (have finite distance)
-    int reachable_count = 0;
-    for (ap_float d : distances) {
-        if (d != numeric_limits<ap_float>::max()) {
-            reachable_count++;
-        }
-    }
-    //cout << "PLAN: Reachable states = " << reachable_count << " / " << num_states << endl;
-
-    
-    // Decode the initial state to understand what it represents
-    if (current_state < num_states) {
-        //cout << "PLAN: Initial state details:" << endl;
-        string decoded = decode_abstract_state(current_state, domain_sizes, 
-                                              numeric_domain_mapping, hash_multipliers, task_proxy);
-        //cout << decoded << endl;
-    }
-
-    //for (AbstractOperator abs_op : operators) {
-    //    abs_op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
-    //}
-
+    vector<int> prop_state_values;
+    vector<int> num_state_partitions;
+    decode_state_to_vectors(current_state, domain_sizes, numeric_domain_mapping,
+                            hash_multipliers, prop_state_values, num_state_partitions);
+    abstract_prop_states.push_back(prop_state_values);
+    abstract_numeric_states.push_back(num_state_partitions);
 
     if (distances[current_state] != numeric_limits<ap_float>::max()) {
         int plan_step = 0;
@@ -1544,63 +1520,28 @@ void DomainAbstractionFactory::compute_abstract_plan(
             for (int applicable_op_id : applicable_operator_ids) {
                 const AbstractOperator &applicable_op = operators[applicable_op_id];
 
-                // Check if this operator has the same cost
                 if (applicable_op.get_cost() != op.get_cost()) {
                     continue;
                 }
                 
-                // Check all hash effects of the applicable operator
                 int applicable_hash_effect = applicable_op.get_hash_effect();
-                // Compute base predecessor (without comparison axiom evaluation)
                 int base_predecessor = base_successor + applicable_hash_effect;
                 
-                // Get comparison preconditions - these must be preserved during enumeration
                 vector<Fact> comparison_preconds = get_comparison_preconditions(applicable_op, comparison_var_ids);
                 
-                // Enumerate all possible predecessors with evaluated comparison axioms
-                // This is the REVERSE of progression: we're checking if applying this operator
-                // to current_state leads to successor_state
                 vector<int> possible_predecessors = enumerate_states_with_evaluated_comparisons(
                     base_predecessor,
                     task_proxy,
                     comparison_preconds);
                 
                 
-                // Check if current_state is among the possible predecessors
                 if (find(possible_predecessors.begin(), possible_predecessors.end(), current_state) 
                     != possible_predecessors.end()) {
-                    // This operator can take us from current_state to successor_state!
-                    // Add all concrete operator IDs (may be multiple due to label reduction)
                     for (int concrete_op_id : applicable_op.get_concrete_op_ids()) {
                         cheapest_operators.emplace_back(concrete_op_id);
                     }
-                    break; // Only add once per abstract operator
+                    break; 
                 }
-            }
-
-            
-            if (cheapest_operators.empty()) {
-                logger->log(Verbosity::INFO, "PLAN: No equivalent operators found from state ", current_state,
-                     " to ", successor_state, "; aborting plan extraction.");
-
-                string decoded_current_state = decode_abstract_state(current_state, domain_sizes,
-                                                      numeric_domain_mapping, hash_multipliers, task_proxy);
-                string decoded_successor_state = decode_abstract_state(successor_state, domain_sizes,
-                                                      numeric_domain_mapping, hash_multipliers, task_proxy);
-                string decoded_base_state = decode_abstract_state(base_successor, domain_sizes,
-                                                      numeric_domain_mapping, hash_multipliers, task_proxy);
-                string decoded_no_reset_base_state = decode_abstract_state(current_state - hash_effect, domain_sizes,
-                                                      numeric_domain_mapping, hash_multipliers, task_proxy);
-                logger->log(Verbosity::INFO, "  Current: ", decoded_current_state);
-                logger->log(Verbosity::INFO, "  Successor: ", decoded_successor_state);
-                logger->log(Verbosity::INFO, "  Base: ", decoded_base_state);
-                logger->log(Verbosity::INFO, "  No reset base: ", decoded_no_reset_base_state);
-                logger->log(Verbosity::INFO, "  Distance - current: ", distances[current_state]);
-                logger->log(Verbosity::INFO, "  Distance - successor: ", distances[successor_state]);
-                logger->log(Verbosity::INFO, "  OP hash effects: ", hash_effect);
-                logger->log(Verbosity::INFO, "  OP ID (abstract): ", op_id);
-                op.dump(task_proxy, domain_mapping, numeric_domain_mapping, logger);
-                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
             }
             
             if (compute_wildcard_plan) {
@@ -1615,34 +1556,22 @@ void DomainAbstractionFactory::compute_abstract_plan(
             string decoded = decode_abstract_state(successor_state, domain_sizes,
                                                       numeric_domain_mapping, hash_multipliers, task_proxy);
 
-            //cout << "[ABSTRACT PLAN] " << decoded << endl;                              
-
-      
 
             current_state = successor_state;
+            vector<int> prop_values;
+            vector<int> num_partitions;
+            decode_state_to_vectors(current_state, domain_sizes, numeric_domain_mapping,
+                                    hash_multipliers, prop_values, num_partitions);
+            abstract_prop_states.push_back(prop_values);
+            abstract_numeric_states.push_back(num_partitions);
             plan_step++;
 
         }
         string decoded = decode_abstract_state(current_state, domain_sizes,
                                               numeric_domain_mapping, hash_multipliers, task_proxy);
-        //cout << "[ABSTRACT PLAN] " << decoded << endl;  
-        
-        //cout << "PLAN: Wildcard plan construction complete with " 
-        //     << wildcard_plan.size() << " steps" << endl;
     }
     utils::release_vector_memory(generating_op_ids);
 }
-
-//NOTE: required for regression. What happens here?
-// Consider concrete operators with effect x = 1 and no(!) precondition. 
-// Assume domain(x) = {0, 1, 2}.
-// Then, we add the following abstract operators: 
-// OP 1: pre = {x = 0}, eff = {x = 1}
-// OP 1: pre = {x = 2}, eff = {x = 1}
-// more efficient that way. 
-// NOTE: multiply_out() and build_abstract_operators() methods have been moved
-// to DomainAbstractionNumericHelper, which now handles all operator construction.
-// The factory delegates to the helper via compute_abstract_operators().
 
 //TODO: Does not support numeric (goal) states yet. 
 bool DomainAbstractionFactory::is_goal_state(
@@ -1850,9 +1779,10 @@ DomainAbstraction DomainAbstractionFactory::generate() {
             logger->log(Verbosity::DEBUG, "DEBUG: State registry size after population: ", state_registry->size());
         }
     }
+    assert(wildcard_plan.size() == abstract_prop_states.size() - 1);
     
     return DomainAbstraction(move(domain_mapping), move(numeric_domain_mapping),
-                             move(hash_multipliers), move(distances), move(wildcard_plan),
+                             move(hash_multipliers), move(distances), move(wildcard_plan), move(abstract_prop_states), move(abstract_numeric_states),
                              move(state_registry), task_proxy);
 }
 }

@@ -148,6 +148,8 @@ class DomainAbstractionFactory {
 
     std::vector<int> generating_op_ids;
     std::vector<std::vector<int>> wildcard_plan;
+    std::vector<std::vector<int>> abstract_prop_states; //used for deviation flaws
+    std::vector<std::vector<int>> abstract_numeric_states; //used for deviation flaws
 
     // multipliers for each variable for perfect hash function
     // Includes multipliers for both propositional and numeric variables

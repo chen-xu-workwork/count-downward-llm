@@ -5,6 +5,7 @@
 #include "domain_abstraction_factory.h"
 
 #include "../axioms.h"
+#include "utils.h"
 
 #include <cmath>
 #include "../globals.h"
@@ -603,6 +604,58 @@ static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_precondition_
     return make_pair(flaws, regular_numeric_flaws);
 }
 
+static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_deviation_flaws(
+    const vector<int> &successor_state, const vector<ap_float> &numeric_successor_state,
+    const vector<int> &abstract_successor_state, const vector<int> &abstract_numeric_successor_state,
+    const DomainMapping &domain_mapping,
+    const NumericDomainMappingType &numeric_domain_mapping,
+    const unordered_set<int> &blacklisted_variables, const std::unordered_map<int, std::unordered_set<int>>& deps) {
+
+    vector<Fact> flaws;
+    vector<vector<pair<int, ap_float>>> regular_numeric_flaws;
+
+    for (size_t var_id = 0; var_id < successor_state.size(); ++var_id) {
+        if (blacklisted_variables.count(static_cast<int>(var_id)) > 0) {
+            continue;
+        }
+        if (domain_mapping[var_id].empty()) {
+            //trivial variable
+            continue;
+        }
+        int abstract_value = domain_mapping[var_id][successor_state[var_id]];
+        if (abstract_value != abstract_successor_state[var_id]) {
+            flaws.emplace_back(static_cast<int>(var_id), abstract_value);
+            regular_numeric_flaws.emplace_back();
+            auto it = deps.find(static_cast<int>(var_id));
+            if (it != deps.end()) {
+                regular_numeric_flaws.back().reserve(it->second.size());
+                for (int dep_var_id : it->second) {
+                    // Use NaN as placeholder - actual split value is determined later in get_flaws
+                    regular_numeric_flaws.back().emplace_back(dep_var_id, std::numeric_limits<ap_float>::quiet_NaN());
+                }
+            }
+        }
+    }
+
+    for (size_t var_id = 0; var_id < numeric_successor_state.size(); ++var_id) {
+        int abstract_value = abstract_numeric_successor_state[var_id];
+        int correct_abstract_value = numeric_domain_mapping[var_id]->get_partition_index(
+            numeric_successor_state[var_id]);
+        if (abstract_value != correct_abstract_value) {
+            flaws.emplace_back(-1, -1); // Placeholder for numeric flaw
+            regular_numeric_flaws.emplace_back();
+            regular_numeric_flaws.back().push_back(
+                make_pair(static_cast<int>(var_id) + successor_state.size(),
+                          numeric_successor_state[var_id]));
+        }
+    }
+
+
+
+    return make_pair(flaws, regular_numeric_flaws);
+}
+
+
 // Helper function to check if a variable is derived (appears in axiom effects)
 static bool is_derived_variable(const TaskProxy &task_proxy, int var_id) {
     for (OperatorProxy ax : task_proxy.get_axioms()) {
@@ -749,6 +802,9 @@ vector<Fact> CEGAR::get_flaws(
     g_axiom_evaluator->evaluate(current_state, numeric_state);
 
     vector<vector<int>> wildcard_plan = abstraction.get_plan();
+    const vector<vector<int>> &abstract_prop_states = abstraction.get_abstract_prop_states();
+    const vector<vector<int>> &abstract_numeric_states = abstraction.get_abstract_numeric_states();
+    assert(abstract_prop_states.size() == abstract_numeric_states.size());
     vector<Fact> flaws;
 
     // Helper: decode current abstract state (propositional + numeric partitions)
@@ -827,10 +883,18 @@ vector<Fact> CEGAR::get_flaws(
         }
     }
     logger->log(Verbosity::DEBUG, "PLAN: State 0 (start): ", decode_abstract_state_compact(current_state, numeric_state));
+
+    const DomainMapping &domain_mapping = abstraction.get_domain_mapping();
+    const NumericDomainMappingType &numeric_domain_mapping = abstraction.get_numeric_domain_mapping();
     
     int step_num = 0;
     for (vector<int> &equivalent_ops : wildcard_plan) {
         //assert(flaws.empty()); RANDOM FLAW
+        assert(abstract_prop_states.size() > step_num);
+        assert(abstract_numeric_states.size() > step_num);
+
+        const vector<int> &abstract_state = abstract_prop_states[step_num];
+        const vector<int> &abstract_numeric_state = abstract_numeric_states[step_num];
 
         
         
@@ -847,6 +911,15 @@ vector<Fact> CEGAR::get_flaws(
 
             vector<Fact> operator_flaws = flaw_data.first;
             vector<vector<pair<int, ap_float>>> regular_numeric_flaws = flaw_data.second;
+
+            if (operator_flaws.empty()) {
+                    get_deviation_flaws(
+                        current_state, numeric_state,
+                        abstract_state, abstract_numeric_state,
+                        std::move(domain_mapping), std::move(numeric_domain_mapping),
+                        blacklisted_variables, comparison_axiom_dependencies);
+            }
+
             if (operator_flaws.empty()) {
                 // Propositional preconditions satisfied - apply operator
                 // In STOP_AT_FIRST_FLAW mode, clear any previously accumulated flaws
@@ -894,15 +967,6 @@ vector<Fact> CEGAR::get_flaws(
 
                     // Build inner vector of numeric flaws for this propositional flaw
                     vector<NumericFlaw> numeric_flaws_for_this_prop_flaw;
-                    
-                    for (pair<int, ap_float> &reg_flaw : reg_numeric_flaws) {
-                        int numeric_var_id = reg_flaw.first;
-                        ap_float concrete_value = reg_flaw.second;
-                        logger->log(Verbosity::DEBUG, "  [DEBUG FLAW] Comparison axiom flaw: var=", flaw.var,
-                                        " value=", flaw.value,
-                                        " op=", op_name);
-                       
-                    }
                     
                     logger->log(Verbosity::DEBUG, "[DEBUG  Already_split]");
                     for (pair<int, ap_float> &reg_flaw : reg_numeric_flaws) {

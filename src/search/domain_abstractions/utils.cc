@@ -140,16 +140,7 @@ size_t compute_abstract_state_hash(
     
     size_t state_hash = 0;
     
-    // Build a set of comparison axiom variable IDs for quick lookup
-    unordered_set<int> comparison_axiom_vars;
-    ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
-    for (ComparisonAxiomProxy axiom : comparison_axioms) {
-        comparison_axiom_vars.insert(axiom.get_true_fact().get_variable().get_id());
-    }
-    
     // 1. Add propositional variables to hash
-    // For comparison axioms, we'll start with UNKNOWN and then evaluate them properly
-    // For other variables, use the concrete state value
     for (size_t i = 0; i < domain_mapping.size(); ++i) {
         if (!domain_mapping[i].empty()) {
             int val;
@@ -168,66 +159,7 @@ size_t compute_abstract_state_hash(
     }
 
     // 3. Evaluate comparison axioms using CONCRETE state values
-    // This is the KEY FIX: use actual evaluated values, not range-based optimistic evaluation
 
-    return state_hash;
-    
-    static int hash_call_count = 0;
-    hash_call_count++;
-    bool debug_this_call = (hash_call_count == 1);
-    
-    if (debug_this_call) {
-        cout << "\n=== DEBUG compute_abstract_state_hash: FIRST CALL ===\n";
-        cout << "State has " << comparison_axioms.size() << " comparison axioms\n";
-    }
-    
-    for (ComparisonAxiomProxy axiom : comparison_axioms) {
-        int prop_var_id = axiom.get_true_fact().get_variable().get_id();
-        
-        // Skip if this comparison axiom is not in the abstraction
-        if (prop_var_id >= static_cast<int>(domain_mapping.size()) || 
-            domain_mapping[prop_var_id].empty()) {
-            continue;
-        }
-        
-        // Check if the comparison axiom is already evaluated in the concrete state
-        // In a properly evaluated concrete state, it should be TRUE or FALSE
-        int concrete_value = state[prop_var_id].get_value();
-        int true_value = axiom.get_true_fact().get_value();
-        int false_value = axiom.get_false_fact().get_value();
-        
-        bool is_evaluated = (concrete_value == true_value || concrete_value == false_value);
-        
-        if (is_evaluated) {
-            // The comparison is already evaluated in the concrete state - use it directly!
-            // This is the correct approach for hashing concrete states.
-            int unknown_value = domain_mapping[prop_var_id][2];
-            int target_abstract = domain_mapping[prop_var_id][concrete_value];
-            int hash_adjustment = (target_abstract - unknown_value) * hash_multipliers[prop_var_id];
-            
-            if (debug_this_call && prop_var_id == 24) {
-                cout << "  var24 hash adjustment: unknown_value=" << unknown_value 
-                     << ", target_abstract=" << target_abstract 
-                     << ", multiplier=" << hash_multipliers[prop_var_id]
-                     << ", adjustment=" << hash_adjustment << "\n";
-            }
-            
-            state_hash += hash_adjustment;
-        } else {
-            // The comparison is not evaluated (value = 2 = UNKNOWN)
-            // This shouldn't normally happen in a properly evaluated state
-            // Leave it as UNKNOWN (no hash adjustment needed)
-            if (debug_this_call && prop_var_id == 24) {
-                cout << "  var24: NOT EVALUATED (leaving as UNKNOWN)\n";
-            }
-        }
-    }
-    
-    if (debug_this_call) {
-        cout << "  Final state_hash=" << state_hash << "\n";
-        cout << "===================================\n\n";
-    }
-    
     return state_hash;
 }
 
