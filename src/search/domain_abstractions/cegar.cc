@@ -613,18 +613,18 @@ static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_deviation_fla
         }
     }
 
-    for (size_t var_id = 0; var_id < numeric_successor_state.size(); ++var_id) {
-        int abstract_value = abstract_numeric_successor_state[var_id];
-        int correct_abstract_value = numeric_domain_mapping[var_id]->get_partition_index(
-            numeric_successor_state[var_id]);
-        if (abstract_value != correct_abstract_value) {
-            flaws.emplace_back(-1, -1); // Placeholder for numeric flaw
-            regular_numeric_flaws.emplace_back();
-            regular_numeric_flaws.back().push_back(
-                make_pair(static_cast<int>(var_id) + successor_state.size(),
-                          numeric_successor_state[var_id]));
-        }
-    }
+    //for (size_t var_id = 0; var_id < numeric_successor_state.size(); ++var_id) {
+    //    int abstract_value = abstract_numeric_successor_state[var_id];
+    //    int correct_abstract_value = numeric_domain_mapping[var_id]->get_partition_index(
+    //        numeric_successor_state[var_id]);
+    //    if (abstract_value != correct_abstract_value) {
+    //        flaws.emplace_back(0, 0); // Placeholder for numeric flaw
+    //        regular_numeric_flaws.emplace_back();
+    //        regular_numeric_flaws.back().push_back(
+    //            make_pair(static_cast<int>(var_id) + successor_state.size(),
+    //                      numeric_successor_state[var_id]));
+    //    }
+    //}
 
 
 
@@ -889,12 +889,17 @@ vector<Fact> CEGAR::get_flaws(
             vector<vector<pair<int, ap_float>>> regular_numeric_flaws = flaw_data.second;
 
             if (operator_flaws.empty()) {
+                cout << "BRUDI bin hier" << endl;
                 flaw_data =
                     get_deviation_flaws(
                         current_state, numeric_state,
                         abstract_state, abstract_numeric_state,
                         std::move(domain_mapping), std::move(numeric_domain_mapping),
                         blacklisted_variables, comparison_axiom_dependencies);
+
+                operator_flaws = flaw_data.first;
+                regular_numeric_flaws = flaw_data.second;
+                cout << "Brudi, wie viele flaws? " << operator_flaws.size() << endl;
             }
 
             if (operator_flaws.empty()) {
