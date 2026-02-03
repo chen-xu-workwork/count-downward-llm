@@ -198,30 +198,6 @@ private:
         return false;  // All observed values have been split
     }
     
-    // Check if a comparison axiom flaw should be added:
-    // - Non-comparison variables: always add
-    // - Comparison variables: always add (don't filter based on current iteration's
-    //   observed values, as they vary semi-randomly between iterations)
-    // 
-    // We avoid early blacklisting because:
-    // - Observed values are cleared each iteration and depend on the abstract plan
-    // - A comparison with no splittable values NOW may have them in future iterations
-    // - The numeric refinement step will naturally handle "no valid candidates"
-    bool should_add_comparison_flaw(int prop_var_id) const {
-        // Non-comparison axiom variables are always valid flaws
-        if (!is_comparison_axiom_variable(prop_var_id)) {
-            logger->log(Verbosity::DEBUG, "    should_add_comparison_flaw(var", prop_var_id, 
-                       "): YES (not a comparison axiom)");
-            return true;
-        }
-        
-        // For comparison axioms, always add - don't filter based on current observed values
-        // The numeric refinement step will handle the case when no valid candidates exist
-        logger->log(Verbosity::DEBUG, "    should_add_comparison_flaw(var", prop_var_id, 
-                   "): YES (comparison axiom - always allow, numeric refinement will filter)");
-        return true;
-    }
-    
     // Determine split direction for numeric refinement
     bool determine_include_in_lower(
         int prop_var_id,
@@ -913,6 +889,7 @@ vector<Fact> CEGAR::get_flaws(
             vector<vector<pair<int, ap_float>>> regular_numeric_flaws = flaw_data.second;
 
             if (operator_flaws.empty()) {
+                flaw_data =
                     get_deviation_flaws(
                         current_state, numeric_state,
                         abstract_state, abstract_numeric_state,
@@ -955,13 +932,6 @@ vector<Fact> CEGAR::get_flaws(
                 for (size_t i = 0; i < operator_flaws.size(); ++i) {
                     Fact &flaw = operator_flaws[i];
                     vector<pair<int, ap_float>> &reg_numeric_flaws = regular_numeric_flaws[i];
-                    
-                    // Skip comparison flaws that are already refined and have no new split values
-                    if (!should_add_comparison_flaw(flaw.var)) {
-                        logger->log(Verbosity::DEBUG, "  Skipping comparison flaw var=", flaw.var,
-                                    " (already refined, no new observed values)");
-                        continue;
-                    }
                     
                     flaws.push_back(flaw);
 
@@ -1091,13 +1061,6 @@ vector<Fact> CEGAR::get_flaws(
     for (size_t i = 0; i < goal_flaws.size(); ++i) {
         Fact &flaw = goal_flaws[i];
         vector<pair<int, ap_float>> &reg_numeric_flaws = goal_numeric_flaws[i];
-        
-        // Skip comparison flaws that are already refined and have no new split values
-        if (!should_add_comparison_flaw(flaw.var)) { //TODO: I think that is deprecated....
-            logger->log(Verbosity::DEBUG, "  Skipping comparison goal flaw var=", flaw.var,
-                        " (already refined, no new observed values)");
-            continue;
-        }
         
         flaws.push_back(flaw);
         
