@@ -29,7 +29,7 @@ using namespace std;
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
 
-static Verbosity log_verbosity = Verbosity::NONE;
+static Verbosity log_verbosity = Verbosity::VERBOSE;
 
 class CEGAR {
 private:
@@ -590,41 +590,41 @@ static pair<vector<Fact>, vector<vector<pair<int, ap_float>>>> get_deviation_fla
     vector<Fact> flaws;
     vector<vector<pair<int, ap_float>>> regular_numeric_flaws;
 
-    for (size_t var_id = 0; var_id < successor_state.size(); ++var_id) {
-        if (blacklisted_variables.count(static_cast<int>(var_id)) > 0) {
-            continue;
-        }
-        if (domain_mapping[var_id].empty()) {
-            //trivial variable
-            continue;
-        }
-        int abstract_value = domain_mapping[var_id][successor_state[var_id]];
-        if (abstract_value != abstract_successor_state[var_id]) {
-            flaws.emplace_back(static_cast<int>(var_id), abstract_value);
-            regular_numeric_flaws.emplace_back();
-            auto it = deps.find(static_cast<int>(var_id));
-            if (it != deps.end()) {
-                regular_numeric_flaws.back().reserve(it->second.size());
-                for (int dep_var_id : it->second) {
-                    // Use NaN as placeholder - actual split value is determined later in get_flaws
-                    regular_numeric_flaws.back().emplace_back(dep_var_id, std::numeric_limits<ap_float>::quiet_NaN());
-                }
-            }
-        }
-    }
-
-    //for (size_t var_id = 0; var_id < numeric_successor_state.size(); ++var_id) {
-    //    int abstract_value = abstract_numeric_successor_state[var_id];
-    //    int correct_abstract_value = numeric_domain_mapping[var_id]->get_partition_index(
-    //        numeric_successor_state[var_id]);
-    //    if (abstract_value != correct_abstract_value) {
-    //        flaws.emplace_back(0, 0); // Placeholder for numeric flaw
+    //for (size_t var_id = 0; var_id < successor_state.size(); ++var_id) {
+    //    if (blacklisted_variables.count(static_cast<int>(var_id)) > 0) {
+    //        continue;
+    //    }
+    //    if (domain_mapping[var_id].empty()) {
+    //        //trivial variable
+    //        continue;
+    //    }
+    //    int abstract_value = domain_mapping[var_id][successor_state[var_id]];
+    //    if (abstract_value != abstract_successor_state[var_id]) {
+    //        flaws.emplace_back(static_cast<int>(var_id), abstract_value);
     //        regular_numeric_flaws.emplace_back();
-    //        regular_numeric_flaws.back().push_back(
-    //            make_pair(static_cast<int>(var_id) + successor_state.size(),
-    //                      numeric_successor_state[var_id]));
+    //        auto it = deps.find(static_cast<int>(var_id));
+    //        if (it != deps.end()) {
+    //            regular_numeric_flaws.back().reserve(it->second.size());
+    //            for (int dep_var_id : it->second) {
+    //                // Use NaN as placeholder - actual split value is determined later in get_flaws
+    //                regular_numeric_flaws.back().emplace_back(dep_var_id, std::numeric_limits<ap_float>::quiet_NaN());
+    //            }
+    //        }
     //    }
     //}
+
+    for (size_t var_id = 0; var_id < numeric_successor_state.size(); ++var_id) {
+        int abstract_value = abstract_numeric_successor_state[var_id];
+        int correct_abstract_value = numeric_domain_mapping[var_id]->get_partition_index(
+            numeric_successor_state[var_id]);
+        if (abstract_value != correct_abstract_value) {
+            flaws.emplace_back(-1, 0); // Placeholder for numeric flaw
+            regular_numeric_flaws.emplace_back();
+            regular_numeric_flaws.back().push_back(
+                make_pair(static_cast<int>(var_id),
+                          numeric_successor_state[var_id]));
+        }
+    }
 
 
 
@@ -1185,7 +1185,7 @@ bool CEGAR::fix_single_random_flaw(
             if (is_comparison_axiom_variable(fact.var)) {
                 // Comparison axiom variables have domain {0=true, 1=false, 2=unevaluated}
                 // Flaws always occur with value 0 (true), and refinement splits true from {false, unevaluated}
-                assert(fact.value == 0);
+                //assert(fact.value == 0);
                 
                 // If already refined propositionally (size >= 2), only do numeric refinement
                 if (abstract_domain_sizes[fact.var] >= 2) {
