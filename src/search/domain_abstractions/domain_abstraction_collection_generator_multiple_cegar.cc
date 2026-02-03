@@ -14,6 +14,7 @@ DomainAbstractionCollectionGeneratorMultipleCegar::DomainAbstractionCollectionGe
     options::Options &opts)
     : DomainAbstractionCollectionGeneratorMultiple(opts),
       use_wildcard_plans(opts.get<bool>("use_wildcard_plans")),
+            deviation_flaws(opts.get<bool>("deviation_flaws")),
       flaw_treatment(FlawTreatment(opts.get_enum("flaw_treatment"))),
       init_split_method(InitSplitMethod(opts.get_enum("init_split_method"))),
     numeric_split_strategy(NumericSplitStrategy(opts.get_enum("numeric_split_strategy"))),
@@ -60,6 +61,7 @@ DomainAbstraction DomainAbstractionCollectionGeneratorMultipleCegar::compute_abs
         max_abstraction_size,
         max_time,
         use_wildcard_plans,
+        deviation_flaws,
         flaw_treatment,
         init_split_method,
         numeric_split_strategy,

@@ -59,6 +59,7 @@ extern DomainAbstraction generate_domain_abstraction_with_cegar(
             int max_abstraction_size,
             double max_time,
             bool use_wildcard_plans,
+            bool deviation_flaws,
             FlawTreatment flaw_treatment,
             InitSplitMethod init_split_method,
             NumericSplitStrategy numeric_split_strategy,

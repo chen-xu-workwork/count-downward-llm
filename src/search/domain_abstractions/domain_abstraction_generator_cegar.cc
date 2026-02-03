@@ -20,6 +20,7 @@ DomainAbstractionGeneratorCEGAR::DomainAbstractionGeneratorCEGAR(
       max_abstraction_size(opts.get<int>("max_abstraction_size")),
       max_time(opts.get<double>("max_time")),
       use_wildcard_plans(opts.get<bool>("use_wildcard_plans")),
+            deviation_flaws(opts.get<bool>("deviation_flaws")),
       flaw_treatment(FlawTreatment(opts.get_enum("flaw_treatment"))),
       init_split_method(InitSplitMethod(opts.get_enum("init_split_method"))),
     numeric_split_strategy(NumericSplitStrategy(opts.get_enum("numeric_split_strategy"))),
@@ -56,6 +57,7 @@ DomainAbstraction DomainAbstractionGeneratorCEGAR::build_abstraction(
         get_init_split_var_ids(task_proxy);
     return generate_domain_abstraction_with_cegar(
         max_abstraction_size, max_time, use_wildcard_plans,
+        deviation_flaws,
         flaw_treatment, init_split_method, numeric_split_strategy,
         this->exec_entire_plan, rng, task_proxy, move(init_split_var_ids));
 }

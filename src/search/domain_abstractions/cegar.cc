@@ -30,7 +30,7 @@ using namespace std;
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
 
-static Verbosity log_verbosity = Verbosity::VERBOSE;
+static Verbosity log_verbosity = Verbosity::NONE;
 
 class CEGAR {
 private:
@@ -68,6 +68,7 @@ private:
     const int max_abstraction_size;
     const double max_time;
     const bool use_wildcard_plans;
+    const bool deviation_flaws;
     const ExecEntirePlanMode exec_entire_plan;
     const FlawTreatment flaw_treatment;
     const InitSplitMethod init_split_method;
@@ -246,18 +247,19 @@ private:
         const std::vector<int> &current_state,
         const std::vector<ap_float> &numeric_state) const;
 public:
-        CEGAR(int max_abstraction_size,
-          double max_time,
-          bool use_wildcard_plans,
-            ExecEntirePlanMode exec_entire_plan,
-          FlawTreatment flaw_treatment,
-          InitSplitMethod init_split_method,
-          NumericSplitStrategy numeric_split_strategy,
-          const shared_ptr<utils::RandomNumberGenerator> &rng,
-          const TaskProxy &task_proxy,
-          unordered_set<int> &&init_split_var_ids,
-          unordered_set<int> &&blacklisted_variables,
-          unordered_set<int> &&blacklisted_numeric_variables);
+                CEGAR(int max_abstraction_size,
+                    double max_time,
+                    bool use_wildcard_plans,
+                    bool deviation_flaws,
+                        ExecEntirePlanMode exec_entire_plan,
+                    FlawTreatment flaw_treatment,
+                    InitSplitMethod init_split_method,
+                    NumericSplitStrategy numeric_split_strategy,
+                    const shared_ptr<utils::RandomNumberGenerator> &rng,
+                    const TaskProxy &task_proxy,
+                    unordered_set<int> &&init_split_var_ids,
+                    unordered_set<int> &&blacklisted_variables,
+                    unordered_set<int> &&blacklisted_numeric_variables);
 
     DomainAbstraction build_abstraction(const TaskProxy &task_proxy);
     void build_comparison_axiom_mapping(const TaskProxy &task_proxy);
@@ -265,30 +267,32 @@ public:
 };
 
 CEGAR::CEGAR(
-        int max_abstraction_size,
-        double max_time,
-        bool use_wildcard_plans,
-    ExecEntirePlanMode exec_entire_plan,
-        FlawTreatment flaw_treatment,
-        InitSplitMethod init_split_method,
-        NumericSplitStrategy numeric_split_strategy,
-        const shared_ptr<utils::RandomNumberGenerator> &rng,
-        const TaskProxy &task_proxy,
-        unordered_set<int> &&init_split_var_ids,
-        unordered_set<int> &&blacklisted_variables,
-        unordered_set<int> &&blacklisted_numeric_variables)
-    : max_abstraction_size(max_abstraction_size),
-      max_time(max_time),
-      use_wildcard_plans(use_wildcard_plans),
-    exec_entire_plan(exec_entire_plan),
-      flaw_treatment(flaw_treatment),
-      init_split_method(init_split_method),
-      numeric_split_strategy(numeric_split_strategy),
-      rng(rng),
-      init_split_var_ids(move(init_split_var_ids)),
-      blacklisted_variables(move(blacklisted_variables)),
-      blacklisted_numeric_variables(move(blacklisted_numeric_variables)),
-      logger(make_shared<CEGARLogger>(log_verbosity)) {
+                int max_abstraction_size,
+                double max_time,
+                bool use_wildcard_plans,
+                bool deviation_flaws,
+        ExecEntirePlanMode exec_entire_plan,
+                FlawTreatment flaw_treatment,
+                InitSplitMethod init_split_method,
+                NumericSplitStrategy numeric_split_strategy,
+                const shared_ptr<utils::RandomNumberGenerator> &rng,
+                const TaskProxy &task_proxy,
+                unordered_set<int> &&init_split_var_ids,
+                unordered_set<int> &&blacklisted_variables,
+                unordered_set<int> &&blacklisted_numeric_variables)
+        : max_abstraction_size(max_abstraction_size),
+            max_time(max_time),
+            use_wildcard_plans(use_wildcard_plans),
+            deviation_flaws(deviation_flaws),
+        exec_entire_plan(exec_entire_plan),
+            flaw_treatment(flaw_treatment),
+            init_split_method(init_split_method),
+            numeric_split_strategy(numeric_split_strategy),
+            rng(rng),
+            init_split_var_ids(move(init_split_var_ids)),
+            blacklisted_variables(move(blacklisted_variables)),
+            blacklisted_numeric_variables(move(blacklisted_numeric_variables)),
+            logger(make_shared<CEGARLogger>(log_verbosity)) {
     /* TODO: Should we check somewhere that *init_split_var_ids* does not
         contain elements that are blacklisted? */
 
@@ -983,14 +987,17 @@ vector<CEGAR::GlobalFlaw> CEGAR::get_flaws(
             vector<GlobalFlaw> operator_flaws =
                 get_precondition_flaws(op, current_state, numeric_state);
 
-            if (false && operator_flaws.empty()) {
-                cout << "BRUDI bin hier" << endl;
+            if (deviation_flaws && operator_flaws.empty()) {
+                //cout << "BRUDI bin hier" << endl;
                 operator_flaws =
                     get_deviation_flaws(
                         current_state, numeric_state,
                         abstract_state, abstract_numeric_state,
                         domain_mapping, numeric_domain_mapping);
-                cout << "Brudi, wie viele flaws? " << operator_flaws.size() << endl;
+                //cout << "Brudi, wie viele flaws? " << operator_flaws.size() << endl;
+                if (operator_flaws.size() > 0) {
+                    //cout << "Brudi, flaws gefunden bei op " << op_name << endl;
+                }
             }
 
             if (operator_flaws.empty()) {
@@ -2662,6 +2669,7 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         int max_abstraction_size,
         double max_time,
         bool use_wildcard_plans,
+    bool deviation_flaws,
         FlawTreatment flaw_treatment,
         InitSplitMethod init_split_method,
         NumericSplitStrategy numeric_split_strategy,
@@ -2675,6 +2683,7 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         max_abstraction_size,
         max_time,
         use_wildcard_plans,
+        deviation_flaws,
         exec_entire_plan,
         flaw_treatment,
         init_split_method,
@@ -2760,6 +2769,10 @@ void add_domain_abstraction_cegar_options_to_parser(
     parser.add_option<bool>(
         "use_wildcard_plans",
         "Consider parallel transitions in abstraction.",
+        "true");
+    parser.add_option<bool>(
+        "deviation_flaws",
+        "Enable deviation flaw detection when operator preconditions match.",
         "true");
     vector<string> init_split_method;
     init_split_method.emplace_back("goal_value");

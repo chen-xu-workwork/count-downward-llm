@@ -13,6 +13,7 @@ enum class ExecEntirePlanMode;
 
 class DomainAbstractionCollectionGeneratorMultipleCegar : public DomainAbstractionCollectionGeneratorMultiple {
     const bool use_wildcard_plans;
+    const bool deviation_flaws;
     const FlawTreatment flaw_treatment;
     const InitSplitMethod init_split_method;
     const NumericSplitStrategy numeric_split_strategy;
