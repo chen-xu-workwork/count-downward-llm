@@ -1579,20 +1579,6 @@ bool DomainAbstractionFactory::is_goal_state(
     const vector<Fact> &abstract_goals,
     const vector<int> &domain_sizes) const {
     
-    // DEBUG: Print goals being checked (only once)
-    if (logger && logger->should_log(Verbosity::DEBUG)) {
-        logger->log(Verbosity::VERBOSE, "\n=== is_goal_state DEBUG ===");
-        logger->log(Verbosity::VERBOSE, "Abstract (propositional) goals:");
-        for (const Fact &goal : abstract_goals) {
-            logger->log(Verbosity::VERBOSE, "  var", goal.var, " = ", goal.value);
-        }
-        logger->log(Verbosity::VERBOSE, "Numeric goal conditions:");
-        for (const auto &ng : numeric_goal_conditions) {
-            logger->log(Verbosity::VERBOSE, "  var", ng.numeric_var_id, " ", ng.op, " ", ng.constant);
-        }
-        logger->log(Verbosity::VERBOSE, "===================================\n");
-    }
-    
     // Check propositional goals
     for (const Fact &abstract_goal : abstract_goals) {
         int var_id = abstract_goal.var;
