@@ -1285,7 +1285,7 @@ void DomainAbstractionFactory::compute_distances(
     iteration_count++;
     
     // DEBUG: Print table of core variables for all states
-    if (logger && logger->should_log(Verbosity::DEBUG)) {
+    if (false && logger && logger->should_log(Verbosity::DEBUG)) {
         logger->log(Verbosity::DEBUG, "\n=== TABLE OF CORE VARIABLES FOR ALL ", num_states, " STATES ===\n");
         
         // First, identify which propositional variables are derived from axioms

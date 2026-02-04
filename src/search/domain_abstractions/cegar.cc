@@ -1272,6 +1272,7 @@ bool CEGAR::fix_single_flaw_max_refined(
     
     vector<UnifiedCandidate> all_candidates;
     int num_flaws = static_cast<int>(flaws.size());
+    TaskProxy task_proxy(*g_root_task());
     
     for (int i = 0; i < num_flaws; ++i) {
         const IndexedPropFlaw &entry = flaws[i];
@@ -1285,41 +1286,55 @@ bool CEGAR::fix_single_flaw_max_refined(
         }
         
         if (is_comparison_axiom_variable(prop_var_id)) {
-            // For comparison axioms, we need valid numeric candidates
+            // For comparison axioms, build candidates from all dependent numeric vars.
             assert(global_idx >= 0 && global_idx < static_cast<int>(detected_flaws.size()));
-            const GlobalFlaw &global_flaw = detected_flaws[global_idx];
-            assert(global_flaw.second);
             int prop_score = abstract_domain_sizes[prop_var_id];
-            
-            const NumericFlaw &nf = *global_flaw.second;
-            int num_var_id = nf.numeric_var_id;
-            ap_float split_val = nf.concrete_value;
-            
-            // Check if numeric variable can be refined (includes size limit check)
-            if (!can_refine_numeric_variable(abstraction_size, num_var_id,
-                                              TaskProxy(*g_root_task()))) {
-                continue;
+
+            auto deps_it = comparison_axiom_dependencies.find(prop_var_id);
+            assert(deps_it != comparison_axiom_dependencies.end());
+
+            auto concrete_it = last_concrete_values_by_prop_var.find(prop_var_id);
+            assert(concrete_it != last_concrete_values_by_prop_var.end());
+            const auto &concrete_values = concrete_it->second;
+
+            for (int num_var_id : deps_it->second) {
+                auto val_it = concrete_values.find(num_var_id);
+                assert(val_it != concrete_values.end());
+                ap_float concrete_value = val_it->second;
+
+                int local_id = global_to_local_regular_numeric_var_ids[num_var_id];
+                assert(local_id >= 0 && local_id < static_cast<int>(already_split.size()));
+
+                std::optional<ap_float> split_val_opt =
+                    choose_unsplit_value(num_var_id, local_id, concrete_value);
+                if (!split_val_opt) {
+                    continue;
+                }
+                ap_float split_val = *split_val_opt;
+
+                // Check if numeric variable can be refined (includes size limit check)
+                if (!can_refine_numeric_variable(abstraction_size, num_var_id, task_proxy)) {
+                    continue;
+                }
+
+                assert(already_split[local_id].count(split_val) == 0);
+
+                // Compute combined score: prop_score + numeric_partitions
+                int num_partitions = numeric_domain_mapping[num_var_id]->get_num_partitions();
+                int combined_score = prop_score + num_partitions;
+
+                UnifiedCandidate cand;
+                cand.flaw_idx = global_idx;
+                cand.prop_var_id = prop_var_id;
+                cand.prop_value = flaw.value;
+                cand.is_comparison = true;
+                cand.numeric_var_id = num_var_id;
+                cand.split_value = split_val;
+                cand.local_numeric_id = local_id;
+                cand.score = combined_score;
+
+                all_candidates.push_back(cand);
             }
-            
-            int local_id = global_to_local_regular_numeric_var_ids[num_var_id];
-            assert(local_id >= 0 && local_id < static_cast<int>(already_split.size()));
-            assert(already_split[local_id].count(split_val) == 0);
-            
-            // Compute combined score: prop_score + numeric_partitions
-            int num_partitions = numeric_domain_mapping[num_var_id]->get_num_partitions();
-            int combined_score = prop_score + num_partitions;
-            
-            UnifiedCandidate cand;
-            cand.flaw_idx = global_idx;
-            cand.prop_var_id = prop_var_id;
-            cand.prop_value = flaw.value;
-            cand.is_comparison = true;
-            cand.numeric_var_id = num_var_id;
-            cand.split_value = split_val;
-            cand.local_numeric_id = local_id;
-            cand.score = combined_score;
-            
-            all_candidates.push_back(cand);
         } else {
             // Non-comparison propositional variable: straightforward
             int score = abstract_domain_sizes[prop_var_id];
