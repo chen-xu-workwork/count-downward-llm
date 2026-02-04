@@ -693,6 +693,41 @@ vector<CEGAR::GlobalFlaw> CEGAR::get_deviation_flaws(
 
     vector<GlobalFlaw> flaws;
 
+
+    for (size_t var_id = 0; var_id < successor_state.size(); ++var_id) {
+        if (domain_mapping[var_id].empty()) {
+            continue; // trivial variable
+        }
+        int abstract_value = abstract_successor_state[var_id];
+        int correct_abstract_value = domain_mapping[var_id][successor_state[var_id]];
+        if (abstract_value != correct_abstract_value) {
+            if (is_comparison_axiom_variable(static_cast<int>(var_id))) {
+                auto it = comparison_axiom_dependencies.find(static_cast<int>(var_id));
+                assert(it != comparison_axiom_dependencies.end());
+                auto &concrete_values = last_concrete_values_by_prop_var[static_cast<int>(var_id)];
+                bool added = false;
+                for (int dep_var_id : it->second) {
+                    int local_idx = global_to_local_regular_numeric_var_ids[dep_var_id];
+                    assert(local_idx >= 0 && local_idx < static_cast<int>(already_split.size()));
+                    ap_float concrete_value = numeric_successor_state[dep_var_id];
+                    concrete_values[dep_var_id] = concrete_value;
+                    std::optional<ap_float> split_value =
+                        choose_unsplit_value(dep_var_id, local_idx, concrete_value);
+                    if (split_value) {
+                        flaws.emplace_back(Fact(static_cast<int>(var_id), successor_state[var_id]),
+                                           NumericFlaw(dep_var_id, *split_value));
+                        added = true;
+                    }
+                }
+                if (!added) {
+                    flaws.emplace_back(Fact(static_cast<int>(var_id), successor_state[var_id]), std::nullopt);
+                }
+            } else {
+                flaws.emplace_back(Fact(static_cast<int>(var_id), successor_state[var_id]), std::nullopt);
+            }
+        }
+    }
+
     for (size_t var_id = 0; var_id < numeric_successor_state.size(); ++var_id) {
         int abstract_value = abstract_numeric_successor_state[var_id];
         int correct_abstract_value = numeric_domain_mapping[var_id]->get_partition_index(
