@@ -1040,24 +1040,27 @@ bool CEGAR::fix_single_random_flaw(
 
             if constexpr (std::is_same_v<T, PropFlaw>) {
                 const Fact &fact = f.first;
-                const std::vector<NumericFlaw> &numeric_flaws = f.second;
 
                 if (can_refine_variable(abstraction_size, fact.var)) {
                     add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
 
                     if (is_comparison_axiom_variable) {
+                        const std::vector<NumericFlaw> &numeric_flaws = f.second;
                         domain_mapping[fact.var][0] = 1;
                         abstract_domain_sizes[fact.var] = 2;
-                        for (int j = 0; j < repetitions; ++j) {
+                        for (int j = i; j < repetitions; ++j) {
                             chosen_idx = rng->random(numeric_flaws.size());
                             NumericFlaw chosen_numeric_flaw = numeric_flaws[chosen_idx];
                             // TODO: Implement check if the flaw has been already split at that position
-                            // TODO: Find a VALID flaw, not a random one
                             int id              = std::get<0>(chosen_numeric_flaw);
                             const ap_float &val = std::get<1>(chosen_numeric_flaw);
                             bool flag           = std::get<2>(chosen_numeric_flaw);
-                            numeric_domain_mapping[id]->split_at(val, flag);
-                            return true;
+                            if (can_refine_numeric_variable(abstraction_size, id)) {
+                                // TODO: Here was LOCAL id used. Get rid of it. 
+                                numeric_domain_mapping[id]->split_at(val, flag);
+                                return true;
+                            }
+                            // TODO: Think more carefully if that really makes sense here
                         }
                         return false;
                         
@@ -1078,6 +1081,11 @@ bool CEGAR::fix_single_random_flaw(
 
                 // TODO: Implement check if the flaw has been already split at that position
                 numeric_domain_mapping[id]->split_at(val, flag);
+                if (can_refine_numeric_variable(abstraction_size, id)) {
+                    // TODO: Here was LOCAL id used. Get rid of it. 
+                    numeric_domain_mapping[id]->split_at(val, flag);
+                    return true;
+                }
 
             }
         }, chosen);
@@ -1871,12 +1879,6 @@ bool CEGAR::can_refine_variable(
     }
     
     // Comparison axiom variables can only be refined once (size 1 -> 2).
-    // If already refined (size >= 2), still return true to allow numeric refinement.
-    // We don't check for unsplit values here because:
-    // - Observed values vary semi-randomly between iterations
-    // - A comparison with no splittable values NOW may have them later
-    // - The fix_single_random_flaw will skip the no-op propositional refinement
-    // - The numeric refinement step will naturally handle "no valid candidates"
     if (is_comparison_axiom_variable(var_id) && abstract_domain_sizes[var_id] >= 2) {
         logger->log(Verbosity::DEBUG, "Comparison axiom var ", var_id,
                    " already refined, allowing for potential numeric refinement");
@@ -1884,7 +1886,6 @@ bool CEGAR::can_refine_variable(
     }
     
     int domain_size = abstract_domain_sizes[var_id];
-
     int abs_size_without_var = old_abstraction_size / domain_size;
     if (utils::is_product_within_limit(abs_size_without_var, domain_size + 1,
                                        max_abstraction_size)) {
