@@ -1031,50 +1031,58 @@ bool CEGAR::fix_single_random_flaw(
     // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
     int repetitions = ceil(1 + std::log(flaws.size()));
     for (int i = 0; i < repetitions; ++i) {
-        // Choose a random index to preserve the mapping to detected_flaws
         int chosen_idx = rng->random(flaws.size());
         const Flaw &chosen = flaws[chosen_idx];
-        Fact fact = chosen.flaw;
 
+        visit([&](auto &&f) {
+            using T = std::decay_t<decltype(f)>;
 
-        
-        if (can_refine_variable(abstraction_size, fact.var)) {
-            add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
-            
-            if (is_comparison_axiom_variable(fact.var)) {
-                // Comparison axiom variables have domain {0=true, 1=false, 2=unevaluated}
-                // Flaws always occur with value 0 (true), and refinement splits true from {false, unevaluated}
-                //assert(fact.value == 0);
-                
-                // If already refined propositionally (size >= 2), only do numeric refinement
-                if (abstract_domain_sizes[fact.var] >= 2) {
-                    logger->log(Verbosity::INFO, "Comparison axiom var ", fact.var,
-                               " already refined propositionally, selecting for numeric refinement");
+            if constexpr (std::is_same_v<T, PropFlaw>) {
+                const Fact &fact = f.first;
+                const std::vector<NumericFlaw> &numeric_flaws = f.second;
+
+                if (can_refine_variable(abstraction_size, fact.var)) {
+                    add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
+
+                    if (is_comparison_axiom_variable) {
+                        domain_mapping[fact.var][0] = 1;
+                        abstract_domain_sizes[fact.var] = 2;
+                    } else {
+                        int old_size = abstract_domain_sizes[fact.var];
+                        domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
+                        abstract_domain_sizes[fact.var] += 1;
+                        logger->log(Verbosity::INFO, "Refined propositional var ", fact.var,
+                                " at value ", fact.value,
+                                " (abstract domain size: ", old_size, " -> ", abstract_domain_sizes[fact.var], ")");
+                    }
+
+                  
                 } else {
-                    // Do the propositional refinement
-                    domain_mapping[fact.var][0] = 1;
-                    abstract_domain_sizes[fact.var] = 2;
-                    logger->log(Verbosity::INFO, "Refined propositional var ", fact.var,
-                               " (comparison axiom) at value ", fact.value);
+                    logger->log(Verbosity::DEBUG, "Variable ", fact.var,
+                               " cannot be refined (domain size exceeds limit or blacklisted).");
                 }
-            } else {
-                int old_size = abstract_domain_sizes[fact.var];
-                domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
-                abstract_domain_sizes[fact.var] += 1;
-                logger->log(Verbosity::INFO, "Refined propositional var ", fact.var,
-                           " at value ", fact.value,
-                           " (abstract domain size: ", old_size, " -> ", abstract_domain_sizes[fact.var], ")");
-            }
-            // Record the chosen flaw INDEX (not var ID) for numeric flaw lookup
-            last_selected_flaw_indices.clear();
-            last_selected_flaw_indices.push_back(chosen.global_index);
 
-            return true;
-        } else {
-            logger->log(Verbosity::DEBUG, "Variable ", fact.var,
-                           " cannot be refined (domain size exceeds limit or blacklisted).");
-        }
+                chosen_idx = rng->random(numeric_flaws.size());
+                NumericFlaw chosen_numeric_flaw = numeric_flaws[chosen_idx];
+                // TODO: Implement check if the flaw has been already split at that position
+                // TODO: Find a VALID flaw, not a random one
+                int id              = std::get<0>(chosen_numeric_flaw);
+                const ap_float &val = std::get<1>(chosen_numeric_flaw);
+                bool flag           = std::get<2>(chosen_numeric_flaw);
+                numeric_domain_mapping[id]->split_at(val, flag);
+            }
+            else if constexpr (std::is_same_v<T, NumericFlaw>) {
+                int id              = std::get<0>(f);
+                const ap_float &val = std::get<1>(f);
+                bool flag           = std::get<2>(f);
+
+                // TODO: Implement check if the flaw has been already split at that position
+                numeric_domain_mapping[id]->split_at(val, flag);
+
+            }
+        }, chosen);
     }
+
     return false;
 }
 
