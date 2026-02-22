@@ -1034,6 +1034,7 @@ bool CEGAR::fix_single_random_flaw(
         int chosen_idx = rng->random(flaws.size());
         const Flaw &chosen = flaws[chosen_idx];
 
+        // TODO: Proper check of can_refine_numeric_var
         visit([&](auto &&f) {
             using T = std::decay_t<decltype(f)>;
 
@@ -1047,6 +1048,19 @@ bool CEGAR::fix_single_random_flaw(
                     if (is_comparison_axiom_variable) {
                         domain_mapping[fact.var][0] = 1;
                         abstract_domain_sizes[fact.var] = 2;
+                        for (int j = 0; j < repetitions; ++j) {
+                            chosen_idx = rng->random(numeric_flaws.size());
+                            NumericFlaw chosen_numeric_flaw = numeric_flaws[chosen_idx];
+                            // TODO: Implement check if the flaw has been already split at that position
+                            // TODO: Find a VALID flaw, not a random one
+                            int id              = std::get<0>(chosen_numeric_flaw);
+                            const ap_float &val = std::get<1>(chosen_numeric_flaw);
+                            bool flag           = std::get<2>(chosen_numeric_flaw);
+                            numeric_domain_mapping[id]->split_at(val, flag);
+                            return true;
+                        }
+                        return false;
+                        
                     } else {
                         int old_size = abstract_domain_sizes[fact.var];
                         domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
@@ -1055,21 +1069,7 @@ bool CEGAR::fix_single_random_flaw(
                                 " at value ", fact.value,
                                 " (abstract domain size: ", old_size, " -> ", abstract_domain_sizes[fact.var], ")");
                     }
-
-                  
-                } else {
-                    logger->log(Verbosity::DEBUG, "Variable ", fact.var,
-                               " cannot be refined (domain size exceeds limit or blacklisted).");
-                }
-
-                chosen_idx = rng->random(numeric_flaws.size());
-                NumericFlaw chosen_numeric_flaw = numeric_flaws[chosen_idx];
-                // TODO: Implement check if the flaw has been already split at that position
-                // TODO: Find a VALID flaw, not a random one
-                int id              = std::get<0>(chosen_numeric_flaw);
-                const ap_float &val = std::get<1>(chosen_numeric_flaw);
-                bool flag           = std::get<2>(chosen_numeric_flaw);
-                numeric_domain_mapping[id]->split_at(val, flag);
+                } 
             }
             else if constexpr (std::is_same_v<T, NumericFlaw>) {
                 int id              = std::get<0>(f);
