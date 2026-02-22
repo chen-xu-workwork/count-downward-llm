@@ -152,20 +152,20 @@ private:
                                     const State &concrete_init,
                                     const DomainAbstraction &abstraction,
                                     bool execute_entire_plan) const;
-        bool fix_flaws(std::vector<IndexedPropFlaw> &&flaws,
-                   DomainMapping &domain_mapping, int abstraction_size);
-        bool fix_single_random_flaw(std::vector<IndexedPropFlaw> &&flaws,
+        bool fix_flaws(std::vector<Flaw> &&flaws,
+                   DomainMapping &domain_mapping, int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
+        bool fix_single_random_flaw(std::vector<Flaw> &&flaws,
                                 DomainMapping &domain_mapping,
-                                int abstraction_size);
+                                int abstraction_size, NumericDomainMappingType &numeric_domain_mapping  );
         bool fix_single_flaw_max_refined(
-            vector<IndexedPropFlaw> &&flaws, DomainMapping &domain_mapping,
-            int abstraction_size);
-        bool fix_flaws_per_atom(std::vector<IndexedPropFlaw> &&flaws,
+            vector<Flaw> &&flaws, DomainMapping &domain_mapping,
+            int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
+        bool fix_flaws_per_atom(std::vector<Flaw> &&flaws,
                             DomainMapping &domain_mapping,
-                            int abstraction_size);
-        bool fix_flaws_per_variable(std::vector<IndexedPropFlaw> &&flaws,
+                            int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
+        bool fix_flaws_per_variable(std::vector<Flaw> &&flaws,
                                 DomainMapping &domain_mapping,
-                                int abstraction_size);
+                                int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
 
     bool can_refine_variable(int old_abstraction_size, int var_id);
     bool can_refine_numeric_variable(int old_abstraction_size, int numeric_var_id, const TaskProxy &task_proxy);
@@ -1013,9 +1013,6 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
                 flaws.insert(flaws.end(), operator_flaws.begin(), operator_flaws.end());
             }
         }
-
-        
-
         
         if (!flaws.empty()) {
             return flaws;
@@ -1026,20 +1023,16 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
     string decoded_state = decode_abstract_state_compact(current_prop_state, current_numeric_state);
     logger->log(Verbosity::DEBUG, "[PLAN] ", decoded_state);
 
-    // Check goal flaws
-    // In STOP_AT_FIRST_FLAW mode we should have no plan execution flaws
-    // since we return early. In EXECUTE_ENTIRE_PLAN mode, flaws may have accumulated.
     assert(flaws.empty());
 
     vector<Flaw> goal_flaws =
         get_goal_flaws(task_proxy, current_prop_state, current_numeric_state);
     flaws.insert(flaws.end(), goal_flaws.begin(), goal_flaws.end());
-
     return flaws;
 }
 
 bool CEGAR::fix_flaws(
-    vector<IndexedPropFlaw> &&flaws, DomainMapping &domain_mapping,
+    vector<Flaw> &&flaws, DomainMapping &domain_mapping,
     int abstraction_size) {
     switch (flaw_treatment) {
         case FlawTreatment::RANDOM_SINGLE_ATOM:
@@ -1870,201 +1863,18 @@ DomainAbstraction CEGAR::build_abstraction(
             exec_entire_for_this_iteration = (rng->random(2) == 0);
         }
 
-        vector<GlobalFlaw> flaws =
+        vector<Flaw> flaws =
                 get_flaws(task_proxy, concrete_init, abstraction, exec_entire_for_this_iteration);
-        // Reset the selected flaw indices for this refinement step
-        last_selected_flaw_indices.clear();
-
-        // SUMMARY: Final flaws and dependencies for this iteration
-        if (!flaws.empty()) {
-            logger->log(Verbosity::DEBUG, "SUMMARY: Flaws after plan validation");
-            bool any_prop = false;
-            for (const GlobalFlaw &f : flaws) {
-                if (f.first) {
-                    any_prop = true;
-                    break;
-                }
-            }
-            if (any_prop) {
-                logger->log(Verbosity::DEBUG, "  Propositional flaws:");
-                // Access variable and numeric proxies for names
-                VariablesProxy vars = task_proxy.get_variables();
-                NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
-                for (const GlobalFlaw &f : flaws) {
-                    if (!f.first) {
-                        continue;
-                    }
-                    bool is_comp = (comparison_axiom_dependencies.find(f.first->var) != comparison_axiom_dependencies.end());
-                    // Print propositional variable with its human-readable name
-                    string prop_name = vars[f.first->var].get_name();
-                    logger->log(Verbosity::DEBUG, "    fdr_", f.first->var, " (", prop_name, ")=", f.first->value,
-                                    (is_comp ? " (comparison)" : ""));
-                    if (is_comp) {
-                        const auto &deps = comparison_axiom_dependencies.at(f.first->var);
-                        logger->log_no_endl(Verbosity::DEBUG, "      depends on numeric: ");
-                        bool first = true;
-                        for (int nv : deps) {
-                            if (!first) logger->log_no_endl(Verbosity::DEBUG, ", ");
-                            // Include numeric variable name
-                            string num_name = num_vars[nv].get_name();
-                            logger->log_no_endl(Verbosity::DEBUG, "num_", nv, " (", num_name, ")");
-                            first = false;
-                        }
-                        logger->log(Verbosity::DEBUG, "");
-                    }
-                }
-            } else {
-                logger->log(Verbosity::DEBUG, "  Propositional flaws: none");
-            }
-            bool any_numeric = false;
-            for (const GlobalFlaw &f : flaws) {
-                if (f.second) {
-                    any_numeric = true;
-                    break;
-                }
-            }
-            if (any_numeric) {
-                logger->log(Verbosity::DEBUG, "  Numeric flaws:");
-                // Access proxies (reuse if already declared above not available in this scope)
-                VariablesProxy vars = task_proxy.get_variables();
-                NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
-                for (const GlobalFlaw &f : flaws) {
-                    if (!f.second) {
-                        continue;
-                    }
-                    const NumericFlaw &nf = *f.second;
-                    string num_name = num_vars[nf.numeric_var_id].get_name();
-                    if (f.first) {
-                        string prop_name = vars[f.first->var].get_name();
-                        logger->log(Verbosity::DEBUG, "    num_", nf.numeric_var_id, " (", num_name, ")",
-                                        " at value ", nf.concrete_value,
-                                        " (from axiom fdr_", f.first->var, " (", prop_name, "))");
-                    } else {
-                        logger->log(Verbosity::DEBUG, "    num_", nf.numeric_var_id, " (", num_name, ")",
-                                        " at value ", nf.concrete_value,
-                                        " (numeric-only flaw)");
-                    }
-                }
-            } else {
-                logger->log(Verbosity::DEBUG, "  Numeric flaws: none");
-            }
-        }
 
         if (flaws.empty()) {
             logger->log(Verbosity::DEBUG, "No more flaws found, terminating CEGAR refinement.");
             break;
         }
 
-        // First try to fix propositional flaws (if any)
-        bool flaws_fixed = true;
-        vector<IndexedPropFlaw> prop_flaws;
-        prop_flaws.reserve(flaws.size());
-        for (size_t i = 0; i < flaws.size(); ++i) {
-            if (flaws[i].first) {
-                prop_flaws.push_back({*flaws[i].first, static_cast<int>(i)});
-            }
-        }
-        if (!prop_flaws.empty()) {
-            flaws_fixed = fix_flaws(move(prop_flaws), domain_mapping, abstraction.size());
-            if (!flaws_fixed) {
-                logger->log(Verbosity::INFO, "Could not fix any propositional flaws (all at size limit or blacklisted)");
-            }
-        } else {
-            logger->log(Verbosity::INFO, "No propositional flaws to fix");
-        }
-        
-        // Then try to fix numeric flaws (if any)
-        bool numeric_flaws_fixed = true;
-
-        // Get numeric flaws from the selected propositional flaws (by indices)
-        std::vector<SelectedNumericFlaw> selected_numeric_flaws;
-        if (!last_selected_flaw_indices.empty()) {
-            for (int flaw_idx : last_selected_flaw_indices) {
-                assert(flaw_idx >= 0 && static_cast<size_t>(flaw_idx) < flaws.size());
-                const GlobalFlaw &global_flaw = flaws[flaw_idx];
-                if (!global_flaw.second) {
-                    continue;
-                }
-                std::optional<int> prop_var_id = global_flaw.first
-                    ? std::optional<int>(global_flaw.first->var)
-                    : std::nullopt;
-                const NumericFlaw &nf = *global_flaw.second;
-                selected_numeric_flaws.push_back({nf.numeric_var_id, nf.concrete_value, prop_var_id});
-            }
-        }
-        for (const GlobalFlaw &global_flaw : flaws) {
-            if (global_flaw.first || !global_flaw.second) {
-                continue;
-            }
-            const NumericFlaw &nf = *global_flaw.second;
-            selected_numeric_flaws.push_back({nf.numeric_var_id, nf.concrete_value, std::nullopt});
-        }
-        logger->log(Verbosity::DEBUG, "Collected ", selected_numeric_flaws.size(),
-               " numeric flaws (", last_selected_flaw_indices.size(),
-               " selected prop indices + numeric-only flaws)");
-
-        if (selected_numeric_flaws.empty()) {
-            logger->log(Verbosity::INFO, "No numeric flaws to fix (selected list is empty)");
-        } else {
-            logger->log(Verbosity::INFO, "Attempting to fix ", selected_numeric_flaws.size(), " numeric flaws");
-        }
-        numeric_flaws_fixed = fix_numeric_flaws(selected_numeric_flaws, abstraction.size(), task_proxy);
-        
-        if (!flaws_fixed || !numeric_flaws_fixed) {
-            assert(max_abstraction_size != numeric_limits<int>::max());
-            logger->log(Verbosity::INFO, "Terminating CEGAR loop because fixing flaws ",
-                           "surpasses abstraction size limit of ", max_abstraction_size, " states. ",
-                           "Generated ", abstraction.size(), " abstract states.");
+        bool flaws_fixed = fix_flaws(move(flaws), domain_mapping, abstraction.size());
+        if (!flaws_fixed) {
+            logger->log(Verbosity::DEBUG, "No flaws could be fixed, terminating CEGAR refinement.");
             break;
-        }
-
-
-     
-        
-        // Validate that numeric_domain_sizes matches the actual partitions
-      
-        bool all_valid = true;
-        for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
-            int actual_partitions = numeric_domain_mapping[i]->get_num_partitions();
-            int expected_partitions = numeric_domain_sizes[i];
-            if (actual_partitions != expected_partitions) {
-                logger->log(Verbosity::NONE, "ERROR: num_", i, " has ", actual_partitions,
-                                " partitions but expected ", expected_partitions);
-                all_valid = false;
-            }
-            if (!numeric_domain_mapping[i]->is_valid()) {
-                logger->log(Verbosity::NONE, "ERROR: num_", i, " has invalid mapping");
-                all_valid = false;
-            }
-        }
-        if (!all_valid) {
-            logger->log(Verbosity::NONE, "CRITICAL ERROR: Numeric domain mapping validation failed!");
-            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-        }
-
-        logger->log(Verbosity::DEBUG, "  Domain mapping (propositional):");
-        for (size_t i = 0; i < domain_mapping.size(); ++i) {
-            if (!domain_mapping[i].empty()) {
-                logger->log_no_endl(Verbosity::DEBUG, "    var ", i, ": ");
-                for (size_t j = 0; j < domain_mapping[i].size(); ++j) {
-                    if (domain_mapping[i][j] == 0) continue;
-                    logger->log_no_endl(Verbosity::DEBUG, j, " -> ", domain_mapping[i][j], ", ");
-                }
-                logger->log(Verbosity::DEBUG, "");
-            }
-        }
-        logger->log(Verbosity::DEBUG, "  Domain mapping (numeric):");
-        for (size_t i = 0; i < numeric_domain_mapping.size(); ++i) {
-            if (numeric_domain_mapping[i]->get_num_partitions() > 1) {
-                logger->log_no_endl(Verbosity::DEBUG, "    num var ", i, ": { ");
-                // Iterate through actual ranges and show partition assignment
-                const auto &ranges = numeric_domain_mapping[i]->get_ranges();
-                for (size_t range_idx = 0; range_idx < ranges.size(); ++range_idx) {
-                    const NumericRange &range = ranges[range_idx];
-                    logger->log_no_endl(Verbosity::DEBUG, "partition ", range.partition_index, ": ", range.to_string(), " ");
-                }   
-                logger->log(Verbosity::DEBUG, "}");
-            }
         }
         
         DomainAbstractionFactory new_factory(
