@@ -47,20 +47,6 @@ private:
         NumericFlaw(int var_id, ap_float value)
             : numeric_var_id(var_id), concrete_value(value) {}
     };
-
-    using GlobalFlaw = std::pair<std::optional<Fact>, std::optional<NumericFlaw>>;
-
-    struct IndexedPropFlaw {
-        Fact flaw;
-        int global_index;
-    };
-
-    struct SelectedNumericFlaw {
-        int numeric_var_id;
-        ap_float concrete_value;
-        std::optional<int> prop_var_id;
-        bool include_in_lower;
-    };
     
     // Track how many times each numeric variable has been refined
     // to prevent infinite loops
@@ -94,10 +80,6 @@ private:
     std::vector<int> numeric_domain_sizes;
     std::unordered_set<int> blacklisted_numeric_variables;
     
-    // Temporary storage for detected flaws (propositional and/or numeric)
-    // (mutable because get_flaws is const but needs to store flaws)
-
-    // Concrete numeric values captured at flaw time, keyed by comparison axiom var.
     mutable std::unordered_map<int, std::unordered_map<int, ap_float>>
         last_concrete_values_by_prop_var;
     
@@ -228,10 +210,6 @@ private:
         ap_float split_value,
         const std::vector<ap_float> &concrete_values,
         const TaskProxy &task_proxy) const;
-    
-    bool fix_numeric_flaws(const std::vector<SelectedNumericFlaw> &numeric_flaws,
-                          int abstraction_size,
-                          const TaskProxy &task_proxy);
 
     std::optional<ap_float> choose_unsplit_value(
         int numeric_var_id, int local_idx, ap_float concrete_value) const;
@@ -666,7 +644,6 @@ vector<CEGAR::Flaw> CEGAR::get_precondition_flaws(
             if (is_comparison_axiom_variable(var_id)) {
                 auto it = comparison_axiom_dependencies.find(var_id);
                 assert(it != comparison_axiom_dependencies.end());
-                auto &concrete_values = last_concrete_values_by_prop_var[var_id];
                 vector<NumericFlaw> numeric_flaws;
                 for (int dep_var_id : it->second) {
                     ap_float concrete_value = numeric_state[dep_var_id];
@@ -1033,31 +1010,33 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
 
 bool CEGAR::fix_flaws(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
-    int abstraction_size) {
+    int abstraction_size, NumericDomainMappingType &numeric_domain_mapping) {
     switch (flaw_treatment) {
         case FlawTreatment::RANDOM_SINGLE_ATOM:
-            return fix_single_random_flaw(move(flaws), domain_mapping, abstraction_size);
+            return fix_single_random_flaw(move(flaws), domain_mapping, abstraction_size, numeric_domain_mapping);
         case FlawTreatment::ONE_SPLIT_PER_ATOM:
-            return fix_flaws_per_atom(move(flaws), domain_mapping, abstraction_size);
+            return fix_flaws_per_atom(move(flaws), domain_mapping, abstraction_size, numeric_domain_mapping);
         case FlawTreatment::ONE_SPLIT_PER_VARIABLE:
-            return fix_flaws_per_variable(move(flaws), domain_mapping, abstraction_size);
+            return fix_flaws_per_variable(move(flaws), domain_mapping, abstraction_size, numeric_domain_mapping);
         case FlawTreatment::MAX_REFINED_SINGLE_ATOM:
-            return fix_single_flaw_max_refined(move(flaws), domain_mapping, abstraction_size);
+            return fix_single_flaw_max_refined(move(flaws), domain_mapping, abstraction_size, numeric_domain_mapping);
     }
     assert(false);
     return false;
 }
 
 bool CEGAR::fix_single_random_flaw(
-    vector<IndexedPropFlaw> &&flaws, DomainMapping &domain_mapping,
-    int abstraction_size) {
+    vector<Flaw> &&flaws, DomainMapping &domain_mapping,
+    int abstraction_size, NumericDomainMappingType &numeric_domain_mapping) {
     // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
     int repetitions = ceil(1 + std::log(flaws.size()));
     for (int i = 0; i < repetitions; ++i) {
         // Choose a random index to preserve the mapping to detected_flaws
         int chosen_idx = rng->random(flaws.size());
-        const IndexedPropFlaw &chosen = flaws[chosen_idx];
+        const Flaw &chosen = flaws[chosen_idx];
         Fact fact = chosen.flaw;
+
+
         
         if (can_refine_variable(abstraction_size, fact.var)) {
             add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
@@ -1110,8 +1089,8 @@ bool CEGAR::fix_single_random_flaw(
  * Higher score = less growth when refined = preferred candidate.
  */
 bool CEGAR::fix_single_flaw_max_refined(
-    vector<IndexedPropFlaw> &&flaws, DomainMapping &domain_mapping,
-    int abstraction_size) {
+    vector<Flaw> &&flaws, DomainMapping &domain_mapping,
+    int abstraction_size, NumericDomainMappingType &numeric_domain_mapping) {
     
     // Unified candidate structure for both propositional-only and comparison+numeric pairs
     struct UnifiedCandidate {
@@ -1131,7 +1110,7 @@ bool CEGAR::fix_single_flaw_max_refined(
     TaskProxy task_proxy(*g_root_task());
     
     for (int i = 0; i < num_flaws; ++i) {
-        const IndexedPropFlaw &entry = flaws[i];
+        const Flaw &entry = flaws[i];
         const Fact &flaw = entry.flaw;
         int global_idx = entry.global_index;
         int prop_var_id = flaw.var;
@@ -1285,8 +1264,8 @@ bool CEGAR::fix_single_flaw_max_refined(
 }
 
 bool CEGAR::fix_flaws_per_atom(
-    vector<IndexedPropFlaw> &&flaws, DomainMapping &domain_mapping,
-    int abstraction_size) {
+    vector<Flaw> &&flaws, DomainMapping &domain_mapping,
+    int abstraction_size, NumericDomainMappingType &numeric_domain_mapping) {
     // FIXME: Bias for variables with low index.
     // NOTE: Sorting breaks the correspondence with detected_flaws!
     // We need to track original indices before sorting.
@@ -1329,8 +1308,8 @@ bool CEGAR::fix_flaws_per_atom(
 }
 
 bool CEGAR::fix_flaws_per_variable(
-    vector<IndexedPropFlaw> &&flaws, DomainMapping &domain_mapping,
-    int abstraction_size) {
+    vector<Flaw> &&flaws, DomainMapping &domain_mapping,
+    int abstraction_size, NumericDomainMappingType &numeric_domain_mapping) {
     // FIXME: Bias for variables with low index.
     // NOTE: Sorting breaks the correspondence with detected_flaws!
     // We need to track original indices before sorting.
@@ -1524,33 +1503,19 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
         numType var_type = num_var.get_var_type();
         
         if (var_type == numType::constant) {
-            // Constants should have a single partition at their exact value
-            // Use ConstantMapping which prevents splitting
             ap_float const_value = num_var.get_initial_state_value();
-            //std::cout << "  num_" << i << " (" << num_var.get_name() 
-            //         << ") is CONSTANT with value " << const_value 
-            //         << " - creating ConstantMapping" << std::endl;
             
             numeric_domain_mapping.push_back(std::make_unique<ConstantMapping>(const_value));
         } else if (var_type == numType::derived) {
-            //td::cout << "  num_" << i << " (" << num_var.get_name() 
-            //        << ") is DERIVED - skipping explicit mapping (implicitly abstracted)" << std::endl;
-            //TODO: Can we get rid of this?
             numeric_domain_mapping.push_back(std::make_unique<ConstantMapping>(0));
         } else if (var_type == numType::regular) {
-            //std::cout << "  num_" << i << " (" << num_var.get_name() 
-            //         << ") is REGULAR - creating refinable mapping" << std::endl;
             
             if (numeric_split_strategy == NumericSplitStrategy::EXCLUSION) {
                 numeric_domain_mapping.push_back(std::make_unique<ExclusionSplitMapping>());
             } else {
-                // Default: StandardSplitMapping
                 numeric_domain_mapping.push_back(std::make_unique<StandardSplitMapping>());
             }
         } else {
-            //std::cout << "  num_" << i << " (" << num_var.get_name() 
-            //         << ") is OTHER/UNKNOWN (type=" << static_cast<int>(var_type)
-            //         << ") - creating refinable mapping" << std::endl;
             
             if (numeric_split_strategy == NumericSplitStrategy::EXCLUSION) {
                 numeric_domain_mapping.push_back(std::make_unique<ExclusionSplitMapping>());
@@ -1560,13 +1525,10 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
         }
     }
     
-    // Apply initial splits for numeric variables that are in init_split_var_ids
-    // Numeric var IDs are encoded as num_prop_vars + numeric_var_id
     int num_prop_vars = task_proxy.get_variables().size();
     
     for (int encoded_var_id : init_split_var_ids) {
         if (encoded_var_id < num_prop_vars) {
-            // This is a propositional variable, skip (handled in compute_initial_domain_mapping)
             continue;
         }
         
@@ -1575,7 +1537,6 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
             continue;
         }
         
-        // Check if blacklisted
         if (blacklisted_numeric_variables.count(numeric_var_id) > 0) {
             continue;
         }
@@ -1583,14 +1544,10 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
         NumericVariableProxy num_var = num_vars[numeric_var_id];
         numType var_type = num_var.get_var_type();
         
-        // Only apply init split to regular numeric variables
         if (var_type != numType::regular) {
             continue;
         }
         
-        // For IDENTITY and GOAL_VALUE_OR_RANDOM_IF_NON_GOAL:
-        // Split at initial value with random boundary inclusion
-        // (Numeric variables are never goals, so both methods behave the same)
         if (init_split_method == InitSplitMethod::IDENTITY ||
             init_split_method == InitSplitMethod::GOAL_VALUE_OR_RANDOM_IF_NON_GOAL) {
             
@@ -1640,9 +1597,6 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
     vector<vector<int>> axiom_dependencies(num_numeric_vars);
     
     AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
-    //cout << "DEBUG AXIOM MAP: Building assignment axiom dependency graph" << endl;
-    //cout << "DEBUG AXIOM MAP: Total numeric variables: " << num_numeric_vars << endl;
-    //cout << "DEBUG AXIOM MAP: Assignment axioms: " << assignment_axioms.size() << endl;
 
     for (AssignmentAxiomProxy axiom : assignment_axioms) {
         int derived_id = axiom.get_assignment_variable().get_id();
@@ -1660,27 +1614,21 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
     for (int i = 0; i < num_numeric_vars; ++i) {
         NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
         int var_id = num_var.get_id();
-        //get var type
         numType num_type = num_var.get_var_type();
         if (num_type == numType::regular) {
             is_regular[i] = true;
-            //cout << "  num_" << var_id << " (" << num_var.get_name() << ") is REGULAR" << endl;
         }
     }
 
     
-    // Helper function to recursively find all regular (non-derived) variables
-    // that a given variable depends on
     auto find_regular_dependencies = [&](int var_id, auto& find_regular_dependencies_ref) -> unordered_set<int> {
         unordered_set<int> regular_vars;
         
         assert(var_id >= 0 && var_id < num_numeric_vars);
         
         if (is_regular[var_id]) {
-            // This is a regular variable - add it
             regular_vars.insert(var_id);
         } else {
-            // This is a derived variable - recurse on its dependencies
             for (int dep_id : axiom_dependencies[var_id]) {
                 unordered_set<int> deps = find_regular_dependencies_ref(dep_id, find_regular_dependencies_ref);
                 regular_vars.insert(deps.begin(), deps.end());
@@ -1696,11 +1644,9 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
                         goal_fact.get_variable().get_name(), "=", goal_fact.get_value());
     }
 
-    // Now build the comparison axiom mapping
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
     logger->log(Verbosity::DEBUG, "DEBUG: Building comparison axiom mapping, total axioms: ", comparison_axioms.size());
     for (ComparisonAxiomProxy axiom : comparison_axioms) {
-        // Get the propositional variable created by this comparison axiom
         FactProxy true_fact = axiom.get_true_fact();
         FactProxy false_fact = axiom.get_false_fact();
         assert(true_fact.get_variable().get_id() == false_fact.get_variable().get_id());
@@ -1710,13 +1656,11 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         logger->log(Verbosity::DEBUG, "DEBUG: Processing comparison axiom for fdr_", prop_var_id,
                         " (", true_fact.get_variable().get_name(), ")");
         
-        // Get the numeric variables used in the comparison (may be derived!)
         int left_var_id = axiom.get_left_variable().get_id();
         int right_var_id = axiom.get_right_variable().get_id();
         assert(left_var_id >= 0 && left_var_id < num_numeric_vars);
         assert(right_var_id >= 0 && right_var_id < num_numeric_vars);
         
-        // Trace through to find regular variables
         unordered_set<int> regular_vars;
         
         unordered_set<int> left_deps = find_regular_dependencies(left_var_id, find_regular_dependencies);
@@ -1725,14 +1669,11 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         unordered_set<int> right_deps = find_regular_dependencies(right_var_id, find_regular_dependencies);
         regular_vars.insert(right_deps.begin(), right_deps.end());
         
-        // Store the mapping
         comparison_axiom_dependencies[prop_var_id] = regular_vars;
         
-        // Store comparison axiom info for determining split direction
         comp_operator comp_op = axiom.get_comparison_operator_type();
         comparison_axiom_info[prop_var_id] = ComparisonInfo{left_var_id, right_var_id, static_cast<int>(comp_op)};
         
-        // Debug output for ALL comparison axioms
         logger->log(Verbosity::DEBUG, "  fdr_", prop_var_id, " depends on:");
         logger->log(Verbosity::DEBUG, "    left_var=num_", left_var_id,
                         (left_var_id >= 0 && is_regular[left_var_id] ? " (regular)" : " (DERIVED)"));
@@ -1748,7 +1689,6 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
     logger->log(Verbosity::DEBUG, "DEBUG: Total comparison axiom dependencies stored: ",
                     comparison_axiom_dependencies.size());
     
-    // Print full comparison_axiom_dependencies mapping
     logger->log(Verbosity::DEBUG, "\n=== COMPLETE comparison_axiom_dependencies mapping ===");
     NumericVariablesProxy num_vars_for_print = task_proxy.get_numeric_variables();
     for (const auto &entry : comparison_axiom_dependencies) {
