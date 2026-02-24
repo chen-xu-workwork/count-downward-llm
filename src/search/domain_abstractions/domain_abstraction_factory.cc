@@ -232,9 +232,6 @@ static vector<Fact> get_comparison_preconditions(
     return result;
 }
 
-// Reset all comparison-axiom variables in the given abstract state to UNKNOWN (value index 2),
-// EXCEPT for variables that appear in fixed_comparisons - those keep their specified values.
-// Returns the adjusted abstract state index.
 static int reset_comparison_vars_to_unknown_except(
     int state_index,
     const DomainMapping &domain_mapping,

@@ -1096,17 +1096,38 @@ bool CEGAR::fix_single_random_flaw(
 
 /* Chooses a flaw for that the increase in abstraction size is the smallest among all given ones
  * -> Leads to the smallest possible increase in abstraction size in every iteration 
- * 
- * For numeric planning, we need to consider pairs of (comparison var, numeric var) together.
- * The ranking score is the SUM of abstract domain sizes:
- * - For non-comparison vars: score = abstract_domain_sizes[var]
- * - For comparison vars: score = abstract_domain_sizes[prop_var] + numeric_partitions[num_var]
- *   (if comparison already refined, prop contributes 2 to score but 0 to growth)
- * Higher score = less growth when refined = preferred candidate.
  */
 bool CEGAR::fix_single_flaw_max_refined(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
     int abstraction_size, NumericDomainMappingType &numeric_domain_mapping) {
+
+    int current_max_domain_size = 0;
+    vector<int> current_flaw_candidates;
+    int num_flaws = (int) flaws.size();
+
+    for (int i = 0; i < num_flaws; ++i) {
+        Flaw flaw = flaws[i];
+        visit([&](auto &&f) {
+            using T = std::decay_t<decltype(f)>;
+            if constexpr (std::is_same_v<T, PropFlaw>) { 
+                const Fact &fact = f.first;
+
+                if (is_comparison_axiom_variable(fact.var)) {
+
+                } else {
+                    
+                }
+
+
+            } else if constexpr (std::is_same_v<T, NumericFlaw>) {
+
+            }
+
+        }, flaw);
+    }
+
+
+
     
     // Unified candidate structure for both propositional-only and comparison+numeric pairs
     struct UnifiedCandidate {
