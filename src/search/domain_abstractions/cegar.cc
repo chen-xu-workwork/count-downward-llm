@@ -71,11 +71,6 @@ private:
     mutable std::unordered_map<int, std::unordered_map<int, ap_float>>
         last_concrete_values_by_prop_var;
     
-    // Track the INDICES of selected propositional flaws in the flaws vector.
-    // This is used to correctly access detected_flaws (which is indexed by position).
-    // Empty means no flaws were selected.
-    mutable std::vector<int> last_selected_flaw_indices;
-    
     // Mapping from propositional variables (derived from comparison axioms)
     // to the numeric variables they depend on.
     // This allows us to trace back from propositional flaws to numeric refinements.
@@ -85,14 +80,7 @@ private:
     // Set of propositional variable IDs that are comparison axiom variables
     // Populated in build_abstraction before compute_initial_domain_mapping
     std::unordered_set<int> comparison_axiom_var_ids;
-    
-    // Store comparison axiom information including threshold for refinement
-    struct ComparisonInfo {
-        int left_var_id;   // ID of left numeric variable (might be constant)
-        int right_var_id;  // ID of right numeric variable (might be constant)
-        int comp_op;       // 0=<, 1=<=, 2=>, 3=>=, 4==, 5=!=
-    };
-    std::unordered_map<int, ComparisonInfo> comparison_axiom_info;
+
     
     // PHASE 2: Set of all numeric variables that are modified by operators
     // When ANY numeric flaw is detected, we should refine ALL these variables
@@ -118,24 +106,24 @@ private:
 
     bool termination_criterion_satisfied(utils::CountdownTimer &timer);
 
-        std::vector<Flaw> get_flaws(const TaskProxy &task_proxy,
-                                    const State &concrete_init,
-                                    const DomainAbstraction &abstraction,
-                                    bool execute_entire_plan) const;
-        bool fix_flaws(std::vector<Flaw> &&flaws,
-                   DomainMapping &domain_mapping, int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
-        bool fix_single_random_flaw(std::vector<Flaw> &&flaws,
-                                DomainMapping &domain_mapping,
-                                int abstraction_size, NumericDomainMappingType &numeric_domain_mapping  );
-        bool fix_single_flaw_max_refined(
-            vector<Flaw> &&flaws, DomainMapping &domain_mapping,
-            int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
-        bool fix_flaws_per_atom(std::vector<Flaw> &&flaws,
+    std::vector<Flaw> get_flaws(const TaskProxy &task_proxy,
+                                const State &concrete_init,
+                                const DomainAbstraction &abstraction,
+                                bool execute_entire_plan) const;
+    bool fix_flaws(std::vector<Flaw> &&flaws,
+                DomainMapping &domain_mapping, int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
+    bool fix_single_random_flaw(std::vector<Flaw> &&flaws,
+                            DomainMapping &domain_mapping,
+                            int abstraction_size, NumericDomainMappingType &numeric_domain_mapping  );
+    bool fix_single_flaw_max_refined(
+        vector<Flaw> &&flaws, DomainMapping &domain_mapping,
+        int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
+    bool fix_flaws_per_atom(std::vector<Flaw> &&flaws,
+                        DomainMapping &domain_mapping,
+                        int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
+    bool fix_flaws_per_variable(std::vector<Flaw> &&flaws,
                             DomainMapping &domain_mapping,
                             int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
-        bool fix_flaws_per_variable(std::vector<Flaw> &&flaws,
-                                DomainMapping &domain_mapping,
-                                int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
 
     bool can_refine_variable(int old_abstraction_size, int var_id);
     bool can_refine_numeric_variable(int old_abstraction_size, int numeric_var_id, const TaskProxy &task_proxy);
@@ -149,46 +137,9 @@ private:
         const TaskProxy &task_proxy);
     
     
-    // Debug: print axiom dependency trees
-    void print_cegar_axiom_trees(const TaskProxy &task_proxy,
-                                 const std::vector<bool> &is_derived,
-                                 const std::vector<std::vector<int>> &axiom_dependencies);
-    
-    
     // Check if a propositional variable is derived from a comparison axiom
     bool is_comparison_axiom_variable(int var_id) const {
         return comparison_axiom_dependencies.count(var_id) > 0;
-    }
-    
-    // Check if a comparison axiom has any dependent numeric variable with at least
-    // one observed value that hasn't been split yet.
-    bool comparison_has_unsplit_numeric_values(int prop_var_id) const {
-        auto it = comparison_axiom_dependencies.find(prop_var_id);
-        if (it == comparison_axiom_dependencies.end()) {
-            return false;  // No dependencies found
-        }
-        
-        for (int numeric_var_id : it->second) {
-            int local_idx = global_to_local_regular_numeric_var_ids[numeric_var_id];
-            if (local_idx < 0 || local_idx >= static_cast<int>(regular_numeric_var_values.size())) {
-                continue;
-            }
-            
-            // Check if any observed value for this numeric var hasn't been split yet
-            const auto &observed = regular_numeric_var_values[local_idx];
-            const auto &split_set = (local_idx < static_cast<int>(already_split.size())) 
-                                    ? already_split[local_idx] 
-                                    : std::unordered_set<ap_float>();
-            
-            for (ap_float val : observed) {
-                if (split_set.count(val) == 0) {
-                    // Found an unsplit value
-                    return true;
-                }
-            }
-        }
-        
-        return false;  // All observed values have been split
     }
     
     // Determine split direction for numeric refinement
@@ -1618,9 +1569,6 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         regular_vars.insert(right_deps.begin(), right_deps.end());
         
         comparison_axiom_dependencies[prop_var_id] = regular_vars;
-        
-        comp_operator comp_op = axiom.get_comparison_operator_type();
-        comparison_axiom_info[prop_var_id] = ComparisonInfo{left_var_id, right_var_id, static_cast<int>(comp_op)};
         
         logger->log(Verbosity::DEBUG, "  fdr_", prop_var_id, " depends on:");
         logger->log(Verbosity::DEBUG, "    left_var=num_", left_var_id,
