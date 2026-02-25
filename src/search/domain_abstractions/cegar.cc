@@ -57,13 +57,11 @@ private:
     const std::unordered_set<int> init_split_var_ids;
     std::unordered_set<int> blacklisted_variables;
     
-    // Shared logger for consistent output across CEGAR, factory, and helper
     shared_ptr<CEGARLogger> logger;
 
     std::vector<int> abstract_domain_sizes;
     std::vector<int> real_domain_sizes;
     
-    // Numeric domain mapping and sizes (for refinement across iterations)
     NumericDomainMappingType numeric_domain_mapping;
     std::vector<int> numeric_domain_sizes;
     std::unordered_set<int> blacklisted_numeric_variables;
@@ -71,21 +69,8 @@ private:
     mutable std::unordered_map<int, std::unordered_map<int, ap_float>>
         last_concrete_values_by_prop_var;
     
-    // Mapping from propositional variables (derived from comparison axioms)
-    // to the numeric variables they depend on.
-    // This allows us to trace back from propositional flaws to numeric refinements.
-    // Maps: propositional_var_id -> set of numeric variable IDs
     std::unordered_map<int, std::unordered_set<int>> comparison_axiom_dependencies;
-    
-    // Set of propositional variable IDs that are comparison axiom variables
-    // Populated in build_abstraction before compute_initial_domain_mapping
     std::unordered_set<int> comparison_axiom_var_ids;
-
-    
-    // PHASE 2: Set of all numeric variables that are modified by operators
-    // When ANY numeric flaw is detected, we should refine ALL these variables
-    // to ensure non-zero hash effects in the abstraction
-    std::unordered_set<int> operator_modified_numeric_vars;
 
     DomainMapping compute_initial_domain_mapping(const TaskProxy &task_proxy);
     vector<int> compute_initial_split(
@@ -1607,8 +1592,7 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         logger->log(Verbosity::DEBUG, " }");
     }
     logger->log(Verbosity::DEBUG, "======================================================\n");
-    
-    operator_modified_numeric_vars.clear();
+    std::unordered_set<int> operator_modified_numeric_vars;
     
     logger->log(Verbosity::DEBUG, "DEBUG PHASE2: Collecting operator-modified numeric variables...");
     OperatorsProxy operators = task_proxy.get_operators();
