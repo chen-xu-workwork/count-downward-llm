@@ -39,19 +39,7 @@ class CEGAR {
     using PropFlaw = std::pair<Fact, std::vector<NumericFlaw>>;
     using Flaw = std::variant<PropFlaw, NumericFlaw>;
 private:
-    // Structure to represent a numeric flaw
-    struct NumericFlaw {
-        int numeric_var_id;      // Regular numeric variable that needs refinement
-        ap_float concrete_value; // Concrete value observed when flaw occurred
-        
-        NumericFlaw(int var_id, ap_float value)
-            : numeric_var_id(var_id), concrete_value(value) {}
-    };
     
-    // Track how many times each numeric variable has been refined
-    // to prevent infinite loops
-    mutable std::unordered_map<int, int> numeric_var_refinement_count;
-
     std::vector<int> local_to_global_regular_numeric_var_ids;
     std::vector<int> global_to_local_regular_numeric_var_ids; // NOTE: Not used yet(?)
     std::vector<std::unordered_set<ap_float>> already_split;
@@ -1044,7 +1032,7 @@ bool CEGAR::fix_single_random_flaw(
                 if (can_refine_variable(abstraction_size, fact.var)) {
                     add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
 
-                    if (is_comparison_axiom_variable) {
+                    if (is_comparison_axiom_variable(fact.var)) {
                         const std::vector<NumericFlaw> &numeric_flaws = f.second;
                         domain_mapping[fact.var][0] = 1;
                         abstract_domain_sizes[fact.var] = 2;
@@ -1073,8 +1061,7 @@ bool CEGAR::fix_single_random_flaw(
                                 " (abstract domain size: ", old_size, " -> ", abstract_domain_sizes[fact.var], ")");
                     }
                 } 
-            }
-            else if constexpr (std::is_same_v<T, NumericFlaw>) {
+            } else if constexpr (std::is_same_v<T, NumericFlaw>) {
                 int id              = std::get<0>(f);
                 const ap_float &val = std::get<1>(f);
                 bool flag           = std::get<2>(f);
@@ -1103,201 +1090,94 @@ bool CEGAR::fix_single_flaw_max_refined(
 
     int current_max_domain_size = 0;
     vector<int> current_flaw_candidates;
+    vector<vector<int>> dependent_numeric_flaw_candidates;
     int num_flaws = (int) flaws.size();
 
+    //Select max-refined flaws
     for (int i = 0; i < num_flaws; ++i) {
         Flaw flaw = flaws[i];
+        int domain_size = 0;
+        vector<int> dep_candidates;
         visit([&](auto &&f) {
             using T = std::decay_t<decltype(f)>;
             if constexpr (std::is_same_v<T, PropFlaw>) { 
                 const Fact &fact = f.first;
-
+                domain_size = abstract_domain_sizes[fact.var];
                 if (is_comparison_axiom_variable(fact.var)) {
-
-                } else {
-                    
-                }
-
-
+                    const std::vector<NumericFlaw> &numeric_flaws = f.second;
+                    int max_numeric_domain_size = 0;
+                    int old_domain_size = domain_size;
+                    for (int j = 0; j < numeric_flaws.size(); ++j) {
+                        NumericFlaw numeric_flaw = numeric_flaws[j];
+                        int id = std::get<0>(numeric_flaw);
+                        int num_partitions = numeric_domain_mapping[id]->get_num_partitions();
+                        if (num_partitions > max_numeric_domain_size) {
+                            dep_candidates.clear();
+                            max_numeric_domain_size = num_partitions;
+                            dep_candidates.push_back(j);
+                        } else if (num_partitions == max_numeric_domain_size) {
+                            dep_candidates.push_back(j);
+                        }
+                    }
+                    domain_size = domain_size + max_numeric_domain_size;
+                } 
+                
             } else if constexpr (std::is_same_v<T, NumericFlaw>) {
+                int id = std::get<0>(f);
+                int num_partitions = numeric_domain_mapping[id]->get_num_partitions();
+                domain_size = num_partitions;
 
+            } 
+            if (domain_size > current_max_domain_size) {
+                current_flaw_candidates.clear();
+                dependent_numeric_flaw_candidates.clear();
+                current_flaw_candidates.emplace_back(i);
+                dependent_numeric_flaw_candidates.push_back(dep_candidates);
+                current_max_domain_size = domain_size;
+            } else if (domain_size == current_max_domain_size) {
+                current_flaw_candidates.emplace_back(i);
+                dependent_numeric_flaw_candidates.push_back(dep_candidates);
             }
 
         }, flaw);
     }
 
+    // Refine max-refined flaw
+    Flaw chosen_flaw = flaws[*rng->choose(current_flaw_candidates)];
+    visit([&](auto &&f) {
+        using T = std::decay_t<decltype(f)>;
+        if constexpr (std::is_same_v<T, PropFlaw>) { 
+            const Fact &fact = f.first;
+            if (can_refine_variable(abstraction_size, fact.var)) {
+                add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
+                if (is_comparison_axiom_variable(fact.var)) {
+                    const std::vector<NumericFlaw> &numeric_flaws = f.second;
+                    domain_mapping[fact.var][0] = 1;
+                    abstract_domain_sizes[fact.var] = 2;
 
-
-    
-    // Unified candidate structure for both propositional-only and comparison+numeric pairs
-    struct UnifiedCandidate {
-        int flaw_idx;           // Index in global flaws vector
-        int prop_var_id;        // Propositional variable ID
-        int prop_value;         // Propositional value (for non-comparison refinement)
-        bool is_comparison;     // Whether this is a comparison axiom variable
-        // For comparison flaws, also store the numeric candidate info
-        int numeric_var_id;     // -1 if non-comparison
-        ap_float split_value;   // Only valid if is_comparison
-        int local_numeric_id;   // Local ID for already_split tracking
-        int score;              // Higher = less growth = preferred
-    };
-    
-    vector<UnifiedCandidate> all_candidates;
-    int num_flaws = static_cast<int>(flaws.size());
-    TaskProxy task_proxy(*g_root_task());
-    
-    for (int i = 0; i < num_flaws; ++i) {
-        const Flaw &entry = flaws[i];
-        const Fact &flaw = entry.flaw;
-        int global_idx = entry.global_index;
-        int prop_var_id = flaw.var;
-        
-        // Skip if propositional variable can't be refined
-        if (!can_refine_variable(abstraction_size, prop_var_id)) {
-            continue;
-        }
-        
-        if (is_comparison_axiom_variable(prop_var_id)) {
-            // For comparison axioms, build candidates from all dependent numeric vars.
-            assert(global_idx >= 0 && global_idx < static_cast<int>(detected_flaws.size()));
-            int prop_score = abstract_domain_sizes[prop_var_id];
-
-            auto deps_it = comparison_axiom_dependencies.find(prop_var_id);
-            assert(deps_it != comparison_axiom_dependencies.end());
-
-            auto concrete_it = last_concrete_values_by_prop_var.find(prop_var_id);
-            assert(concrete_it != last_concrete_values_by_prop_var.end());
-            const auto &concrete_values = concrete_it->second;
-
-            for (int num_var_id : deps_it->second) {
-                auto val_it = concrete_values.find(num_var_id);
-                assert(val_it != concrete_values.end());
-                ap_float concrete_value = val_it->second;
-
-                int local_id = global_to_local_regular_numeric_var_ids[num_var_id];
-                assert(local_id >= 0 && local_id < static_cast<int>(already_split.size()));
-
-                std::optional<ap_float> split_val_opt =
-                    choose_unsplit_value(num_var_id, local_id, concrete_value);
-                if (!split_val_opt) {
-                    continue;
+                    NumericFlaw numeric_flaw = numeric_flaws[*rng->choose(dependent_numeric_flaw_candidates[0])];
+                    int id = std::get<0>(numeric_flaw);
+                    const ap_float &val = std::get<1>(numeric_flaw);
+                    bool flag = std::get<2>(numeric_flaw);
+                    if (can_refine_numeric_variable(abstraction_size, id)) {
+                        numeric_domain_mapping[id]->split_at(val, flag);
+                        return true;
+                    }
                 }
-                ap_float split_val = *split_val_opt;
-
-                // Check if numeric variable can be refined (includes size limit check)
-                if (!can_refine_numeric_variable(abstraction_size, num_var_id, task_proxy)) {
-                    continue;
-                }
-
-                assert(already_split[local_id].count(split_val) == 0);
-
-                // Compute combined score: prop_score + numeric_partitions
-                int num_partitions = numeric_domain_mapping[num_var_id]->get_num_partitions();
-                int combined_score = prop_score + num_partitions;
-
-                UnifiedCandidate cand;
-                cand.flaw_idx = global_idx;
-                cand.prop_var_id = prop_var_id;
-                cand.prop_value = flaw.value;
-                cand.is_comparison = true;
-                cand.numeric_var_id = num_var_id;
-                cand.split_value = split_val;
-                cand.local_numeric_id = local_id;
-                cand.score = combined_score;
-
-                all_candidates.push_back(cand);
+            } 
+        } else if constexpr (std::is_same_v<T, NumericFlaw>) {
+            int id = std::get<0>(f);
+            ap_float val = std::get<1>(f);
+            bool flag = std::get<2>(f);
+            if (can_refine_numeric_variable(abstraction_size, id)) {
+                numeric_domain_mapping[id]->split_at(val, flag);
+                return true;
             }
-        } else {
-            // Non-comparison propositional variable: straightforward
-            int score = abstract_domain_sizes[prop_var_id];
-            
-            UnifiedCandidate cand;
-            cand.flaw_idx = global_idx;
-            cand.prop_var_id = prop_var_id;
-            cand.prop_value = flaw.value;
-            cand.is_comparison = false;
-            cand.numeric_var_id = -1;
-            cand.split_value = 0;
-            cand.local_numeric_id = -1;
-            cand.score = score;
-            
-            all_candidates.push_back(cand);
         }
-    }
-    
-    // If no candidates at all, we can't fix any flaws
-    if (all_candidates.empty()) {
-        logger->log(Verbosity::DEBUG, "fix_single_flaw_max_refined: No valid candidates");
-        return false;
-    }
-    
-    // Find maximum score
-    int max_score = 0;
-    for (const auto &c : all_candidates) {
-        if (c.score > max_score) {
-            max_score = c.score;
-        }
-    }
-    
-    // Collect all candidates with max score
-    vector<int> best_candidate_indices;
-    for (size_t i = 0; i < all_candidates.size(); ++i) {
-        if (all_candidates[i].score == max_score) {
-            best_candidate_indices.push_back(static_cast<int>(i));
-        }
-    }
-    
-    // Choose one randomly
-    int chosen_cand_idx = *rng->choose(best_candidate_indices);
-    const UnifiedCandidate &chosen = all_candidates[chosen_cand_idx];
-    
-    // Apply the refinement
-    add_variable_to_abstraction_if_necessary(chosen.prop_var_id, domain_mapping);
-    
-    // Clear flaw indices first
-    last_selected_flaw_indices.clear();
-    
-    if (chosen.is_comparison) {
-        // Comparison axiom: refine propositionally if not already
-        // The numeric refinement is delegated to fix_numeric_flaws
-        assert(chosen.prop_value == 0);
-        
-        bool prop_refined = false;
-        if (abstract_domain_sizes[chosen.prop_var_id] < 2) {
-            domain_mapping[chosen.prop_var_id][0] = 1;
-            abstract_domain_sizes[chosen.prop_var_id] = 2;
-            prop_refined = true;
-            logger->log(Verbosity::INFO, "Refined comparison var ", chosen.prop_var_id,
-                       " (max_refined mode)");
-        }
-        
-        // Record the flaw index so fix_numeric_flaws can handle the numeric split
-        // This delegates the actual numeric refinement to fix_numeric_flaws
-        last_selected_flaw_indices.push_back(chosen.flaw_idx);
-        
-        logger->log(Verbosity::DEBUG, "fix_single_flaw_max_refined: Selected comparison flaw idx=",
-                   chosen.flaw_idx, " prop_var=", chosen.prop_var_id,
-                   " numeric_var=", chosen.numeric_var_id,
-                   " split_value=", chosen.split_value,
-                   " - delegating numeric split to fix_numeric_flaws");
-        
-        // Return true if we refined propositionally, or true to indicate we have work for fix_numeric_flaws
-        // The actual success of numeric refinement will be determined by fix_numeric_flaws
-        return prop_refined || true;  // Always return true since we have a valid candidate
-    } else {
-        // Non-comparison: standard propositional refinement
-        domain_mapping[chosen.prop_var_id][chosen.prop_value] = abstract_domain_sizes[chosen.prop_var_id];
-        abstract_domain_sizes[chosen.prop_var_id] += 1;
-        
-        logger->log(Verbosity::INFO, "Refined propositional var ", chosen.prop_var_id,
-                   " at value ", chosen.prop_value,
-                   " (abstract domain size: ", abstract_domain_sizes[chosen.prop_var_id] - 1,
-                   " -> ", abstract_domain_sizes[chosen.prop_var_id], ") via max_refined mode");
-        
-        // Record the flaw index for potential numeric flaw lookup (though non-comparison won't have any)
-        last_selected_flaw_indices.push_back(chosen.flaw_idx);
-        return true;
-    }
+
+    }, chosen_flaw);
+
+    return false;
 }
 
 bool CEGAR::fix_flaws_per_atom(
@@ -2241,7 +2121,6 @@ bool CEGAR::fix_numeric_flaws(
         already_split[local_id].insert(split_value);
         
         // Increment refinement counter
-        numeric_var_refinement_count[numeric_var_id]++;
         
         logger->log(Verbosity::INFO, "Refined num_", numeric_var_id,
                        " at value ", split_value,
