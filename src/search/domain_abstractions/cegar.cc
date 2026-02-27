@@ -1195,48 +1195,71 @@ bool CEGAR::fix_flaws_per_variable(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
     int abstraction_size, NumericDomainMappingType &numeric_domain_mapping) {
     // FIXME: Bias for variables with low index.
-    // NOTE: Sorting breaks the correspondence with detected_flaws!
-    // We need to track original indices before sorting.
-    vector<pair<Fact, int>> flaws_with_indices;
-    for (size_t i = 0; i < flaws.size(); ++i) {
-        flaws_with_indices.push_back({flaws[i].flaw, flaws[i].global_index});
-    }
-    sort(flaws_with_indices.begin(), flaws_with_indices.end(),
-         [](const pair<Fact, int> &a, const pair<Fact, int> &b) {
-             return a.first < b.first;
-         });
-    
-    Fact last_flaw(-1, -1);
-    for (const auto &[flaw, orig_idx] : flaws_with_indices) {
-        if (flaw.var > last_flaw.var
-            && can_refine_variable(abstraction_size, flaw.var)) {
-            /* Introduce new abstract value only for every new variable,
-               opposed to for every atom as in *fix_flaws_per_atom* above. */
-            add_variable_to_abstraction_if_necessary(flaw.var, domain_mapping);
-            if (is_comparison_axiom_variable(flaw.var)) {
-                // Comparison axiom variables have domain {0=true, 1=false, 2=unevaluated}
-                // Flaws always occur with value 0 (true), and refinement splits true from {false, unevaluated}
-                assert(flaw.value == 0);
-                if (abstract_domain_sizes[flaw.var] < 2) {
-                    domain_mapping[flaw.var][0] = 1;
-                    abstract_domain_sizes[flaw.var] = 2;
-                }
-            } else {
-                abstract_domain_sizes[flaw.var] += 1;
+    sort(flaws.begin(), flaws.end(), [](const auto &lhs, const auto &rhs) {
+        auto get_id = [](const auto& element) -> int {
+            using T = std::decay_t<decltype(element)>;
+            if constexpr (std::is_same_v<T, PropFlaw>) {
+                return element.first.var; 
+            } else if constexpr (std::is_same_v<T, NumericFlaw>) {
+                return std::get<0>(element); 
             }
-            // Track each flaw index we refine
-            last_selected_flaw_indices.push_back(orig_idx);
-        } else if (flaw.var != last_flaw.var || flaw.value == last_flaw.value) {
-            // Duplicate or does not fit size limit.
-            continue;
-        }
-        if (!is_comparison_axiom_variable(flaw.var)) {
-            domain_mapping[flaw.var][flaw.value] =
-                abstract_domain_sizes[flaw.var] - 1;
-        }
-        last_flaw = flaw;
+        };
+        return std::visit(get_id, lhs) < std::visit(get_id, rhs);
+    });
+
+    PropFlaw last_prop_flaw(Fact(-1, -1), {});
+    NumericFlaw last_numeric_flaw{-1, 0.0, false};
+    for (Flaw flaw : flaws) {
+    
+        visit([&](auto &&f) {
+            using T = std::decay_t<decltype(f)>;
+            if constexpr (std::is_same_v<T, PropFlaw>) { 
+                const Fact &fact = f.first;
+                if (can_refine_variable(abstraction_size, fact.var)) {
+                    add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
+                    if (is_comparison_axiom_variable(fact.var)) {
+                        const std::vector<NumericFlaw> &numeric_flaws = f.second;
+                        domain_mapping[fact.var][0] = 1;
+                        abstract_domain_sizes[fact.var] = 2;
+                        sort(numeric_flaws.begin(), numeric_flaws.end());
+                        for (int j = 0; j < numeric_flaws.size(); ++j) {
+                            NumericFlaw numeric_flaw = numeric_flaws[j];
+                            if (last_numeric_flaw == numeric_flaw) {
+                                continue; // Duplicate flaw, already refined
+                            }   
+                            int id = std::get<0>(numeric_flaw);
+                            const ap_float &val = std::get<1>(numeric_flaw);
+                            bool flag = std::get<2>(numeric_flaw);
+                            if (can_refine_numeric_variable(abstraction_size, id)) {
+                                numeric_domain_mapping[id]->split_at(val, flag);
+                                last_numeric_flaw = numeric_flaw;
+                            }
+                        }
+                    } else {
+                        if (fact.var > last_prop_flaw.first.var && last_prop_flaw == PropFlaw(fact, f.second)) {
+                            return; // Duplicate flaw, already refined
+                        }
+                        domain_mapping[fact.var][fact.value] =
+                            abstract_domain_sizes[fact.var];
+                        abstract_domain_sizes[fact.var] += 1;
+                        last_prop_flaw = PropFlaw(fact, f.second);
+                    }
+                }
+            } else if constexpr (std::is_same_v<T, NumericFlaw>) {
+                if (last_numeric_flaw == f) {
+                    return; // Duplicate flaw, already refined
+                }
+                int id = std::get<0>(f);
+                const ap_float &val = std::get<1>(f);
+                bool flag = std::get<2>(f);
+                if (can_refine_numeric_variable(abstraction_size, id)) {
+                    numeric_domain_mapping[id]->split_at(val, flag);
+                    last_numeric_flaw = f;
+                }
+            }
+        }, flaw);
     }
-    return last_flaw != Fact(-1, -1);
+    return last_prop_flaw.first != Fact(-1, -1) || std::get<0>(last_numeric_flaw) != -1;
 }
 
 void CEGAR::print_statistics(
