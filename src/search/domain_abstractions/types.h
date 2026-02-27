@@ -202,21 +202,17 @@ protected:
     
 public:
     NumericDomainMapping() {
-        // Start with a single range covering everything, partition 0
         ranges.emplace_back(-std::numeric_limits<ap_float>::infinity(),
                            std::numeric_limits<ap_float>::infinity(),
                            0);
         invalidate_partition_lookup();
     }
     
-    // Virtual destructor for proper cleanup
     virtual ~NumericDomainMapping() = default;
     
     // Clone method for polymorphic copying
     virtual std::unique_ptr<NumericDomainMapping> clone() const = 0;
     
-    // Get the partition index for a given value.
-    // Uses binary search since ranges are sorted by lower bound.
     int get_partition_index(ap_float value) const {
         if (ranges.empty()) return -1;
         
@@ -430,10 +426,9 @@ public:
     // This indicates no split occurred
     // include_in_lower parameter is ignored for constants
     int split_at(ap_float n, bool /*include_in_lower*/ = false) override {
-        std::cout << "WARNING: Attempted to split constant variable with value " 
-                  << constant_value << " at " << n 
-                  << " - ignoring (constants have fixed value)" << std::endl;
-        return 1; // No new partition created
+        std::cout << "Attempt spliiting at contant variable " << std::endl;
+        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        return 1;  // No split - still just 1 partition}
     }
     
     // Clone method for polymorphic copying

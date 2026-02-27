@@ -111,7 +111,7 @@ private:
                             int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
 
     bool can_refine_variable(int old_abstraction_size, int var_id);
-    bool can_refine_numeric_variable(int old_abstraction_size, int numeric_var_id, const TaskProxy &task_proxy);
+    bool can_refine_numeric_variable(int old_abstraction_size, int numeric_var_id);
 
     void add_variable_to_abstraction_if_necessary(
         int var, DomainMapping &abstraction);
@@ -1714,7 +1714,7 @@ DomainAbstraction CEGAR::build_abstraction(
             break;
         }
 
-        bool flaws_fixed = fix_flaws(move(flaws), domain_mapping, abstraction.size());
+        bool flaws_fixed = fix_flaws(move(flaws), domain_mapping, abstraction.size(), numeric_domain_mapping);
         if (!flaws_fixed) {
             logger->log(Verbosity::DEBUG, "No flaws could be fixed, terminating CEGAR refinement.");
             break;
@@ -1783,38 +1783,13 @@ bool CEGAR::can_refine_variable(
 }
 
 bool CEGAR::can_refine_numeric_variable(
-    int old_abstraction_size, int numeric_var_id, const TaskProxy &task_proxy) {
+    int old_abstraction_size, int numeric_var_id) {
     if (blacklisted_numeric_variables.count(numeric_var_id)) {
         return false;
     }
     
-    // CRITICAL: Don't refine constants or derived variables!
-    // Constants should always have exactly 1 partition at their value
-    // Derived variables are implicitly abstracted based on their source variables
-    NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
-    if (numeric_var_id >= 0 && static_cast<size_t>(numeric_var_id) < num_vars.size()) {
-        NumericVariableProxy num_var = num_vars[numeric_var_id];
-        numType var_type = num_var.get_var_type();
-        
-        logger->log(Verbosity::DEBUG, "DEBUG can_refine: num_", numeric_var_id,
-                        " has type=", static_cast<int>(var_type),
-                        " (1=constant, 2=derived, 4=regular)");
-        
-        if (var_type == numType::constant) {
-            logger->log(Verbosity::DEBUG, "Cannot refine num_", numeric_var_id, " (CONSTANT); ignoring");
-            return false;
-        }
-        
-        if (var_type == numType::derived) {
-            logger->log(Verbosity::DEBUG, "Cannot refine num_", numeric_var_id, " (DERIVED); ignoring");
-            return false;
-        }
-    }
-    
     // Check if this numeric variable is in the abstraction
-    if (numeric_var_id < 0 || numeric_var_id >= static_cast<int>(numeric_domain_mapping.size())) {
-        return false;
-    }
+    assert(numeric_var_id >= 0 && numeric_var_id < static_cast<int>(numeric_domain_mapping.size()));
     
     int current_partitions = numeric_domain_mapping[numeric_var_id]->get_num_partitions();
     int abs_size_without_var = old_abstraction_size / current_partitions;
@@ -2008,116 +1983,6 @@ bool CEGAR::determine_include_in_lower(
     } else {
         // Both give TRUE - doesn't matter, default to false
         logger->log(Verbosity::DEBUG, "  -> Both give TRUE, defaulting to include_in_lower=false");
-        return false;
-    }
-}
-
-bool CEGAR::fix_numeric_flaws(
-    const vector<SelectedNumericFlaw> &numeric_flaws, int abstraction_size, const TaskProxy &task_proxy) {
-    
-    if (numeric_flaws.empty()) {
-        return true;
-    }
-    
-    // Build a map of concrete values for each numeric variable and prop_var_id
-    // This is needed for determine_include_in_lower
-    std::unordered_map<int, std::unordered_map<int, ap_float>> concrete_values_by_prop_var;
-    for (const SelectedNumericFlaw &flaw : numeric_flaws) {
-        if (!flaw.prop_var_id) {
-            continue;
-        }
-        auto it = last_concrete_values_by_prop_var.find(*flaw.prop_var_id);
-        if (it != last_concrete_values_by_prop_var.end()) {
-            concrete_values_by_prop_var[*flaw.prop_var_id] = it->second;
-        } else {
-            concrete_values_by_prop_var[*flaw.prop_var_id][flaw.numeric_var_id] = flaw.concrete_value;
-        }
-    }
-    
-    // Build list of valid candidates: non-blacklisted numeric vars with split values not already split
-    struct Candidate {
-        int numeric_var_id;
-        ap_float split_value;
-        int local_id;
-        std::optional<int> prop_var_id;  // Which comparison axiom this flaw is from, if any
-    };
-    vector<Candidate> valid_candidates;
-    
-    for (const SelectedNumericFlaw &flaw : numeric_flaws) {
-        int numeric_var_id = flaw.numeric_var_id;
-        ap_float split_value = flaw.concrete_value;
-        
-        // Check if we can refine this numeric variable
-        if (!can_refine_numeric_variable(abstraction_size, numeric_var_id, task_proxy)) {
-            logger->log(Verbosity::DEBUG, "DEBUG: Cannot refine num_", numeric_var_id,
-                           " (blacklisted or size limit)");
-            continue;
-        }
-        
-        // Bounds check
-        assert(numeric_var_id >= 0 && numeric_var_id < static_cast<int>(numeric_domain_mapping.size()));
-        
-        int local_id = global_to_local_regular_numeric_var_ids[numeric_var_id];
-        assert(local_id >= 0 && already_split.size() > static_cast<size_t>(local_id));
-        
-        // Check if this split value has already been used
-        assert(already_split[local_id].count(split_value) == 0);
-        
-        valid_candidates.push_back({numeric_var_id, split_value, local_id, flaw.prop_var_id});
-    }
-    
-    // If no valid candidates, return false (no blacklisting - candidates may exist in future iterations)
-    if (valid_candidates.empty()) {
-        logger->log(Verbosity::INFO, "No valid numeric flaw candidates to refine (all already split or blacklisted)");
-        return false;
-    }
-    
-    // Select ONE random candidate
-    const Candidate &selected = *rng->choose(valid_candidates);
-    int numeric_var_id = selected.numeric_var_id;
-    ap_float split_value = selected.split_value;
-    int local_id = selected.local_id;
-    std::optional<int> prop_var_id = selected.prop_var_id;
-    
-    // Assert that split_value is not NaN (it should have been replaced in get_flaws)
-    assert(!std::isnan(split_value));
-    
-    // Determine split direction to ensure the comparison evaluates to FALSE
-    // in the abstract state containing the concrete flaw state
-    bool include_in_lower = false;
-    if (prop_var_id) {
-        assert(comparison_axiom_info.count(*prop_var_id) > 0);
-        const std::unordered_map<int, ap_float> &concrete_values =
-            concrete_values_by_prop_var[*prop_var_id];
-        include_in_lower = determine_include_in_lower(
-            *prop_var_id, numeric_var_id, split_value, concrete_values, task_proxy);
-    }
-    
-    logger->log(Verbosity::DEBUG, "Split direction for num_", numeric_var_id,
-               " at ", split_value, ": include_in_lower=", include_in_lower);
-    
-    int old_num_partitions = numeric_domain_mapping[numeric_var_id]->get_num_partitions();
-    
-    int after_concrete_split = numeric_domain_mapping[numeric_var_id]->split_at(split_value, include_in_lower);
-    int new_num_partitions = after_concrete_split;
-    
-    if (new_num_partitions > old_num_partitions) {
-        // Successfully split - created at least one new partition
-        numeric_domain_sizes[numeric_var_id] = new_num_partitions;
-        already_split[local_id].insert(split_value);
-        
-        // Increment refinement counter
-        
-        logger->log(Verbosity::INFO, "Refined num_", numeric_var_id,
-                       " at value ", split_value,
-                       " (partitions: ", old_num_partitions, " -> ", new_num_partitions, ")",
-                       " include_in_lower=", include_in_lower);
-        return true;
-    } else {
-        // No new partitions created - splits already exist
-        logger->log(Verbosity::DEBUG, "DEBUG: Flaw for num_", numeric_var_id,
-                       " at value ", split_value,
-                       " - splits already exist (no refinement needed)");
         return false;
     }
 }
