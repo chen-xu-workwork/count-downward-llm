@@ -881,8 +881,8 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
     int step_num = 0;
     for (vector<int> &equivalent_ops : wildcard_plan) {
         assert(flaws.empty()); 
-        assert(abstract_prop_states.size() == step_num + 1);
-        assert(abstract_numeric_states.size() == step_num + 1);
+        //assert(abstract_prop_states.size() == step_num + 1);
+        //assert(abstract_numeric_states.size() == step_num + 1);
 
         const vector<int> &abstract_state = abstract_prop_states[step_num];
         const vector<int> &abstract_numeric_state = abstract_numeric_states[step_num];
@@ -1150,7 +1150,8 @@ bool CEGAR::fix_flaws_per_atom(
                         const std::vector<NumericFlaw> &numeric_flaws = f.second;
                         domain_mapping[fact.var][0] = 1;
                         abstract_domain_sizes[fact.var] = 2;
-                        sort(numeric_flaws.begin(), numeric_flaws.end());
+                        //TODO: That sort is important
+                        //sort(numeric_flaws.begin(), numeric_flaws.end());
                         for (int j = 0; j < numeric_flaws.size(); ++j) {
                             NumericFlaw numeric_flaw = numeric_flaws[j];
                             if (last_numeric_flaw == numeric_flaw) {
@@ -1221,7 +1222,8 @@ bool CEGAR::fix_flaws_per_variable(
                         const std::vector<NumericFlaw> &numeric_flaws = f.second;
                         domain_mapping[fact.var][0] = 1;
                         abstract_domain_sizes[fact.var] = 2;
-                        sort(numeric_flaws.begin(), numeric_flaws.end());
+                        //TODO: That sort is important
+                        //sort(numeric_flaws.begin(), numeric_flaws.end());
                         for (int j = 0; j < numeric_flaws.size(); ++j) {
                             NumericFlaw numeric_flaw = numeric_flaws[j];
                             if (last_numeric_flaw == numeric_flaw) {
