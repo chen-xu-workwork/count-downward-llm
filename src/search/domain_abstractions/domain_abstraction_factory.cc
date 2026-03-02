@@ -1430,7 +1430,8 @@ void DomainAbstractionFactory::compute_abstract_plan(
                             hash_multipliers, prop_state_values, num_state_partitions);
     abstract_prop_states.push_back(prop_state_values);
     abstract_numeric_states.push_back(num_state_partitions);
-
+    
+    cout << "INITIAL Distance: " << distances[current_state] << endl;
     if (distances[current_state] != numeric_limits<ap_float>::max()) {
         int plan_step = 0;
         //cout << "PLAN: Executing abstract plan..." << endl;

@@ -31,7 +31,7 @@ using namespace std;
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
 
-static Verbosity log_verbosity = Verbosity::DEBUG;
+static Verbosity log_verbosity = Verbosity::INFO;
 
 class CEGAR {
 
@@ -270,37 +270,13 @@ static bool variable_specified_in_goal(int var_id,
 vector<int> CEGAR::compute_initial_split(
     int var_id, const TaskProxy &task_proxy, int &abstraction_size) {
     logger->log_no_endl(Verbosity::DEBUG, "Initial split for variable ", var_id, ": with initialization method ");
-    switch (init_split_method) {
-    case InitSplitMethod::GOAL_VALUE:
-        logger->log(Verbosity::DEBUG, "GOAL_VALUE");
-        assert(variable_specified_in_goal(var_id, task_proxy));
-        break;
-    case InitSplitMethod::GOAL_VALUE_OR_RANDOM_IF_NON_GOAL:
-        logger->log(Verbosity::DEBUG, "GOAL_VALUE_OR_RANDOM_IF_NON_GOAL");
-        break;
-    case InitSplitMethod::INIT_VALUE:
-        logger->log(Verbosity::DEBUG, "INIT_VALUE");
-        break;
-    case InitSplitMethod::RANDOM_VALUE: 
-        logger->log(Verbosity::DEBUG, "RANDOM_VALUE");
-        break;
-    case InitSplitMethod::RANDOM_PARTITION:
-        logger->log(Verbosity::DEBUG, "RANDOM_PARTITION");
-        break;
-    case InitSplitMethod::RANDOM_BINARY_PARTITION_SEPARATING_INIT_GOAL:
-        logger->log(Verbosity::DEBUG, "RANDOM_BINARY_PARTITION_SEPARATING_INIT_GOAL");
-        break;
-    case InitSplitMethod::IDENTITY:
-        logger->log(Verbosity::DEBUG, "IDENTITY");
-        break;
-    }
     logger->log(Verbosity::DEBUG, "");
     if (init_split_method == InitSplitMethod::RANDOM_PARTITION
         || initialization_fits_size_limit(abstraction_size, var_id)) {
         pair<int, vector<int>> init_split;
         switch (init_split_method) {
         case InitSplitMethod::GOAL_VALUE:
-            assert(variable_specified_in_goal(var_id, task_proxy));
+            //assert(variable_specified_in_goal(var_id, task_proxy));
         case InitSplitMethod::GOAL_VALUE_OR_RANDOM_IF_NON_GOAL:
             init_split = get_goal_value_split(var_id, task_proxy);
             break;
@@ -614,7 +590,6 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
             assert(is_comparison_axiom_variable(static_cast<int>(var_id)));
             auto it = comparison_axiom_dependencies.find(static_cast<int>(var_id));
             assert(it != comparison_axiom_dependencies.end());
-            bool added = false;
             vector<NumericFlaw> numeric_flaws;
             for (int dep_var_id : it->second) {
                 assert(dep_var_id >= 0 && dep_var_id < static_cast<int>(numeric_successor_state.size()));
@@ -623,7 +598,6 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
                 NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
                 numeric_flaws.push_back(numeric_flaw);
             }
-            assert(added);
             PropFlaw pf{Fact(static_cast<int>(var_id), successor_state[var_id]), numeric_flaws};
             flaws.push_back(pf);
         }
@@ -712,7 +686,6 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
     // There should be at most two axioms: one dummy axiom (no preconditions),
     // and one optional goal axiom that encodes numeric/propositional goals
     assert(task_proxy.get_axioms().size() <= 2);
-    cout << "GOAL flaw adding, size: " << flaws.size() << endl;
     
     for (OperatorProxy axiom : task_proxy.get_axioms()) {
         if (!axiom.get_preconditions().empty() && axiom.get_effects().size() == 1) {
@@ -729,6 +702,7 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                             ap_float concrete_value = numeric_state[dep_var_id];
                             bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_state, task_proxy);
                             NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
+                            cout << "  Goal axiom precondition variable " << var_id << " is a comparison axiom - adding numeric flaw for dependent variable " << dep_var_id << " with concrete value " << concrete_value << endl;
                             numeric_flaws.push_back(numeric_flaw);
                         }
                         flaws.emplace_back(
@@ -747,8 +721,6 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
             }
         }
     }
-    cout << "GOAL flaw after adding, size: " << flaws.size() << endl;
-
     
     return flaws;
 }
@@ -916,6 +888,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
                 current_prop_state, current_numeric_state,
                 abstract_state, abstract_numeric_state,
                 domain_mapping, numeric_domain_mapping, task_proxy);
+            deviation_flaws.clear(); // TODO: Remove after debugging
             cout << "OP flaws size: " << operator_flaws.size() << ", deviation flaws size: " << deviation_flaws.size() << endl;
             operator_flaws.insert(operator_flaws.end(), deviation_flaws.begin(), deviation_flaws.end());
 
@@ -944,7 +917,6 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
     logger->log(Verbosity::DEBUG, "[PLAN] ", decoded_state);
 
     assert(flaws.empty());
-    cout << "Num flaws: " << flaws.size() << endl;
 
     vector<Flaw> goal_flaws =
         get_goal_flaws(task_proxy, current_prop_state, current_numeric_state);
@@ -972,6 +944,13 @@ bool CEGAR::fix_flaws(
 bool CEGAR::fix_single_random_flaw(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
     int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
+
+    static int counter = 0;
+    if (counter > 1) {
+        //exit(0);
+    }
+    counter++;
+
     // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
     assert(!flaws.empty());
     int repetitions = ceil(1 + std::log(flaws.size()));
@@ -980,7 +959,7 @@ bool CEGAR::fix_single_random_flaw(
         const Flaw &chosen = flaws[chosen_idx];
 
         // TODO: Proper check of can_refine_numeric_var
-        visit([&](auto &&f) {
+        bool result = visit([&](auto &&f) {
             using T = std::decay_t<decltype(f)>;
 
             if constexpr (std::is_same_v<T, PropFlaw>) {
@@ -992,8 +971,9 @@ bool CEGAR::fix_single_random_flaw(
                     if (is_comparison_axiom_variable(fact.var)) {
                         domain_mapping[fact.var][0] = 1;
                         abstract_domain_sizes[fact.var] = 2;
+                        cout << "Refined comparison axiom variable " << fact.var << " at value 0 (true) with dependent numeric flaws:" << endl;
                         const std::vector<NumericFlaw> &numeric_flaws = f.second;
-                        for (int j = i; j < repetitions; ++j) {
+                        for (int j = 0; j < repetitions; ++j) {
                             assert(numeric_flaws.size() > 0);
                             chosen_idx = rng->random(numeric_flaws.size());
                             NumericFlaw chosen_numeric_flaw = numeric_flaws[chosen_idx];
@@ -1005,6 +985,8 @@ bool CEGAR::fix_single_random_flaw(
                                 // TODO: Here was LOCAL id used. Get rid of it. 
                                 logger->log(Verbosity::INFO, "Refining numeric var ", id, " at value ", val);
                                 numeric_domain_mapping[id]->split_at(val, flag);
+                                numeric_domain_sizes[id] = numeric_domain_mapping[id]->get_num_partitions();
+                                cout << "Numeric domain size for " << id << " after refinement: " << numeric_domain_sizes[id] << endl;
                                 return true;
                             }
                             // TODO: Think more carefully if that really makes sense here
@@ -1030,11 +1012,15 @@ bool CEGAR::fix_single_random_flaw(
                 if (can_refine_numeric_variable(abstraction_size, id)) {
                     // TODO: Here was LOCAL id used. Get rid of it. 
                     numeric_domain_mapping[id]->split_at(val, flag);
+                    numeric_domain_sizes[id] = numeric_domain_mapping[id]->get_num_partitions();
                     return true;
                 }
 
             }
         }, chosen);
+        if (result) {
+            return true;
+        }
     }
 
     return false;
@@ -2133,7 +2119,7 @@ void add_domain_abstraction_cegar_options_to_parser(
         "init_split_method",
         init_split_method,
         "Choose how to initialize splits to seed diversification.",
-        "init_value");
+        "goal_value");
     vector<string> flaw_treatment;
     flaw_treatment.emplace_back("random_single_atom");
     flaw_treatment.emplace_back("one_split_per_atom");
