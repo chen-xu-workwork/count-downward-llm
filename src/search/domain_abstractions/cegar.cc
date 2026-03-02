@@ -571,6 +571,7 @@ vector<CEGAR::Flaw> CEGAR::get_precondition_flaws(
                 assert(it != comparison_axiom_dependencies.end());
                 vector<NumericFlaw> numeric_flaws;
                 for (int dep_var_id : it->second) {
+                    assert(dep_var_id >= 0 && dep_var_id < static_cast<int>(numeric_state.size()));
                     ap_float concrete_value = numeric_state[dep_var_id];
                     bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_state, task_proxy);
                     NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
@@ -616,8 +617,7 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
             bool added = false;
             vector<NumericFlaw> numeric_flaws;
             for (int dep_var_id : it->second) {
-                int local_idx = global_to_local_regular_numeric_var_ids[dep_var_id];
-                assert(local_idx >= 0 && local_idx < static_cast<int>(already_split.size()));
+                assert(dep_var_id >= 0 && dep_var_id < static_cast<int>(numeric_successor_state.size()));
                 ap_float concrete_value = numeric_successor_state[dep_var_id];
                 bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_successor_state, task_proxy);
                 NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
@@ -673,22 +673,36 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                     assert(it != comparison_axiom_dependencies.end());
                     vector<NumericFlaw> numeric_flaws;
                     for (int dep_var_id : it->second) {
+                        assert(dep_var_id >= 0 && dep_var_id < static_cast<int>(numeric_state.size()));
                         ap_float concrete_value = numeric_state[dep_var_id];
                         bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_state, task_proxy);
                         NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
                         numeric_flaws.push_back(numeric_flaw);
+                        logger->log(Verbosity::DEBUG, "  Goal variable ", var_id, " is a comparison axiom - adding numeric flaw for dependent variable ", dep_var_id, " with concrete value ", concrete_value);
                     }
                     flaws.emplace_back(
                         std::in_place_type<PropFlaw>,
                         Fact(var_id, goal.get_value()),
                         move(numeric_flaws)
                     );
+                    
                 } else {
+                    cout << "  Goal variable " << var_id << " is not a comparison axiom - adding propositional flaw without numeric flaws" << endl;
                     flaws.emplace_back(
                         std::in_place_type<PropFlaw>,
                         Fact(var_id, goal.get_value()),
-                        std::vector<NumericFlaw>{}
+                        move(std::vector<NumericFlaw>{})
                     );
+                    //print the flaw we just added
+                    const PropFlaw &pf = std::get<PropFlaw>(flaws.back());
+                    cout << "    Added flaw: variable " << pf.first.var << " should be " << pf.first.value << " but is " << current_state[pf.first.var] << endl;
+                    //print numeric flaws if there are any
+                    if (!pf.second.empty()) {
+                        cout << "    Numeric flaws for this propositional flaw:" << endl;
+                        for (const NumericFlaw &nf : pf.second) {
+                            cout << "      Variable " << std::get<0>(nf) << " with concrete value " << std::get<1>(nf) << " and is_lower " << std::get<2>(nf) << endl;
+                        }
+                    }
                 }
             }
         }
@@ -698,6 +712,7 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
     // There should be at most two axioms: one dummy axiom (no preconditions),
     // and one optional goal axiom that encodes numeric/propositional goals
     assert(task_proxy.get_axioms().size() <= 2);
+    cout << "GOAL flaw adding, size: " << flaws.size() << endl;
     
     for (OperatorProxy axiom : task_proxy.get_axioms()) {
         if (!axiom.get_preconditions().empty() && axiom.get_effects().size() == 1) {
@@ -732,6 +747,8 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
             }
         }
     }
+    cout << "GOAL flaw after adding, size: " << flaws.size() << endl;
+
     
     return flaws;
 }
@@ -899,6 +916,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
                 current_prop_state, current_numeric_state,
                 abstract_state, abstract_numeric_state,
                 domain_mapping, numeric_domain_mapping, task_proxy);
+            cout << "OP flaws size: " << operator_flaws.size() << ", deviation flaws size: " << deviation_flaws.size() << endl;
             operator_flaws.insert(operator_flaws.end(), deviation_flaws.begin(), deviation_flaws.end());
 
             if (operator_flaws.empty()) {
@@ -926,6 +944,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
     logger->log(Verbosity::DEBUG, "[PLAN] ", decoded_state);
 
     assert(flaws.empty());
+    cout << "Num flaws: " << flaws.size() << endl;
 
     vector<Flaw> goal_flaws =
         get_goal_flaws(task_proxy, current_prop_state, current_numeric_state);
@@ -954,6 +973,7 @@ bool CEGAR::fix_single_random_flaw(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
     int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
     // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
+    assert(!flaws.empty());
     int repetitions = ceil(1 + std::log(flaws.size()));
     for (int i = 0; i < repetitions; ++i) {
         int chosen_idx = rng->random(flaws.size());
@@ -970,10 +990,11 @@ bool CEGAR::fix_single_random_flaw(
                     add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
 
                     if (is_comparison_axiom_variable(fact.var)) {
-                        const std::vector<NumericFlaw> &numeric_flaws = f.second;
                         domain_mapping[fact.var][0] = 1;
                         abstract_domain_sizes[fact.var] = 2;
+                        const std::vector<NumericFlaw> &numeric_flaws = f.second;
                         for (int j = i; j < repetitions; ++j) {
+                            assert(numeric_flaws.size() > 0);
                             chosen_idx = rng->random(numeric_flaws.size());
                             NumericFlaw chosen_numeric_flaw = numeric_flaws[chosen_idx];
                             // TODO: Implement check if the flaw has been already split at that position
@@ -982,6 +1003,7 @@ bool CEGAR::fix_single_random_flaw(
                             bool flag           = std::get<2>(chosen_numeric_flaw);
                             if (can_refine_numeric_variable(abstraction_size, id)) {
                                 // TODO: Here was LOCAL id used. Get rid of it. 
+                                logger->log(Verbosity::INFO, "Refining numeric var ", id, " at value ", val);
                                 numeric_domain_mapping[id]->split_at(val, flag);
                                 return true;
                             }
