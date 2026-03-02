@@ -889,7 +889,6 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
                 abstract_state, abstract_numeric_state,
                 domain_mapping, numeric_domain_mapping, task_proxy);
             deviation_flaws.clear(); // TODO: Remove after debugging
-            cout << "OP flaws size: " << operator_flaws.size() << ", deviation flaws size: " << deviation_flaws.size() << endl;
             operator_flaws.insert(operator_flaws.end(), deviation_flaws.begin(), deviation_flaws.end());
 
             if (operator_flaws.empty()) {
@@ -981,8 +980,7 @@ bool CEGAR::fix_single_random_flaw(
                             int id              = std::get<0>(chosen_numeric_flaw);
                             const ap_float &val = std::get<1>(chosen_numeric_flaw);
                             bool flag           = std::get<2>(chosen_numeric_flaw);
-                            if (can_refine_numeric_variable(abstraction_size, id)) {
-                                // TODO: Here was LOCAL id used. Get rid of it. 
+                            if (can_refine_numeric_variable(abstraction_size, id) && numeric_domain_mapping[id]->can_split(val, flag)) {
                                 logger->log(Verbosity::INFO, "Refining numeric var ", id, " at value ", val);
                                 numeric_domain_mapping[id]->split_at(val, flag);
                                 numeric_domain_sizes[id] = numeric_domain_mapping[id]->get_num_partitions();

@@ -212,6 +212,8 @@ public:
     
     // Clone method for polymorphic copying
     virtual std::unique_ptr<NumericDomainMapping> clone() const = 0;
+
+    virtual bool can_split(ap_float value, bool include_in_lower) const = 0;
     
     int get_partition_index(ap_float value) const {
         if (ranges.empty()) return -1;
@@ -430,6 +432,10 @@ public:
         utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         return 1;  // No split - still just 1 partition}
     }
+
+    bool can_split(ap_float /*value*/, bool /*include_in_lower*/) const override {
+        return false;  // Cannot split a constant variable
+    }
     
     // Clone method for polymorphic copying
     std::unique_ptr<NumericDomainMapping> clone() const override {
@@ -460,6 +466,7 @@ public:
 // Standard splitting strategy: splits (-inf, inf) into [(-inf, x), [x, inf)]
 // Creates 2 partitions with 2 ranges
 class StandardSplitMapping : public NumericDomainMapping {
+    std::vector<std::pair<ap_float, bool>> split_points;  // pair<split_value, include_in_lower>
 public:
     // Split at point x: creates [lower, x) and [x, upper) with different partitions
     // If include_in_lower=true: creates [lower, x] and (x, upper) instead
@@ -468,6 +475,11 @@ public:
     // Clone method for polymorphic copying
     std::unique_ptr<NumericDomainMapping> clone() const override {
         return std::make_unique<StandardSplitMapping>(*this);
+    }
+
+    bool can_split(ap_float value, bool include_in_lower) const override {
+        std::pair<ap_float, bool> split_point = {value, include_in_lower};
+        return std::find(split_points.begin(), split_points.end(), split_point) == split_points.end();
     }
 };
 
@@ -478,6 +490,16 @@ public:
     // Split at point x: (-inf, x) and (x, inf) share one partition, [x,x] gets another
     // include_in_lower parameter is ignored for exclusion strategy
     int split_at(ap_float n, bool include_in_lower = false) override;
+
+    bool can_split(ap_float value, bool /*include_in_lower*/) const override {
+        // Can split if value is not already a split point (i.e., not already isolated in its own partition)
+        for (const auto &range : ranges) {
+            if (range.contains(value) && range.lower == range.upper) {
+                return false;  // Already a split point
+            }
+        }
+        return true;
+    }
     
     // Clone method for polymorphic copying
     std::unique_ptr<NumericDomainMapping> clone() const override {

@@ -44,6 +44,9 @@ bool NumericRange::overlaps_with(ap_float other_lower, ap_float other_upper,
 
 // StandardSplitMapping implementation
 int StandardSplitMapping::split_at(ap_float n, bool include_in_lower) {
+    std::pair<ap_float, bool> split_point = {n, include_in_lower};
+    assert(can_split(n, include_in_lower) && "Duplicate split point");
+    split_points.push_back(split_point);
     // Find the range that contains n
     int range_index = -1;
     for (size_t i = 0; i < ranges.size(); ++i) {
