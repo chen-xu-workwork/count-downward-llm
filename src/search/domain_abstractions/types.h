@@ -472,12 +472,12 @@ public:
     // If include_in_lower=true: creates [lower, x] and (x, upper) instead
     int split_at(ap_float n, bool include_in_lower = false) override;
     
-    // Clone method for polymorphic copying
     std::unique_ptr<NumericDomainMapping> clone() const override {
         return std::make_unique<StandardSplitMapping>(*this);
     }
 
     bool can_split(ap_float value, bool include_in_lower) const override {
+        std::cout << "Checking if we can split at value " << value << " with include_in_lower=" << include_in_lower << std::endl;
         std::pair<ap_float, bool> split_point = {value, include_in_lower};
         return std::find(split_points.begin(), split_points.end(), split_point) == split_points.end();
     }
@@ -498,6 +498,7 @@ public:
                 return false;  // Already a split point
             }
         }
+        std::cout << "BRUH" << std::endl;
         return true;
     }
     

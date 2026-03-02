@@ -31,7 +31,7 @@ using namespace std;
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
 
-static Verbosity log_verbosity = Verbosity::INFO;
+static Verbosity log_verbosity = Verbosity::DEBUG;
 
 class CEGAR {
 
@@ -48,7 +48,6 @@ private:
     const int max_abstraction_size;
     const double max_time;
     const bool use_wildcard_plans;
-    const bool deviation_flaws;
     const ExecEntirePlanMode exec_entire_plan;
     const FlawTreatment flaw_treatment;
     const InitSplitMethod init_split_method;
@@ -135,9 +134,6 @@ private:
         const std::vector<ap_float> &concrete_values,
         const TaskProxy &task_proxy) const;
 
-    std::optional<ap_float> choose_unsplit_value(
-        int numeric_var_id, int local_idx, ap_float concrete_value) const;
-
     std::vector<Flaw> get_precondition_flaws(
         const OperatorProxy &op,
         const std::vector<int> &current_state,
@@ -155,6 +151,7 @@ private:
         const TaskProxy &task_proxy,
         const std::vector<int> &current_state,
         const std::vector<ap_float> &numeric_state) const;
+    void dump_flaw(const Flaw &flaw) const;
 public:
                 CEGAR(int max_abstraction_size,
                     double max_time,
@@ -192,7 +189,6 @@ CEGAR::CEGAR(
         : max_abstraction_size(max_abstraction_size),
             max_time(max_time),
             use_wildcard_plans(use_wildcard_plans),
-            deviation_flaws(deviation_flaws),
         exec_entire_plan(exec_entire_plan),
             flaw_treatment(flaw_treatment),
             init_split_method(init_split_method),
@@ -479,60 +475,6 @@ pair<int, vector<int>> CEGAR::get_random_init_goal_partition_split(
     return make_pair(1, vector<int>{});
 }
 
-//TODO: Get rid of that. With deviation flaws, we always want the "latest" value
-std::optional<ap_float> CEGAR::choose_unsplit_value(
-    int numeric_var_id, int local_idx, ap_float concrete_value) const {
-    if (local_idx < 0 || local_idx >= static_cast<int>(already_split.size())) {
-        return std::nullopt;
-    }
-    if (already_split[local_idx].count(concrete_value) == 0) {
-        return concrete_value;
-    }
-    if (local_idx >= static_cast<int>(regular_numeric_var_values.size())) {
-        return std::nullopt;
-    }
-    for (ap_float val : regular_numeric_var_values[local_idx]) {
-        if (already_split[local_idx].count(val) == 0) {
-            return val;
-        }
-    }
-    if (numeric_var_id < 0 ||
-        numeric_var_id >= static_cast<int>(numeric_domain_mapping.size())) {
-        return std::nullopt;
-    }
-    const auto &ranges = numeric_domain_mapping[numeric_var_id]->get_ranges();
-    for (const NumericRange &range : ranges) {
-        if (!range.contains(concrete_value)) {
-            continue;
-        }
-        ap_float lower = range.lower;
-        ap_float upper = range.upper;
-        bool has_lower = lower != -numeric_limits<ap_float>::infinity();
-        bool has_upper = upper != numeric_limits<ap_float>::infinity();
-        if (has_lower && has_upper && lower == upper) {
-            return std::nullopt;
-        }
-        ap_float candidate = concrete_value;
-        if (has_lower && has_upper) {
-            candidate = (lower + upper) / 2;
-        } else if (has_lower) {
-            candidate = lower + 1;
-        } else if (has_upper) {
-            candidate = upper - 1;
-        }
-        if (has_lower && candidate <= lower) {
-            return std::nullopt;
-        }
-        if (has_upper && candidate >= upper) {
-            return std::nullopt;
-        }
-        if (already_split[local_idx].count(candidate) == 0) {
-            return candidate;
-        }
-        return std::nullopt;
-    }
-    return std::nullopt;
-}
 
 vector<CEGAR::Flaw> CEGAR::get_precondition_flaws(
     const OperatorProxy &op, const vector<int> &current_state,
@@ -559,12 +501,16 @@ vector<CEGAR::Flaw> CEGAR::get_precondition_flaws(
                     Fact(var_id, pre.get_value()),
                     move(numeric_flaws)
                 );
+                logger->log(Verbosity::DEBUG, "Precondition Flaw");
+                dump_flaw(flaws.back());
             } else {
                 flaws.emplace_back(
                     std::in_place_type<PropFlaw>,
                     Fact(var_id, pre.get_value()),
                     std::vector<NumericFlaw>{}
                 );
+                logger->log(Verbosity::DEBUG, "Precondition Flaw");
+                dump_flaw(flaws.back());
             }
         }
     }
@@ -600,6 +546,8 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
             }
             PropFlaw pf{Fact(static_cast<int>(var_id), successor_state[var_id]), numeric_flaws};
             flaws.push_back(pf);
+            logger->log(Verbosity::DEBUG, "Deviation Flaw");
+            dump_flaw(flaws.back());
         }
     }
 
@@ -609,10 +557,14 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
             numeric_successor_state[var_id]);
         if (abstract_value != correct_abstract_value) {
             ap_float concrete_value = numeric_successor_state[var_id];
-            // TODO: Not sure whether to split lower or upper bound but that might be important to determine.
-            bool is_lower = true;
+            // TODO: In order to determine whether to split lower or upper depends on the variable. 
+            // 1) get the lower and upper bound of the partition WE SHOULD END UP WITH
+            // 2) if target partition is larger than value, is_lower=false, otherwise true. 
+            bool is_lower = true; 
             NumericFlaw numeric_flaw{static_cast<int>(var_id), concrete_value, is_lower};
             flaws.push_back(numeric_flaw);
+            logger->log(Verbosity::DEBUG, "Numeric Deviation Flaw");
+            dump_flaw(flaws.back());
         }
     }
     return flaws;
@@ -652,31 +604,23 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                         bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_state, task_proxy);
                         NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
                         numeric_flaws.push_back(numeric_flaw);
-                        logger->log(Verbosity::DEBUG, "  Goal variable ", var_id, " is a comparison axiom - adding numeric flaw for dependent variable ", dep_var_id, " with concrete value ", concrete_value);
                     }
                     flaws.emplace_back(
                         std::in_place_type<PropFlaw>,
                         Fact(var_id, goal.get_value()),
                         move(numeric_flaws)
                     );
+                    logger->log(Verbosity::DEBUG, "Goal Flaw");
+                    dump_flaw(flaws.back());
                     
                 } else {
-                    cout << "  Goal variable " << var_id << " is not a comparison axiom - adding propositional flaw without numeric flaws" << endl;
                     flaws.emplace_back(
                         std::in_place_type<PropFlaw>,
                         Fact(var_id, goal.get_value()),
                         move(std::vector<NumericFlaw>{})
                     );
-                    //print the flaw we just added
-                    const PropFlaw &pf = std::get<PropFlaw>(flaws.back());
-                    cout << "    Added flaw: variable " << pf.first.var << " should be " << pf.first.value << " but is " << current_state[pf.first.var] << endl;
-                    //print numeric flaws if there are any
-                    if (!pf.second.empty()) {
-                        cout << "    Numeric flaws for this propositional flaw:" << endl;
-                        for (const NumericFlaw &nf : pf.second) {
-                            cout << "      Variable " << std::get<0>(nf) << " with concrete value " << std::get<1>(nf) << " and is_lower " << std::get<2>(nf) << endl;
-                        }
-                    }
+                    logger->log(Verbosity::DEBUG, "Goal Flaw");
+                    dump_flaw(flaws.back());
                 }
             }
         }
@@ -710,12 +654,16 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                             Fact(var_id, pre.get_value()),
                             move(numeric_flaws)
                         );
+                        logger->log(Verbosity::DEBUG, "Goal Flaw");
+                        dump_flaw(flaws.back());
                     } else {
                         flaws.emplace_back(
                             std::in_place_type<PropFlaw>,
                             Fact(var_id, pre.get_value()),
                             std::vector<NumericFlaw>{}
                         );
+                        logger->log(Verbosity::DEBUG, "Goal Flaw");
+                        dump_flaw(flaws.back());
                     }
                 }
             }
@@ -723,6 +671,38 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
     }
     
     return flaws;
+}
+
+void CEGAR::dump_flaw(const Flaw &flaw) const {
+    auto dump_numeric_flaw = [](const NumericFlaw &numeric_flaw,
+                                const string &prefix) {
+    cout << prefix << "num" << std::get<0>(numeric_flaw)
+             << "=" << std::get<1>(numeric_flaw)
+             << ", is_lower=" << boolalpha << std::get<2>(numeric_flaw)
+             << noboolalpha << endl;
+    };
+
+    visit([&](auto &&f) {
+        using T = std::decay_t<decltype(f)>;
+        if constexpr (std::is_same_v<T, PropFlaw>) {
+            const Fact &fact = f.first;
+            const vector<NumericFlaw> &numeric_flaws = f.second;
+            cout << "Flaw(type=PropFlaw, v" << fact.var
+                 << "=" << fact.value
+                 << ", is_comparison_axiom=" << boolalpha
+                 << is_comparison_axiom_variable(fact.var) << noboolalpha
+                 << ", num_numeric_flaws=" << numeric_flaws.size() << ")"
+                 << endl;
+            for (size_t i = 0; i < numeric_flaws.size(); ++i) {
+                dump_numeric_flaw(numeric_flaws[i],
+                                  "  dependent_numeric_flaw[" +
+                                      to_string(i) + "]: ");
+            }
+        } else if constexpr (std::is_same_v<T, NumericFlaw>) {
+            cout << "Flaw(type=NumericFlaw) ";
+            dump_numeric_flaw(f, "");
+        }
+    }, flaw);
 }
 
 /*
@@ -810,7 +790,6 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
     auto decode_abstract_state_compact = [&](const vector<int> &prop_state,
                                              const vector<ap_float> &num_state) -> string {
         const DomainMapping &dm = abstraction.get_domain_mapping();
-        const NumericDomainMappings &ndm = abstraction.get_numeric_domain_mapping();
         stringstream ss;
         ss << "[";
         bool first = true;
@@ -822,8 +801,11 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
                 ss << "v" << i << "=" << concrete_val << " (" << dm[i][concrete_val] << ")";
             }
         }
-        for (size_t i = 0; i < ndm.size(); ++i) {
-            if (ndm[i]->get_num_partitions() == 1) continue; // Skip trivial numeric variables
+        const NumericVariablesProxy numeric_vars = task_proxy.get_numeric_variables();
+        for (size_t i = 0; i < numeric_vars.size(); ++i) {
+            if (numeric_vars[i].get_var_type() != numType::regular) {
+                continue;
+            }
             if (!first) ss << ", ";
             first = false;
             ss << "num" << i << "=" << num_state[i];
@@ -867,15 +849,9 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
     const DomainMapping &domain_mapping = abstraction.get_domain_mapping();
     const NumericDomainMappings &numeric_domain_mapping = abstraction.get_numeric_domain_mapping();
     
-    int step_num = 0;
+    int step_num = 1;
     for (vector<int> &equivalent_ops : wildcard_plan) {
         assert(flaws.empty()); 
-        //assert(abstract_prop_states.size() == step_num + 1);
-        //assert(abstract_numeric_states.size() == step_num + 1);
-
-        const vector<int> &abstract_state = abstract_prop_states[step_num];
-        const vector<int> &abstract_numeric_state = abstract_numeric_states[step_num];
-        
         for (int op_id : equivalent_ops) {
             assert(op_id < task_proxy.get_operators().size());
             OperatorProxy op = task_proxy.get_operators()[op_id];
@@ -884,12 +860,8 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
             vector<Flaw> operator_flaws =
                 get_precondition_flaws(op, current_prop_state, current_numeric_state, task_proxy);
 
-            vector<Flaw> deviation_flaws = get_deviation_flaws(
-                current_prop_state, current_numeric_state,
-                abstract_state, abstract_numeric_state,
-                domain_mapping, numeric_domain_mapping, task_proxy);
-            deviation_flaws.clear(); // TODO: Remove after debugging
-            operator_flaws.insert(operator_flaws.end(), deviation_flaws.begin(), deviation_flaws.end());
+            
+            //deviation_flaws.clear(); // TODO: Remove after debugging
 
             if (operator_flaws.empty()) {
                 flaws.clear();
@@ -899,7 +871,26 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
                 apply_numeric_effects(current_numeric_state, op);
                 g_axiom_evaluator->evaluate_arithmetic_axioms(current_numeric_state);
                 g_axiom_evaluator->evaluate(current_prop_state, current_numeric_state);
-                break;
+
+                assert(step_num < abstract_prop_states.size());
+                assert(step_num < abstract_numeric_states.size());
+
+                const vector<int> &abstract_state = abstract_prop_states[step_num];
+                const vector<int> &abstract_numeric_state = abstract_numeric_states[step_num];
+                decoded_state = decode_abstract_state_compact(current_prop_state, current_numeric_state);
+
+                logger->log(Verbosity::DEBUG, "[SUCC] ", decoded_state);
+
+
+                vector<Flaw> deviation_flaws = get_deviation_flaws(
+                    current_prop_state, current_numeric_state,
+                    abstract_state, abstract_numeric_state,
+                    domain_mapping, numeric_domain_mapping, task_proxy);
+                if (deviation_flaws.empty()) {
+                    break;
+                }
+                cout << "Found " << deviation_flaws.size() << " deviation flaws after applying operator " << op_name << endl;
+                flaws.insert(flaws.end(), deviation_flaws.begin(), deviation_flaws.end());
             } else {
                 // We have precondition or deviation flaws
                 flaws.insert(flaws.end(), operator_flaws.begin(), operator_flaws.end());
@@ -911,6 +902,8 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
         }
         step_num++;
     }
+
+    cout << "Plan is valid in the concrete state, checking goal conditions..." << endl;
 
     string decoded_state = decode_abstract_state_compact(current_prop_state, current_numeric_state);
     logger->log(Verbosity::DEBUG, "[PLAN] ", decoded_state);
@@ -972,7 +965,8 @@ bool CEGAR::fix_single_random_flaw(
                         abstract_domain_sizes[fact.var] = 2;
                         cout << "Refined comparison axiom variable " << fact.var << " at value 0 (true) with dependent numeric flaws:" << endl;
                         const std::vector<NumericFlaw> &numeric_flaws = f.second;
-                        for (int j = 0; j < repetitions; ++j) {
+                        int repetitions2 = ceil(1 + std::log(numeric_flaws.size()));
+                        for (int j = 0; j < repetitions2; ++j) {
                             assert(numeric_flaws.size() > 0);
                             chosen_idx = rng->random(numeric_flaws.size());
                             NumericFlaw chosen_numeric_flaw = numeric_flaws[chosen_idx];
@@ -980,7 +974,7 @@ bool CEGAR::fix_single_random_flaw(
                             int id              = std::get<0>(chosen_numeric_flaw);
                             const ap_float &val = std::get<1>(chosen_numeric_flaw);
                             bool flag           = std::get<2>(chosen_numeric_flaw);
-                            if (can_refine_numeric_variable(abstraction_size, id) && numeric_domain_mapping[id]->can_split(val, flag)) {
+                            if (numeric_domain_mapping[id]->can_split(val, flag) && can_refine_numeric_variable(abstraction_size, id)) {
                                 logger->log(Verbosity::INFO, "Refining numeric var ", id, " at value ", val);
                                 numeric_domain_mapping[id]->split_at(val, flag);
                                 numeric_domain_sizes[id] = numeric_domain_mapping[id]->get_num_partitions();
@@ -989,6 +983,7 @@ bool CEGAR::fix_single_random_flaw(
                             }
                             // TODO: Think more carefully if that really makes sense here
                         }
+                        cout << "Failed to refine any dependent numeric flaw for comparison axiom variable " << fact.var << " - skipping refinement of this variable" << endl;
                         return false;
                         
                     } else {
@@ -998,6 +993,7 @@ bool CEGAR::fix_single_random_flaw(
                         logger->log(Verbosity::INFO, "Refined propositional var ", fact.var,
                                 " at value ", fact.value,
                                 " (abstract domain size: ", old_size, " -> ", abstract_domain_sizes[fact.var], ")");
+                        return true;
                     }
                 } 
             } else if constexpr (std::is_same_v<T, NumericFlaw>) {
@@ -1005,16 +1001,14 @@ bool CEGAR::fix_single_random_flaw(
                 const ap_float &val = std::get<1>(f);
                 bool flag           = std::get<2>(f);
 
-                // TODO: Implement check if the flaw has been already split at that position
-                numeric_domain_mapping[id]->split_at(val, flag);
-                if (can_refine_numeric_variable(abstraction_size, id)) {
-                    // TODO: Here was LOCAL id used. Get rid of it. 
+                if (numeric_domain_mapping[id]->can_split(val, flag) && can_refine_numeric_variable(abstraction_size, id)) {
                     numeric_domain_mapping[id]->split_at(val, flag);
                     numeric_domain_sizes[id] = numeric_domain_mapping[id]->get_num_partitions();
                     return true;
                 }
 
             }
+            return false;
         }, chosen);
         if (result) {
             return true;
@@ -1087,7 +1081,7 @@ bool CEGAR::fix_single_flaw_max_refined(
 
     // Refine max-refined flaw
     Flaw chosen_flaw = flaws[*rng->choose(current_flaw_candidates)];
-    visit([&](auto &&f) {
+    bool refined = visit([&](auto &&f) {
         using T = std::decay_t<decltype(f)>;
         if constexpr (std::is_same_v<T, PropFlaw>) { 
             const Fact &fact = f.first;
@@ -1102,7 +1096,8 @@ bool CEGAR::fix_single_flaw_max_refined(
                     int id = std::get<0>(numeric_flaw);
                     const ap_float &val = std::get<1>(numeric_flaw);
                     bool flag = std::get<2>(numeric_flaw);
-                    if (can_refine_numeric_variable(abstraction_size, id)) {
+                    if (can_refine_numeric_variable(abstraction_size, id)
+                        && numeric_domain_mapping[id]->can_split(val, flag)) {
                         numeric_domain_mapping[id]->split_at(val, flag);
                         return true;
                     }
@@ -1112,15 +1107,17 @@ bool CEGAR::fix_single_flaw_max_refined(
             int id = std::get<0>(f);
             ap_float val = std::get<1>(f);
             bool flag = std::get<2>(f);
-            if (can_refine_numeric_variable(abstraction_size, id)) {
+            if (can_refine_numeric_variable(abstraction_size, id)
+                && numeric_domain_mapping[id]->can_split(val, flag)) {
                 numeric_domain_mapping[id]->split_at(val, flag);
                 return true;
             }
         }
 
+        return false;
     }, chosen_flaw);
 
-    return false;
+    return refined;
 }
 
 bool CEGAR::fix_flaws_per_atom(
@@ -1166,7 +1163,8 @@ bool CEGAR::fix_flaws_per_atom(
                             int id = std::get<0>(numeric_flaw);
                             const ap_float &val = std::get<1>(numeric_flaw);
                             bool flag = std::get<2>(numeric_flaw);
-                            if (can_refine_numeric_variable(abstraction_size, id)) {
+                            if (can_refine_numeric_variable(abstraction_size, id)
+                                && numeric_domain_mapping[id]->can_split(val, flag)) {
                                 numeric_domain_mapping[id]->split_at(val, flag);
                                 last_numeric_flaw = numeric_flaw;
                             }
@@ -1188,7 +1186,8 @@ bool CEGAR::fix_flaws_per_atom(
                 int id = std::get<0>(f);
                 const ap_float &val = std::get<1>(f);
                 bool flag = std::get<2>(f);
-                if (can_refine_numeric_variable(abstraction_size, id)) {
+                if (can_refine_numeric_variable(abstraction_size, id)
+                    && numeric_domain_mapping[id]->can_split(val, flag)) {
                     numeric_domain_mapping[id]->split_at(val, flag);
                     last_numeric_flaw = f;
                 }
@@ -1238,7 +1237,8 @@ bool CEGAR::fix_flaws_per_variable(
                             int id = std::get<0>(numeric_flaw);
                             const ap_float &val = std::get<1>(numeric_flaw);
                             bool flag = std::get<2>(numeric_flaw);
-                            if (can_refine_numeric_variable(abstraction_size, id)) {
+                            if (can_refine_numeric_variable(abstraction_size, id)
+                                && numeric_domain_mapping[id]->can_split(val, flag)) {
                                 numeric_domain_mapping[id]->split_at(val, flag);
                                 last_numeric_flaw = numeric_flaw;
                             }
@@ -1260,7 +1260,8 @@ bool CEGAR::fix_flaws_per_variable(
                 int id = std::get<0>(f);
                 const ap_float &val = std::get<1>(f);
                 bool flag = std::get<2>(f);
-                if (can_refine_numeric_variable(abstraction_size, id)) {
+                if (can_refine_numeric_variable(abstraction_size, id)
+                    && numeric_domain_mapping[id]->can_split(val, flag)) {
                     numeric_domain_mapping[id]->split_at(val, flag);
                     last_numeric_flaw = f;
                 }
@@ -1722,6 +1723,8 @@ DomainAbstraction CEGAR::build_abstraction(
             break;
         }
 
+        logger->log(Verbosity::DEBUG, "Flaws found in this iteration: ", flaws.size());
+
         bool flaws_fixed = fix_flaws(move(flaws), domain_mapping, abstraction.size(), numeric_domain_mapping);
         if (!flaws_fixed) {
             logger->log(Verbosity::DEBUG, "No flaws could be fixed, terminating CEGAR refinement.");
@@ -1802,15 +1805,16 @@ bool CEGAR::can_refine_numeric_variable(
     int current_partitions = numeric_domain_mapping[numeric_var_id]->get_num_partitions();
     int abs_size_without_var = old_abstraction_size / current_partitions;
 
-    logger->log(Verbosity::DEBUG, "Numeric variable ", numeric_var_id,
-                    " has ", current_partitions, " partitions.");
-    logger->log(Verbosity::DEBUG, "Old abstraction size: ", old_abstraction_size);
-    logger->log(Verbosity::DEBUG, "Abstraction size without this variable: ", abs_size_without_var);
-    logger->log(Verbosity::DEBUG, "Max abstraction size: ", max_abstraction_size);
+
     
     // Splitting will create one more partition
     if (utils::is_product_within_limit(abs_size_without_var, current_partitions + 1,
                                        max_abstraction_size)) {
+                                            logger->log(Verbosity::DEBUG, "Numeric variable ", numeric_var_id,
+        " has ", current_partitions, " partitions.");
+        logger->log(Verbosity::DEBUG, "Old abstraction size: ", old_abstraction_size);
+        logger->log(Verbosity::DEBUG, "Abstraction size without this variable: ", abs_size_without_var);
+        logger->log(Verbosity::DEBUG, "Max abstraction size: ", max_abstraction_size);
         return true;
     }
     
@@ -1949,11 +1953,11 @@ bool CEGAR::determine_include_in_lower(
     int eval_lower = evaluate_comparison_with_ranges(prop_var_id, all_ranges_lower, task_proxy);
     int eval_upper = evaluate_comparison_with_ranges(prop_var_id, all_ranges_upper, task_proxy);
     
-    logger->log(Verbosity::DEBUG, "determine_include_in_lower for prop_var_id=", prop_var_id,
-               ", split_var=", split_var_id, ", split_value=", split_value);
-    logger->log(Verbosity::DEBUG, "  eval with (-inf, ", split_value, "]: ", 
+    logger->log(Verbosity::VERBOSE, "determine_include_in_lower for prop_var_id=v", prop_var_id,
+               ", split_var=num", split_var_id, ", split_value=", split_value);
+    logger->log(Verbosity::VERBOSE, "  eval with (-inf, ", split_value, "]: ", 
                (eval_lower == 0 ? "TRUE" : (eval_lower == 1 ? "FALSE" : "UNKNOWN")));
-    logger->log(Verbosity::DEBUG, "  eval with [", split_value, ", inf): ",
+    logger->log(Verbosity::VERBOSE, "  eval with [", split_value, ", inf): ",
                (eval_upper == 0 ? "TRUE" : (eval_upper == 1 ? "FALSE" : "UNKNOWN")));
     
     // TODO: add assertion that true should never be possible
@@ -1962,35 +1966,35 @@ bool CEGAR::determine_include_in_lower(
     // We want the comparison to be FALSE in the abstract state
     if (eval_lower == 1 && eval_upper != 1) {
         // Only include_in_lower=true gives FALSE
-        logger->log(Verbosity::DEBUG, "  -> Choosing include_in_lower=true (gives FALSE)");
+        logger->log(Verbosity::VERBOSE, "  -> Choosing include_in_lower=true (gives FALSE)");
         return true;
     } else if (eval_upper == 1 && eval_lower != 1) {
         // Only include_in_lower=false gives FALSE
-        logger->log(Verbosity::DEBUG, "  -> Choosing include_in_lower=false (gives FALSE)");
+        logger->log(Verbosity::VERBOSE, "  -> Choosing include_in_lower=false (gives FALSE)");
         return false;
     } else if (eval_lower == 1 && eval_upper == 1) {
         // Both give FALSE - either works, default to false
-        logger->log(Verbosity::DEBUG, "  -> Both give FALSE, defaulting to include_in_lower=false");
+        logger->log(Verbosity::VERBOSE, "  -> Both give FALSE, defaulting to include_in_lower=false");
         utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         return false;
     } else if (eval_lower == 2 && eval_upper == 2) {
         // Both give UNKNOWN - this shouldn't happen in theory, but default to false
-        logger->log(Verbosity::DEBUG, "  -> Both give UNKNOWN, defaulting to include_in_lower=false");
-        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        logger->log(Verbosity::VERBOSE, "  -> Both give UNKNOWN, defaulting to include_in_lower=false");
+        //utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         return false;
     } else if (eval_lower == 2) {
         // Only lower gives UNKNOWN (upper gives TRUE) - prefer UNKNOWN over TRUE
-        logger->log(Verbosity::DEBUG, "  -> Choosing include_in_lower=true (gives UNKNOWN over TRUE)");
+        logger->log(Verbosity::VERBOSE, "  -> Choosing include_in_lower=true (gives UNKNOWN over TRUE)");
         utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         return true;
     } else if (eval_upper == 2) {
         // Only upper gives UNKNOWN (lower gives TRUE) - prefer UNKNOWN over TRUE
-        logger->log(Verbosity::DEBUG, "  -> Choosing include_in_lower=false (gives UNKNOWN over TRUE)");
+        logger->log(Verbosity::VERBOSE, "  -> Choosing include_in_lower=false (gives UNKNOWN over TRUE)");
         utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         return false;
     } else {
         // Both give TRUE - doesn't matter, default to false
-        logger->log(Verbosity::DEBUG, "  -> Both give TRUE, defaulting to include_in_lower=false");
+        logger->log(Verbosity::VERBOSE, "  -> Both give TRUE, defaulting to include_in_lower=false");
         return false;
     }
 }
