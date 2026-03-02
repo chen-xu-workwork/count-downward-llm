@@ -16,7 +16,7 @@ class LogProxy;
 namespace domain_abstractions {
 class DomainAbstraction {
     DomainMapping domain_mapping;
-    NumericDomainMappingType numeric_domain_mapping;
+    NumericDomainMappings numeric_domain_mapping;
     
     std::vector<int> hash_multipliers;
     std::vector<ap_float> distances;
@@ -37,7 +37,7 @@ class DomainAbstraction {
 
 public:
     DomainAbstraction(DomainMapping &&domain_mapping,
-                      NumericDomainMappingType &&numeric_domain_mapping, 
+                      NumericDomainMappings &&numeric_domain_mapping, 
                       std::vector<int> &&hash_multipliers,
                       std::vector<ap_float> &&distances,
                       std::vector<std::vector<int>> &&wildcard_plan,
@@ -77,15 +77,15 @@ public:
         return std::move(domain_mapping);
     }
 
-    NumericDomainMappingType extract_numeric_domain_mapping() {
+    NumericDomainMappings extract_numeric_domain_mapping() {
         return std::move(numeric_domain_mapping);
     }
     
-    const NumericDomainMappingType &get_numeric_domain_mapping() const {
+    const NumericDomainMappings &get_numeric_domain_mapping() const {
         return numeric_domain_mapping;
     }
     
-    NumericDomainMappingType &get_numeric_domain_mapping() {
+    NumericDomainMappings &get_numeric_domain_mapping() {
         return numeric_domain_mapping;
     }
 

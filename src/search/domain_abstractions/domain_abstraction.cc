@@ -37,7 +37,7 @@ static std::vector<int> get_domain_sizes_from_mapping(const DomainMapping &domai
 // This mirrors the implementation in DomainAbstractionFactory::decode_abstract_state
 // Includes variable names from TaskProxy for more informative debug output
 static std::string decode_abstract_state(int state_index, const std::vector<int> &domain_sizes,
-                                         const NumericDomainMappingType &numeric_domain_mapping,
+                                         const NumericDomainMappings &numeric_domain_mapping,
                                          const std::vector<int> &hash_multipliers,
                                          const TaskProxy &task_proxy) {
     std::stringstream ss;

@@ -36,7 +36,7 @@ DomainAbstraction DomainAbstractionGeneratorIdentity::build_abstraction(
     }
 
     // For now, no numeric variables in domain abstractions
-    NumericDomainMappingType numeric_domain_mapping;
+    NumericDomainMappings numeric_domain_mapping;
     vector<int> numeric_domain_sizes;
 
     DomainAbstractionFactory factory(task_proxy, domain_mapping, domain_sizes,

@@ -19,14 +19,14 @@ using namespace std;
 
 namespace domain_abstractions {
 
-// Fingerprint for a NumericDomainMappingType: captures range boundaries and inclusivity.
+// Fingerprint for a NumericDomainMappings: captures range boundaries and inclusivity.
 // Two numeric mappings are considered equal if they have identical ranges.
 // Each range is encoded as: (lower, upper, lower_inclusive, upper_inclusive)
 // where inclusivity flags are encoded as 0.0 or 1.0 for comparison purposes.
 using NumericMappingFingerprint = vector<vector<ap_float>>;
 
 static NumericMappingFingerprint get_numeric_fingerprint(
-    const NumericDomainMappingType &numeric_mapping) {
+    const NumericDomainMappings &numeric_mapping) {
     NumericMappingFingerprint fingerprint;
     fingerprint.reserve(numeric_mapping.size());
     for (const auto &mapping : numeric_mapping) {

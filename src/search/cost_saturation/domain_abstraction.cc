@@ -128,7 +128,7 @@ struct CompEvalHelper {
 void compute_numeric_context(
     int state_index,
     const domain_abstractions::DomainMapping &domain_mapping,
-    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping,
+    const domain_abstractions::NumericDomainMappings &numeric_domain_mapping,
     const vector<int> &hash_multipliers,
     const vector<int> &pattern_domain_sizes,
     const pdbs::Pattern &pattern,
@@ -238,7 +238,7 @@ vector<CompEvalHelper> evaluate_all_comparisons(
     const vector<domain_abstractions::NumericRange> &ranges,
     const vector<bool> &ranges_valid,
     const vector<int> &cur_num_partitions,
-    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping,
+    const domain_abstractions::NumericDomainMappings &numeric_domain_mapping,
     const TaskProxy &task_proxy) {
     
     // Use cached comparison axiom data instead of proxy calls on each iteration.
@@ -405,7 +405,7 @@ static vector<Fact> get_comparison_preconditions_from_group(
 static vector<bool> compute_looping_operators(
     const TaskProxy &task_proxy,
     const domain_abstractions::DomainMapping &domain_mapping,
-    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping,
+    const domain_abstractions::NumericDomainMappings &numeric_domain_mapping,
     const vector<int> &variable_to_pattern_index,
     const vector<int> &numeric_variable_to_pattern_index) {
     OperatorsProxy ops = task_proxy.get_operators();
@@ -539,7 +539,7 @@ static DomainAbstractionOperatorGroups get_operator_groups_from_abstract_ops(
     const vector<int> &variable_to_pattern_index,
     const vector<int> &numeric_variable_to_pattern_index,
     const domain_abstractions::DomainMapping &domain_mapping,
-    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping) {
+    const domain_abstractions::NumericDomainMappings &numeric_domain_mapping) {
     
     vector<int> flattened_var_to_pattern_index(domain_mapping.size() + numeric_domain_mapping.size(), -1);
     for (size_t i = 0; i < variable_to_pattern_index.size(); ++i) {
@@ -571,7 +571,7 @@ DomainAbstractionFunction::DomainAbstractionFunction(
     const pdbs::Pattern &pattern,
     const vector<int> &hash_multipliers,
     const domain_abstractions::DomainMapping domain_mapping,
-    const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping)
+    const domain_abstractions::NumericDomainMappings &numeric_domain_mapping)
     : domain_mapping(move(domain_mapping)) {
     // Deep copy numeric_domain_mapping by cloning each unique_ptr
     this->numeric_domain_mapping.reserve(numeric_domain_mapping.size());

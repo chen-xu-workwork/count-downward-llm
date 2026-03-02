@@ -43,7 +43,7 @@ struct CompEvalHelper {
 static void compute_numeric_context(
     int state_index,
     const DomainMapping &domain_mapping,
-    const NumericDomainMappingType &numeric_domain_mapping,
+    const NumericDomainMappings &numeric_domain_mapping,
     const vector<int> &hash_multipliers,
     const TaskProxy &task_proxy,
     unordered_map<int, NumericRange> &ranges_out,
@@ -141,7 +141,7 @@ static void compute_numeric_context(
 static vector<CompEvalHelper> evaluate_all_comparisons(
     const unordered_map<int, NumericRange> &ranges,
     const vector<int> &cur_num_partitions,
-    const NumericDomainMappingType &numeric_domain_mapping,
+    const NumericDomainMappings &numeric_domain_mapping,
     const TaskProxy &task_proxy) {
     vector<CompEvalHelper> out;
     ComparisonAxiomsProxy comp_axioms = task_proxy.get_comparison_axioms();
@@ -286,7 +286,7 @@ static bool is_state_goal_feasible(
     int state_index,
     const vector<Fact> &abstract_goals,
     const DomainMapping &domain_mapping,
-    const NumericDomainMappingType &numeric_domain_mapping,
+    const NumericDomainMappings &numeric_domain_mapping,
     const vector<int> &hash_multipliers,
     const TaskProxy &task_proxy) {
     // Build numeric context
@@ -449,7 +449,7 @@ AbstractOperator::AbstractOperator(const vector<Fact> &prev_pairs,
     }
 }
 
-void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_mapping, NumericDomainMappingType &numeric_domain_mapping, shared_ptr<CEGARLogger> logger) const {
+void AbstractOperator::dump(const TaskProxy &task_proxy, DomainMapping &domain_mapping, NumericDomainMappings &numeric_domain_mapping, shared_ptr<CEGARLogger> logger) const {
     ComparisonAxiomsProxy comparison_axioms = task_proxy.get_comparison_axioms();
     unordered_set<int> comparison_var_ids;
     for (ComparisonAxiomProxy ax : comparison_axioms) {
@@ -568,7 +568,7 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     const TaskProxy &task_proxy,
     const DomainMapping &domain_mapping,
     const vector<int> &domain_sizes,
-    const NumericDomainMappingType &numeric_domain_mapping,
+    const NumericDomainMappings &numeric_domain_mapping,
     const vector<int> &numeric_domain_sizes,
     bool compute_plan,
     const shared_ptr<utils::RandomNumberGenerator> &rng,
@@ -905,7 +905,7 @@ vector<Fact> DomainAbstractionFactory::compute_abstract_goals(
 // Helper function to decode an abstract state index into its variable values
 // Includes variable names from TaskProxy for more informative debug output
 string decode_abstract_state(int state_index, const vector<int> &domain_sizes,
-                              const NumericDomainMappingType &numeric_domain_mapping,
+                              const NumericDomainMappings &numeric_domain_mapping,
                               const vector<int> &hash_multipliers,
                               const TaskProxy &task_proxy) {
     stringstream ss;
@@ -970,7 +970,7 @@ string decode_abstract_state(int state_index, const vector<int> &domain_sizes,
 // Helper to decode into vectors for programmatic checks
 static void decode_state_to_vectors(int state_index,
                                     const vector<int> &domain_sizes,
-                                    const NumericDomainMappingType &numeric_domain_mapping,
+                                    const NumericDomainMappings &numeric_domain_mapping,
                                     const vector<int> &hash_multipliers,
                                     vector<int> &prop_values_out,
                                     vector<int> &num_partitions_out) {

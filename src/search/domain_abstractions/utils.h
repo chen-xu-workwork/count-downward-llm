@@ -45,7 +45,7 @@ extern std::vector<int> enumerate_cascade_predecessors(
     const std::vector<int> &target_partitions,
     const TaskProxy &task_proxy,
     const DomainMapping &domain_mapping,
-    const NumericDomainMappingType &numeric_domain_mapping,
+    const NumericDomainMappings &numeric_domain_mapping,
     const std::vector<int> &hash_multipliers);
 
 /*
@@ -61,7 +61,7 @@ extern size_t compute_abstract_state_hash(
     const State &state,
     const TaskProxy &task_proxy,
     const DomainMapping &domain_mapping,
-    const NumericDomainMappingType &numeric_domain_mapping,
+    const NumericDomainMappings &numeric_domain_mapping,
     const std::vector<int> &hash_multipliers);
 
 /*
@@ -78,7 +78,7 @@ extern size_t compute_abstract_state_hash_backup(
     const State &state,
     const TaskProxy &task_proxy,
     const DomainMapping &domain_mapping,
-    const NumericDomainMappingType &numeric_domain_mapping,
+    const NumericDomainMappings &numeric_domain_mapping,
     const std::vector<int> &hash_multipliers);
 
 extern std::string get_rovner_et_al_reference();

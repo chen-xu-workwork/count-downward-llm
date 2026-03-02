@@ -69,7 +69,7 @@ static int debug_counter = 0;
 DomainAbstractionNumericHelper::DomainAbstractionNumericHelper(
     const shared_ptr<AbstractTask> &task,
     const DomainMapping &domain_mapping,
-    const NumericDomainMappingType &numeric_domain_mapping,
+    const NumericDomainMappings &numeric_domain_mapping,
     const vector<int> &domain_sizes,
     const vector<int> &numeric_domain_sizes,
     const vector<int> &hash_multipliers,

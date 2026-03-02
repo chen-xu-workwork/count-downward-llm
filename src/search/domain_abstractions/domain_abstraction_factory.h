@@ -114,7 +114,7 @@ public:
   
   const std::vector<Fact> &get_preconditions() const { return pre; }
 
-  void dump(const TaskProxy &task_proxy, DomainMapping &domain_mapping, NumericDomainMappingType &numeric_domain_mapping, std::shared_ptr<CEGARLogger> logger = nullptr) const;
+  void dump(const TaskProxy &task_proxy, DomainMapping &domain_mapping, NumericDomainMappings &numeric_domain_mapping, std::shared_ptr<CEGARLogger> logger = nullptr) const;
 };
 
 // Structure to store numeric goal conditions
@@ -134,7 +134,7 @@ class CEGARLogger;
 class DomainAbstractionFactory {
     TaskProxy task_proxy;
     DomainMapping domain_mapping;
-    NumericDomainMappingType numeric_domain_mapping;
+    NumericDomainMappings numeric_domain_mapping;
     std::vector<int> numeric_domain_sizes;
     std::shared_ptr<CEGARLogger> logger;
 
@@ -206,7 +206,7 @@ public:
         const TaskProxy &task_proxy,
         const DomainMapping &domain_mapping,
         const std::vector<int> &domain_sizes,
-        const NumericDomainMappingType &numeric_domain_mapping,
+        const NumericDomainMappings &numeric_domain_mapping,
         const std::vector<int> &numeric_domain_sizes,
         bool compute_plan,
         const std::shared_ptr<utils::RandomNumberGenerator> &rng,

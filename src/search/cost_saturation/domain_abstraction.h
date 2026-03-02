@@ -46,7 +46,7 @@ int reset_all_comparison_vars_to_unknown(
 
 class DomainAbstractionFunction : public AbstractionFunction {
     const domain_abstractions::DomainMapping domain_mapping;
-    domain_abstractions::NumericDomainMappingType numeric_domain_mapping;
+    domain_abstractions::NumericDomainMappings numeric_domain_mapping;
     struct VariableAndMultiplier {
         int pattern_var;
         int hash_multiplier;
@@ -63,7 +63,7 @@ public:
         const pdbs::Pattern &pattern,
         const std::vector<int> &hash_multipliers,
         domain_abstractions::DomainMapping domain_mapping,
-        const domain_abstractions::NumericDomainMappingType &numeric_domain_mapping);
+        const domain_abstractions::NumericDomainMappings &numeric_domain_mapping);
 
     virtual int get_abstract_state_id(const State &concrete_state) const override;
 };
@@ -77,7 +77,7 @@ class DomainAbstraction : public Abstraction {
     TaskProxy task_proxy;
     std::shared_ptr<TaskInfo> task_info;
     domain_abstractions::DomainMapping domain_mapping;
-    domain_abstractions::NumericDomainMappingType numeric_domain_mapping;
+    domain_abstractions::NumericDomainMappings numeric_domain_mapping;
     pdbs::Pattern pattern;
     array_pool_template::ArrayPool<int> label_to_operators;
 

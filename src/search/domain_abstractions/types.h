@@ -21,7 +21,7 @@ class NumericDomainMapping;
 
 // For numeric variables: one NumericDomainMapping per numeric variable in the abstraction
 // Uses unique_ptr for polymorphism (StandardSplitMapping or ExclusionSplitMapping)
-using NumericDomainMappingType = std::vector<std::unique_ptr<NumericDomainMapping>>;
+using NumericDomainMappings = std::vector<std::unique_ptr<NumericDomainMapping>>;
 
 // For numeric variables: represents a range with configurable boundaries
 // Examples: [lower, upper), (lower, upper], [lower, upper], (lower, upper)

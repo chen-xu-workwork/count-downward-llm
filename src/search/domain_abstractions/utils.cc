@@ -104,7 +104,7 @@ size_t compute_abstract_state_hash(
     const State &state,
     const TaskProxy &task_proxy,
     const DomainMapping &domain_mapping,
-    const NumericDomainMappingType &numeric_domain_mapping,
+    const NumericDomainMappings &numeric_domain_mapping,
     const std::vector<int> &hash_multipliers) {
     
     /* IMPORTANT: This function computes the abstract state hash for a CONCRETE state
@@ -167,7 +167,7 @@ size_t compute_abstract_state_hash_backup(
     const State &state,
     const TaskProxy &task_proxy,
     const DomainMapping &domain_mapping,
-    const NumericDomainMappingType &numeric_domain_mapping,
+    const NumericDomainMappings &numeric_domain_mapping,
     const std::vector<int> &hash_multipliers) {
     
     /* BACKUP VERSION using OPTIMISTIC range-based evaluation

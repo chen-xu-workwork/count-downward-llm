@@ -99,7 +99,7 @@ public:
     explicit DomainAbstractionNumericHelper(
         const std::shared_ptr<AbstractTask> &task,
         const DomainMapping &domain_mapping,
-        const NumericDomainMappingType &numeric_domain_mapping,
+        const NumericDomainMappings &numeric_domain_mapping,
         const std::vector<int> &domain_sizes,
         const std::vector<int> &numeric_domain_sizes,
         const std::vector<int> &hash_multipliers,
@@ -185,7 +185,7 @@ private:
     
     // Domain mappings from factory
     const DomainMapping &domain_mapping;
-    const NumericDomainMappingType &numeric_domain_mapping;
+    const NumericDomainMappings &numeric_domain_mapping;
     const std::vector<int> &domain_sizes;
     const std::vector<int> &numeric_domain_sizes;
     const std::vector<int> &hash_multipliers;

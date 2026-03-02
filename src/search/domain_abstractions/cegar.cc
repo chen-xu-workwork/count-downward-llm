@@ -31,7 +31,7 @@ using namespace std;
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
 
-static Verbosity log_verbosity = Verbosity::NONE;
+static Verbosity log_verbosity = Verbosity::DEBUG;
 
 class CEGAR {
 
@@ -62,7 +62,7 @@ private:
     std::vector<int> abstract_domain_sizes;
     std::vector<int> real_domain_sizes;
     
-    NumericDomainMappingType numeric_domain_mapping;
+    NumericDomainMappings numeric_domain_mapping;
     std::vector<int> numeric_domain_sizes;
     std::unordered_set<int> blacklisted_numeric_variables;
     
@@ -96,19 +96,19 @@ private:
                                 const DomainAbstraction &abstraction,
                                 bool execute_entire_plan) const;
     bool fix_flaws(std::vector<Flaw> &&flaws,
-                DomainMapping &domain_mapping, int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
+                DomainMapping &domain_mapping, int abstraction_size, NumericDomainMappings &numeric_domain_mapping);
     bool fix_single_random_flaw(std::vector<Flaw> &&flaws,
                             DomainMapping &domain_mapping,
-                            int abstraction_size, NumericDomainMappingType &numeric_domain_mapping  );
+                            int abstraction_size, NumericDomainMappings &numeric_domain_mapping  );
     bool fix_single_flaw_max_refined(
         vector<Flaw> &&flaws, DomainMapping &domain_mapping,
-        int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
+        int abstraction_size, NumericDomainMappings &numeric_domain_mapping);
     bool fix_flaws_per_atom(std::vector<Flaw> &&flaws,
                         DomainMapping &domain_mapping,
-                        int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
+                        int abstraction_size, NumericDomainMappings &numeric_domain_mapping);
     bool fix_flaws_per_variable(std::vector<Flaw> &&flaws,
                             DomainMapping &domain_mapping,
-                            int abstraction_size, NumericDomainMappingType &numeric_domain_mapping);
+                            int abstraction_size, NumericDomainMappings &numeric_domain_mapping);
 
     bool can_refine_variable(int old_abstraction_size, int var_id);
     bool can_refine_numeric_variable(int old_abstraction_size, int numeric_var_id);
@@ -118,7 +118,7 @@ private:
 
     void print_statistics(const TaskProxy &task_proxy, const DomainMapping &domain_mapping);
     
-    NumericDomainMappingType compute_initial_numeric_domain_mapping(
+    NumericDomainMappings compute_initial_numeric_domain_mapping(
         const TaskProxy &task_proxy);
     
     
@@ -149,7 +149,7 @@ private:
         const std::vector<int> &abstract_successor_state,
         const std::vector<int> &abstract_numeric_successor_state,
         const DomainMapping &domain_mapping,
-        const NumericDomainMappingType &numeric_domain_mapping,
+        const NumericDomainMappings &numeric_domain_mapping,
         const TaskProxy &task_proxy) const;
     std::vector<Flaw> get_goal_flaws(
         const TaskProxy &task_proxy,
@@ -598,7 +598,7 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
     const vector<int> &successor_state, const vector<ap_float> &numeric_successor_state,
     const vector<int> &abstract_successor_state, const vector<int> &abstract_numeric_successor_state,
     const DomainMapping &domain_mapping,
-    const NumericDomainMappingType &numeric_domain_mapping,
+    const NumericDomainMappings &numeric_domain_mapping,
     const TaskProxy &task_proxy) const {
     // TODO: Blacklisting????!!!!!
     vector<Flaw> flaws;
@@ -821,7 +821,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
     auto decode_abstract_state_compact = [&](const vector<int> &prop_state,
                                              const vector<ap_float> &num_state) -> string {
         const DomainMapping &dm = abstraction.get_domain_mapping();
-        const NumericDomainMappingType &ndm = abstraction.get_numeric_domain_mapping();
+        const NumericDomainMappings &ndm = abstraction.get_numeric_domain_mapping();
         stringstream ss;
         ss << "[";
         bool first = true;
@@ -847,7 +847,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
 
     // Debug domain mapping
     const DomainMapping &dm = abstraction.get_domain_mapping();
-    const NumericDomainMappingType &ndm = abstraction.get_numeric_domain_mapping();
+    const NumericDomainMappings &ndm = abstraction.get_numeric_domain_mapping();
     
     logger->log(Verbosity::DEBUG, "  Domain mapping (propositional):");
     for (size_t i = 0; i < dm.size(); ++i) {
@@ -876,7 +876,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
     logger->log(Verbosity::DEBUG, "PLAN: State 0 (start): ", decode_abstract_state_compact(current_prop_state, current_numeric_state));
 
     const DomainMapping &domain_mapping = abstraction.get_domain_mapping();
-    const NumericDomainMappingType &numeric_domain_mapping = abstraction.get_numeric_domain_mapping();
+    const NumericDomainMappings &numeric_domain_mapping = abstraction.get_numeric_domain_mapping();
     
     int step_num = 0;
     for (vector<int> &equivalent_ops : wildcard_plan) {
@@ -935,7 +935,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
 
 bool CEGAR::fix_flaws(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
-    int abstraction_size, NumericDomainMappingType &numeric_domain_mapping) {
+    int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
     switch (flaw_treatment) {
         case FlawTreatment::RANDOM_SINGLE_ATOM:
             return fix_single_random_flaw(move(flaws), domain_mapping, abstraction_size, numeric_domain_mapping);
@@ -952,7 +952,7 @@ bool CEGAR::fix_flaws(
 
 bool CEGAR::fix_single_random_flaw(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
-    int abstraction_size, NumericDomainMappingType &numeric_domain_mapping) {
+    int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
     // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
     int repetitions = ceil(1 + std::log(flaws.size()));
     for (int i = 0; i < repetitions; ++i) {
@@ -1023,7 +1023,7 @@ bool CEGAR::fix_single_random_flaw(
  */
 bool CEGAR::fix_single_flaw_max_refined(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
-    int abstraction_size, NumericDomainMappingType &numeric_domain_mapping) {
+    int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
 
     int current_max_domain_size = 0;
     vector<int> current_flaw_candidates;
@@ -1119,7 +1119,7 @@ bool CEGAR::fix_single_flaw_max_refined(
 
 bool CEGAR::fix_flaws_per_atom(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
-    int abstraction_size, NumericDomainMappingType &numeric_domain_mapping) {
+    int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
     // FIXME: Bias for variables with low index.
 
     // NOTE: unsure if that is the optimal strategy. Assume a comparison depending on n numeric variables. In that case, we refine all of them at once. 
@@ -1194,7 +1194,7 @@ bool CEGAR::fix_flaws_per_atom(
 
 bool CEGAR::fix_flaws_per_variable(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
-    int abstraction_size, NumericDomainMappingType &numeric_domain_mapping) {
+    int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
     // FIXME: Bias for variables with low index.
     sort(flaws.begin(), flaws.end(), [](const auto &lhs, const auto &rhs) {
         auto get_id = [](const auto& element) -> int {
@@ -1393,7 +1393,7 @@ void CEGAR::add_variable_to_abstraction_if_necessary(
     }
 }
 
-NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
+NumericDomainMappings CEGAR::compute_initial_numeric_domain_mapping(
     const TaskProxy &task_proxy) {
     // Get number of numeric variables
     int num_numeric_variables = task_proxy.get_numeric_variables().size();
@@ -1403,7 +1403,7 @@ NumericDomainMappingType CEGAR::compute_initial_numeric_domain_mapping(
     // Choose strategy based on configuration
     logger->log(Verbosity::DEBUG, "DEBUG: NumericSplitStrategy = ", 
                    (numeric_split_strategy == NumericSplitStrategy::EXCLUSION ? "EXCLUSION" : "STANDARD"));
-    NumericDomainMappingType numeric_domain_mapping;
+    NumericDomainMappings numeric_domain_mapping;
     numeric_domain_mapping.reserve(num_numeric_variables);
     
     NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
