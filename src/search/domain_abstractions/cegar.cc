@@ -557,10 +557,16 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
             numeric_successor_state[var_id]);
         if (abstract_value != correct_abstract_value) {
             ap_float concrete_value = numeric_successor_state[var_id];
-            // TODO: In order to determine whether to split lower or upper depends on the variable. 
-            // 1) get the lower and upper bound of the partition WE SHOULD END UP WITH
-            // 2) if target partition is larger than value, is_lower=false, otherwise true. 
-            bool is_lower = true; 
+            const NumericRange *target_range =
+                numeric_domain_mapping[var_id]->get_range_for_partition(abstract_value);
+            bool is_lower = true;
+            if (target_range) {
+                if (target_range->lower >= concrete_value) {
+                    is_lower = false;
+                } else if (target_range->upper <= concrete_value) {
+                    is_lower = true;
+                }
+            }
             NumericFlaw numeric_flaw{static_cast<int>(var_id), concrete_value, is_lower};
             flaws.push_back(numeric_flaw);
             logger->log(Verbosity::DEBUG, "Numeric Deviation Flaw");

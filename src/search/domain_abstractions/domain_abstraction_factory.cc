@@ -948,6 +948,7 @@ string decode_abstract_state(int state_index, const vector<int> &domain_sizes,
         
         // Get numeric variable name if available
         string num_var_name = (num_var_id < num_vars.size()) ? num_vars[num_var_id].get_name() : "?";
+        num_var_name = "?";
         
         const NumericRange *rng = numeric_domain_mapping[num_var_id]->get_range_for_partition(partition);
         if (rng) {
