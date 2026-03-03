@@ -484,7 +484,9 @@ vector<CEGAR::Flaw> CEGAR::get_precondition_flaws(
     const vector<ap_float> &numeric_state, const TaskProxy &task_proxy) const {
     vector<Flaw> flaws;
     for (FactProxy pre : op.get_preconditions()) {
+        
         int var_id = pre.get_variable().get_id();
+        
         if (blacklisted_variables.count(var_id) == 0
             && current_state[var_id] != pre.get_value()) {
             if (is_comparison_axiom_variable(var_id)) {
@@ -517,7 +519,6 @@ vector<CEGAR::Flaw> CEGAR::get_precondition_flaws(
             }
         }
     }
-    cout << "Flaws size: " << flaws.size() << endl;
     return flaws;
 }
 
@@ -959,7 +960,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
         return ss.str();
     };
 
-    logger->log(Verbosity::DEBUG, "PLAN: Validating abstract plan (", wildcard_plan.size(), " steps)");
+    logger->log(Verbosity::DEBUG, "\n", "PLAN: Validating abstract plan (", wildcard_plan.size(), " steps)");
 
     // Debug domain mapping
     const DomainMapping &dm = abstraction.get_domain_mapping();
@@ -989,7 +990,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
             logger->log(Verbosity::DEBUG, "}");
         }
     }
-    logger->log(Verbosity::DEBUG, "PLAN: State 0 (start): ", decode_abstract_state_compact(current_prop_state, current_numeric_state));
+    logger->log(Verbosity::DEBUG, "\n", "PLAN: State 0 (start): ", decode_abstract_state_compact(current_prop_state, current_numeric_state));
 
     const DomainMapping &domain_mapping = abstraction.get_domain_mapping();
     const NumericDomainMappings &numeric_domain_mapping = abstraction.get_numeric_domain_mapping();
@@ -1002,12 +1003,13 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
             OperatorProxy op = task_proxy.get_operators()[op_id];
             string op_name = op.get_name();
 
+            string decoded_state = decode_abstract_state_compact(current_prop_state, current_numeric_state);
+            logger->log(Verbosity::DEBUG, "[PLAN] ", decoded_state, ", ", op_name);
+
             vector<Flaw> operator_flaws =
                 get_precondition_flaws(op, current_prop_state, current_numeric_state, task_proxy);
             if (operator_flaws.empty()) {
                 flaws.clear();
-                string decoded_state = decode_abstract_state_compact(current_prop_state, current_numeric_state);
-                logger->log(Verbosity::DEBUG, "[PLAN] ", decoded_state, ", ", op_name);
                 apply_op_to_state(current_prop_state, op);
                 apply_numeric_effects(current_numeric_state, op);
                 g_axiom_evaluator->evaluate_arithmetic_axioms(current_numeric_state);
@@ -1079,8 +1081,8 @@ bool CEGAR::fix_single_random_flaw(
     int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
 
     static int counter = 0;
-    if (counter > 10) {
-        exit(0);
+    if (counter > 8) {
+        //exit(0);
     }
     counter++;
 
@@ -1111,7 +1113,6 @@ bool CEGAR::fix_single_random_flaw(
                             assert(numeric_flaws.size() > 0);
                             chosen_idx = rng->random(numeric_flaws.size());
                             NumericFlaw chosen_numeric_flaw = numeric_flaws[chosen_idx];
-                            // TODO: Implement check if the flaw has been already split at that position
                             int id              = std::get<0>(chosen_numeric_flaw);
                             const ap_float &val = std::get<1>(chosen_numeric_flaw);
                             bool flag           = std::get<2>(chosen_numeric_flaw);
@@ -1119,19 +1120,19 @@ bool CEGAR::fix_single_random_flaw(
                                 logger->log(Verbosity::INFO, "Refining num", id, "=", val);
                                 numeric_domain_mapping[id]->split_at(val, flag);
                                 numeric_domain_sizes[id] = numeric_domain_mapping[id]->get_num_partitions();
-                                cout << "Numeric domain size for num" << id << " is: " << numeric_domain_sizes[id] << endl;
+                                cout << "[Dep Flaw] Numeric domain size for num" << id << " is: " << numeric_domain_sizes[id] << endl;
                                 return true;
                             }
                             // TODO: Think more carefully if that really makes sense here
                         }
-                        cout << "Failed to refine any dependent numeric flaw for comparison axiom variable " << fact.var << " - skipping refinement of this variable" << endl;
+                        cout << "[Comp Flaw] Failed to refine any dependent numeric flaw for comparison axiom variable " << fact.var << " - skipping refinement of this variable" << endl;
                         return false;
                         
                     } else {
                         int old_size = abstract_domain_sizes[fact.var];
                         domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
                         abstract_domain_sizes[fact.var] += 1;
-                        logger->log(Verbosity::INFO, "Refined propositional var ", fact.var,
+                        logger->log(Verbosity::INFO, "[Prop Flaw] Refined propositional var ", fact.var,
                                 " at value ", fact.value,
                                 " (abstract domain size: ", old_size, " -> ", abstract_domain_sizes[fact.var], ")");
                         return true;
@@ -1143,6 +1144,7 @@ bool CEGAR::fix_single_random_flaw(
                 bool flag           = std::get<2>(f);
 
                 if (numeric_domain_mapping[id]->can_split(val, flag) && can_refine_numeric_variable(abstraction_size, id)) {
+                    logger->log(Verbosity::DEBUG, "[Numeric Flaw] Refining num", id, "=", val);
                     numeric_domain_mapping[id]->split_at(val, flag);
                     numeric_domain_sizes[id] = numeric_domain_mapping[id]->get_num_partitions();
                     return true;
