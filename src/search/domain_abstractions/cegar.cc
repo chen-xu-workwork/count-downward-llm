@@ -548,7 +548,7 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
                 NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
                 numeric_flaws.push_back(numeric_flaw);
             }
-            PropFlaw pf{Fact(static_cast<int>(var_id), successor_state[var_id]), numeric_flaws};
+            PropFlaw pf{Fact(static_cast<int>(var_id), correct_abstract_value), numeric_flaws};
             flaws.push_back(pf);
             logger->log(Verbosity::DEBUG, "Deviation Flaw");
             dump_flaw(flaws.back());
@@ -1002,10 +1002,8 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
             OperatorProxy op = task_proxy.get_operators()[op_id];
             string op_name = op.get_name();
 
-            cout << "Here " << equivalent_ops.size() << endl;
             vector<Flaw> operator_flaws =
                 get_precondition_flaws(op, current_prop_state, current_numeric_state, task_proxy);
-            cout << "Num operator flaws: " << operator_flaws.size() << endl;
             if (operator_flaws.empty()) {
                 flaws.clear();
                 string decoded_state = decode_abstract_state_compact(current_prop_state, current_numeric_state);
@@ -1106,7 +1104,7 @@ bool CEGAR::fix_single_random_flaw(
                     if (is_comparison_axiom_variable(fact.var)) {
                         domain_mapping[fact.var][0] = 1;
                         abstract_domain_sizes[fact.var] = 2;
-                        cout << "Refined comparison axiom variable " << fact.var << " at value 0 (true) with dependent numeric flaws:" << endl;
+                        cout << "Refined comparison axiom var" << fact.var << "=0 (true) with dependent numeric flaws:" << endl;
                         const std::vector<NumericFlaw> &numeric_flaws = f.second;
                         int repetitions2 = ceil(1 + std::log(numeric_flaws.size()));
                         for (int j = 0; j < repetitions2; ++j) {
@@ -1874,7 +1872,7 @@ DomainAbstraction CEGAR::build_abstraction(
             break;
         }
         
-        logger->log(Verbosity::DEBUG, "\n\nGenerating new abstraction for next iteration...");
+        logger->log(Verbosity::DEBUG, "\n\nGenerating new abstraction for next iteration (", iteration, ")...");
         DomainAbstractionFactory new_factory(
             task_proxy, domain_mapping, abstract_domain_sizes,
             numeric_domain_mapping, numeric_domain_sizes,
