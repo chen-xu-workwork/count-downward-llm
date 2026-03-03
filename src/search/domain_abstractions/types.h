@@ -477,7 +477,6 @@ public:
     }
 
     bool can_split(ap_float value, bool include_in_lower) const override {
-        std::cout << "Checking if we can split at value " << value << " with include_in_lower=" << include_in_lower << std::endl;
         std::pair<ap_float, bool> split_point = {value, include_in_lower};
         return std::find(split_points.begin(), split_points.end(), split_point) == split_points.end();
     }

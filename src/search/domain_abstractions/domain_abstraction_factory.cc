@@ -28,7 +28,7 @@ using namespace std;
 
 namespace domain_abstractions {
 // Logging controls: keep concise iteration/plan summaries by default
-static const bool VERBOSE_DEBUG = true;      // gate noisy, step-by-step diagnostics
+static const bool VERBOSE_DEBUG = false;      // gate noisy, step-by-step diagnostics
 
 // Small helpers shared across functions in this translation unit
 struct CompEvalHelper {
@@ -657,6 +657,7 @@ DomainAbstractionFactory::DomainAbstractionFactory (
     //}
 
     // Dump domain mapping information for debugging
+    if (VERBOSE_DEBUG)
     dump_domain_mappings(domain_sizes);
 
     compute_distances(task_proxy, operators, match_tree, abstract_goals,
@@ -1432,7 +1433,8 @@ void DomainAbstractionFactory::compute_abstract_plan(
     abstract_prop_states.push_back(prop_state_values);
     abstract_numeric_states.push_back(num_state_partitions);
     
-    cout << "INITIAL Distance: " << distances[current_state] << endl;
+    logger->log(Verbosity::DEBUG, "INITIAL Distance: ", distances[current_state]);
+    cout << endl;
     if (distances[current_state] != numeric_limits<ap_float>::max()) {
         int plan_step = 0;
         //cout << "PLAN: Executing abstract plan..." << endl;
@@ -1505,7 +1507,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
 
                 string decoded_state = decode_abstract_state(current_state, domain_sizes,
                                                       numeric_domain_mapping, hash_multipliers, task_proxy);
-                logger->log(Verbosity::DEBUG, "[ABSTRACT PLAN] ", decoded_state, ", ", op_name, "\n");
+                logger->log(Verbosity::DEBUG, "[ABSTRACT PLAN] ", decoded_state, ", ", op_name);
                 //cout << "OP ID: " << op_id << endl;
                 //op.dump(task_proxy, domain_mapping, numeric_domain_mapping);
             }
@@ -1542,7 +1544,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
                     break; 
                 }
             }
-            
+            assert(!compute_wildcard_plan);
             if (compute_wildcard_plan) {
                 rng->shuffle(cheapest_operators);
                 wildcard_plan.push_back(move(cheapest_operators));
@@ -1568,6 +1570,7 @@ void DomainAbstractionFactory::compute_abstract_plan(
         }
         string decoded = decode_abstract_state(current_state, domain_sizes,
                                               numeric_domain_mapping, hash_multipliers, task_proxy);
+        logger->log(Verbosity::DEBUG, "[ABSTRACT PLAN] ", decoded, "\n");
     }
     utils::release_vector_memory(generating_op_ids);
 }
@@ -1746,7 +1749,7 @@ DomainAbstraction DomainAbstractionFactory::generate() {
         
         // Populate the state registry with all states from the distances vector
         // The state index IS the hash value in this abstraction
-        logger->log(Verbosity::INFO, "DEBUG: Populating state registry with ", distances.size(), " states");
+        logger->log(Verbosity::VERBOSE, "DEBUG: Populating state registry with ", distances.size(), " states");
         for (size_t state_idx = 0; state_idx < distances.size(); ++state_idx) {
             // The state_idx is the hash value for this abstract state
             DomainAbstractionState abs_state(state_idx);
@@ -1760,8 +1763,8 @@ DomainAbstraction DomainAbstractionFactory::generate() {
                 }
             }
         }
-        if (logger && logger->should_log(Verbosity::DEBUG)) {
-            logger->log(Verbosity::DEBUG, "DEBUG: State registry size after population: ", state_registry->size());
+        if (logger && logger->should_log(Verbosity::VERBOSE)) {
+            logger->log(Verbosity::VERBOSE, "DEBUG: State registry size after population: ", state_registry->size());
         }
     }
     assert(wildcard_plan.size() == abstract_prop_states.size() - 1);
