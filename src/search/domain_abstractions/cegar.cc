@@ -996,7 +996,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
         return ss.str();
     };
 
-    logger->log(Verbosity::DEBUG, "\n", "PLAN: Validating abstract plan (", wildcard_plan.size(), " steps)");
+    logger->log(Verbosity::DEBUG, "PLAN: Validating abstract plan (", wildcard_plan.size(), " steps)");
 
     // Debug domain mapping
     const DomainMapping &dm = abstraction.get_domain_mapping();
@@ -1026,7 +1026,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
             logger->log(Verbosity::DEBUG, "}");
         }
     }
-    logger->log(Verbosity::DEBUG, "\n", "PLAN: State 0 (start): ", decode_abstract_state_compact(current_prop_state, current_numeric_state));
+    logger->log(Verbosity::DEBUG, "PLAN: State 0 (start): ", decode_abstract_state_compact(current_prop_state, current_numeric_state));
 
     const DomainMapping &domain_mapping = abstraction.get_domain_mapping();
     const NumericDomainMappings &numeric_domain_mapping = abstraction.get_numeric_domain_mapping();
@@ -1512,16 +1512,16 @@ void CEGAR::print_statistics(
         avg_numeric_partitions = ((double) total_numeric_partitions) / num_numeric_variables;
     }
     if(logger && logger->should_log(Verbosity::INFO)) {
-        logger->log(Verbosity::INFO, "\n=== CEGAR Statistics ===");
+        logger->log(Verbosity::INFO, "=== CEGAR Statistics ===");
         logger->log(Verbosity::INFO, "Final abstraction size: ", abstraction_size);
-        logger->log(Verbosity::INFO, "\nPropositional variables:");
+        logger->log(Verbosity::INFO, "Propositional variables:");
         logger->log(Verbosity::INFO, "  Total: ", num_variables);
         logger->log(Verbosity::INFO, "  Trivial (size 1): ", num_trivial_variables);
         logger->log(Verbosity::INFO, "  Complete (not abstracted): ", num_complete_variables);
         logger->log(Verbosity::INFO, "  Average domain size ratio: ", avg_domain_size);
         
         // Print details of non-trivial propositional variables
-        logger->log(Verbosity::INFO, "\n  Non-trivial propositional variables:");
+        logger->log(Verbosity::INFO, "  Non-trivial propositional variables:");
         for (int i = 0; i < num_variables; ++i) {
             if (abstract_domain_sizes[i] > 1) {
                 VariableProxy var = task_proxy.get_variables()[i];
@@ -1542,7 +1542,7 @@ void CEGAR::print_statistics(
             }
         }
         
-        logger->log(Verbosity::INFO, "\nNumeric variables:");
+        logger->log(Verbosity::INFO, "Numeric variables:");
         logger->log(Verbosity::INFO, "  Total: ", num_numeric_variables);
         logger->log(Verbosity::INFO, "  Trivial (1 partition): ", num_trivial_numeric_vars);
         logger->log(Verbosity::INFO, "  Refined (>1 partition): ", num_refined_numeric_vars);
@@ -1550,7 +1550,7 @@ void CEGAR::print_statistics(
         logger->log(Verbosity::INFO, "  Average partitions per variable: ", avg_numeric_partitions);
         
         // Print details of refined numeric variables
-        logger->log(Verbosity::INFO, "\n  Refined numeric variables:");
+        logger->log(Verbosity::INFO, "  Refined numeric variables:");
         for (int i = 0; i < num_numeric_variables; ++i) {
             if (numeric_domain_sizes[i] > 1) {
                 NumericVariableProxy num_var = task_proxy.get_numeric_variables()[i];
@@ -1581,7 +1581,7 @@ void CEGAR::print_statistics(
             }
         }
         
-        logger->log(Verbosity::INFO, "========================\n");
+        logger->log(Verbosity::INFO, "========================");
     }
 }
 
@@ -1795,7 +1795,7 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
     logger->log(Verbosity::DEBUG, "DEBUG: Total comparison axiom dependencies stored: ",
                     comparison_axiom_dependencies.size());
     
-    logger->log(Verbosity::DEBUG, "\n=== COMPLETE comparison_axiom_dependencies mapping ===");
+    logger->log(Verbosity::DEBUG, "=== COMPLETE comparison_axiom_dependencies mapping ===");
     NumericVariablesProxy num_vars_for_print = task_proxy.get_numeric_variables();
     for (const auto &entry : comparison_axiom_dependencies) {
         int prop_var_id = entry.first;
@@ -1816,7 +1816,7 @@ void CEGAR::build_comparison_axiom_mapping(const TaskProxy &task_proxy) {
         }
         logger->log(Verbosity::DEBUG, " }");
     }
-    logger->log(Verbosity::DEBUG, "======================================================\n");
+    logger->log(Verbosity::DEBUG, "======================================================");
     std::unordered_set<int> operator_modified_numeric_vars;
     
     logger->log(Verbosity::DEBUG, "DEBUG PHASE2: Collecting operator-modified numeric variables...");
@@ -1924,7 +1924,7 @@ DomainAbstraction CEGAR::build_abstraction(
             break;
         }
         
-        logger->log(Verbosity::DEBUG, "\n\nGenerating new abstraction for next iteration (", iteration, ")...");
+        logger->log(Verbosity::DEBUG, "Generating new abstraction for next iteration (", iteration, ")...");
         DomainAbstractionFactory new_factory(
             task_proxy, domain_mapping, abstract_domain_sizes,
             numeric_domain_mapping, numeric_domain_sizes,
@@ -1935,6 +1935,10 @@ DomainAbstraction CEGAR::build_abstraction(
         
         // (trimmed legacy debug)
     }
+
+    logger->log(Verbosity::NONE,
+                "CEGAR terminated. Final abstraction size: ",
+                abstraction.size());
 
     if (utils::extra_memory_padding_is_reserved()) {
         utils::release_extra_memory_padding();
