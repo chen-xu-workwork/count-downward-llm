@@ -31,7 +31,7 @@ using namespace std;
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
 
-static Verbosity log_verbosity = Verbosity::VERBOSE;
+static Verbosity log_verbosity = Verbosity::DEBUG;
 
 static void print_numeric_expression_tree(const TaskProxy &task_proxy,
                                           int prop_var_id);
@@ -533,6 +533,7 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
     // TODO: Blacklisting????!!!!!
     vector<Flaw> flaws;
 
+    /*
     for (size_t var_id = 0; var_id < successor_state.size(); ++var_id) {
         if (domain_mapping[var_id].empty()) {
             continue; // trivial variable
@@ -560,6 +561,7 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
             print_numeric_expression_tree(task_proxy, var_id);
         }
     }
+    */
 
     for (size_t var_id = 0; var_id < numeric_successor_state.size(); ++var_id) {
         int abstract_value = abstract_numeric_successor_state[var_id];
@@ -1100,7 +1102,6 @@ bool CEGAR::fix_single_random_flaw(
         int chosen_idx = rng->random(flaws.size());
         const Flaw &chosen = flaws[chosen_idx];
 
-        // TODO: Proper check of can_refine_numeric_var
         bool result = visit([&](auto &&f) {
             using T = std::decay_t<decltype(f)>;
 
