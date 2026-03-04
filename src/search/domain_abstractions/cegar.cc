@@ -31,7 +31,7 @@ using namespace std;
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
 
-static Verbosity log_verbosity = Verbosity::DEBUG;
+static Verbosity log_verbosity = Verbosity::VERBOSE;
 
 static void print_numeric_expression_tree(const TaskProxy &task_proxy,
                                           int prop_var_id);
@@ -546,9 +546,10 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
             vector<NumericFlaw> numeric_flaws;
             for (int dep_var_id : it->second) {
                 assert(dep_var_id >= 0 && dep_var_id < static_cast<int>(numeric_successor_state.size()));
-                //ap_float concrete_value = numeric_current_state[dep_var_id];
-                ap_float concrete_value = numeric_successor_state[dep_var_id];
-                bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_successor_state, task_proxy);
+                ap_float concrete_value = numeric_current_state[dep_var_id];
+                //ap_float concrete_value = numeric_successor_state[dep_var_id];
+                //bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_successor_state, task_proxy);
+                bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_current_state, task_proxy);
                 NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
                 numeric_flaws.push_back(numeric_flaw);
             }
@@ -1128,6 +1129,11 @@ bool CEGAR::fix_single_random_flaw(
                                 numeric_domain_sizes[id] = numeric_domain_mapping[id]->get_num_partitions();
                                 cout << "[Dep Flaw] Numeric domain size for num" << id << " is: " << numeric_domain_sizes[id] << endl;
                                 return true;
+                            }
+                            if (!numeric_domain_mapping[id]->can_split(val, flag)) {
+                                cout << "[Dep Flaw] Cannot split numeric variable num" << id << " at value " << val << " with flag " << flag << endl;
+                            } else if (!can_refine_numeric_variable(abstraction_size, id)) {
+                                cout << "[Dep Flaw] Cannot refine numeric variable num" << id << " due to abstraction size limit (current abstraction size: " << abstraction_size << ")" << endl;
                             }
                             // TODO: Think more carefully if that really makes sense here
                         }
@@ -2127,17 +2133,17 @@ bool CEGAR::determine_include_in_lower(
     } else if (eval_lower == 2 && eval_upper == 2) {
         // Both give UNKNOWN - this shouldn't happen in theory, but default to false
         logger->log(Verbosity::VERBOSE, "  -> Both give UNKNOWN, defaulting to include_in_lower=false");
-        //utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         return false;
     } else if (eval_lower == 2) {
         // Only lower gives UNKNOWN (upper gives TRUE) - prefer UNKNOWN over TRUE
         logger->log(Verbosity::VERBOSE, "  -> Choosing include_in_lower=true (gives UNKNOWN over TRUE)");
-        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        //utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         return true;
     } else if (eval_upper == 2) {
         // Only upper gives UNKNOWN (lower gives TRUE) - prefer UNKNOWN over TRUE
         logger->log(Verbosity::VERBOSE, "  -> Choosing include_in_lower=false (gives UNKNOWN over TRUE)");
-        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        //utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         return false;
     } else {
         // Both give TRUE - doesn't matter, default to false
