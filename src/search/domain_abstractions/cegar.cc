@@ -31,10 +31,11 @@ using namespace std;
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
 
-static Verbosity log_verbosity = Verbosity::DEBUG;
+static Verbosity log_verbosity = Verbosity::NONE;
 
 static void print_numeric_expression_tree(const TaskProxy &task_proxy,
-                                          int prop_var_id);
+                                          int prop_var_id,
+                                          const shared_ptr<CEGARLogger> &logger);
 
 class CEGAR {
 
@@ -560,7 +561,7 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
             flaws.push_back(pf);
             logger->log(Verbosity::DEBUG, "Deviation Flaw");
             dump_flaw(flaws.back());
-            print_numeric_expression_tree(task_proxy, var_id);
+            print_numeric_expression_tree(task_proxy, var_id, logger);
         }
     }
     */
@@ -636,7 +637,12 @@ static const char *comp_operator_to_string(comp_operator op) {
 }
 
 [[maybe_unused]] static void print_numeric_expression_tree(const TaskProxy &task_proxy,
-                                                           int prop_var_id) {
+                                                           int prop_var_id,
+                                                           const shared_ptr<CEGARLogger> &logger) {
+    if (!logger) {
+        return;
+    }
+
     VariableProxy prop_var = task_proxy.get_variables()[prop_var_id];
 
     optional<ComparisonAxiomProxy> comparison_axiom;
@@ -649,8 +655,9 @@ static const char *comp_operator_to_string(comp_operator op) {
     }
 
     if (!comparison_axiom) {
-        cout << "No comparison axiom found for v" << prop_var_id
-             << " (" << prop_var.get_name() << ")" << endl;
+        logger->log(Verbosity::DEBUG,
+                    "No comparison axiom found for v", prop_var_id,
+                    " (", prop_var.get_name(), ")");
         return;
     }
 
@@ -687,7 +694,7 @@ static const char *comp_operator_to_string(comp_operator op) {
     };
 
     auto print_branch = [&](const string &prefix, bool is_last, const string &text) {
-        cout << prefix << (is_last ? "└─ " : "├─ ") << text << endl;
+        logger->log(Verbosity::DEBUG, prefix, (is_last ? "└─ " : "├─ "), text);
     };
 
     unordered_set<int> recursion_stack;
@@ -729,9 +736,12 @@ static const char *comp_operator_to_string(comp_operator op) {
     NumericVariableProxy left_root = root.get_left_variable();
     NumericVariableProxy right_root = root.get_right_variable();
 
-    cout << "Numeric expression tree for v" << prop_var_id
-         << " (" << prop_var.get_name() << ")" << endl;
-    cout << "└─ comparison " << comp_operator_to_string(root.get_comparison_operator_type()) << endl;
+    logger->log(Verbosity::DEBUG,
+                "Numeric expression tree for v", prop_var_id,
+                " (", prop_var.get_name(), ")");
+    logger->log(Verbosity::DEBUG,
+                "└─ comparison ",
+                comp_operator_to_string(root.get_comparison_operator_type()));
     print_numeric_subtree(left_root.get_id(), "   ", false, print_numeric_subtree);
     print_numeric_subtree(right_root.get_id(), "   ", true, print_numeric_subtree);
 }
@@ -778,7 +788,7 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                     );
                     logger->log(Verbosity::DEBUG, "Comp Goal Flaw");
                     dump_flaw(flaws.back());
-                    print_numeric_expression_tree(task_proxy, var_id);
+                    print_numeric_expression_tree(task_proxy, var_id, logger);
                     
                 } else {
                     flaws.emplace_back(
@@ -822,7 +832,7 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                         );
                         logger->log(Verbosity::DEBUG, "Comp Goal Flaw");
                         dump_flaw(flaws.back());
-                        print_numeric_expression_tree(task_proxy, var_id);
+                        print_numeric_expression_tree(task_proxy, var_id, logger);
                     } else {
                         flaws.emplace_back(
                             std::in_place_type<PropFlaw>,
@@ -841,12 +851,17 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
 }
 
 void CEGAR::dump_flaw(const Flaw &flaw) const {
-    auto dump_numeric_flaw = [](const NumericFlaw &numeric_flaw,
-                                const string &prefix) {
-    cout << prefix << "num" << std::get<0>(numeric_flaw)
-             << "=" << std::get<1>(numeric_flaw)
-             << ", is_lower=" << boolalpha << std::get<2>(numeric_flaw)
-             << noboolalpha << endl;
+    if (!logger) {
+        return;
+    }
+
+    auto dump_numeric_flaw = [&](const NumericFlaw &numeric_flaw,
+                                 const string &prefix) {
+        logger->log(Verbosity::DEBUG,
+                    prefix,
+                    "num", std::get<0>(numeric_flaw),
+                    "=", std::get<1>(numeric_flaw),
+                    ", is_lower=", (std::get<2>(numeric_flaw) ? "true" : "false"));
     };
 
     visit([&](auto &&f) {
@@ -854,20 +869,20 @@ void CEGAR::dump_flaw(const Flaw &flaw) const {
         if constexpr (std::is_same_v<T, PropFlaw>) {
             const Fact &fact = f.first;
             const vector<NumericFlaw> &numeric_flaws = f.second;
-            cout << "Flaw(type=PropFlaw, v" << fact.var
-                 << "=" << fact.value
-                 << ", is_comparison_axiom=" << boolalpha
-                 << is_comparison_axiom_variable(fact.var) << noboolalpha
-                 << ", num_numeric_flaws=" << numeric_flaws.size() << ")"
-                 << endl;
+            logger->log(Verbosity::DEBUG,
+                        "Flaw(type=PropFlaw, v", fact.var,
+                        "=", fact.value,
+                        ", is_comparison_axiom=",
+                        (is_comparison_axiom_variable(fact.var) ? "true" : "false"),
+                        ", num_numeric_flaws=", numeric_flaws.size(), ")");
             for (size_t i = 0; i < numeric_flaws.size(); ++i) {
                 dump_numeric_flaw(numeric_flaws[i],
                                   "  dependent_numeric_flaw[" +
                                       to_string(i) + "]: ");
             }
         } else if constexpr (std::is_same_v<T, NumericFlaw>) {
-            cout << "Flaw(type=NumericFlaw) ";
-            dump_numeric_flaw(f, "");
+            logger->log(Verbosity::DEBUG, "Flaw(type=NumericFlaw)");
+            dump_numeric_flaw(f, "  ");
         }
     }, flaw);
 }
@@ -1056,7 +1071,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
                 if (deviation_flaws.empty()) {
                     break;
                 }
-                cout << "Found " << deviation_flaws.size() << " deviation flaws after applying operator " << op_name << endl;
+                logger->log(Verbosity::DEBUG, "Found ", deviation_flaws.size(), " deviation flaws after applying operator ", op_name);
                 flaws.insert(flaws.end(), deviation_flaws.begin(), deviation_flaws.end());
             } else {
                 // We have precondition or deviation flaws
@@ -1070,7 +1085,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
         step_num++;
     }
 
-    cout << "Plan is valid in the concrete state, checking goal conditions..." << endl;
+    logger->log(Verbosity::DEBUG, "Plan is valid in the concrete state, checking goal conditions...");
 
     string decoded_state = decode_abstract_state_compact(current_prop_state, current_numeric_state);
     logger->log(Verbosity::DEBUG, "[GOAL] ", decoded_state);
@@ -1113,7 +1128,7 @@ bool CEGAR::fix_single_random_flaw(
     // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
     assert(!flaws.empty());
     int repetitions = ceil(10 + std::log(flaws.size()));
-    cout << "Repetitions: " << repetitions << endl;
+    //cout << "Repetitions: " << repetitions << endl;
     for (int i = 0; i < repetitions; ++i) {
         int chosen_idx = rng->random(flaws.size());
         const Flaw &chosen = flaws[chosen_idx];
@@ -1130,10 +1145,10 @@ bool CEGAR::fix_single_random_flaw(
                     if (is_comparison_axiom_variable(fact.var)) {
                         domain_mapping[fact.var][0] = 1;
                         abstract_domain_sizes[fact.var] = 2;
-                        cout << "Refined comparison axiom var" << fact.var << "=0 (true) with dependent numeric flaws:" << endl;
+                        //cout << "Refined comparison axiom var" << fact.var << "=0 (true) with dependent numeric flaws:" << endl;
                         const std::vector<NumericFlaw> &numeric_flaws = f.second;
                         int repetitions2 = ceil(10 + std::log(numeric_flaws.size()));
-                        cout << "Repetitions2: " << repetitions2 << endl;
+                        //cout << "Repetitions2: " << repetitions2 << endl;
                         for (int j = 0; j < repetitions2; ++j) {
                             assert(numeric_flaws.size() > 0);
                             chosen_idx = rng->random(numeric_flaws.size());
@@ -1145,17 +1160,17 @@ bool CEGAR::fix_single_random_flaw(
                                 logger->log(Verbosity::INFO, "Refining num", id, "=", val);
                                 numeric_domain_mapping[id]->split_at(val, flag);
                                 numeric_domain_sizes[id] = numeric_domain_mapping[id]->get_num_partitions();
-                                cout << "[Dep Flaw] Numeric domain size for num" << id << " is: " << numeric_domain_sizes[id] << endl;
+                                logger->log(Verbosity::INFO, "[Dep Flaw] Numeric domain size for num", id, " is: ", numeric_domain_sizes[id]);
                                 return true;
                             }
                             if (!numeric_domain_mapping[id]->can_split(val, flag)) {
-                                cout << "[Dep Flaw] Cannot split numeric variable num" << id << " at value " << val << " with flag " << flag << endl;
+                                logger->log(Verbosity::DEBUG, "[Dep Flaw] Cannot split numeric variable num", id, " at value ", val, " with flag ", flag);
                             } else if (!can_refine_numeric_variable(abstraction_size, id)) {
-                                cout << "[Dep Flaw] Cannot refine numeric variable num" << id << " due to abstraction size limit (current abstraction size: " << abstraction_size << ")" << endl;
+                                logger->log(Verbosity::DEBUG, "[Dep Flaw] Cannot refine numeric variable num", id, " due to abstraction size limit (current abstraction size: ", abstraction_size, ")");
                             }
                             // TODO: Think more carefully if that really makes sense here
                         }
-                        cout << "[Comp Flaw] Failed to refine any dependent numeric flaw for comparison axiom variable " << fact.var << " - skipping refinement of this variable" << endl;
+                        //logger->log(Verbosity::DEBUG, "[Comp Flaw] Failed to refine any dependent numeric flaw for comparison axiom variable ", fact.var, " - skipping refinement of this variable");
                         return false;
                         
                     } else {
@@ -1180,9 +1195,9 @@ bool CEGAR::fix_single_random_flaw(
                     return true;
                 }
                 if (!numeric_domain_mapping[id]->can_split(val, flag)) {
-                    cout << "[Numeric Flaw] Cannot split numeric variable num" << id << " at value " << val << " with flag " << flag << endl;
+                    logger->log(Verbosity::DEBUG, "[Numeric Flaw] Cannot split numeric variable num", id, " at value ", val, " with flag ", flag);
                 } else if (!can_refine_numeric_variable(abstraction_size, id)) {
-                    cout << "[Numeric Flaw] Cannot refine numeric variable num" << id << " due to abstraction size limit (current abstraction size: " << abstraction_size << ")" << endl;
+                    logger->log(Verbosity::DEBUG, "[Numeric Flaw] Cannot refine numeric variable num", id, " due to abstraction size limit (current abstraction size: ", abstraction_size, ")");
                 }
 
             }
