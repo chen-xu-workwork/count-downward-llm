@@ -763,8 +763,9 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                         Fact(var_id, goal.get_value()),
                         move(numeric_flaws)
                     );
-                    logger->log(Verbosity::DEBUG, "Goal Flaw");
+                    logger->log(Verbosity::DEBUG, "Comp Goal Flaw");
                     dump_flaw(flaws.back());
+                    print_numeric_expression_tree(task_proxy, var_id);
                     
                 } else {
                     flaws.emplace_back(
@@ -772,7 +773,7 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                         Fact(var_id, goal.get_value()),
                         move(std::vector<NumericFlaw>{})
                     );
-                    logger->log(Verbosity::DEBUG, "Goal Flaw");
+                    logger->log(Verbosity::DEBUG, "Reg Goal Flaw");
                     dump_flaw(flaws.back());
                 }
             }
@@ -799,7 +800,6 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                             ap_float concrete_value = numeric_state[dep_var_id];
                             bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_state, task_proxy);
                             NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
-                            cout << "  Goal axiom precondition variable " << var_id << " is a comparison axiom - adding numeric flaw for dependent variable " << dep_var_id << " with concrete value " << concrete_value << endl;
                             numeric_flaws.push_back(numeric_flaw);
                         }
                         flaws.emplace_back(
@@ -807,15 +807,16 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                             Fact(var_id, pre.get_value()),
                             move(numeric_flaws)
                         );
-                        logger->log(Verbosity::DEBUG, "Goal Flaw");
+                        logger->log(Verbosity::DEBUG, "Comp Goal Flaw");
                         dump_flaw(flaws.back());
+                        print_numeric_expression_tree(task_proxy, var_id);
                     } else {
                         flaws.emplace_back(
                             std::in_place_type<PropFlaw>,
                             Fact(var_id, pre.get_value()),
                             std::vector<NumericFlaw>{}
                         );
-                        logger->log(Verbosity::DEBUG, "Goal Flaw");
+                        logger->log(Verbosity::DEBUG, "Reg Goal Flaw");
                         dump_flaw(flaws.back());
                     }
                 }
@@ -1058,7 +1059,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
     cout << "Plan is valid in the concrete state, checking goal conditions..." << endl;
 
     string decoded_state = decode_abstract_state_compact(current_prop_state, current_numeric_state);
-    logger->log(Verbosity::DEBUG, "[PLAN] ", decoded_state);
+    logger->log(Verbosity::DEBUG, "[GOAL] ", decoded_state);
 
     assert(flaws.empty());
 
