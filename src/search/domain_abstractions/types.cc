@@ -44,9 +44,8 @@ bool NumericRange::overlaps_with(ap_float other_lower, ap_float other_upper,
 
 // StandardSplitMapping implementation
 int StandardSplitMapping::split_at(ap_float n, bool include_in_lower) {
-    std::pair<ap_float, bool> split_point = {n, include_in_lower};
+
     assert(can_split(n, include_in_lower));
-    split_points.push_back(split_point);
     // Find the range that contains n
     int range_index = -1;
     for (size_t i = 0; i < ranges.size(); ++i) {
@@ -57,14 +56,43 @@ int StandardSplitMapping::split_at(ap_float n, bool include_in_lower) {
     }
     
     // If n is not in any range or is already at a boundary, do nothing
+    assert(range_index != -1);
     if (range_index == -1) {
         return get_num_partitions();
     }
     
-    NumericRange &old_range = ranges[range_index];
-    
-    // If n is already at the lower bound, no split needed
+    NumericRange old_range = ranges[range_index];
+
+    int num_partitions = get_num_partitions();
+    int old_partition = old_range.partition_index;
+    int new_partition = num_partitions;
+
     if (old_range.lower == n) {
+        assert(old_range.lower_inclusive);
+        assert(include_in_lower);
+
+        ranges[range_index] = NumericRange(n, n, true, true, old_partition);
+        ranges.insert(ranges.begin() + range_index + 1,
+                      NumericRange(n, old_range.upper, false,
+                                   old_range.upper_inclusive, new_partition));
+
+        split_points.emplace_back(n, include_in_lower);
+        invalidate_partition_lookup();
+        return get_num_partitions();
+    }
+
+    if (old_range.upper == n) {
+        assert(old_range.upper_inclusive);
+        assert(!include_in_lower);
+
+        ranges[range_index] = NumericRange(old_range.lower, n,
+                                           old_range.lower_inclusive, false,
+                                           old_partition);
+        ranges.insert(ranges.begin() + range_index + 1,
+                      NumericRange(n, n, true, true, new_partition));
+
+        split_points.emplace_back(n, include_in_lower);
+        invalidate_partition_lookup();
         return get_num_partitions();
     }
     
@@ -74,10 +102,6 @@ int StandardSplitMapping::split_at(ap_float n, bool include_in_lower) {
     //
     // If include_in_lower=false (default): [old_lower, n) and [n, old_upper)
     // If include_in_lower=true:            [old_lower, n] and (n, old_upper)
-    int num_partitions = get_num_partitions();
-    int old_partition = old_range.partition_index;  // Reuse for lower part
-    int new_partition = num_partitions;             // New index for upper part
-    
     ap_float old_lower = old_range.lower;
     ap_float old_upper = old_range.upper;
     bool old_lower_inclusive = old_range.lower_inclusive;
@@ -95,6 +119,8 @@ int StandardSplitMapping::split_at(ap_float n, bool include_in_lower) {
     ranges.insert(ranges.begin() + range_index + 1,
                   NumericRange(n, old_upper, upper_part_lower_inclusive, 
                                old_upper_inclusive, new_partition));
+
+    split_points.emplace_back(n, include_in_lower);
     
     // Invalidate the partition lookup cache
     invalidate_partition_lookup();

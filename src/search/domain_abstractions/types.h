@@ -478,7 +478,48 @@ public:
 
     bool can_split(ap_float value, bool include_in_lower) const override {
         std::pair<ap_float, bool> split_point = {value, include_in_lower};
-        return std::find(split_points.begin(), split_points.end(), split_point) == split_points.end();
+        if (std::find(split_points.begin(), split_points.end(), split_point) != split_points.end()) {
+            return false;
+        }
+
+        const NumericRange *containing_range = nullptr;
+        for (const auto &range : ranges) {
+            if (range.contains(value)) {
+                containing_range = &range;
+                break;
+            }
+        }
+        if (!containing_range) {
+            return false;
+        }
+
+        if (containing_range->lower == value) {
+            if (!containing_range->lower_inclusive) {
+                return false;
+            }
+            if (!include_in_lower) {
+                return false;
+            }
+            if (containing_range->upper == value && containing_range->upper_inclusive) {
+                return false;
+            }
+            return true;
+        }
+
+        if (containing_range->upper == value) {
+            if (!containing_range->upper_inclusive) {
+                return false;
+            }
+            if (include_in_lower) {
+                return false;
+            }
+            if (containing_range->lower == value && containing_range->lower_inclusive) {
+                return false;
+            }
+            return true;
+        }
+
+        return true;
     }
 };
 

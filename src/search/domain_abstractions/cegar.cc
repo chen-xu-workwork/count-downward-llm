@@ -143,6 +143,7 @@ private:
         const std::vector<ap_float> &numeric_state,
         const TaskProxy &task_proxy) const;
     std::vector<Flaw> get_deviation_flaws(
+        const OperatorProxy &op,
         const std::vector<ap_float> &numeric_current_state,
         const std::vector<int> &successor_state,
         const std::vector<ap_float> &numeric_successor_state,
@@ -524,6 +525,7 @@ vector<CEGAR::Flaw> CEGAR::get_precondition_flaws(
 }
 
 vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
+    const OperatorProxy &op,
     const vector<ap_float> &numeric_current_state,
     const vector<int> &successor_state, const vector<ap_float> &numeric_successor_state,
     const vector<int> &abstract_successor_state, const vector<int> &abstract_numeric_successor_state,
@@ -564,24 +566,35 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
     */
 
     for (size_t var_id = 0; var_id < numeric_successor_state.size(); ++var_id) {
+        bool operator_modified_var = false;
+        for (auto ass_eff_proxy : op.get_ass_effects()) {
+            NumAssProxy effect = ass_eff_proxy.get_assignment();
+            if (effect.get_affected_variable().get_id() == static_cast<int>(var_id)) {
+                operator_modified_var = true;
+                break;
+            }
+        }
+        if (!operator_modified_var) {
+            continue;
+        }
+
         int abstract_value = abstract_numeric_successor_state[var_id];
         int correct_abstract_value = numeric_domain_mapping[var_id]->get_partition_index(
             numeric_successor_state[var_id]);
         if (abstract_value != correct_abstract_value) {
-            ap_float concrete_value = numeric_current_state[var_id];
-            //ap_float concrete_value = numeric_successor_state[var_id];
-            const NumericRange *target_range =
-                numeric_domain_mapping[var_id]->get_range_for_partition(abstract_value);
-            bool is_lower = true;
-            if (target_range) {
-                if (target_range->lower >= concrete_value) {
-                    is_lower = true;
-                } else if (target_range->upper <= concrete_value) {
-                    is_lower = false;
-                }
+            ap_float concrete_next_value = numeric_successor_state[var_id];
+            ap_float concrete_current_value = numeric_current_state[var_id];
+
+            bool operator_increased_value = concrete_next_value > concrete_current_value;
+            if (concrete_next_value == concrete_current_value) {
+                continue;
             }
-            NumericFlaw numeric_flaw{static_cast<int>(var_id), concrete_value, is_lower};
+            bool is_lower = !operator_increased_value;
+
+            NumericFlaw numeric_flaw{static_cast<int>(var_id), concrete_current_value, is_lower};
             flaws.push_back(numeric_flaw);
+            NumericFlaw numeric_flaw2{static_cast<int>(var_id), concrete_current_value, !is_lower};
+            flaws.push_back(numeric_flaw2);
             logger->log(Verbosity::DEBUG, "Numeric Deviation Flaw");
             dump_flaw(flaws.back());
         }
@@ -1002,7 +1015,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
 
     const DomainMapping &domain_mapping = abstraction.get_domain_mapping();
     const NumericDomainMappings &numeric_domain_mapping = abstraction.get_numeric_domain_mapping();
-    
+
     int step_num = 1;
     for (vector<int> &equivalent_ops : wildcard_plan) {
         assert(flaws.empty()); 
@@ -1035,6 +1048,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
 
 
                 vector<Flaw> deviation_flaws = get_deviation_flaws(
+                    op,
                     numeric_state_before_op,
                     current_prop_state, current_numeric_state,
                     abstract_state, abstract_numeric_state,
@@ -1091,14 +1105,15 @@ bool CEGAR::fix_single_random_flaw(
     int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
 
     static int counter = 0;
-    if (counter > 8) {
+    if (counter > 4) {
         //exit(0);
     }
     counter++;
 
     // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
     assert(!flaws.empty());
-    int repetitions = ceil(1 + std::log(flaws.size()));
+    int repetitions = ceil(10 + std::log(flaws.size()));
+    cout << "Repetitions: " << repetitions << endl;
     for (int i = 0; i < repetitions; ++i) {
         int chosen_idx = rng->random(flaws.size());
         const Flaw &chosen = flaws[chosen_idx];
@@ -1117,7 +1132,8 @@ bool CEGAR::fix_single_random_flaw(
                         abstract_domain_sizes[fact.var] = 2;
                         cout << "Refined comparison axiom var" << fact.var << "=0 (true) with dependent numeric flaws:" << endl;
                         const std::vector<NumericFlaw> &numeric_flaws = f.second;
-                        int repetitions2 = ceil(1 + std::log(numeric_flaws.size()));
+                        int repetitions2 = ceil(10 + std::log(numeric_flaws.size()));
+                        cout << "Repetitions2: " << repetitions2 << endl;
                         for (int j = 0; j < repetitions2; ++j) {
                             assert(numeric_flaws.size() > 0);
                             chosen_idx = rng->random(numeric_flaws.size());
@@ -1162,6 +1178,11 @@ bool CEGAR::fix_single_random_flaw(
                     numeric_domain_mapping[id]->split_at(val, flag);
                     numeric_domain_sizes[id] = numeric_domain_mapping[id]->get_num_partitions();
                     return true;
+                }
+                if (!numeric_domain_mapping[id]->can_split(val, flag)) {
+                    cout << "[Numeric Flaw] Cannot split numeric variable num" << id << " at value " << val << " with flag " << flag << endl;
+                } else if (!can_refine_numeric_variable(abstraction_size, id)) {
+                    cout << "[Numeric Flaw] Cannot refine numeric variable num" << id << " due to abstraction size limit (current abstraction size: " << abstraction_size << ")" << endl;
                 }
 
             }
