@@ -143,6 +143,7 @@ private:
         const std::vector<ap_float> &numeric_state,
         const TaskProxy &task_proxy) const;
     std::vector<Flaw> get_deviation_flaws(
+        const std::vector<ap_float> &numeric_current_state,
         const std::vector<int> &successor_state,
         const std::vector<ap_float> &numeric_successor_state,
         const std::vector<int> &abstract_successor_state,
@@ -523,6 +524,7 @@ vector<CEGAR::Flaw> CEGAR::get_precondition_flaws(
 }
 
 vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
+    const vector<ap_float> &numeric_current_state,
     const vector<int> &successor_state, const vector<ap_float> &numeric_successor_state,
     const vector<int> &abstract_successor_state, const vector<int> &abstract_numeric_successor_state,
     const DomainMapping &domain_mapping,
@@ -544,6 +546,7 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
             vector<NumericFlaw> numeric_flaws;
             for (int dep_var_id : it->second) {
                 assert(dep_var_id >= 0 && dep_var_id < static_cast<int>(numeric_successor_state.size()));
+                //ap_float concrete_value = numeric_current_state[dep_var_id];
                 ap_float concrete_value = numeric_successor_state[dep_var_id];
                 bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_successor_state, task_proxy);
                 NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
@@ -562,15 +565,16 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
         int correct_abstract_value = numeric_domain_mapping[var_id]->get_partition_index(
             numeric_successor_state[var_id]);
         if (abstract_value != correct_abstract_value) {
-            ap_float concrete_value = numeric_successor_state[var_id];
+            ap_float concrete_value = numeric_current_state[var_id];
+            //ap_float concrete_value = numeric_successor_state[var_id];
             const NumericRange *target_range =
                 numeric_domain_mapping[var_id]->get_range_for_partition(abstract_value);
             bool is_lower = true;
             if (target_range) {
                 if (target_range->lower >= concrete_value) {
-                    is_lower = false;
-                } else if (target_range->upper <= concrete_value) {
                     is_lower = true;
+                } else if (target_range->upper <= concrete_value) {
+                    is_lower = false;
                 }
             }
             NumericFlaw numeric_flaw{static_cast<int>(var_id), concrete_value, is_lower};
@@ -1010,6 +1014,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
                 get_precondition_flaws(op, current_prop_state, current_numeric_state, task_proxy);
             if (operator_flaws.empty()) {
                 flaws.clear();
+                vector<ap_float> numeric_state_before_op = current_numeric_state;
                 apply_op_to_state(current_prop_state, op);
                 apply_numeric_effects(current_numeric_state, op);
                 g_axiom_evaluator->evaluate_arithmetic_axioms(current_numeric_state);
@@ -1026,6 +1031,7 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
 
 
                 vector<Flaw> deviation_flaws = get_deviation_flaws(
+                    numeric_state_before_op,
                     current_prop_state, current_numeric_state,
                     abstract_state, abstract_numeric_state,
                     domain_mapping, numeric_domain_mapping, task_proxy);
