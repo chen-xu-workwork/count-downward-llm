@@ -1148,7 +1148,7 @@ bool CEGAR::fix_single_random_flaw(
 
     // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
     assert(!flaws.empty());
-    int repetitions = ceil(100 + std::log(flaws.size()));
+    int repetitions = ceil(1 + std::log(flaws.size()));
     //cout << "Repetitions: " << repetitions << endl;
     for (int i = 0; i < repetitions; ++i) {
         int chosen_idx = rng->random(flaws.size());
@@ -1168,7 +1168,7 @@ bool CEGAR::fix_single_random_flaw(
                         abstract_domain_sizes[fact.var] = 2;
                         //cout << "Refined comparison axiom var" << fact.var << "=0 (true) with dependent numeric flaws:" << endl;
                         const std::vector<NumericFlaw> &numeric_flaws = f.second;
-                        int repetitions2 = ceil(100 + std::log(numeric_flaws.size()));
+                        int repetitions2 = ceil(1 + std::log(numeric_flaws.size()));
                         //cout << "Repetitions2: " << repetitions2 << endl;
                         for (int j = 0; j < repetitions2; ++j) {
                             assert(numeric_flaws.size() > 0);
