@@ -788,8 +788,13 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                         assert(dep_var_id >= 0 && dep_var_id < static_cast<int>(numeric_state.size()));
                         ap_float concrete_value = numeric_state[dep_var_id];
                         bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_state, task_proxy);
-                        NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
-                        numeric_flaws.push_back(numeric_flaw);
+                        if (numeric_domain_mapping[dep_var_id]->can_split(concrete_value, is_lower)) {
+                            NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
+                            numeric_flaws.push_back(numeric_flaw);
+                        } else if (numeric_domain_mapping[dep_var_id]->can_split(concrete_value, !is_lower)) {
+                            NumericFlaw numeric_flaw{dep_var_id, concrete_value, !is_lower};
+                            numeric_flaws.push_back(numeric_flaw);
+                        }
                     }
                     flaws.emplace_back(
                         std::in_place_type<PropFlaw>,
@@ -832,8 +837,13 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                         for (int dep_var_id : it->second) {
                             ap_float concrete_value = numeric_state[dep_var_id];
                             bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_state, task_proxy);
-                            NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
-                            numeric_flaws.push_back(numeric_flaw);
+                            if (numeric_domain_mapping[dep_var_id]->can_split(concrete_value, is_lower)) {
+                                NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
+                                numeric_flaws.push_back(numeric_flaw);
+                            } else if (numeric_domain_mapping[dep_var_id]->can_split(concrete_value, !is_lower)) {
+                                NumericFlaw numeric_flaw{dep_var_id, concrete_value, !is_lower};
+                                numeric_flaws.push_back(numeric_flaw);
+                            }
                         }
                         flaws.emplace_back(
                             std::in_place_type<PropFlaw>,
@@ -849,6 +859,7 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                             Fact(var_id, pre.get_value()),
                             std::vector<NumericFlaw>{}
                         );
+
                         logger->log(Verbosity::DEBUG, "Reg Goal Flaw");
                         dump_flaw(flaws.back());
                     }
