@@ -500,11 +500,15 @@ vector<CEGAR::Flaw> CEGAR::get_precondition_flaws(
                     assert(dep_var_id >= 0 && dep_var_id < static_cast<int>(numeric_state.size()));
                     ap_float concrete_value = numeric_state[dep_var_id];
                     bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_state, task_proxy);
-                    NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
-                    numeric_flaws.push_back(numeric_flaw);
+                    if (numeric_domain_mapping[dep_var_id]->can_split(concrete_value, is_lower)) {
+                        NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
+                        numeric_flaws.push_back(numeric_flaw);
 
-                    NumericFlaw numeric_flaw2{dep_var_id, concrete_value, !is_lower};
-                    numeric_flaws.push_back(numeric_flaw2);
+                    } else if (numeric_domain_mapping[dep_var_id]->can_split(concrete_value, !is_lower)) {
+                        NumericFlaw numeric_flaw{dep_var_id, concrete_value, !is_lower};
+                        numeric_flaws.push_back(numeric_flaw);
+                    }
+                    
                 }
 
                 flaws.emplace_back(
@@ -595,11 +599,14 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
             }
             bool is_lower = !operator_increased_value;
 
-            NumericFlaw numeric_flaw{static_cast<int>(var_id), concrete_current_value, is_lower};
-            flaws.push_back(numeric_flaw);
-            NumericFlaw numeric_flaw2{static_cast<int>(var_id), concrete_current_value, !is_lower};
-            flaws.push_back(numeric_flaw2);
-            logger->log(Verbosity::DEBUG, "Numeric Deviation Flaw");
+            if (numeric_domain_mapping[static_cast<int>(var_id)]->can_split(concrete_current_value, is_lower)) {
+                NumericFlaw numeric_flaw{static_cast<int>(var_id), concrete_current_value, is_lower};
+                flaws.push_back(numeric_flaw);
+
+            } else if (numeric_domain_mapping[static_cast<int>(var_id)]->can_split(concrete_current_value, !is_lower)) {
+                NumericFlaw numeric_flaw{static_cast<int>(var_id), concrete_current_value, !is_lower};
+                flaws.push_back(numeric_flaw);
+            }
             dump_flaw(flaws.back());
         }
     }
