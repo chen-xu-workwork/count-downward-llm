@@ -502,6 +502,9 @@ vector<CEGAR::Flaw> CEGAR::get_precondition_flaws(
                     bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_state, task_proxy);
                     NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
                     numeric_flaws.push_back(numeric_flaw);
+
+                    NumericFlaw numeric_flaw2{dep_var_id, concrete_value, !is_lower};
+                    numeric_flaws.push_back(numeric_flaw2);
                 }
 
                 flaws.emplace_back(
@@ -1127,7 +1130,7 @@ bool CEGAR::fix_single_random_flaw(
 
     // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
     assert(!flaws.empty());
-    int repetitions = ceil(10 + std::log(flaws.size()));
+    int repetitions = ceil(100 + std::log(flaws.size()));
     //cout << "Repetitions: " << repetitions << endl;
     for (int i = 0; i < repetitions; ++i) {
         int chosen_idx = rng->random(flaws.size());
@@ -1147,7 +1150,7 @@ bool CEGAR::fix_single_random_flaw(
                         abstract_domain_sizes[fact.var] = 2;
                         //cout << "Refined comparison axiom var" << fact.var << "=0 (true) with dependent numeric flaws:" << endl;
                         const std::vector<NumericFlaw> &numeric_flaws = f.second;
-                        int repetitions2 = ceil(10 + std::log(numeric_flaws.size()));
+                        int repetitions2 = ceil(100 + std::log(numeric_flaws.size()));
                         //cout << "Repetitions2: " << repetitions2 << endl;
                         for (int j = 0; j < repetitions2; ++j) {
                             assert(numeric_flaws.size() > 0);
@@ -1170,7 +1173,8 @@ bool CEGAR::fix_single_random_flaw(
                             }
                             // TODO: Think more carefully if that really makes sense here
                         }
-                        //logger->log(Verbosity::DEBUG, "[Comp Flaw] Failed to refine any dependent numeric flaw for comparison axiom variable ", fact.var, " - skipping refinement of this variable");
+                        logger->log(Verbosity::NONE, "[Comp Flaw] Failed to refine any dependent numeric flaw for comparison axiom variable ", fact.var, " - skipping refinement of this variable");
+                        cout << "Num numeric flaws: " << numeric_flaws.size() << endl;
                         return false;
                         
                     } else {
@@ -1207,6 +1211,8 @@ bool CEGAR::fix_single_random_flaw(
             return true;
         }
     }
+
+    cout << "Num reps1 exceeded...." << endl;
 
     return false;
 }
