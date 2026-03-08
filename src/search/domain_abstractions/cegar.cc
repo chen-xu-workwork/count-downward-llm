@@ -52,6 +52,7 @@ private:
     const int max_abstraction_size;
     const double max_time;
     const bool use_wildcard_plans;
+    const bool deviation_flaws;
     const ExecEntirePlanMode exec_entire_plan;
     const FlawTreatment flaw_treatment;
     const InitSplitMethod init_split_method;
@@ -116,6 +117,8 @@ private:
     bool can_refine_variable(int old_abstraction_size, int var_id);
     bool can_refine_numeric_variable(int old_abstraction_size, int numeric_var_id);
 
+    int compute_current_abstraction_size() const;
+
     void add_variable_to_abstraction_if_necessary(
         int var, DomainMapping &abstraction);
 
@@ -157,6 +160,24 @@ private:
         const TaskProxy &task_proxy,
         const std::vector<int> &current_state,
         const std::vector<ap_float> &numeric_state) const;
+    enum class DependentNumericRefinement {
+        NONE,
+        ONE,
+        ALL
+    };
+    bool try_refine_from_flaw(
+        const Flaw &flaw,
+        DomainMapping &domain_mapping,
+        int abstraction_size,
+        NumericDomainMappings &numeric_domain_mapping,
+        DependentNumericRefinement dependent_numeric_refinement = DependentNumericRefinement::ONE,
+        std::unordered_set<int> *refined_prop_vars = nullptr,
+        std::unordered_set<int> *refined_numeric_vars = nullptr);
+
+    void log_no_flaws_fixed_diagnostics(
+        const std::vector<Flaw> &flaws,
+        int abstraction_size,
+        const NumericDomainMappings &numeric_domain_mapping) const;
     void dump_flaw(const Flaw &flaw) const;
 public:
                 CEGAR(int max_abstraction_size,
@@ -195,6 +216,7 @@ CEGAR::CEGAR(
         : max_abstraction_size(max_abstraction_size),
             max_time(max_time),
             use_wildcard_plans(use_wildcard_plans),
+        deviation_flaws(deviation_flaws),
         exec_entire_plan(exec_entire_plan),
             flaw_treatment(flaw_treatment),
             init_split_method(init_split_method),
@@ -1056,7 +1078,15 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
     for (vector<int> &equivalent_ops : wildcard_plan) {
         assert(flaws.empty()); 
         for (int op_id : equivalent_ops) {
-            assert(op_id < task_proxy.get_operators().size());
+            // Be defensive: some abstract plans may contain invalid operator IDs
+            // (e.g., -1 as a sentinel). Avoid undefined behavior from indexing
+            // with a negative or out-of-range id.
+            if (op_id < 0 || op_id >= static_cast<int>(task_proxy.get_operators().size())) {
+                logger->log(Verbosity::NONE,
+                            "CEGAR warning: abstract plan contains invalid operator id ",
+                            op_id, " (num_operators=", task_proxy.get_operators().size(), "). Skipping.");
+                continue;
+            }
             OperatorProxy op = task_proxy.get_operators()[op_id];
             string op_name = op.get_name();
 
@@ -1083,17 +1113,21 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
                 logger->log(Verbosity::DEBUG, "[SUCC] ", decoded_state);
 
 
-                vector<Flaw> deviation_flaws = get_deviation_flaws(
-                    op,
-                    numeric_state_before_op,
-                    current_prop_state, current_numeric_state,
-                    abstract_state, abstract_numeric_state,
-                    domain_mapping, numeric_domain_mapping, task_proxy);
-                if (deviation_flaws.empty()) {
+                if (this->deviation_flaws) {
+                    vector<Flaw> deviation_flaw_list = get_deviation_flaws(
+                        op,
+                        numeric_state_before_op,
+                        current_prop_state, current_numeric_state,
+                        abstract_state, abstract_numeric_state,
+                        domain_mapping, numeric_domain_mapping, task_proxy);
+                    if (deviation_flaw_list.empty()) {
+                        break;
+                    }
+                    logger->log(Verbosity::DEBUG, "Found ", deviation_flaw_list.size(), " deviation flaws after applying operator ", op_name);
+                    flaws.insert(flaws.end(), deviation_flaw_list.begin(), deviation_flaw_list.end());
+                } else {
                     break;
                 }
-                logger->log(Verbosity::DEBUG, "Found ", deviation_flaws.size(), " deviation flaws after applying operator ", op_name);
-                flaws.insert(flaws.end(), deviation_flaws.begin(), deviation_flaws.end());
             } else {
                 // We have precondition or deviation flaws
                 flaws.insert(flaws.end(), operator_flaws.begin(), operator_flaws.end());
@@ -1139,131 +1173,251 @@ bool CEGAR::fix_flaws(
 bool CEGAR::fix_single_random_flaw(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
     int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
-
-    static int counter = 0;
-    if (counter > 4) {
-        //exit(0);
-    }
-    counter++;
-
-    // TODO: Number of repetitions set to log(|flaws|) + 1 is somewhat arbitrary...
     assert(!flaws.empty());
-    int repetitions = ceil(1 + std::log(flaws.size()));
-    //cout << "Repetitions: " << repetitions << endl;
-    for (int i = 0; i < repetitions; ++i) {
-        int chosen_idx = rng->random(flaws.size());
-        const Flaw &chosen = flaws[chosen_idx];
 
-        bool result = visit([&](auto &&f) {
-            using T = std::decay_t<decltype(f)>;
+    // Try all flaws in random order. This avoids premature termination when the
+    // sampled flaws happen to be unsplittable or blocked by the size limit while
+    // other flaws are still refinable.
+    vector<int> order;
+    order.reserve(flaws.size());
+    for (int i = 0; i < static_cast<int>(flaws.size()); ++i) {
+        order.push_back(i);
+    }
+    for (int i = static_cast<int>(order.size()) - 1; i > 0; --i) {
+        int j = rng->random(i + 1);
+        std::swap(order[i], order[j]);
+    }
 
-            if constexpr (std::is_same_v<T, PropFlaw>) {
-                const Fact &fact = f.first;
-
-                if (can_refine_variable(abstraction_size, fact.var)) {
-                    add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
-
-                    if (is_comparison_axiom_variable(fact.var)) {
-                        domain_mapping[fact.var][0] = 1;
-                        abstract_domain_sizes[fact.var] = 2;
-                        //cout << "Refined comparison axiom var" << fact.var << "=0 (true) with dependent numeric flaws:" << endl;
-                        const std::vector<NumericFlaw> &numeric_flaws = f.second;
-                        int repetitions2 = ceil(1 + std::log(numeric_flaws.size()));
-                        //cout << "Repetitions2: " << repetitions2 << endl;
-                        for (int j = 0; j < repetitions2; ++j) {
-                            assert(numeric_flaws.size() > 0);
-                            chosen_idx = rng->random(numeric_flaws.size());
-                            NumericFlaw chosen_numeric_flaw = numeric_flaws[chosen_idx];
-                            int id              = std::get<0>(chosen_numeric_flaw);
-                            const ap_float &val = std::get<1>(chosen_numeric_flaw);
-                            bool flag           = std::get<2>(chosen_numeric_flaw);
-                            if (numeric_domain_mapping[id]->can_split(val, flag) && can_refine_numeric_variable(abstraction_size, id)) {
-                                logger->log(Verbosity::INFO, "Refining num", id, "=", val);
-                                numeric_domain_mapping[id]->split_at(val, flag);
-                                numeric_domain_sizes[id] = numeric_domain_mapping[id]->get_num_partitions();
-                                logger->log(Verbosity::INFO, "[Dep Flaw] Numeric domain size for num", id, " is: ", numeric_domain_sizes[id]);
-                                return true;
-                            }
-                            if (!numeric_domain_mapping[id]->can_split(val, flag)) {
-                                logger->log(Verbosity::DEBUG, "[Dep Flaw] Cannot split numeric variable num", id, " at value ", val, " with flag ", flag);
-                            } else if (!can_refine_numeric_variable(abstraction_size, id)) {
-                                logger->log(Verbosity::DEBUG, "[Dep Flaw] Cannot refine numeric variable num", id, " due to abstraction size limit (current abstraction size: ", abstraction_size, ")");
-                            }
-                            // TODO: Think more carefully if that really makes sense here
-                        }
-                        logger->log(Verbosity::NONE, "[Comp Flaw] Failed to refine any dependent numeric flaw for comparison axiom variable ", fact.var, " - skipping refinement of this variable");
-                        cout << "Num numeric flaws: " << numeric_flaws.size() << endl;
-                        return false;
-                        
-                    } else {
-                        int old_size = abstract_domain_sizes[fact.var];
-                        domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
-                        abstract_domain_sizes[fact.var] += 1;
-                        logger->log(Verbosity::INFO, "[Prop Flaw] Refined propositional var ", fact.var,
-                                " at value ", fact.value,
-                                " (abstract domain size: ", old_size, " -> ", abstract_domain_sizes[fact.var], ")");
-                        return true;
-                    }
-                } 
-            } else if constexpr (std::is_same_v<T, NumericFlaw>) {
-                int id              = std::get<0>(f);
-                const ap_float &val = std::get<1>(f);
-                bool flag           = std::get<2>(f);
-
-                if (numeric_domain_mapping[id]->can_split(val, flag) && can_refine_numeric_variable(abstraction_size, id)) {
-                    logger->log(Verbosity::DEBUG, "[Numeric Flaw] Refining num", id, "=", val);
-                    numeric_domain_mapping[id]->split_at(val, flag);
-                    numeric_domain_sizes[id] = numeric_domain_mapping[id]->get_num_partitions();
-                    return true;
-                }
-                if (!numeric_domain_mapping[id]->can_split(val, flag)) {
-                    logger->log(Verbosity::DEBUG, "[Numeric Flaw] Cannot split numeric variable num", id, " at value ", val, " with flag ", flag);
-                } else if (!can_refine_numeric_variable(abstraction_size, id)) {
-                    logger->log(Verbosity::DEBUG, "[Numeric Flaw] Cannot refine numeric variable num", id, " due to abstraction size limit (current abstraction size: ", abstraction_size, ")");
-                }
-
-            }
-            return false;
-        }, chosen);
-        if (result) {
+    for (int idx : order) {
+        const Flaw &chosen = flaws[idx];
+        if (try_refine_from_flaw(chosen, domain_mapping, abstraction_size, numeric_domain_mapping)) {
             return true;
         }
     }
-
-    cout << "Num reps1 exceeded...." << endl;
-
     return false;
 }
 
-/* Chooses a flaw for that the increase in abstraction size is the smallest among all given ones
- * -> Leads to the smallest possible increase in abstraction size in every iteration 
- */
+int CEGAR::compute_current_abstraction_size() const {
+    long long size = 1;
+    for (int d : abstract_domain_sizes) {
+        if (d <= 0) {
+            return 0;
+        }
+        size *= d;
+        if (size > std::numeric_limits<int>::max()) {
+            return std::numeric_limits<int>::max();
+        }
+    }
+    for (int p : numeric_domain_sizes) {
+        if (p <= 0) {
+            return 0;
+        }
+        size *= p;
+        if (size > std::numeric_limits<int>::max()) {
+            return std::numeric_limits<int>::max();
+        }
+    }
+    return static_cast<int>(size);
+}
+
+bool CEGAR::try_refine_from_flaw(
+    const Flaw &flaw,
+    DomainMapping &domain_mapping,
+    int abstraction_size,
+    NumericDomainMappings &numeric_domain_mapping,
+    DependentNumericRefinement dependent_numeric_refinement,
+    std::unordered_set<int> *refined_prop_vars,
+    std::unordered_set<int> *refined_numeric_vars) {
+
+    // IMPORTANT: a single "refine from flaw" can apply multiple refinements
+    // (e.g., split a comparison-axiom propositional var AND split one or more
+    // dependent numeric vars). We must check the size limit against the
+    // cumulative abstraction size.
+    int current_abstraction_size = abstraction_size;
+
+    return visit([&](auto &&f) -> bool {
+        using T = std::decay_t<decltype(f)>;
+
+        if constexpr (std::is_same_v<T, PropFlaw>) {
+            const Fact &fact = f.first;
+            if (refined_prop_vars && refined_prop_vars->count(fact.var)) {
+                return false;
+            }
+            if (!can_refine_variable(current_abstraction_size, fact.var)) {
+                return false;
+            }
+
+            add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
+
+            if (!is_comparison_axiom_variable(fact.var)) {
+                int old_domain_size = abstract_domain_sizes[fact.var];
+                domain_mapping[fact.var][fact.value] = abstract_domain_sizes[fact.var];
+                abstract_domain_sizes[fact.var] += 1;
+                // Update running abstraction size (exact, since size is a product).
+                if (old_domain_size > 0) {
+                    long long new_size = (static_cast<long long>(current_abstraction_size) / old_domain_size) * (old_domain_size + 1);
+                    current_abstraction_size = new_size > std::numeric_limits<int>::max() ? std::numeric_limits<int>::max() : static_cast<int>(new_size);
+                }
+                if (refined_prop_vars) {
+                    refined_prop_vars->insert(fact.var);
+                }
+                return true;
+            }
+
+            bool prop_changed = false;
+            int old_domain_size = abstract_domain_sizes[fact.var];
+            if (abstract_domain_sizes[fact.var] < 2) {
+                domain_mapping[fact.var][0] = 1;
+                abstract_domain_sizes[fact.var] = 2;
+                prop_changed = true;
+            } else {
+                domain_mapping[fact.var][0] = 1;
+                abstract_domain_sizes[fact.var] = 2;
+            }
+
+            // Update running abstraction size if this was the first refinement of the comparison axiom variable.
+            if (prop_changed && old_domain_size > 0 && old_domain_size != 2) {
+                long long new_size = (static_cast<long long>(current_abstraction_size) / old_domain_size) * 2;
+                current_abstraction_size = new_size > std::numeric_limits<int>::max() ? std::numeric_limits<int>::max() : static_cast<int>(new_size);
+            }
+            if (refined_prop_vars) {
+                refined_prop_vars->insert(fact.var);
+            }
+
+            const std::vector<NumericFlaw> &dependent_numeric_flaws = f.second;
+            if (dependent_numeric_refinement == DependentNumericRefinement::NONE || dependent_numeric_flaws.empty()) {
+                return prop_changed;
+            }
+
+            auto try_refine_numeric = [&](const NumericFlaw &nf) -> bool {
+                int num_id = std::get<0>(nf);
+                const ap_float &val = std::get<1>(nf);
+                bool flag = std::get<2>(nf);
+
+                if (refined_numeric_vars && refined_numeric_vars->count(num_id)) {
+                    return false;
+                }
+                // Use the *current* abstraction size, since we may already have refined
+                // the associated comparison-axiom propositional variable.
+                if (!can_refine_numeric_variable(current_abstraction_size, num_id)) {
+                    return false;
+                }
+
+                int old_partitions = numeric_domain_mapping[num_id]->get_num_partitions();
+                if (!numeric_domain_mapping[num_id]->can_split(val, flag) && numeric_domain_mapping[num_id]->can_split(val, !flag)) {
+                    flag = !flag;
+                }
+                if (!numeric_domain_mapping[num_id]->can_split(val, flag)) {
+                    return false;
+                }
+
+                numeric_domain_mapping[num_id]->split_at(val, flag);
+                numeric_domain_sizes[num_id] = numeric_domain_mapping[num_id]->get_num_partitions();
+
+                // Update running abstraction size.
+                int new_partitions = numeric_domain_sizes[num_id];
+                if (old_partitions > 0 && new_partitions > 0) {
+                    long long new_size = (static_cast<long long>(current_abstraction_size) / old_partitions) * new_partitions;
+                    current_abstraction_size = new_size > std::numeric_limits<int>::max() ? std::numeric_limits<int>::max() : static_cast<int>(new_size);
+                }
+                if (refined_numeric_vars) {
+                    refined_numeric_vars->insert(num_id);
+                }
+                return true;
+            };
+
+            if (dependent_numeric_refinement == DependentNumericRefinement::ALL) {
+                bool any_numeric_changed = false;
+                for (const NumericFlaw &nf : dependent_numeric_flaws) {
+                    any_numeric_changed = try_refine_numeric(nf) || any_numeric_changed;
+                }
+                return any_numeric_changed || prop_changed;
+            }
+
+            // ONE: try all dependent numeric flaws in random order until one split succeeds.
+            vector<int> order;
+            order.reserve(dependent_numeric_flaws.size());
+            for (int i = 0; i < static_cast<int>(dependent_numeric_flaws.size()); ++i) {
+                order.push_back(i);
+            }
+            for (int i = static_cast<int>(order.size()) - 1; i > 0; --i) {
+                int j = rng->random(i + 1);
+                std::swap(order[i], order[j]);
+            }
+            for (int idx : order) {
+                if (try_refine_numeric(dependent_numeric_flaws[idx])) {
+                    return true;
+                }
+            }
+
+            return prop_changed;
+        } else {
+            int num_id = std::get<0>(f);
+            const ap_float &val = std::get<1>(f);
+            bool flag = std::get<2>(f);
+
+            if (refined_numeric_vars && refined_numeric_vars->count(num_id)) {
+                return false;
+            }
+
+            if (!can_refine_numeric_variable(current_abstraction_size, num_id)) {
+                return false;
+            }
+
+            int old_partitions = numeric_domain_mapping[num_id]->get_num_partitions();
+
+            if (!numeric_domain_mapping[num_id]->can_split(val, flag) && numeric_domain_mapping[num_id]->can_split(val, !flag)) {
+                flag = !flag;
+            }
+
+            if (!numeric_domain_mapping[num_id]->can_split(val, flag)) {
+                return false;
+            }
+
+            numeric_domain_mapping[num_id]->split_at(val, flag);
+            numeric_domain_sizes[num_id] = numeric_domain_mapping[num_id]->get_num_partitions();
+
+            int new_partitions = numeric_domain_sizes[num_id];
+            if (old_partitions > 0 && new_partitions > 0) {
+                long long new_size = (static_cast<long long>(current_abstraction_size) / old_partitions) * new_partitions;
+                current_abstraction_size = new_size > std::numeric_limits<int>::max() ? std::numeric_limits<int>::max() : static_cast<int>(new_size);
+            }
+            if (refined_numeric_vars) {
+                refined_numeric_vars->insert(num_id);
+            }
+            return true;
+        }
+    }, flaw);
+}
+
 bool CEGAR::fix_single_flaw_max_refined(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
     int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
+    // MAX_REFINED_SINGLE_ATOM:
+    // Prefer fixing flaws whose associated variable(s) are already the most refined,
+    // but do not get stuck if the current maximum tier is unrefinable.
+    struct Candidate {
+        int flaw_index;
+        int score;
+        vector<int> dependent_numeric_indices;  // only used for comparison-axiom PropFlaws
+    };
 
-    int current_max_domain_size = 0;
-    vector<int> current_flaw_candidates;
-    vector<vector<int>> dependent_numeric_flaw_candidates;
-    int num_flaws = (int) flaws.size();
+    vector<Candidate> candidates;
+    candidates.reserve(flaws.size());
 
-    //Select max-refined flaws
-    for (int i = 0; i < num_flaws; ++i) {
-        Flaw flaw = flaws[i];
-        int domain_size = 0;
+    for (int i = 0; i < static_cast<int>(flaws.size()); ++i) {
+        int score = 0;
         vector<int> dep_candidates;
         visit([&](auto &&f) {
             using T = std::decay_t<decltype(f)>;
-            if constexpr (std::is_same_v<T, PropFlaw>) { 
+            if constexpr (std::is_same_v<T, PropFlaw>) {
                 const Fact &fact = f.first;
-                domain_size = abstract_domain_sizes[fact.var];
+                score = abstract_domain_sizes[fact.var];
                 if (is_comparison_axiom_variable(fact.var)) {
                     const std::vector<NumericFlaw> &numeric_flaws = f.second;
                     int max_numeric_domain_size = 0;
-                    int old_domain_size = domain_size;
-                    for (int j = 0; j < numeric_flaws.size(); ++j) {
-                        NumericFlaw numeric_flaw = numeric_flaws[j];
-                        int id = std::get<0>(numeric_flaw);
+                    for (int j = 0; j < static_cast<int>(numeric_flaws.size()); ++j) {
+                        int id = std::get<0>(numeric_flaws[j]);
                         int num_partitions = numeric_domain_mapping[id]->get_num_partitions();
                         if (num_partitions > max_numeric_domain_size) {
                             dep_candidates.clear();
@@ -1273,219 +1427,156 @@ bool CEGAR::fix_single_flaw_max_refined(
                             dep_candidates.push_back(j);
                         }
                     }
-                    domain_size = domain_size + max_numeric_domain_size;
-                } 
-                
-            } else if constexpr (std::is_same_v<T, NumericFlaw>) {
+                    score += max_numeric_domain_size;
+                }
+            } else {
                 int id = std::get<0>(f);
-                int num_partitions = numeric_domain_mapping[id]->get_num_partitions();
-                domain_size = num_partitions;
-
-            } 
-            if (domain_size > current_max_domain_size) {
-                current_flaw_candidates.clear();
-                dependent_numeric_flaw_candidates.clear();
-                current_flaw_candidates.emplace_back(i);
-                dependent_numeric_flaw_candidates.push_back(dep_candidates);
-                current_max_domain_size = domain_size;
-            } else if (domain_size == current_max_domain_size) {
-                current_flaw_candidates.emplace_back(i);
-                dependent_numeric_flaw_candidates.push_back(dep_candidates);
+                score = numeric_domain_mapping[id]->get_num_partitions();
             }
-
-        }, flaw);
+        }, flaws[i]);
+        candidates.push_back(Candidate{i, score, std::move(dep_candidates)});
     }
 
-    // Refine max-refined flaw
-    Flaw chosen_flaw = flaws[*rng->choose(current_flaw_candidates)];
-    bool refined = visit([&](auto &&f) {
-        using T = std::decay_t<decltype(f)>;
-        if constexpr (std::is_same_v<T, PropFlaw>) { 
-            const Fact &fact = f.first;
-            if (can_refine_variable(abstraction_size, fact.var)) {
-                add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
-                if (is_comparison_axiom_variable(fact.var)) {
-                    const std::vector<NumericFlaw> &numeric_flaws = f.second;
-                    domain_mapping[fact.var][0] = 1;
-                    abstract_domain_sizes[fact.var] = 2;
+    sort(candidates.begin(), candidates.end(), [](const Candidate &a, const Candidate &b) {
+        return a.score > b.score;
+    });
 
-                    NumericFlaw numeric_flaw = numeric_flaws[*rng->choose(dependent_numeric_flaw_candidates[0])];
-                    int id = std::get<0>(numeric_flaw);
-                    const ap_float &val = std::get<1>(numeric_flaw);
-                    bool flag = std::get<2>(numeric_flaw);
-                    if (can_refine_numeric_variable(abstraction_size, id)
-                        && numeric_domain_mapping[id]->can_split(val, flag)) {
-                        numeric_domain_mapping[id]->split_at(val, flag);
-                        return true;
+    // Iterate candidates by decreasing score; within each tier, randomize the order.
+    size_t pos = 0;
+    while (pos < candidates.size()) {
+        const int tier_score = candidates[pos].score;
+        size_t end = pos;
+        while (end < candidates.size() && candidates[end].score == tier_score) {
+            ++end;
+        }
+
+        vector<size_t> order;
+        order.reserve(end - pos);
+        for (size_t k = pos; k < end; ++k) {
+            order.push_back(k);
+        }
+        for (int i = static_cast<int>(order.size()) - 1; i > 0; --i) {
+            int j = rng->random(i + 1);
+            std::swap(order[i], order[j]);
+        }
+
+        for (size_t k : order) {
+            const Candidate &cand = candidates[k];
+            Flaw chosen = flaws[cand.flaw_index];
+
+            // If we picked a comparison-axiom PropFlaw, restrict its dependent numeric flaws
+            // to those associated with the max-refined numeric variable(s), but allow trying
+            // all of them (in random order) to avoid picking an unsplittable one.
+            if (holds_alternative<PropFlaw>(chosen)) {
+                PropFlaw pf = get<PropFlaw>(chosen);
+                const Fact &fact = pf.first;
+                if (is_comparison_axiom_variable(fact.var) && !cand.dependent_numeric_indices.empty()) {
+                    vector<NumericFlaw> restricted;
+                    restricted.reserve(cand.dependent_numeric_indices.size());
+                    for (int idx : cand.dependent_numeric_indices) {
+                        restricted.push_back(pf.second[idx]);
                     }
+                    pf.second = std::move(restricted);
+                    chosen = pf;
                 }
-            } 
-        } else if constexpr (std::is_same_v<T, NumericFlaw>) {
-            int id = std::get<0>(f);
-            ap_float val = std::get<1>(f);
-            bool flag = std::get<2>(f);
-            if (can_refine_numeric_variable(abstraction_size, id)
-                && numeric_domain_mapping[id]->can_split(val, flag)) {
-                numeric_domain_mapping[id]->split_at(val, flag);
+            }
+
+            if (try_refine_from_flaw(chosen, domain_mapping, abstraction_size, numeric_domain_mapping)) {
                 return true;
             }
         }
 
-        return false;
-    }, chosen_flaw);
+        pos = end;
+    }
 
-    return refined;
+    return false;
 }
 
 bool CEGAR::fix_flaws_per_atom(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
     int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
-    // FIXME: Bias for variables with low index.
-
-    // NOTE: unsure if that is the optimal strategy. Assume a comparison depending on n numeric variables. In that case, we refine all of them at once. 
-    
-    sort(flaws.begin(), flaws.end(), [](const auto &lhs, const auto &rhs) {
-        auto get_id = [](const auto& element) -> int {
-            using T = std::decay_t<decltype(element)>;
-            if constexpr (std::is_same_v<T, PropFlaw>) {
-                return element.first.var; 
-            } else if constexpr (std::is_same_v<T, NumericFlaw>) {
-                return std::get<0>(element); 
-            }
-        };
-        return std::visit(get_id, lhs) < std::visit(get_id, rhs);
-    });
-
-    PropFlaw last_prop_flaw(Fact(-1, -1), {});
-    NumericFlaw last_numeric_flaw{-1, 0.0, false};
-    for (Flaw flaw : flaws) {
-    
-        visit([&](auto &&f) {
+    auto atom_key = [](const Flaw &flaw) {
+        return visit([&](auto &&f) {
             using T = std::decay_t<decltype(f)>;
-            if constexpr (std::is_same_v<T, PropFlaw>) { 
-                const Fact &fact = f.first;
-                if (can_refine_variable(abstraction_size, fact.var)) {
-                    add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
-                    if (is_comparison_axiom_variable(fact.var)) {
-                        const std::vector<NumericFlaw> &numeric_flaws = f.second;
-                        domain_mapping[fact.var][0] = 1;
-                        abstract_domain_sizes[fact.var] = 2;
-                        //TODO: That sort is important
-                        //sort(numeric_flaws.begin(), numeric_flaws.end());
-                        for (int j = 0; j < numeric_flaws.size(); ++j) {
-                            NumericFlaw numeric_flaw = numeric_flaws[j];
-                            if (last_numeric_flaw == numeric_flaw) {
-                                continue; // Duplicate flaw, already refined
-                            }   
-                            int id = std::get<0>(numeric_flaw);
-                            const ap_float &val = std::get<1>(numeric_flaw);
-                            bool flag = std::get<2>(numeric_flaw);
-                            if (can_refine_numeric_variable(abstraction_size, id)
-                                && numeric_domain_mapping[id]->can_split(val, flag)) {
-                                numeric_domain_mapping[id]->split_at(val, flag);
-                                last_numeric_flaw = numeric_flaw;
-                            }
-                        }
-                    } else {
-                        if (last_prop_flaw == PropFlaw(fact, f.second)) {
-                            return; // Duplicate flaw, already refined
-                        }
-                        domain_mapping[fact.var][fact.value] =
-                            abstract_domain_sizes[fact.var];
-                        abstract_domain_sizes[fact.var] += 1;
-                        last_prop_flaw = PropFlaw(fact, f.second);
-                    }
-                }
-            } else if constexpr (std::is_same_v<T, NumericFlaw>) {
-                if (last_numeric_flaw == f) {
-                    return; // Duplicate flaw, already refined
-                }
-                int id = std::get<0>(f);
-                const ap_float &val = std::get<1>(f);
-                bool flag = std::get<2>(f);
-                if (can_refine_numeric_variable(abstraction_size, id)
-                    && numeric_domain_mapping[id]->can_split(val, flag)) {
-                    numeric_domain_mapping[id]->split_at(val, flag);
-                    last_numeric_flaw = f;
-                }
+            if constexpr (std::is_same_v<T, PropFlaw>) {
+                return std::make_tuple(0, f.first.var, f.first.value, ap_float(0), false);
+            } else {
+                return std::make_tuple(1, std::get<0>(f), 0, std::get<1>(f), std::get<2>(f));
             }
         }, flaw);
+    };
+
+    sort(flaws.begin(), flaws.end(), [&](const Flaw &a, const Flaw &b) {
+        return atom_key(a) < atom_key(b);
+    });
+
+    bool changed = false;
+    int current_size = abstraction_size;
+    bool has_last = false;
+    decltype(atom_key(flaws.front())) last_key;
+
+    for (const Flaw &flaw : flaws) {
+        auto key = atom_key(flaw);
+        if (has_last && key == last_key) {
+            continue;
+        }
+        has_last = true;
+        last_key = key;
+        bool local_changed = try_refine_from_flaw(
+            flaw, domain_mapping, current_size, numeric_domain_mapping,
+            DependentNumericRefinement::ALL);
+        changed = changed || local_changed;
+        if (local_changed) {
+            current_size = compute_current_abstraction_size();
+        }
     }
-    return last_prop_flaw.first != Fact(-1, -1) || std::get<0>(last_numeric_flaw) != -1;
+
+    return changed;
 }
 
 bool CEGAR::fix_flaws_per_variable(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
     int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
-    // FIXME: Bias for variables with low index.
-    sort(flaws.begin(), flaws.end(), [](const auto &lhs, const auto &rhs) {
-        auto get_id = [](const auto& element) -> int {
-            using T = std::decay_t<decltype(element)>;
-            if constexpr (std::is_same_v<T, PropFlaw>) {
-                return element.first.var; 
-            } else if constexpr (std::is_same_v<T, NumericFlaw>) {
-                return std::get<0>(element); 
-            }
-        };
-        return std::visit(get_id, lhs) < std::visit(get_id, rhs);
-    });
-
-    PropFlaw last_prop_flaw(Fact(-1, -1), {});
-    NumericFlaw last_numeric_flaw{-1, 0.0, false};
-    for (Flaw flaw : flaws) {
-    
-        visit([&](auto &&f) {
+    auto variable_key = [](const Flaw &flaw) {
+        return visit([&](auto &&f) {
             using T = std::decay_t<decltype(f)>;
-            if constexpr (std::is_same_v<T, PropFlaw>) { 
-                const Fact &fact = f.first;
-                if (can_refine_variable(abstraction_size, fact.var)) {
-                    add_variable_to_abstraction_if_necessary(fact.var, domain_mapping);
-                    if (is_comparison_axiom_variable(fact.var)) {
-                        const std::vector<NumericFlaw> &numeric_flaws = f.second;
-                        domain_mapping[fact.var][0] = 1;
-                        abstract_domain_sizes[fact.var] = 2;
-                        //TODO: That sort is important
-                        //sort(numeric_flaws.begin(), numeric_flaws.end());
-                        for (int j = 0; j < numeric_flaws.size(); ++j) {
-                            NumericFlaw numeric_flaw = numeric_flaws[j];
-                            if (last_numeric_flaw == numeric_flaw) {
-                                continue; // Duplicate flaw, already refined
-                            }   
-                            int id = std::get<0>(numeric_flaw);
-                            const ap_float &val = std::get<1>(numeric_flaw);
-                            bool flag = std::get<2>(numeric_flaw);
-                            if (can_refine_numeric_variable(abstraction_size, id)
-                                && numeric_domain_mapping[id]->can_split(val, flag)) {
-                                numeric_domain_mapping[id]->split_at(val, flag);
-                                last_numeric_flaw = numeric_flaw;
-                            }
-                        }
-                    } else {
-                        if (fact.var > last_prop_flaw.first.var && last_prop_flaw == PropFlaw(fact, f.second)) {
-                            return; // Duplicate flaw, already refined
-                        }
-                        domain_mapping[fact.var][fact.value] =
-                            abstract_domain_sizes[fact.var];
-                        abstract_domain_sizes[fact.var] += 1;
-                        last_prop_flaw = PropFlaw(fact, f.second);
-                    }
-                }
-            } else if constexpr (std::is_same_v<T, NumericFlaw>) {
-                if (last_numeric_flaw == f) {
-                    return; // Duplicate flaw, already refined
-                }
-                int id = std::get<0>(f);
-                const ap_float &val = std::get<1>(f);
-                bool flag = std::get<2>(f);
-                if (can_refine_numeric_variable(abstraction_size, id)
-                    && numeric_domain_mapping[id]->can_split(val, flag)) {
-                    numeric_domain_mapping[id]->split_at(val, flag);
-                    last_numeric_flaw = f;
-                }
+            if constexpr (std::is_same_v<T, PropFlaw>) {
+                return std::make_pair(0, f.first.var);
+            } else {
+                return std::make_pair(1, std::get<0>(f));
             }
         }, flaw);
+    };
+
+    sort(flaws.begin(), flaws.end(), [&](const Flaw &a, const Flaw &b) {
+        return variable_key(a) < variable_key(b);
+    });
+
+    bool changed = false;
+    int current_size = abstraction_size;
+    std::unordered_set<int> refined_prop_vars;
+    std::unordered_set<int> refined_numeric_vars;
+    bool has_last = false;
+    decltype(variable_key(flaws.front())) last_key;
+
+    for (const Flaw &flaw : flaws) {
+        auto key = variable_key(flaw);
+        if (has_last && key == last_key) {
+            continue;
+        }
+        has_last = true;
+        last_key = key;
+        bool local_changed = try_refine_from_flaw(
+            flaw, domain_mapping, current_size, numeric_domain_mapping,
+            DependentNumericRefinement::ONE,
+            &refined_prop_vars, &refined_numeric_vars);
+        changed = changed || local_changed;
+        if (local_changed) {
+            current_size = compute_current_abstraction_size();
+        }
     }
-    return last_prop_flaw.first != Fact(-1, -1) || std::get<0>(last_numeric_flaw) != -1;
+
+    return changed;
 }
 
 void CEGAR::print_statistics(
@@ -1936,15 +2027,20 @@ DomainAbstraction CEGAR::build_abstraction(
                 get_flaws(task_proxy, concrete_init, abstraction, exec_entire_for_this_iteration);
 
         if (flaws.empty()) {
-            logger->log(Verbosity::DEBUG, "No more flaws found, terminating CEGAR refinement.");
+            logger->log(Verbosity::NONE, "CEGAR stopping: no more flaws found.");
             break;
         }
 
         logger->log(Verbosity::DEBUG, "Flaws found in this iteration: ", flaws.size());
 
-        bool flaws_fixed = fix_flaws(move(flaws), domain_mapping, abstraction.size(), numeric_domain_mapping);
+        // Keep a copy for diagnostics in case we cannot fix any flaw.
+        vector<Flaw> flaws_for_fix = flaws;
+        bool flaws_fixed = fix_flaws(move(flaws_for_fix), domain_mapping, abstraction.size(), numeric_domain_mapping);
         if (!flaws_fixed) {
-            logger->log(Verbosity::DEBUG, "No flaws could be fixed, terminating CEGAR refinement.");
+            log_no_flaws_fixed_diagnostics(flaws, abstraction.size(), numeric_domain_mapping);
+            logger->log(Verbosity::NONE,
+                        "CEGAR stopping: no flaws could be fixed (abstraction size=",
+                        abstraction.size(), ", max_abstraction_size=", max_abstraction_size, ").");
             break;
         }
         
@@ -1975,14 +2071,149 @@ DomainAbstraction CEGAR::build_abstraction(
     return abstraction;
 }
 
+void CEGAR::log_no_flaws_fixed_diagnostics(
+    const std::vector<Flaw> &flaws,
+    int abstraction_size,
+    const NumericDomainMappings &numeric_domain_mapping) const {
+    // This is printed at Verbosity::NONE because it's intended for automated parsing
+    // in smoke tests and for debugging domains where CEGAR stops unexpectedly.
+    // Keep it compact and single-line.
+    int prop_total = 0;
+    int prop_blacklisted = 0;
+    int prop_size_blocked = 0;
+    int prop_other_unrefinable = 0;
+    int prop_potentially_refinable = 0;
+
+    int num_total = 0;
+    int num_blacklisted = 0;
+    int num_size_blocked = 0;
+    int num_unsplittable = 0;
+    int num_potentially_refinable = 0;
+
+    for (const Flaw &flaw : flaws) {
+        visit([&](auto &&f) {
+            using T = std::decay_t<decltype(f)>;
+            if constexpr (std::is_same_v<T, PropFlaw>) {
+                ++prop_total;
+                const Fact &fact = f.first;
+
+                if (blacklisted_variables.count(fact.var)) {
+                    ++prop_blacklisted;
+                    return;
+                }
+
+                // Approximate whether refining this variable would violate the size bound.
+                int domain_size = abstract_domain_sizes[fact.var];
+                if (domain_size <= 0) {
+                    ++prop_other_unrefinable;
+                    return;
+                }
+                int abs_without_var = abstraction_size / domain_size;
+                if (!utils::is_product_within_limit(abs_without_var, domain_size + 1, max_abstraction_size)) {
+                    ++prop_size_blocked;
+                    return;
+                }
+
+                // If it's a comparison axiom variable, we may only be able to refine its dependent numeric vars.
+                if (is_comparison_axiom_variable(fact.var)) {
+                    bool any_dep_refinable = false;
+                    for (const NumericFlaw &nf : f.second) {
+                        int num_id = std::get<0>(nf);
+                        const ap_float &val = std::get<1>(nf);
+                        bool flag = std::get<2>(nf);
+
+                        if (blacklisted_numeric_variables.count(num_id)) {
+                            continue;
+                        }
+                        if (num_id < 0 || num_id >= static_cast<int>(numeric_domain_mapping.size())) {
+                            continue;
+                        }
+
+                        int partitions = numeric_domain_mapping[num_id]->get_num_partitions();
+                        if (partitions <= 0) {
+                            continue;
+                        }
+                        int abs_without_num = abstraction_size / partitions;
+                        if (!utils::is_product_within_limit(abs_without_num, partitions + 1, max_abstraction_size)) {
+                            continue;
+                        }
+                        if (!(numeric_domain_mapping[num_id]->can_split(val, flag) ||
+                              numeric_domain_mapping[num_id]->can_split(val, !flag))) {
+                            continue;
+                        }
+                        any_dep_refinable = true;
+                        break;
+                    }
+                    if (any_dep_refinable) {
+                        ++prop_potentially_refinable;
+                    } else {
+                        ++prop_other_unrefinable;
+                    }
+                    return;
+                }
+
+                ++prop_potentially_refinable;
+            } else {
+                ++num_total;
+                int num_id = std::get<0>(f);
+                const ap_float &val = std::get<1>(f);
+                bool flag = std::get<2>(f);
+
+                if (blacklisted_numeric_variables.count(num_id)) {
+                    ++num_blacklisted;
+                    return;
+                }
+                if (num_id < 0 || num_id >= static_cast<int>(numeric_domain_mapping.size())) {
+                    ++num_unsplittable;
+                    return;
+                }
+
+                int partitions = numeric_domain_mapping[num_id]->get_num_partitions();
+                if (partitions <= 0) {
+                    ++num_unsplittable;
+                    return;
+                }
+                int abs_without_num = abstraction_size / partitions;
+                if (!utils::is_product_within_limit(abs_without_num, partitions + 1, max_abstraction_size)) {
+                    ++num_size_blocked;
+                    return;
+                }
+                if (!(numeric_domain_mapping[num_id]->can_split(val, flag) ||
+                      numeric_domain_mapping[num_id]->can_split(val, !flag))) {
+                    ++num_unsplittable;
+                    return;
+                }
+                ++num_potentially_refinable;
+            }
+        }, flaw);
+    }
+
+    logger->log(
+        Verbosity::NONE,
+        "CEGAR no_flaws_fixed diagnostics: abs=", abstraction_size,
+        " max=", max_abstraction_size,
+        " flaws=", flaws.size(),
+        " prop(total=", prop_total,
+        ", blacklisted=", prop_blacklisted,
+        ", size_blocked=", prop_size_blocked,
+        ", other_unrefinable=", prop_other_unrefinable,
+        ", potentially_refinable=", prop_potentially_refinable,
+        ") num(total=", num_total,
+        ", blacklisted=", num_blacklisted,
+        ", size_blocked=", num_size_blocked,
+        ", unsplittable_or_invalid=", num_unsplittable,
+        ", potentially_refinable=", num_potentially_refinable,
+        ")");
+}
+
 bool CEGAR::termination_criterion_satisfied(
     utils::CountdownTimer &timer) {
     if (timer.is_expired()) {
-        logger->log(Verbosity::INFO, "Terminating CEGAR; time limit reached.");
+        logger->log(Verbosity::NONE, "CEGAR stopping: time limit reached.");
         return true;
     }
     if (!utils::extra_memory_padding_is_reserved()) {
-        logger->log(Verbosity::INFO, "Terminating CEGAR; memory limit reached.");
+        logger->log(Verbosity::NONE, "CEGAR stopping: memory limit reached.");
         return true;
     }
     return false;
@@ -2193,13 +2424,11 @@ bool CEGAR::determine_include_in_lower(
         return false;
     } else if (eval_lower == 1 && eval_upper == 1) {
         // Both give FALSE - either works, default to false
-        logger->log(Verbosity::VERBOSE, "  -> Both give FALSE, defaulting to include_in_lower=false");
-        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        logger->log(Verbosity::INFO, "WARNING: determine_include_in_lower: both branches evaluate to FALSE; defaulting to include_in_lower=false");
         return false;
     } else if (eval_lower == 2 && eval_upper == 2) {
         // Both give UNKNOWN - this shouldn't happen in theory, but default to false
-        logger->log(Verbosity::VERBOSE, "  -> Both give UNKNOWN, defaulting to include_in_lower=false");
-        utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        logger->log(Verbosity::INFO, "WARNING: determine_include_in_lower: both branches evaluate to UNKNOWN; defaulting to include_in_lower=false");
         return false;
     } else if (eval_lower == 2) {
         // Only lower gives UNKNOWN (upper gives TRUE) - prefer UNKNOWN over TRUE
