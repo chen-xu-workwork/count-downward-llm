@@ -544,7 +544,7 @@ def condition_to_rule_body(parameters, condition):
                     result.append(part)                    
             else:
                 primitives = part.primitive_numeric_expressions()             
-                for pne in primitives:
+                for pne in sorted(primitives, key=lambda p: p._deterministic_sort_key()):
                     result.append(get_function_predicate(pne))
     return result
 

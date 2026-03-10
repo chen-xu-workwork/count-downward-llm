@@ -5,7 +5,39 @@ class FunctionalExpression:
     def __ne__(self, other):
         return not self == other
     def __lt__(self, other):
-        return hash(self) < hash(other)
+        if not isinstance(other, FunctionalExpression):
+            return NotImplemented
+        # IMPORTANT: Do not order by hash(self). Python's hash is randomized
+        # between processes by default (PYTHONHASHSEED), which would make
+        # translations nondeterministic when we sort expressions (e.g. to
+        # canonicalize commutative arithmetic).
+        return self._deterministic_sort_key() < other._deterministic_sort_key()
+
+    def _deterministic_sort_key(self):
+        """Return a total ordering key that is stable across runs.
+
+        This is used for canonicalizing commutative arithmetic expressions.
+        The key must not depend on Python's randomized hashing.
+        """
+        # Keep the key fully comparable across different expression types.
+        cls_name = self.__class__.__name__
+
+        # Primitive numeric expressions: order by symbol + args + ntype.
+        # (Strings/tuples have stable ordering independent of PYTHONHASHSEED.)
+        if cls_name == "PrimitiveNumericExpression":
+            return (cls_name, self.symbol, self.args, self.ntype)
+
+        # Numeric constants: order by numeric value (use repr for stability).
+        if cls_name == "NumericConstant":
+            return (cls_name, repr(self.value))
+
+        # Arithmetic expressions: order by operator and then by part keys.
+        op = getattr(self, "op", None)
+        if op is not None:
+            return (cls_name, op, tuple(part._deterministic_sort_key() for part in self.parts))
+
+        # Fallback: structural key based on class name and children.
+        return (cls_name, tuple(part._deterministic_sort_key() for part in self.parts))
     def free_variables(self):
         result = set()
         for part in self.parts:

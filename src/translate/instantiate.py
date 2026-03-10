@@ -85,6 +85,10 @@ def instantiate(task, model):
 
     instantiated_actions = []
     instantiated_axioms = []
+    # IMPORTANT: Use a set during construction to avoid duplicates, but
+    # convert to a *sorted list* before returning. Iteration over a set is
+    # intentionally randomized across Python runs (hash randomization), which
+    # previously caused nondeterministic SAS output.
     instantiated_numeric_axioms = set()
     new_constant_numeric_axioms = set()
     reachable_action_parameters = defaultdict(list)
@@ -126,11 +130,18 @@ def instantiate(task, model):
             instantiated_numeric_axioms.add(inst_axiom)                                
         elif atom.predicate == "@goal-reachable":
             relaxed_reachable = True 
+
     instantiated_numeric_axioms |= new_constant_numeric_axioms
+
+    # Ensure deterministic output ordering across runs (PYTHONHASHSEED).
+    instantiated_numeric_axioms = sorted(instantiated_numeric_axioms, key=lambda ax: ax.name)
+    init_constant_predicate_facts = sorted(init_constant_predicate_facts, key=repr)
+    init_constant_numeric_facts = sorted(init_constant_numeric_facts, key=repr)
+
     return (relaxed_reachable, fluent_facts, fluent_functions,
-            instantiated_actions, sorted(instantiated_axioms), instantiated_numeric_axioms,
-            init_constant_predicate_facts, init_constant_numeric_facts,
-            reachable_action_parameters) 
+        instantiated_actions, sorted(instantiated_axioms), instantiated_numeric_axioms,
+        init_constant_predicate_facts, init_constant_numeric_facts,
+        reachable_action_parameters) 
     
 def explore(task):
     if DEBUG: print("DEBUG: Exploring Task Step [1]: create logic program 'prog'")
