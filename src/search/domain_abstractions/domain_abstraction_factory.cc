@@ -1543,7 +1543,6 @@ void DomainAbstractionFactory::compute_abstract_plan(
                     break; 
                 }
             }
-            assert(!compute_wildcard_plan);
             if (compute_wildcard_plan) {
                 rng->shuffle(cheapest_operators);
                 wildcard_plan.push_back(move(cheapest_operators));

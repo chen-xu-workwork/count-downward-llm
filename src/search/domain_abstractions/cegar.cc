@@ -2038,7 +2038,7 @@ DomainAbstraction CEGAR::build_abstraction(
         bool flaws_fixed = fix_flaws(move(flaws_for_fix), domain_mapping, abstraction.size(), numeric_domain_mapping);
         if (!flaws_fixed) {
             log_no_flaws_fixed_diagnostics(flaws, abstraction.size(), numeric_domain_mapping);
-            logger->log(Verbosity::NONE,
+            logger->log(Verbosity::INFO,
                         "CEGAR stopping: no flaws could be fixed (abstraction size=",
                         abstraction.size(), ", max_abstraction_size=", max_abstraction_size, ").");
             break;
@@ -2551,7 +2551,7 @@ void add_domain_abstraction_cegar_options_to_parser(
     parser.add_option<bool>(
         "use_wildcard_plans",
         "Consider parallel transitions in abstraction.",
-        "false");
+        "true");
     parser.add_option<bool>(
         "deviation_flaws",
         "Enable deviation flaw detection when operator preconditions match.",
@@ -2569,7 +2569,7 @@ void add_domain_abstraction_cegar_options_to_parser(
         "init_split_method",
         init_split_method,
         "Choose how to initialize splits to seed diversification.",
-        "goal_value");
+        "init_value");
     vector<string> flaw_treatment;
     flaw_treatment.emplace_back("random_single_atom");
     flaw_treatment.emplace_back("one_split_per_atom");
