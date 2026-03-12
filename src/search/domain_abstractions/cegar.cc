@@ -31,7 +31,7 @@ using namespace std;
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
 
-static Verbosity log_verbosity = Verbosity::DEBUG;
+static Verbosity log_verbosity = Verbosity::NONE;
 
 static void print_numeric_expression_tree(const TaskProxy &task_proxy,
                                           int prop_var_id,
@@ -2070,7 +2070,7 @@ DomainAbstraction CEGAR::build_abstraction(
         // (trimmed legacy debug)
     }
 
-    logger->log(Verbosity::NONE,
+    logger->log(Verbosity::INFO,
                 "CEGAR terminated. Final abstraction size: ",
                 abstraction.size());
 
@@ -2203,7 +2203,7 @@ void CEGAR::log_no_flaws_fixed_diagnostics(
     }
 
     logger->log(
-        Verbosity::NONE,
+        Verbosity::INFO,
         "CEGAR no_flaws_fixed diagnostics: abs=", abstraction_size,
         " max=", max_abstraction_size,
         " flaws=", flaws.size(),
