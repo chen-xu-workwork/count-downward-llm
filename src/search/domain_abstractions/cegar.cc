@@ -31,7 +31,7 @@ using namespace std;
 namespace domain_abstractions {
 static const int memory_padding_in_mb = 75;
 
-static Verbosity log_verbosity = Verbosity::NONE;
+static Verbosity log_verbosity = Verbosity::DEBUG;
 
 static void print_numeric_expression_tree(const TaskProxy &task_proxy,
                                           int prop_var_id,
@@ -392,12 +392,18 @@ pair<int, vector<int>> CEGAR::get_init_value_split(
 
     State init_state = task_proxy.get_initial_state();
 
-    int init_value = task_proxy.get_initial_state()[var_id].get_value();
-    logger->log(Verbosity::DEBUG, "init value ", init_value);
-    assert(utils::in_bounds(init_value, init_split));
-    //TODO: Do the same for numeric variables
-    init_split[init_value] = 1;
-    return make_pair(2, move(init_split));
+    bool is_comparison_var = is_comparison_axiom_variable(var_id);
+    if (is_comparison_var) {
+        logger->log(Verbosity::DEBUG, "  Variable ", var_id, " is a comparison axiom - splitting at initial value 0 (true in numeric fd) instead of actual initial value");
+        init_split[0] = 1;
+        return make_pair(2, move(init_split));
+    } else {
+        int init_value = task_proxy.get_initial_state()[var_id].get_value();
+        logger->log(Verbosity::DEBUG, "init value ", init_value);
+        assert(utils::in_bounds(init_value, init_split));
+        init_split[init_value] = 1;
+        return make_pair(2, move(init_split));
+    }
 }
 
 pair<int, vector<int>> CEGAR::get_random_value_split(
@@ -629,7 +635,9 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
                 NumericFlaw numeric_flaw{static_cast<int>(var_id), concrete_current_value, !is_lower};
                 flaws.push_back(numeric_flaw);
             }
-            dump_flaw(flaws.back());
+            if (!flaws.empty()) {
+                dump_flaw(flaws.back());    
+            }
         }
     }
     return flaws;
@@ -817,6 +825,9 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                             NumericFlaw numeric_flaw{dep_var_id, concrete_value, !is_lower};
                             numeric_flaws.push_back(numeric_flaw);
                         }
+                        if (!numeric_flaws.empty()) {
+                            dump_flaw(numeric_flaws.back());    
+                        }
                     }
                     flaws.emplace_back(
                         std::in_place_type<PropFlaw>,
@@ -865,6 +876,9 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                             } else if (numeric_domain_mapping[dep_var_id]->can_split(concrete_value, !is_lower)) {
                                 NumericFlaw numeric_flaw{dep_var_id, concrete_value, !is_lower};
                                 numeric_flaws.push_back(numeric_flaw);
+                            }
+                            if (!numeric_flaws.empty()) {
+                                dump_flaw(numeric_flaws.back());    
                             }
                         }
                         flaws.emplace_back(
@@ -2551,7 +2565,7 @@ void add_domain_abstraction_cegar_options_to_parser(
     parser.add_option<bool>(
         "use_wildcard_plans",
         "Consider parallel transitions in abstraction.",
-        "true");
+        "false");
     parser.add_option<bool>(
         "deviation_flaws",
         "Enable deviation flaw detection when operator preconditions match.",
