@@ -247,6 +247,10 @@ private:
     // that depend on this variable (indices into cached_comparison_axioms).
     // Used to efficiently find affected axioms when a variable changes.
     std::vector<std::vector<size_t>> var_to_comparison_axiom_indices;
+
+    // True iff changes to this numeric variable can affect any comparison axiom
+    // directly or through assignment-axiom dependencies.
+    std::vector<bool> numeric_var_can_affect_comparison;
     
     // Goals
     std::vector<numeric_condition::RegularNumericCondition> numeric_goals;

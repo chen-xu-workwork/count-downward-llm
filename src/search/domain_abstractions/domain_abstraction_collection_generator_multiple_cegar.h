@@ -18,6 +18,9 @@ class DomainAbstractionCollectionGeneratorMultipleCegar : public DomainAbstracti
     const InitSplitMethod init_split_method;
     const NumericSplitStrategy numeric_split_strategy;
     const ExecEntirePlanMode exec_entire_plan;
+    const bool use_threshold_aware_numeric_splits;
+    const bool use_progress_weighted_flaw_selection;
+    const int refinement_batch_size;
 
     virtual std::string id() const override;
     virtual void initialize(const TaskProxy &) override {}

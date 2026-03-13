@@ -8,8 +8,10 @@
 #include "utils.h"
 
 #include <variant>
+#include <algorithm>
 #include <cmath>
 #include <optional>
+#include <tuple>
 #include "../globals.h"
 #include "../option_parser.h"
 #include "../task_proxy.h"
@@ -57,6 +59,9 @@ private:
     const FlawTreatment flaw_treatment;
     const InitSplitMethod init_split_method;
     const NumericSplitStrategy numeric_split_strategy;
+    const bool use_threshold_aware_numeric_splits;
+    const bool use_progress_weighted_flaw_selection;
+    const int refinement_batch_size;
     const shared_ptr<utils::RandomNumberGenerator> &rng;
     const std::unordered_set<int> init_split_var_ids;
     std::unordered_set<int> blacklisted_variables;
@@ -75,6 +80,77 @@ private:
     
     std::unordered_map<int, std::unordered_set<int>> comparison_axiom_dependencies;
     std::unordered_set<int> comparison_axiom_var_ids;
+
+    struct NumericSplitCheckKey {
+        int var_id;
+        ap_float value;
+        bool include_in_lower;
+        int version;
+
+        bool operator==(const NumericSplitCheckKey &other) const {
+            return var_id == other.var_id &&
+                   value == other.value &&
+                   include_in_lower == other.include_in_lower &&
+                   version == other.version;
+        }
+    };
+
+    struct NumericSplitCheckKeyHash {
+        size_t operator()(const NumericSplitCheckKey &k) const {
+            size_t h = std::hash<int>{}(k.var_id);
+            h ^= std::hash<ap_float>{}(k.value) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<bool>{}(k.include_in_lower) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<int>{}(k.version) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            return h;
+        }
+    };
+
+    struct IncludeInLowerKey {
+        int prop_var_id;
+        int split_var_id;
+        ap_float split_value;
+        size_t dependency_state_sig;
+
+        bool operator==(const IncludeInLowerKey &other) const {
+            return prop_var_id == other.prop_var_id &&
+                   split_var_id == other.split_var_id &&
+                   split_value == other.split_value &&
+                   dependency_state_sig == other.dependency_state_sig;
+        }
+    };
+
+    struct IncludeInLowerKeyHash {
+        size_t operator()(const IncludeInLowerKey &k) const {
+            size_t h = std::hash<int>{}(k.prop_var_id);
+            h ^= std::hash<int>{}(k.split_var_id) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<ap_float>{}(k.split_value) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<size_t>{}(k.dependency_state_sig) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            return h;
+        }
+    };
+
+    mutable std::unordered_map<NumericSplitCheckKey, bool, NumericSplitCheckKeyHash> can_split_cache;
+    mutable std::unordered_map<IncludeInLowerKey, bool, IncludeInLowerKeyHash> include_in_lower_cache;
+    std::vector<int> numeric_split_version;
+    std::unordered_map<int, std::vector<ap_float>> numeric_split_hint_values;
+    std::unordered_map<int, std::vector<ap_float>> numeric_split_step_sizes;
+    std::unordered_set<int> goal_related_prop_vars;
+    int current_iteration = 0;
+
+    bool can_split_cached(int num_var_id, ap_float value, bool include_in_lower) const;
+    void on_numeric_split(int num_var_id);
+    void build_numeric_split_hints(const TaskProxy &task_proxy);
+    void build_goal_related_prop_vars(const TaskProxy &task_proxy);
+    std::vector<ap_float> get_numeric_split_candidates(int num_var_id, ap_float base_value) const;
+    double score_flaw(const Flaw &flaw, int abstraction_size, const NumericDomainMappings &numeric_domain_mapping) const;
+    bool fix_top_k_flaws(std::vector<Flaw> &&flaws,
+                         DomainMapping &domain_mapping,
+                         int abstraction_size,
+                         NumericDomainMappings &numeric_domain_mapping);
+    size_t compute_dependency_state_signature(
+        int prop_var_id,
+        int split_var_id,
+        const std::vector<ap_float> &concrete_values) const;
 
     DomainMapping compute_initial_domain_mapping(const TaskProxy &task_proxy);
     vector<int> compute_initial_split(
@@ -188,6 +264,9 @@ public:
                     FlawTreatment flaw_treatment,
                     InitSplitMethod init_split_method,
                     NumericSplitStrategy numeric_split_strategy,
+                        bool use_threshold_aware_numeric_splits,
+                        bool use_progress_weighted_flaw_selection,
+                        int refinement_batch_size,
                     const shared_ptr<utils::RandomNumberGenerator> &rng,
                     const TaskProxy &task_proxy,
                     unordered_set<int> &&init_split_var_ids,
@@ -208,6 +287,9 @@ CEGAR::CEGAR(
                 FlawTreatment flaw_treatment,
                 InitSplitMethod init_split_method,
                 NumericSplitStrategy numeric_split_strategy,
+                bool use_threshold_aware_numeric_splits,
+                bool use_progress_weighted_flaw_selection,
+                int refinement_batch_size,
                 const shared_ptr<utils::RandomNumberGenerator> &rng,
                 const TaskProxy &task_proxy,
                 unordered_set<int> &&init_split_var_ids,
@@ -221,6 +303,9 @@ CEGAR::CEGAR(
             flaw_treatment(flaw_treatment),
             init_split_method(init_split_method),
             numeric_split_strategy(numeric_split_strategy),
+            use_threshold_aware_numeric_splits(use_threshold_aware_numeric_splits),
+            use_progress_weighted_flaw_selection(use_progress_weighted_flaw_selection),
+            refinement_batch_size(std::max(1, refinement_batch_size)),
             rng(rng),
             init_split_var_ids(move(init_split_var_ids)),
             blacklisted_variables(move(blacklisted_variables)),
@@ -241,6 +326,274 @@ CEGAR::CEGAR(
                 static_cast<int>(local_to_global_regular_numeric_var_ids.size()) - 1;
         }
     }
+    numeric_split_version.assign(task_proxy.get_numeric_variables().size(), 0);
+}
+
+bool CEGAR::can_split_cached(int num_var_id, ap_float value, bool include_in_lower) const {
+    NumericSplitCheckKey key{num_var_id, value, include_in_lower, numeric_split_version[num_var_id]};
+    auto it = can_split_cache.find(key);
+    if (it != can_split_cache.end()) {
+        return it->second;
+    }
+    bool result = numeric_domain_mapping[num_var_id]->can_split(value, include_in_lower);
+    can_split_cache.emplace(key, result);
+    return result;
+}
+
+void CEGAR::on_numeric_split(int num_var_id) {
+    ++numeric_split_version[num_var_id];
+}
+
+void CEGAR::build_numeric_split_hints(const TaskProxy &task_proxy) {
+    numeric_split_hint_values.clear();
+    numeric_split_step_sizes.clear();
+
+    const NumericVariablesProxy num_vars = task_proxy.get_numeric_variables();
+
+    vector<ap_float> global_constant_values;
+    global_constant_values.reserve(num_vars.size());
+    for (size_t i = 0; i < num_vars.size(); ++i) {
+        if (num_vars[i].get_var_type() == numType::constant) {
+            global_constant_values.push_back(num_vars[i].get_initial_state_value());
+        }
+    }
+
+    for (const auto &entry : comparison_axiom_dependencies) {
+        for (int dep_var_id : entry.second) {
+            auto &hints = numeric_split_hint_values[dep_var_id];
+            hints.insert(hints.end(), global_constant_values.begin(), global_constant_values.end());
+            hints.push_back(num_vars[dep_var_id].get_initial_state_value());
+        }
+    }
+
+    OperatorsProxy operators = task_proxy.get_operators();
+    for (OperatorProxy op : operators) {
+        for (auto ass_eff_proxy : op.get_ass_effects()) {
+            NumAssProxy ass_eff = ass_eff_proxy.get_assignment();
+            int affected_var_id = ass_eff.get_affected_variable().get_id();
+            if (affected_var_id < 0 || affected_var_id >= static_cast<int>(num_vars.size())) {
+                continue;
+            }
+            if (num_vars[affected_var_id].get_var_type() != numType::regular) {
+                continue;
+            }
+            NumericVariableProxy assigned_var = ass_eff.get_assigned_variable();
+            if (assigned_var.get_var_type() == numType::constant) {
+                ap_float magnitude = std::fabs(assigned_var.get_initial_state_value());
+                if (magnitude > 0) {
+                    numeric_split_step_sizes[affected_var_id].push_back(magnitude);
+                }
+            }
+        }
+    }
+
+    for (auto &entry : numeric_split_hint_values) {
+        auto &vals = entry.second;
+        std::sort(vals.begin(), vals.end());
+        vals.erase(std::unique(vals.begin(), vals.end()), vals.end());
+    }
+    for (auto &entry : numeric_split_step_sizes) {
+        auto &vals = entry.second;
+        std::sort(vals.begin(), vals.end());
+        vals.erase(std::unique(vals.begin(), vals.end()), vals.end());
+    }
+}
+
+void CEGAR::build_goal_related_prop_vars(const TaskProxy &task_proxy) {
+    goal_related_prop_vars.clear();
+    for (const FactProxy &goal : task_proxy.get_goals()) {
+        goal_related_prop_vars.insert(goal.get_variable().get_id());
+    }
+    for (OperatorProxy axiom : task_proxy.get_axioms()) {
+        if (axiom.get_preconditions().empty() || axiom.get_effects().size() != 1) {
+            continue;
+        }
+        for (FactProxy pre : axiom.get_preconditions()) {
+            goal_related_prop_vars.insert(pre.get_variable().get_id());
+        }
+    }
+}
+
+std::vector<ap_float> CEGAR::get_numeric_split_candidates(int num_var_id, ap_float base_value) const {
+    std::vector<ap_float> candidates;
+    candidates.push_back(base_value);
+
+    if (!use_threshold_aware_numeric_splits) {
+        return candidates;
+    }
+
+    auto hints_it = numeric_split_hint_values.find(num_var_id);
+    auto steps_it = numeric_split_step_sizes.find(num_var_id);
+
+    // Interval-aware candidates: use threshold boundaries and nearby interval centers.
+    // This keeps split values aligned to semantically meaningful regions.
+    vector<ap_float> boundaries;
+    if (hints_it != numeric_split_hint_values.end()) {
+        boundaries.insert(boundaries.end(), hints_it->second.begin(), hints_it->second.end());
+        if (steps_it != numeric_split_step_sizes.end()) {
+            for (ap_float t : hints_it->second) {
+                for (ap_float s : steps_it->second) {
+                    boundaries.push_back(t + s);
+                    boundaries.push_back(t - s);
+                }
+            }
+        }
+    }
+
+    std::sort(boundaries.begin(), boundaries.end());
+    boundaries.erase(std::unique(boundaries.begin(), boundaries.end()), boundaries.end());
+
+    vector<pair<ap_float, ap_float>> ranked; // (distance, value)
+    for (ap_float b : boundaries) {
+        ranked.emplace_back(std::fabs(base_value - b), b);
+    }
+
+    // Add interval centers between adjacent boundaries to encourage coarser bucket splits.
+    for (size_t i = 0; i + 1 < boundaries.size(); ++i) {
+        ap_float mid = (boundaries[i] + boundaries[i + 1]) / 2.0;
+        ranked.emplace_back(std::fabs(base_value - mid), mid);
+    }
+
+    // Keep the previous behavior as fallback when no threshold structure is available.
+    if (ranked.empty() && hints_it != numeric_split_hint_values.end()) {
+        for (ap_float t : hints_it->second) {
+            ranked.emplace_back(std::fabs(base_value - t), t);
+            if (steps_it != numeric_split_step_sizes.end()) {
+                for (ap_float s : steps_it->second) {
+                    ranked.emplace_back(std::fabs(base_value - (t + s)), t + s);
+                    ranked.emplace_back(std::fabs(base_value - (t - s)), t - s);
+                }
+            }
+        }
+    }
+    std::sort(ranked.begin(), ranked.end(), [](const auto &a, const auto &b) {
+        if (a.first != b.first) {
+            return a.first < b.first;
+        }
+        return a.second < b.second;
+    });
+
+    std::unordered_set<ap_float> seen;
+    seen.insert(base_value);
+    const size_t max_candidates = 12;
+    for (const auto &p : ranked) {
+        ap_float candidate = p.second;
+        if (seen.insert(candidate).second) {
+            candidates.push_back(candidate);
+            if (candidates.size() >= max_candidates) {
+                break;
+            }
+        }
+    }
+
+    return candidates;
+}
+
+double CEGAR::score_flaw(const Flaw &flaw,
+                        int abstraction_size,
+                        const NumericDomainMappings &numeric_domain_mapping) const {
+    (void)abstraction_size;
+    auto residual_distance_score = [&](int num_id, ap_float value) -> double {
+        auto hints_it = numeric_split_hint_values.find(num_id);
+        if (hints_it == numeric_split_hint_values.end() || hints_it->second.empty()) {
+            return 0.0;
+        }
+
+        ap_float min_dist = std::numeric_limits<ap_float>::infinity();
+        for (ap_float t : hints_it->second) {
+            min_dist = std::min(min_dist, std::fabs(value - t));
+        }
+
+        ap_float min_step = 1.0;
+        auto steps_it = numeric_split_step_sizes.find(num_id);
+        if (steps_it != numeric_split_step_sizes.end() && !steps_it->second.empty()) {
+            min_step = std::numeric_limits<ap_float>::infinity();
+            for (ap_float s : steps_it->second) {
+                if (s > 0) {
+                    min_step = std::min(min_step, s);
+                }
+            }
+            if (!std::isfinite(min_step) || min_step <= 0) {
+                min_step = 1.0;
+            }
+        }
+
+        // Higher score when closer to a meaningful threshold (residual-driven).
+        ap_float normalized = min_dist / min_step;
+        return 1.0 / (1.0 + normalized);
+    };
+
+    return visit([&](auto &&f) -> double {
+        using T = std::decay_t<decltype(f)>;
+        if constexpr (std::is_same_v<T, PropFlaw>) {
+            const Fact &fact = f.first;
+            double score = 0.0;
+            if (goal_related_prop_vars.count(fact.var)) {
+                score += 100.0;
+            }
+            if (is_comparison_axiom_variable(fact.var)) {
+                score += 40.0;
+            }
+            score += static_cast<double>(abstract_domain_sizes[fact.var]);
+            for (const NumericFlaw &nf : f.second) {
+                int num_id = std::get<0>(nf);
+                ap_float val = std::get<1>(nf);
+                bool dir = std::get<2>(nf);
+                score += 60.0 * residual_distance_score(num_id, val);
+                const auto candidates = get_numeric_split_candidates(num_id, val);
+                bool any = false;
+                for (ap_float c : candidates) {
+                    if (can_split_cached(num_id, c, dir) || can_split_cached(num_id, c, !dir)) {
+                        any = true;
+                        break;
+                    }
+                }
+                if (any) {
+                    score += 10.0;
+                }
+            }
+            return score;
+        } else {
+            int num_id = std::get<0>(f);
+            ap_float val = std::get<1>(f);
+            bool dir = std::get<2>(f);
+            double score = 50.0 + numeric_domain_mapping[num_id]->get_num_partitions();
+            score += 120.0 * residual_distance_score(num_id, val);
+            const auto candidates = get_numeric_split_candidates(num_id, val);
+            bool any = false;
+            for (ap_float c : candidates) {
+                if (can_split_cached(num_id, c, dir) || can_split_cached(num_id, c, !dir)) {
+                    any = true;
+                    break;
+                }
+            }
+            if (!any) {
+                score -= 1000.0;
+            }
+            return score;
+        }
+    }, flaw);
+}
+
+size_t CEGAR::compute_dependency_state_signature(
+    int prop_var_id,
+    int split_var_id,
+    const std::vector<ap_float> &concrete_values) const {
+    auto deps_it = comparison_axiom_dependencies.find(prop_var_id);
+    if (deps_it == comparison_axiom_dependencies.end()) {
+        return 0;
+    }
+    std::vector<int> dep_vars(deps_it->second.begin(), deps_it->second.end());
+    std::sort(dep_vars.begin(), dep_vars.end());
+    size_t h = 0x9e3779b97f4a7c15ULL;
+    for (int var_id : dep_vars) {
+        if (var_id == split_var_id) {
+            continue;
+        }
+        h ^= std::hash<int>{}(var_id) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<ap_float>{}(concrete_values[var_id]) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    }
+    return h;
 }
 
 DomainMapping CEGAR::compute_initial_domain_mapping(
@@ -528,11 +881,11 @@ vector<CEGAR::Flaw> CEGAR::get_precondition_flaws(
                     assert(dep_var_id >= 0 && dep_var_id < static_cast<int>(numeric_state.size()));
                     ap_float concrete_value = numeric_state[dep_var_id];
                     bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_state, task_proxy);
-                    if (numeric_domain_mapping[dep_var_id]->can_split(concrete_value, is_lower)) {
+                    if (can_split_cached(dep_var_id, concrete_value, is_lower)) {
                         NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
                         numeric_flaws.push_back(numeric_flaw);
 
-                    } else if (numeric_domain_mapping[dep_var_id]->can_split(concrete_value, !is_lower)) {
+                    } else if (can_split_cached(dep_var_id, concrete_value, !is_lower)) {
                         NumericFlaw numeric_flaw{dep_var_id, concrete_value, !is_lower};
                         numeric_flaws.push_back(numeric_flaw);
                     }
@@ -627,11 +980,11 @@ vector<CEGAR::Flaw> CEGAR::get_deviation_flaws(
             }
             bool is_lower = !operator_increased_value;
 
-            if (numeric_domain_mapping[static_cast<int>(var_id)]->can_split(concrete_current_value, is_lower)) {
+            if (can_split_cached(static_cast<int>(var_id), concrete_current_value, is_lower)) {
                 NumericFlaw numeric_flaw{static_cast<int>(var_id), concrete_current_value, is_lower};
                 flaws.push_back(numeric_flaw);
 
-            } else if (numeric_domain_mapping[static_cast<int>(var_id)]->can_split(concrete_current_value, !is_lower)) {
+            } else if (can_split_cached(static_cast<int>(var_id), concrete_current_value, !is_lower)) {
                 NumericFlaw numeric_flaw{static_cast<int>(var_id), concrete_current_value, !is_lower};
                 flaws.push_back(numeric_flaw);
             }
@@ -818,10 +1171,10 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                         assert(dep_var_id >= 0 && dep_var_id < static_cast<int>(numeric_state.size()));
                         ap_float concrete_value = numeric_state[dep_var_id];
                         bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_state, task_proxy);
-                        if (numeric_domain_mapping[dep_var_id]->can_split(concrete_value, is_lower)) {
+                        if (can_split_cached(dep_var_id, concrete_value, is_lower)) {
                             NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
                             numeric_flaws.push_back(numeric_flaw);
-                        } else if (numeric_domain_mapping[dep_var_id]->can_split(concrete_value, !is_lower)) {
+                        } else if (can_split_cached(dep_var_id, concrete_value, !is_lower)) {
                             NumericFlaw numeric_flaw{dep_var_id, concrete_value, !is_lower};
                             numeric_flaws.push_back(numeric_flaw);
                         }
@@ -870,10 +1223,10 @@ vector<CEGAR::Flaw> CEGAR::get_goal_flaws(
                         for (int dep_var_id : it->second) {
                             ap_float concrete_value = numeric_state[dep_var_id];
                             bool is_lower = determine_include_in_lower(var_id, dep_var_id, concrete_value, numeric_state, task_proxy);
-                            if (numeric_domain_mapping[dep_var_id]->can_split(concrete_value, is_lower)) {
+                            if (can_split_cached(dep_var_id, concrete_value, is_lower)) {
                                 NumericFlaw numeric_flaw{dep_var_id, concrete_value, is_lower};
                                 numeric_flaws.push_back(numeric_flaw);
-                            } else if (numeric_domain_mapping[dep_var_id]->can_split(concrete_value, !is_lower)) {
+                            } else if (can_split_cached(dep_var_id, concrete_value, !is_lower)) {
                                 NumericFlaw numeric_flaw{dep_var_id, concrete_value, !is_lower};
                                 numeric_flaws.push_back(numeric_flaw);
                             }
@@ -1170,6 +1523,10 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
 bool CEGAR::fix_flaws(
     vector<Flaw> &&flaws, DomainMapping &domain_mapping,
     int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
+    if (refinement_batch_size > 1) {
+        return fix_top_k_flaws(move(flaws), domain_mapping, abstraction_size, numeric_domain_mapping);
+    }
+
     switch (flaw_treatment) {
         case FlawTreatment::RANDOM_SINGLE_ATOM:
             return fix_single_random_flaw(move(flaws), domain_mapping, abstraction_size, numeric_domain_mapping);
@@ -1184,22 +1541,78 @@ bool CEGAR::fix_flaws(
     return false;
 }
 
-bool CEGAR::fix_single_random_flaw(
-    vector<Flaw> &&flaws, DomainMapping &domain_mapping,
-    int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
-    assert(!flaws.empty());
+bool CEGAR::fix_top_k_flaws(
+    vector<Flaw> &&flaws,
+    DomainMapping &domain_mapping,
+    int abstraction_size,
+    NumericDomainMappings &numeric_domain_mapping) {
+    if (flaws.empty()) {
+        return false;
+    }
 
-    // Try all flaws in random order. This avoids premature termination when the
-    // sampled flaws happen to be unsplittable or blocked by the size limit while
-    // other flaws are still refinable.
     vector<int> order;
     order.reserve(flaws.size());
     for (int i = 0; i < static_cast<int>(flaws.size()); ++i) {
         order.push_back(i);
     }
-    for (int i = static_cast<int>(order.size()) - 1; i > 0; --i) {
-        int j = rng->random(i + 1);
-        std::swap(order[i], order[j]);
+
+    if (use_progress_weighted_flaw_selection) {
+        std::sort(order.begin(), order.end(), [&](int a, int b) {
+            return score_flaw(flaws[a], abstraction_size, numeric_domain_mapping) >
+                   score_flaw(flaws[b], abstraction_size, numeric_domain_mapping);
+        });
+    } else {
+        for (int i = static_cast<int>(order.size()) - 1; i > 0; --i) {
+            int j = rng->random(i + 1);
+            std::swap(order[i], order[j]);
+        }
+    }
+
+    bool changed = false;
+    int current_size = abstraction_size;
+    int applied = 0;
+    std::unordered_set<int> refined_prop_vars;
+    std::unordered_set<int> refined_numeric_vars;
+
+    for (int idx : order) {
+        if (applied >= refinement_batch_size) {
+            break;
+        }
+        bool local_changed = try_refine_from_flaw(
+            flaws[idx], domain_mapping, current_size, numeric_domain_mapping,
+            DependentNumericRefinement::ONE,
+            &refined_prop_vars, &refined_numeric_vars);
+        if (local_changed) {
+            changed = true;
+            ++applied;
+            current_size = compute_current_abstraction_size();
+        }
+    }
+
+    return changed;
+}
+
+bool CEGAR::fix_single_random_flaw(
+    vector<Flaw> &&flaws, DomainMapping &domain_mapping,
+    int abstraction_size, NumericDomainMappings &numeric_domain_mapping) {
+    assert(!flaws.empty());
+
+    vector<int> order;
+    order.reserve(flaws.size());
+    for (int i = 0; i < static_cast<int>(flaws.size()); ++i) {
+        order.push_back(i);
+    }
+
+    if (use_progress_weighted_flaw_selection) {
+        std::sort(order.begin(), order.end(), [&](int a, int b) {
+            return score_flaw(flaws[a], abstraction_size, numeric_domain_mapping) >
+                   score_flaw(flaws[b], abstraction_size, numeric_domain_mapping);
+        });
+    } else {
+        for (int i = static_cast<int>(order.size()) - 1; i > 0; --i) {
+            int j = rng->random(i + 1);
+            std::swap(order[i], order[j]);
+        }
     }
 
     for (int idx : order) {
@@ -1318,14 +1731,25 @@ bool CEGAR::try_refine_from_flaw(
                 }
 
                 int old_partitions = numeric_domain_mapping[num_id]->get_num_partitions();
-                if (!numeric_domain_mapping[num_id]->can_split(val, flag) && numeric_domain_mapping[num_id]->can_split(val, !flag)) {
-                    flag = !flag;
+
+                const vector<ap_float> candidates = get_numeric_split_candidates(num_id, val);
+                std::optional<std::pair<ap_float, bool>> chosen;
+                for (ap_float candidate : candidates) {
+                    if (can_split_cached(num_id, candidate, flag)) {
+                        chosen = {candidate, flag};
+                        break;
+                    }
+                    if (can_split_cached(num_id, candidate, !flag)) {
+                        chosen = {candidate, !flag};
+                        break;
+                    }
                 }
-                if (!numeric_domain_mapping[num_id]->can_split(val, flag)) {
+                if (!chosen) {
                     return false;
                 }
 
-                numeric_domain_mapping[num_id]->split_at(val, flag);
+                numeric_domain_mapping[num_id]->split_at(chosen->first, chosen->second);
+                on_numeric_split(num_id);
                 numeric_domain_sizes[num_id] = numeric_domain_mapping[num_id]->get_num_partitions();
 
                 // Update running abstraction size.
@@ -1380,15 +1804,25 @@ bool CEGAR::try_refine_from_flaw(
 
             int old_partitions = numeric_domain_mapping[num_id]->get_num_partitions();
 
-            if (!numeric_domain_mapping[num_id]->can_split(val, flag) && numeric_domain_mapping[num_id]->can_split(val, !flag)) {
-                flag = !flag;
+            const vector<ap_float> candidates = get_numeric_split_candidates(num_id, val);
+            std::optional<std::pair<ap_float, bool>> chosen;
+            for (ap_float candidate : candidates) {
+                if (can_split_cached(num_id, candidate, flag)) {
+                    chosen = {candidate, flag};
+                    break;
+                }
+                if (can_split_cached(num_id, candidate, !flag)) {
+                    chosen = {candidate, !flag};
+                    break;
+                }
             }
 
-            if (!numeric_domain_mapping[num_id]->can_split(val, flag)) {
+            if (!chosen) {
                 return false;
             }
 
-            numeric_domain_mapping[num_id]->split_at(val, flag);
+            numeric_domain_mapping[num_id]->split_at(chosen->first, chosen->second);
+            on_numeric_split(num_id);
             numeric_domain_sizes[num_id] = numeric_domain_mapping[num_id]->get_num_partitions();
 
             int new_partitions = numeric_domain_sizes[num_id];
@@ -1980,6 +2414,9 @@ DomainAbstraction CEGAR::build_abstraction(
     utils::reserve_extra_memory_padding(memory_padding_in_mb);
     utils::CountdownTimer timer(max_time);
 
+    build_numeric_split_hints(task_proxy);
+    build_goal_related_prop_vars(task_proxy);
+
     // Blacklist logic axiom variables (derived variables that are NOT comparison axioms)
     // Only comparison axioms should be refinable
     comparison_axiom_var_ids.clear();
@@ -2025,6 +2462,9 @@ DomainAbstraction CEGAR::build_abstraction(
     int iteration = 1;
     State concrete_init = task_proxy.get_initial_state();
     while (!termination_criterion_satisfied(timer)) {
+        current_iteration = iteration;
+        can_split_cache.clear();
+        include_in_lower_cache.clear();
         logger->log(Verbosity::INFO, "iteration #", iteration);
 
         // Decide whether to execute the entire plan for this iteration
@@ -2151,8 +2591,8 @@ void CEGAR::log_no_flaws_fixed_diagnostics(
                         if (!utils::is_product_within_limit(abs_without_num, partitions + 1, max_abstraction_size)) {
                             continue;
                         }
-                        if (!(numeric_domain_mapping[num_id]->can_split(val, flag) ||
-                              numeric_domain_mapping[num_id]->can_split(val, !flag))) {
+                        if (!(can_split_cached(num_id, val, flag) ||
+                            can_split_cached(num_id, val, !flag))) {
                             continue;
                         }
                         any_dep_refinable = true;
@@ -2192,8 +2632,8 @@ void CEGAR::log_no_flaws_fixed_diagnostics(
                     ++num_size_blocked;
                     return;
                 }
-                if (!(numeric_domain_mapping[num_id]->can_split(val, flag) ||
-                      numeric_domain_mapping[num_id]->can_split(val, !flag))) {
+                    if (!(can_split_cached(num_id, val, flag) ||
+                        can_split_cached(num_id, val, !flag))) {
                     ++num_unsplittable;
                     return;
                 }
@@ -2302,37 +2742,99 @@ static std::unordered_map<int, NumericRange> compute_all_numeric_ranges(
         }
     }
     
-    // Propagate through assignment axioms (fixpoint)
+    struct AssignmentEval {
+        int derived_id;
+        int left_id;
+        int right_id;
+        cal_operator op;
+    };
+
     AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
-    bool changed = true;
-    
-    while (changed) {
-        changed = false;
-        
-        for (AssignmentAxiomProxy axiom : assignment_axioms) {
-            int derived_id = axiom.get_assignment_variable().get_id();
-            int left_id = axiom.get_left_variable().get_id();
-            int right_id = axiom.get_right_variable().get_id();
-            
-            auto left_it = ranges.find(left_id);
-            auto right_it = ranges.find(right_id);
-            if (left_it == ranges.end() || right_it == ranges.end()) {
-                continue;
+    std::vector<AssignmentEval> eval_axioms;
+    eval_axioms.reserve(assignment_axioms.size());
+    std::unordered_map<int, int> derived_to_idx;
+    derived_to_idx.reserve(assignment_axioms.size());
+
+    for (AssignmentAxiomProxy axiom : assignment_axioms) {
+        AssignmentEval eval{
+            axiom.get_assignment_variable().get_id(),
+            axiom.get_left_variable().get_id(),
+            axiom.get_right_variable().get_id(),
+            axiom.get_arithmetic_operator_type()};
+        int idx = static_cast<int>(eval_axioms.size());
+        eval_axioms.push_back(eval);
+        derived_to_idx[eval.derived_id] = idx;
+    }
+
+    auto apply_axiom = [&](const AssignmentEval &ax) -> bool {
+        auto left_it = ranges.find(ax.left_id);
+        auto right_it = ranges.find(ax.right_id);
+        if (left_it == ranges.end() || right_it == ranges.end()) {
+            return false;
+        }
+
+        const NumericRange &l_range = left_it->second;
+        const NumericRange &r_range = right_it->second;
+        NumericRange res = NumericDomainMapping::apply_range_operation(l_range, r_range, ax.op);
+
+        auto it = ranges.find(ax.derived_id);
+        if (it == ranges.end() ||
+            it->second.lower != res.lower || it->second.upper != res.upper ||
+            it->second.lower_inclusive != res.lower_inclusive ||
+            it->second.upper_inclusive != res.upper_inclusive) {
+            ranges[ax.derived_id] = res;
+            return true;
+        }
+        return false;
+    };
+
+    std::vector<std::vector<int>> edges(eval_axioms.size());
+    std::vector<int> indegree(eval_axioms.size(), 0);
+    for (size_t i = 0; i < eval_axioms.size(); ++i) {
+        const AssignmentEval &ax = eval_axioms[i];
+        int left_dep_idx = -1;
+        auto left_it = derived_to_idx.find(ax.left_id);
+        if (left_it != derived_to_idx.end()) {
+            left_dep_idx = left_it->second;
+            edges[left_it->second].push_back(static_cast<int>(i));
+            ++indegree[i];
+        }
+        auto right_it = derived_to_idx.find(ax.right_id);
+        if (right_it != derived_to_idx.end() && right_it->second != left_dep_idx) {
+            edges[right_it->second].push_back(static_cast<int>(i));
+            ++indegree[i];
+        }
+    }
+
+    std::vector<int> topo_order;
+    topo_order.reserve(eval_axioms.size());
+    std::vector<int> queue;
+    queue.reserve(eval_axioms.size());
+    for (size_t i = 0; i < indegree.size(); ++i) {
+        if (indegree[i] == 0) {
+            queue.push_back(static_cast<int>(i));
+        }
+    }
+    for (size_t q = 0; q < queue.size(); ++q) {
+        int u = queue[q];
+        topo_order.push_back(u);
+        for (int v : edges[u]) {
+            if (--indegree[v] == 0) {
+                queue.push_back(v);
             }
-            
-            const NumericRange &l_range = left_it->second;
-            const NumericRange &r_range = right_it->second;
-            
-            NumericRange res = NumericDomainMapping::apply_range_operation(
-                l_range, r_range, axiom.get_arithmetic_operator_type());
-            
-            auto it = ranges.find(derived_id);
-            if (it == ranges.end() || 
-                it->second.lower != res.lower || it->second.upper != res.upper ||
-                it->second.lower_inclusive != res.lower_inclusive || 
-                it->second.upper_inclusive != res.upper_inclusive) {
-                ranges[derived_id] = res;
-                changed = true;
+        }
+    }
+
+    if (topo_order.size() == eval_axioms.size()) {
+        for (int idx : topo_order) {
+            apply_axiom(eval_axioms[idx]);
+        }
+    } else {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (const AssignmentEval &ax : eval_axioms) {
+                changed = apply_axiom(ax) || changed;
             }
         }
     }
@@ -2378,6 +2880,17 @@ bool CEGAR::determine_include_in_lower(
     ap_float split_value,
     const std::vector<ap_float> &concrete_values,
     const TaskProxy &task_proxy) const {
+
+    IncludeInLowerKey cache_key{
+        prop_var_id,
+        split_var_id,
+        split_value,
+        compute_dependency_state_signature(prop_var_id, split_var_id, concrete_values)
+    };
+    auto cache_it = include_in_lower_cache.find(cache_key);
+    if (cache_it != include_in_lower_cache.end()) {
+        return cache_it->second;
+    }
     
     // Get the set of regular variables this comparison depends on
     auto deps_it = comparison_axiom_dependencies.find(prop_var_id);
@@ -2431,32 +2944,39 @@ bool CEGAR::determine_include_in_lower(
     if (eval_lower == 1 && eval_upper != 1) {
         // Only include_in_lower=true gives FALSE
         logger->log(Verbosity::VERBOSE, "  -> Choosing include_in_lower=true (gives FALSE)");
+        include_in_lower_cache.emplace(cache_key, true);
         return true;
     } else if (eval_upper == 1 && eval_lower != 1) {
         // Only include_in_lower=false gives FALSE
         logger->log(Verbosity::VERBOSE, "  -> Choosing include_in_lower=false (gives FALSE)");
+        include_in_lower_cache.emplace(cache_key, false);
         return false;
     } else if (eval_lower == 1 && eval_upper == 1) {
         // Both give FALSE - either works, default to false
         logger->log(Verbosity::INFO, "WARNING: determine_include_in_lower: both branches evaluate to FALSE; defaulting to include_in_lower=false");
+        include_in_lower_cache.emplace(cache_key, false);
         return false;
     } else if (eval_lower == 2 && eval_upper == 2) {
         // Both give UNKNOWN - this shouldn't happen in theory, but default to false
         logger->log(Verbosity::INFO, "WARNING: determine_include_in_lower: both branches evaluate to UNKNOWN; defaulting to include_in_lower=false");
+        include_in_lower_cache.emplace(cache_key, false);
         return false;
     } else if (eval_lower == 2) {
         // Only lower gives UNKNOWN (upper gives TRUE) - prefer UNKNOWN over TRUE
         logger->log(Verbosity::VERBOSE, "  -> Choosing include_in_lower=true (gives UNKNOWN over TRUE)");
         //utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        include_in_lower_cache.emplace(cache_key, true);
         return true;
     } else if (eval_upper == 2) {
         // Only upper gives UNKNOWN (lower gives TRUE) - prefer UNKNOWN over TRUE
         logger->log(Verbosity::VERBOSE, "  -> Choosing include_in_lower=false (gives UNKNOWN over TRUE)");
         //utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        include_in_lower_cache.emplace(cache_key, false);
         return false;
     } else {
         // Both give TRUE - doesn't matter, default to false
         logger->log(Verbosity::VERBOSE, "  -> Both give TRUE, defaulting to include_in_lower=false");
+        include_in_lower_cache.emplace(cache_key, false);
         return false;
     }
 }
@@ -2470,6 +2990,9 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         InitSplitMethod init_split_method,
         NumericSplitStrategy numeric_split_strategy,
         ExecEntirePlanMode exec_entire_plan,
+    bool use_threshold_aware_numeric_splits,
+    bool use_progress_weighted_flaw_selection,
+    int refinement_batch_size,
         const shared_ptr<utils::RandomNumberGenerator> &rng,
         const TaskProxy &task_proxy,
         unordered_set<int> &&init_split_var_ids,
@@ -2484,6 +3007,9 @@ DomainAbstraction generate_domain_abstraction_with_cegar(
         flaw_treatment,
         init_split_method,
         numeric_split_strategy,
+        use_threshold_aware_numeric_splits,
+        use_progress_weighted_flaw_selection,
+        refinement_batch_size,
         rng,
         task_proxy,
         move(init_split_var_ids),
@@ -2614,6 +3140,29 @@ void add_domain_abstraction_cegar_options_to_parser(
         "Choose whether to execute the entire abstract plan for each iteration. "
         "Options: stop_at_first_flaw (default), execute_entire_plan, randomize.",
         "stop_at_first_flaw");
+
+    parser.add_option<bool>(
+        "use_threshold_aware_numeric_splits",
+        "If true, try additional threshold/step-based split candidates around each numeric flaw value.",
+        "false");
+    parser.add_option<bool>(
+        "use_interval_numeric_splits",
+        "If true, use interval-aware numeric split candidates (threshold boundaries and interval centers). "
+        "Alias of/useful replacement for use_threshold_aware_numeric_splits.",
+        "false");
+    parser.add_option<bool>(
+        "use_progress_weighted_flaw_selection",
+        "If true, prioritize flaws with a simple goal/progress-aware scoring before refinement.",
+        "false");
+    parser.add_option<bool>(
+        "use_residual_distance_flaw_selection",
+        "If true, prioritize flaws by residual distance to meaningful numeric thresholds. "
+        "Alias of/useful replacement for use_progress_weighted_flaw_selection.",
+        "false");
+    parser.add_option<int>(
+        "refinement_batch_size",
+        "Number of flaw refinements attempted per CEGAR iteration (>=1). Values >1 enable top-k batch refinement.",
+        "1");
 }
 }
 

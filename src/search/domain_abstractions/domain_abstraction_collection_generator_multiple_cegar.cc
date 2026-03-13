@@ -18,7 +18,14 @@ DomainAbstractionCollectionGeneratorMultipleCegar::DomainAbstractionCollectionGe
       flaw_treatment(FlawTreatment(opts.get_enum("flaw_treatment"))),
       init_split_method(InitSplitMethod(opts.get_enum("init_split_method"))),
     numeric_split_strategy(NumericSplitStrategy(opts.get_enum("numeric_split_strategy"))),
-    exec_entire_plan(ExecEntirePlanMode(opts.get_enum("exec_entire_plan"))) {
+        exec_entire_plan(ExecEntirePlanMode(opts.get_enum("exec_entire_plan"))),
+        use_threshold_aware_numeric_splits(
+            opts.get<bool>("use_threshold_aware_numeric_splits") ||
+            opts.get<bool>("use_interval_numeric_splits")),
+        use_progress_weighted_flaw_selection(
+            opts.get<bool>("use_progress_weighted_flaw_selection") ||
+            opts.get<bool>("use_residual_distance_flaw_selection")),
+        refinement_batch_size(opts.get<int>("refinement_batch_size")) {
     if (init_split_method == InitSplitMethod::GOAL_VALUE
         && init_split_variables != VariableSubset::GOALS) {
         cerr << "CEGAR domain abstraction generator was called with "
@@ -66,6 +73,9 @@ DomainAbstraction DomainAbstractionCollectionGeneratorMultipleCegar::compute_abs
         init_split_method,
         numeric_split_strategy,
         this->exec_entire_plan,
+        use_threshold_aware_numeric_splits,
+        use_progress_weighted_flaw_selection,
+        refinement_batch_size,
         rng,
         task_proxy,
         move(init_split_var_ids),

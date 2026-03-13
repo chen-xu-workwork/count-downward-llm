@@ -76,7 +76,7 @@ int StandardSplitMapping::split_at(ap_float n, bool include_in_lower) {
                       NumericRange(n, old_range.upper, false,
                                    old_range.upper_inclusive, new_partition));
 
-        split_points.emplace_back(n, include_in_lower);
+        split_point_keys.insert(make_split_key(n, include_in_lower));
         invalidate_partition_lookup();
         return get_num_partitions();
     }
@@ -91,7 +91,7 @@ int StandardSplitMapping::split_at(ap_float n, bool include_in_lower) {
         ranges.insert(ranges.begin() + range_index + 1,
                       NumericRange(n, n, true, true, new_partition));
 
-        split_points.emplace_back(n, include_in_lower);
+        split_point_keys.insert(make_split_key(n, include_in_lower));
         invalidate_partition_lookup();
         return get_num_partitions();
     }
@@ -120,7 +120,7 @@ int StandardSplitMapping::split_at(ap_float n, bool include_in_lower) {
                   NumericRange(n, old_upper, upper_part_lower_inclusive, 
                                old_upper_inclusive, new_partition));
 
-    split_points.emplace_back(n, include_in_lower);
+    split_point_keys.insert(make_split_key(n, include_in_lower));
     
     // Invalidate the partition lookup cache
     invalidate_partition_lookup();

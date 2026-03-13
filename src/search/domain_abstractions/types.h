@@ -9,6 +9,7 @@
 #include <string>
 #include <iostream>
 #include <algorithm>
+#include <unordered_set>
 
 namespace domain_abstractions {
 class DomainAbstraction;
@@ -466,7 +467,11 @@ public:
 // Standard splitting strategy: splits (-inf, inf) into [(-inf, x), [x, inf)]
 // Creates 2 partitions with 2 ranges
 class StandardSplitMapping : public NumericDomainMapping {
-    std::vector<std::pair<ap_float, bool>> split_points;  // pair<split_value, include_in_lower>
+    std::unordered_set<std::size_t> split_point_keys;
+    static std::size_t make_split_key(ap_float value, bool include_in_lower) {
+        std::size_t h = std::hash<ap_float>{}(value);
+        return h ^ (include_in_lower ? 0x9e3779b97f4a7c15ULL : 0ULL);
+    }
 public:
     // Split at point x: creates [lower, x) and [x, upper) with different partitions
     // If include_in_lower=true: creates [lower, x] and (x, upper) instead
@@ -477,8 +482,7 @@ public:
     }
 
     bool can_split(ap_float value, bool include_in_lower) const override {
-        std::pair<ap_float, bool> split_point = {value, include_in_lower};
-        if (std::find(split_points.begin(), split_points.end(), split_point) != split_points.end()) {
+        if (split_point_keys.count(make_split_key(value, include_in_lower))) {
             return false;
         }
 
@@ -538,7 +542,6 @@ public:
                 return false;  // Already a split point
             }
         }
-        std::cout << "BRUH" << std::endl;
         return true;
     }
     

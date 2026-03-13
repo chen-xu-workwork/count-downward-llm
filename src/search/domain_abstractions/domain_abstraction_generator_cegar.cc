@@ -25,6 +25,13 @@ DomainAbstractionGeneratorCEGAR::DomainAbstractionGeneratorCEGAR(
       init_split_method(InitSplitMethod(opts.get_enum("init_split_method"))),
     numeric_split_strategy(NumericSplitStrategy(opts.get_enum("numeric_split_strategy"))),
     exec_entire_plan(ExecEntirePlanMode(opts.get_enum("exec_entire_plan"))),
+        use_threshold_aware_numeric_splits(
+            opts.get<bool>("use_threshold_aware_numeric_splits") ||
+            opts.get<bool>("use_interval_numeric_splits")),
+        use_progress_weighted_flaw_selection(
+            opts.get<bool>("use_progress_weighted_flaw_selection") ||
+            opts.get<bool>("use_residual_distance_flaw_selection")),
+        refinement_batch_size(opts.get<int>("refinement_batch_size")),
       init_split_option(InitSplitOptions(opts.get_enum("init_split_option"))) {
     if (init_split_method == InitSplitMethod::GOAL_VALUE
         && !(init_split_option == InitSplitOptions::RANDOM_GOAL
@@ -46,7 +53,11 @@ DomainAbstraction DomainAbstractionGeneratorCEGAR::build_abstraction(
         max_abstraction_size, max_time, use_wildcard_plans,
         deviation_flaws,
         flaw_treatment, init_split_method, numeric_split_strategy,
-        this->exec_entire_plan, rng, task_proxy, move(init_split_var_ids));
+        this->exec_entire_plan,
+        use_threshold_aware_numeric_splits,
+        use_progress_weighted_flaw_selection,
+        refinement_batch_size,
+        rng, task_proxy, move(init_split_var_ids));
 }
 
 unordered_set<int> DomainAbstractionGeneratorCEGAR::get_init_split_var_ids(

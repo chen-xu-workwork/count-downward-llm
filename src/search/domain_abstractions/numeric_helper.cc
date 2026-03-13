@@ -221,46 +221,56 @@ void DomainAbstractionNumericHelper::build_axiom_dependencies() {
         assert(derived_id >= 0 && derived_id < static_cast<int>(axiom_dependencies.size()));
         if (derived_id >= 0 && derived_id < static_cast<int>(axiom_dependencies.size())) {
             if (left_id >= 0) {
-                // Check if not already in dependencies
-                if (std::find(axiom_dependencies[derived_id].begin(),
-                             axiom_dependencies[derived_id].end(),
-                             left_id) == axiom_dependencies[derived_id].end()) {
-                    axiom_dependencies[derived_id].push_back(left_id);
-                }
+                axiom_dependencies[derived_id].push_back(left_id);
             }
             if (right_id >= 0 && right_id != left_id) {
-                if (std::find(axiom_dependencies[derived_id].begin(),
-                             axiom_dependencies[derived_id].end(),
-                             right_id) == axiom_dependencies[derived_id].end()) {
-                    axiom_dependencies[derived_id].push_back(right_id);
-                }
+                axiom_dependencies[derived_id].push_back(right_id);
             }
         }
         
         // Reverse dependencies: left and right variables affect derived variable
         assert(derived_id >= 0 && derived_id < static_cast<int>(reverse_axiom_dependencies.size()));
         if (left_id >= 0 && left_id < static_cast<int>(reverse_axiom_dependencies.size())) {
-            if (std::find(reverse_axiom_dependencies[left_id].begin(),
-                         reverse_axiom_dependencies[left_id].end(),
-                         derived_id) == reverse_axiom_dependencies[left_id].end()) {
-                reverse_axiom_dependencies[left_id].push_back(derived_id);
-            }
+            reverse_axiom_dependencies[left_id].push_back(derived_id);
         }
         assert(derived_id >= 0 && derived_id < static_cast<int>(reverse_axiom_dependencies.size()));
         if (right_id >= 0 && right_id < static_cast<int>(reverse_axiom_dependencies.size()) 
             && right_id != left_id) {
-            if (std::find(reverse_axiom_dependencies[right_id].begin(),
-                         reverse_axiom_dependencies[right_id].end(),
-                         derived_id) == reverse_axiom_dependencies[right_id].end()) {
-                reverse_axiom_dependencies[right_id].push_back(derived_id);
+            reverse_axiom_dependencies[right_id].push_back(derived_id);
+        }
+    }
+
+    for (auto &deps : axiom_dependencies) {
+        std::sort(deps.begin(), deps.end());
+        deps.erase(std::unique(deps.begin(), deps.end()), deps.end());
+    }
+    for (auto &deps : reverse_axiom_dependencies) {
+        std::sort(deps.begin(), deps.end());
+        deps.erase(std::unique(deps.begin(), deps.end()), deps.end());
+    }
+    
+    numeric_var_can_affect_comparison.assign(n_numeric_variables, false);
+    std::vector<int> queue;
+    queue.reserve(n_numeric_variables);
+    for (const CachedComparisonAxiom &ax : cached_comparison_axioms) {
+        if (ax.left_type != numType::constant && ax.left_id >= 0 && ax.left_id < n_numeric_variables && !numeric_var_can_affect_comparison[ax.left_id]) {
+            numeric_var_can_affect_comparison[ax.left_id] = true;
+            queue.push_back(ax.left_id);
+        }
+        if (ax.right_type != numType::constant && ax.right_id >= 0 && ax.right_id < n_numeric_variables && !numeric_var_can_affect_comparison[ax.right_id]) {
+            numeric_var_can_affect_comparison[ax.right_id] = true;
+            queue.push_back(ax.right_id);
+        }
+    }
+    for (size_t i = 0; i < queue.size(); ++i) {
+        int v = queue[i];
+        for (int dep : axiom_dependencies[v]) {
+            if (dep >= 0 && dep < n_numeric_variables && !numeric_var_can_affect_comparison[dep]) {
+                numeric_var_can_affect_comparison[dep] = true;
+                queue.push_back(dep);
             }
         }
     }
-    
-    // For comparison axioms, we don't add to numeric dependencies
-    // because they produce propositional variables, not numeric ones.
-    // However, we'll need to track them for cascade computation.
-    // This is handled in compute_affected_comparison_axioms().
 }
 
 vector<AbstractOperator> DomainAbstractionNumericHelper::build_abstract_operators(const TaskProxy &task_proxy) {
@@ -594,6 +604,14 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
     const OperatorProxy &op) {
     
     vector<TransitionInfo> transitions;
+
+    bool op_has_comparison_preconditions = false;
+    for (FactProxy concrete_pre : op.get_preconditions()) {
+        if (comparison_axiom_by_var_id.find(concrete_pre.get_variable().get_id()) != comparison_axiom_by_var_id.end()) {
+            op_has_comparison_preconditions = true;
+            break;
+        }
+    }
     
     assert(pre_pairs.size() == eff_pairs.size());
     
@@ -639,6 +657,54 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                 // fact.var is abstract var ID, convert to numeric var ID
                 int num_var_id = fact.var - domain_sizes.size();
                 partition_assignment[num_var_id] = fact.value;
+            }
+
+            bool changed_can_affect_comparison = false;
+            for (int changed_id : changed_vars) {
+                if (changed_id >= 0 && changed_id < static_cast<int>(numeric_var_can_affect_comparison.size()) &&
+                    numeric_var_can_affect_comparison[changed_id]) {
+                    changed_can_affect_comparison = true;
+                    break;
+                }
+            }
+
+            if (op_has_comparison_preconditions && changed_can_affect_comparison) {
+                for (FactProxy concrete_pre : op.get_preconditions()) {
+                    int var_id = concrete_pre.get_variable().get_id();
+                    auto axiom_it = comparison_axiom_by_var_id.find(var_id);
+                    if (axiom_it == comparison_axiom_by_var_id.end()) {
+                        continue;
+                    }
+
+                    const CachedComparisonAxiom &ax = cached_comparison_axioms[axiom_it->second];
+                    if (ax.left_type == numType::constant || ax.right_type == numType::constant) {
+                        continue;
+                    }
+
+                    auto left_part_it = partition_assignment.find(ax.left_id);
+                    auto right_part_it = partition_assignment.find(ax.right_id);
+                    if (left_part_it == partition_assignment.end() || right_part_it == partition_assignment.end()) {
+                        continue;
+                    }
+
+                    int eval = numeric_domain_mapping[ax.left_id]->evaluate_comparison_with(
+                        *numeric_domain_mapping[ax.right_id],
+                        left_part_it->second,
+                        right_part_it->second,
+                        ax.op_type);
+                    int required_eval = (concrete_pre.get_value() == ax.true_val) ? 0 : 1;
+                    if (eval != 2 && eval != required_eval) {
+                        return;
+                    }
+                }
+            }
+
+            if (!op_has_comparison_preconditions && !changed_can_affect_comparison) {
+                TransitionInfo trans;
+                trans.source_partition_facts = source_facts;
+                trans.target_partition_facts = target_facts;
+                transitions.push_back(std::move(trans));
+                return;
             }
             
             unordered_map<int, NumericRange> ranges;

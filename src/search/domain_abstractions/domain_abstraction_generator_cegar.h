@@ -35,6 +35,9 @@ private:
     const InitSplitMethod init_split_method;
     const NumericSplitStrategy numeric_split_strategy;
     const ExecEntirePlanMode exec_entire_plan;
+    const bool use_threshold_aware_numeric_splits;
+    const bool use_progress_weighted_flaw_selection;
+    const int refinement_batch_size;
     const InitSplitOptions init_split_option;
 
     std::unordered_set<int> get_init_split_var_ids(const TaskProxy &task_proxy);
