@@ -32,16 +32,17 @@ vector<Fact> get_goals_in_random_order(
     AxiomsProxy axioms = task_proxy.get_axioms();
     for (size_t i = 0; i < axioms.size(); ++i) {
         OperatorProxy axiom = axioms[i];
-        assert(axiom.get_effects().size() == 1);    
-        int effect_id = axiom.get_effects()[0].get_fact().get_variable().get_id();
-        goal_id = effect_id;
-        PreconditionsProxy conditions = axiom.get_preconditions();
-        if (conditions.size() > 0) {
-            for (const FactProxy &condition : conditions) {
-                goals.push_back(Fact(condition.get_variable().get_id(), condition.get_value()));
+        if (!axiom.get_preconditions().empty() && axiom.get_effects().size() == 1) {
+            assert(axiom.get_effects().size() == 1);    
+            int effect_id = axiom.get_effects()[0].get_fact().get_variable().get_id();
+            goal_id = effect_id;
+            PreconditionsProxy conditions = axiom.get_preconditions();
+            if (conditions.size() > 0) {
+                for (const FactProxy &condition : conditions) {
+                    goals.push_back(Fact(condition.get_variable().get_id(), condition.get_value()));
+                }
             }
-            cout << endl;
-        }
+        }  
     }
     GoalsProxy goals_proxy = task_proxy.get_goals();
     goals.reserve(goals_proxy.size());

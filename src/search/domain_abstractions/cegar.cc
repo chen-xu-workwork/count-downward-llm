@@ -2481,7 +2481,7 @@ DomainAbstraction CEGAR::build_abstraction(
                 get_flaws(task_proxy, concrete_init, abstraction, exec_entire_for_this_iteration);
 
         if (flaws.empty()) {
-            logger->log(Verbosity::NONE, "CEGAR stopping: no more flaws found.");
+            logger->log(Verbosity::INFO, "CEGAR stopping: no more flaws found.");
             break;
         }
 
