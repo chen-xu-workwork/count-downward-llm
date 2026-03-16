@@ -1003,7 +1003,7 @@ vector<ap_float> DomainAbstraction::compute_goal_distances(const vector<ap_float
                 if (alternative_cost < distances[predecessor]) {
                     distances[predecessor] = alternative_cost;
                     // Optimization: Only insert into pq if this is the canonical
-                    // (smallest index) representative among all alternatives,
+                    // (largest index) representative among all alternatives,
                     // OR if it equals the initial state (always insert initial).
                     bool insert_into_pq = true;
                     if (init_hash != predecessor) {

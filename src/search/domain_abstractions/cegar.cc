@@ -2201,13 +2201,11 @@ NumericDomainMappings CEGAR::compute_initial_numeric_domain_mapping(
     
     for (int encoded_var_id : init_split_var_ids) {
         if (encoded_var_id < num_prop_vars) {
-            continue;
+            continue; // prop vars
         }
         
         int numeric_var_id = encoded_var_id - num_prop_vars;
-        if (numeric_var_id < 0 || numeric_var_id >= num_numeric_variables) {
-            continue;
-        }
+        assert(numeric_var_id >= 0 && numeric_var_id < num_numeric_variables);
         
         if (blacklisted_numeric_variables.count(numeric_var_id) > 0) {
             continue;
@@ -2216,7 +2214,7 @@ NumericDomainMappings CEGAR::compute_initial_numeric_domain_mapping(
         NumericVariableProxy num_var = num_vars[numeric_var_id];
         numType var_type = num_var.get_var_type();
         
-        if (var_type != numType::regular) {
+        if (var_type != numType::regular) { //TODO: Should be assertion?
             continue;
         }
         
