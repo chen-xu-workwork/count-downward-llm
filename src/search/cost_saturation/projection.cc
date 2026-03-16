@@ -286,12 +286,19 @@ bool TaskInfo::operator_induces_self_loop(const pdbs::Pattern &pattern, int op_i
 
 bool TaskInfo::operator_is_active(const pdbs::Pattern &pattern, int op_id) const {
     for (int var : pattern) {
-        // Skip numeric variables (indices >= num_variables) as effect_variables is propositional-only
-        if (var >= num_variables) {
-            continue;
-        }
-        if (effect_variables[op_id * num_variables + var]) {
-            return true;
+        if (var < num_variables) {
+            // Propositional variable.
+            if (effect_variables[op_id * num_variables + var]) {
+                return true;
+            }
+        } else {
+            // Numeric variable (stored with offset +num_variables in patterns).
+            int num_var = var - num_variables;
+            if (num_var >= 0 && num_var < num_numeric_variables) {
+                if (numeric_effect_variables[op_id * num_numeric_variables + num_var]) {
+                    return true;
+                }
+            }
         }
     }
     return false;
