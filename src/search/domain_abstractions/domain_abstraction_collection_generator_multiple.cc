@@ -242,7 +242,7 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
 
     vector<Fact> goals = get_goals_in_random_order(task_proxy, *rng);
     for (const Fact &goal : goals) {
-        cout << task_proxy.get_variables()[goal.var].get_name() << "=" << goal.value << " ";
+        cout << "[Collection: Goal var] " << task_proxy.get_variables()[goal.var].get_name() << "=" << goal.value << " ";
     }
     cout << endl;
 
@@ -283,11 +283,20 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
             goals[goal_index],
             move(init_split_var_ids),
             move(blacklisted_variables));
+
+        size_t abstraction_size = abstraction.size();
+
         handle_generated_abstraction(
             move(abstraction),
             generated_keys,
             generated_abstractions,
             timer);
+
+        cout << "[SCP Debug] Abstraction size: " << abstraction_size 
+             << ", remaining collection size: " << remaining_collection_size
+             << ", time elapsed: " << timer.get_elapsed_time() << "s"
+             << ", time remaining: " << timer.get_remaining_time() << "s"
+             << endl;
 
         if (collection_size_limit_reached() ||
             time_limit_reached(timer) ||
@@ -322,6 +331,7 @@ vector<int> DomainAbstractionCollectionGeneratorMultiple::get_candidates(
     
     unordered_set<int> comparison_axiom_vars;
     for (ComparisonAxiomProxy axiom : task_proxy.get_comparison_axioms()) {
+        assert(axiom.get_true_fact().get_variable().get_id() == axiom.get_false_fact().get_variable().get_id());
         comparison_axiom_vars.insert(axiom.get_true_fact().get_variable().get_id());
     }
     

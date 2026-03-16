@@ -889,7 +889,7 @@ vector<ap_float> DomainAbstraction::compute_saturated_costs(
     /* To prevent negative cost cycles, we ensure that all operators inducing
        self-loops (among possibly other transitions) have non-negative costs. */
     for (int op_id = 0; op_id < num_operators; ++op_id) {
-        if (operator_induces_self_loop(op_id) || false) { //TODO: Change back
+        if (operator_induces_self_loop(op_id) || true) { //TODO: Change back
             saturated_costs[op_id] = 0;
         }
     }

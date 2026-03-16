@@ -660,6 +660,7 @@ fast_downward_plugin(
     SOURCES
         cost_saturation/abstraction.cc
         cost_saturation/abstraction_generator.cc
+        cost_saturation/canonical_heuristic.cc
         cost_saturation/cost_partitioning_heuristic.cc
         cost_saturation/cost_partitioning_heuristic_collection_generator.cc
         cost_saturation/diversifier.cc
@@ -675,6 +676,7 @@ fast_downward_plugin(
         cost_saturation/saturated_cost_partitioning_heuristic.cc
         cost_saturation/unsolvability_heuristic.cc
         cost_saturation/utils.cc
+        algorithms/max_cliques.cc
         algorithms/partial_state_tree.cc
     DEPENDS DOMAIN_ABSTRACTIONS
 )

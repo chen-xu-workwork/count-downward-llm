@@ -9,7 +9,6 @@
 
 #include "../algorithms/max_cliques.h"
 #include "../algorithms/dynamic_bitset.h"
-#include "../task_utils/task_properties.h"
 #include "../utils/logging.h"
 
 using namespace std;
@@ -56,18 +55,16 @@ static MaxAdditiveSubsets compute_max_additive_subsets(
 
 CanonicalHeuristic::CanonicalHeuristic(const Options &opts)
     : Heuristic(opts) {
-    vector<ap_float> costs = task_properties::get_operator_costs(task_proxy);
+    vector<ap_float> costs = get_operator_costs(task_proxy);
 
     Abstractions abstractions = generate_abstractions(
         task, opts.get_list<shared_ptr<AbstractionGenerator>>("abstractions"));
 
-    utils::g_log << "Compute abstract goal distances" << endl;
     for (const auto &abstraction : abstractions) {
         h_values_by_abstraction.push_back(
             abstraction->compute_goal_distances(costs));
     }
 
-    utils::g_log << "Compute max additive subsets" << endl;
     max_additive_subsets = compute_max_additive_subsets(abstractions);
 
     for (const auto &abstraction : abstractions) {
@@ -75,8 +72,8 @@ CanonicalHeuristic::CanonicalHeuristic(const Options &opts)
     }
 }
 
-int CanonicalHeuristic::compute_heuristic(const State &ancestor_state) {
-    State state = convert_ancestor_state(ancestor_state);
+ap_float CanonicalHeuristic::compute_heuristic(const GlobalState &global_state) {
+    State state = convert_global_state(global_state);
     vector<ap_float> h_values_for_state;
     h_values_for_state.reserve(abstraction_functions.size());
     for (size_t i = 0; i < abstraction_functions.size(); ++i) {
@@ -106,8 +103,7 @@ ap_float CanonicalHeuristic::compute_max_over_sums(
     return max_h;
 }
 
-
-static shared_ptr<Heuristic> _parse(OptionParser &parser) {
+static Heuristic *_parse(OptionParser &parser) {
     parser.document_synopsis(
         "Canonical heuristic over abstractions",
         "");
@@ -121,9 +117,8 @@ static shared_ptr<Heuristic> _parse(OptionParser &parser) {
     if (parser.dry_run())
         return nullptr;
 
-    return make_shared<CanonicalHeuristic>(opts);
+    return new CanonicalHeuristic(opts);
 }
 
-static Plugin<Evaluator> _plugin(
-    "canonical_heuristic", _parse, "heuristics_cost_partitioning");
+static Plugin<Heuristic> _plugin("canonical_heuristic", _parse);
 }

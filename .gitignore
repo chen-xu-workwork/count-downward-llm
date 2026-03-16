@@ -10,3 +10,10 @@ output
 output.sas
 sas_plan
 .idea/
+build/
+builds/
+__pycache__/
+*copy.cc
+*old.cc
+*old.h
+*.sas
