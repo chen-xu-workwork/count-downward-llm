@@ -1,6 +1,7 @@
 #ifndef ALGORITHMS_DYNAMIC_BITSET_H
 #define ALGORITHMS_DYNAMIC_BITSET_H
 
+#include <algorithm>
 #include <cassert>
 #include <limits>
 #include <vector>
@@ -60,6 +61,21 @@ public:
           num_bits(num_bits) {
     }
 
+    DynamicBitset(const DynamicBitset &) = default;
+    DynamicBitset(DynamicBitset &&) noexcept = default;
+
+    DynamicBitset &operator=(const DynamicBitset &other) {
+        assert(num_bits == other.num_bits);
+        blocks = other.blocks;
+        return *this;
+    }
+
+    DynamicBitset &operator=(DynamicBitset &&other) noexcept {
+        assert(num_bits == other.num_bits);
+        blocks = std::move(other.blocks);
+        return *this;
+    }
+
     std::size_t size() const {
         return num_bits;
     }
@@ -113,6 +129,14 @@ public:
                 return true;
         }
         return false;
+    }
+
+    DynamicBitset &operator|=(const DynamicBitset &other) {
+        assert(size() == other.size());
+        for (std::size_t i = 0; i < blocks.size(); ++i) {
+            blocks[i] |= other.blocks[i];
+        }
+        return *this;
     }
 
     bool is_subset_of(const DynamicBitset &other) const {

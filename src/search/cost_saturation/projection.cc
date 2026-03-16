@@ -233,6 +233,103 @@ TaskInfo::TaskInfo(const TaskProxy &task_proxy) {
     pre_eff_variables.resize(num_operators * (num_variables), false);
     effect_variables.resize(num_operators * (num_variables), false);
     numeric_effect_variables.resize(num_operators * (num_numeric_variables), false);
+
+    // Build assignment-axiom dependency graph for numeric variables.
+    assignment_left_operand.assign(num_numeric_variables, -1);
+    assignment_right_operand.assign(num_numeric_variables, -1);
+    for (AssignmentAxiomProxy ax : task_proxy.get_assignment_axioms()) {
+        int derived = ax.get_assignment_variable().get_id();
+        if (derived < 0 || derived >= num_numeric_variables) {
+            continue;
+        }
+
+        int left = -1;
+        if (ax.get_left_variable().get_var_type() != numType::constant) {
+            left = ax.get_left_variable().get_id();
+        }
+        int right = -1;
+        if (ax.get_right_variable().get_var_type() != numType::constant) {
+            right = ax.get_right_variable().get_id();
+        }
+
+        assignment_left_operand[derived] = left;
+        assignment_right_operand[derived] = right;
+    }
+
+    numeric_dependency_closure.assign(
+        num_numeric_variables,
+        dynamic_bitset::DynamicBitset<>(num_numeric_variables));
+
+    // Memoized DFS to compute transitive closure: operands -> derived.
+    vector<unsigned char> computed(num_numeric_variables, 0);
+    vector<unsigned char> in_stack(num_numeric_variables, 0);
+    auto compute_numeric_closure = [&](auto &self, int var) -> void {
+        if (var < 0 || var >= num_numeric_variables) {
+            return;
+        }
+        if (computed[var]) {
+            return;
+        }
+        if (in_stack[var]) {
+            // Defensive: assignment axioms should be acyclic.
+            return;
+        }
+        in_stack[var] = 1;
+
+        dynamic_bitset::DynamicBitset<> deps(num_numeric_variables);
+        deps.set(var);
+
+        int left = assignment_left_operand[var];
+        if (left >= 0) {
+            self(self, left);
+            deps |= numeric_dependency_closure[left];
+        }
+        int right = assignment_right_operand[var];
+        if (right >= 0) {
+            self(self, right);
+            deps |= numeric_dependency_closure[right];
+        }
+
+        numeric_dependency_closure[var] = std::move(deps);
+        computed[var] = 1;
+        in_stack[var] = 0;
+    };
+    for (int var = 0; var < num_numeric_variables; ++var) {
+        compute_numeric_closure(compute_numeric_closure, var);
+    }
+
+    // Build dependency sets for comparison-axiom variables.
+    is_comparison_axiom_variable.assign(num_variables, false);
+    comparison_numeric_dependencies.assign(
+        num_variables,
+        dynamic_bitset::DynamicBitset<>(num_numeric_variables));
+    for (ComparisonAxiomProxy ax : task_proxy.get_comparison_axioms()) {
+        int prop_var = ax.get_true_fact().get_variable().get_id();
+        if (prop_var < 0 || prop_var >= num_variables) {
+            continue;
+        }
+        is_comparison_axiom_variable[prop_var] = true;
+
+        dynamic_bitset::DynamicBitset<> deps(num_numeric_variables);
+        if (ax.get_left_variable().get_var_type() != numType::constant) {
+            int left = ax.get_left_variable().get_id();
+            if (left >= 0 && left < num_numeric_variables) {
+                deps |= numeric_dependency_closure[left];
+            }
+        }
+        if (ax.get_right_variable().get_var_type() != numType::constant) {
+            int right = ax.get_right_variable().get_id();
+            if (right >= 0 && right < num_numeric_variables) {
+                deps |= numeric_dependency_closure[right];
+            }
+        }
+        comparison_numeric_dependencies[prop_var] = std::move(deps);
+    }
+
+    operator_numeric_effects.assign(
+        num_operators,
+        dynamic_bitset::DynamicBitset<>(num_numeric_variables));
+
     for (OperatorProxy op : task_proxy.get_operators()) {
         for (int var : get_variables(op)) {
             mentioned_variables[get_index(op.get_id(), var)] = true;
@@ -253,6 +350,9 @@ TaskInfo::TaskInfo(const TaskProxy &task_proxy) {
             int var = ass_effect.get_assignment().get_affected_variable().get_id();
             // Use numeric_effect_variables for numeric variable effects, not effect_variables
             numeric_effect_variables[op.get_id() * num_numeric_variables + var] = true;
+            if (var >= 0 && var < num_numeric_variables) {
+                operator_numeric_effects[op.get_id()].set(var);
+            }
         }
     }
 }
@@ -285,17 +385,28 @@ bool TaskInfo::operator_induces_self_loop(const pdbs::Pattern &pattern, int op_i
 }
 
 bool TaskInfo::operator_is_active(const pdbs::Pattern &pattern, int op_id) const {
+    const dynamic_bitset::DynamicBitset<> &num_eff = operator_numeric_effects[op_id];
     for (int var : pattern) {
         if (var < num_variables) {
             // Propositional variable.
             if (effect_variables[op_id * num_variables + var]) {
                 return true;
             }
+
+            // Comparison-axiom variables can change indirectly due to numeric effects.
+            // Mark as active iff the operator affects any numeric variable the comparison depends on.
+            if (is_comparison_axiom_variable[var]) {
+                if (num_eff.intersects(comparison_numeric_dependencies[var])) {
+                    return true;
+                }
+            }
         } else {
             // Numeric variable (stored with offset +num_variables in patterns).
             int num_var = var - num_variables;
             if (num_var >= 0 && num_var < num_numeric_variables) {
-                if (numeric_effect_variables[op_id * num_numeric_variables + num_var]) {
+                // Numeric vars can change either directly (assignment effect) or indirectly
+                // via assignment-axiom dependency chains.
+                if (num_eff.intersects(numeric_dependency_closure[num_var])) {
                     return true;
                 }
             }

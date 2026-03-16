@@ -6,6 +6,7 @@
 #include "../abstract_task.h"
 
 #include "../algorithms/array_pool.h"
+#include "../algorithms/dynamic_bitset.h"
 #include "../pdbs/types.h"
 
 #include <functional>
@@ -38,6 +39,24 @@ class TaskInfo {
     std::vector<bool> effect_variables;
 
     std::vector<bool> numeric_effect_variables;
+
+    // True for propositional variables that are defined by comparison axioms.
+    std::vector<bool> is_comparison_axiom_variable;
+
+    // For each numeric variable v, a bitset of numeric variables that can influence v
+    // via chains of assignment axioms (including v itself).
+    std::vector<dynamic_bitset::DynamicBitset<>> numeric_dependency_closure;
+
+    // For each propositional variable (only meaningful for comparison-axiom vars),
+    // the set of numeric variables that can influence it.
+    std::vector<dynamic_bitset::DynamicBitset<>> comparison_numeric_dependencies;
+
+    // For each operator, the set of numeric variables it can directly assign.
+    std::vector<dynamic_bitset::DynamicBitset<>> operator_numeric_effects;
+
+    // Assignment-axiom dependency graph: derived numeric var -> operands (or -1 if none/constant).
+    std::vector<int> assignment_left_operand;
+    std::vector<int> assignment_right_operand;
 
     int get_index(int op_id, int var) const {
         return op_id * (num_variables + num_numeric_variables) + var;
