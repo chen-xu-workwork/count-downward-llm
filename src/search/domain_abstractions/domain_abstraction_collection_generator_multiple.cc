@@ -292,11 +292,11 @@ DomainAbstractionCollection DomainAbstractionCollectionGeneratorMultiple::comput
             generated_abstractions,
             timer);
 
-        cout << "[SCP Debug] Abstraction size: " << abstraction_size 
-             << ", remaining collection size: " << remaining_collection_size
-             << ", time elapsed: " << timer.get_elapsed_time() << "s"
-             << ", time remaining: " << timer.get_remaining_time() << "s"
-             << endl;
+        // cout << "[SCP Debug] Abstraction size: " << abstraction_size 
+        //      << ", remaining collection size: " << remaining_collection_size
+        //      << ", time elapsed: " << timer.get_elapsed_time() << "s"
+        //      << ", time remaining: " << timer.get_remaining_time() << "s"
+        //      << endl;
 
         if (collection_size_limit_reached() ||
             time_limit_reached(timer) ||
