@@ -261,8 +261,13 @@ TaskInfo::TaskInfo(const TaskProxy &task_proxy) {
         dynamic_bitset::DynamicBitset<>(num_numeric_variables));
 
     // Memoized DFS to compute transitive closure: operands -> derived.
+    // If assignment axioms contain cycles (unexpected), fall back to a conservative
+    // approximation to avoid under-approximating dependencies.
     vector<unsigned char> computed(num_numeric_variables, 0);
     vector<unsigned char> in_stack(num_numeric_variables, 0);
+    vector<unsigned char> in_cycle(num_numeric_variables, 0);
+    vector<int> stack;
+    stack.reserve(num_numeric_variables);
     auto compute_numeric_closure = [&](auto &self, int var) -> void {
         if (var < 0 || var >= num_numeric_variables) {
             return;
@@ -271,10 +276,21 @@ TaskInfo::TaskInfo(const TaskProxy &task_proxy) {
             return;
         }
         if (in_stack[var]) {
-            // Defensive: assignment axioms should be acyclic.
+            // Defensive: assignment axioms should be acyclic. Mark the cycle and
+            // let the participants depend on all numeric variables.
+            auto it = find(stack.begin(), stack.end(), var);
+            if (it != stack.end()) {
+                for (auto jt = it; jt != stack.end(); ++jt) {
+                    in_cycle[*jt] = 1;
+                }
+            } else {
+                in_cycle[var] = 1;
+            }
             return;
         }
         in_stack[var] = 1;
+
+        stack.push_back(var);
 
         dynamic_bitset::DynamicBitset<> deps(num_numeric_variables);
         deps.set(var);
@@ -290,9 +306,16 @@ TaskInfo::TaskInfo(const TaskProxy &task_proxy) {
             deps |= numeric_dependency_closure[right];
         }
 
-        numeric_dependency_closure[var] = std::move(deps);
+        if (in_cycle[var]) {
+            numeric_dependency_closure[var].set();
+        } else {
+            numeric_dependency_closure[var] = std::move(deps);
+        }
         computed[var] = 1;
         in_stack[var] = 0;
+
+        assert(!stack.empty() && stack.back() == var);
+        stack.pop_back();
     };
     for (int var = 0; var < num_numeric_variables; ++var) {
         compute_numeric_closure(compute_numeric_closure, var);
