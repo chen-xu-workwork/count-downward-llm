@@ -1356,11 +1356,13 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
     const TaskProxy &task_proxy, const State &concrete_init,
     const DomainAbstraction &abstraction, bool execute_entire_plan) const {
 
-    vector<Flaw> flaws; 
+    vector<Flaw> flaws;
+    vector<Flaw> collected_flaws;
 
     // Initialize propositional state
     vector<int> current_prop_state;
     current_prop_state.reserve(concrete_init.size());
+    
     for (int i = 0; i < concrete_init.size(); ++i) {
         current_prop_state.push_back(concrete_init[i].get_value());
     }
@@ -1443,17 +1445,88 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
 
     int step_num = 1;
     for (vector<int> &equivalent_ops : wildcard_plan) {
-        assert(flaws.empty()); 
+        assert(flaws.empty());
+
+        if (!execute_entire_plan) {
+            for (int op_id : equivalent_ops) {
+                // Be defensive: some abstract plans may contain invalid operator IDs
+                // (e.g., -1 as a sentinel). Avoid undefined behavior from indexing
+                // with a negative or out-of-range id.
+                if (op_id < 0 || op_id >= static_cast<int>(task_proxy.get_operators().size())) {
+                    logger->log(Verbosity::NONE,
+                                "CEGAR warning: abstract plan contains invalid operator id ",
+                                op_id, " (num_operators=", task_proxy.get_operators().size(), "). Skipping.");
+                    continue;
+                }
+                OperatorProxy op = task_proxy.get_operators()[op_id];
+                string op_name = op.get_name();
+
+                string decoded_state = decode_abstract_state_compact(current_prop_state, current_numeric_state);
+                logger->log(Verbosity::DEBUG, "[PLAN] ", decoded_state, ", ", op_name);
+
+                vector<Flaw> operator_flaws =
+                    get_precondition_flaws(op, current_prop_state, current_numeric_state, task_proxy);
+                if (operator_flaws.empty()) {
+                    flaws.clear();
+                    vector<ap_float> numeric_state_before_op = current_numeric_state;
+                    apply_op_to_state(current_prop_state, op);
+                    apply_numeric_effects(current_numeric_state, op);
+                    g_axiom_evaluator->evaluate_arithmetic_axioms(current_numeric_state);
+                    g_axiom_evaluator->evaluate(current_prop_state, current_numeric_state);
+
+                    assert(step_num < abstract_prop_states.size());
+                    assert(step_num < abstract_numeric_states.size());
+
+                    const vector<int> &abstract_state = abstract_prop_states[step_num];
+                    const vector<int> &abstract_numeric_state = abstract_numeric_states[step_num];
+                    decoded_state = decode_abstract_state_compact(current_prop_state, current_numeric_state);
+
+                    logger->log(Verbosity::DEBUG, "[SUCC] ", decoded_state);
+
+
+                    if (this->deviation_flaws) {
+                        vector<Flaw> deviation_flaw_list = get_deviation_flaws(
+                            op,
+                            numeric_state_before_op,
+                            current_prop_state, current_numeric_state,
+                            abstract_state, abstract_numeric_state,
+                            domain_mapping, numeric_domain_mapping, task_proxy);
+                        if (deviation_flaw_list.empty()) {
+                            break;
+                        }
+                        logger->log(Verbosity::DEBUG, "Found ", deviation_flaw_list.size(), " deviation flaws after applying operator ", op_name);
+                        flaws.insert(flaws.end(), deviation_flaw_list.begin(), deviation_flaw_list.end());
+                    } else {
+                        break;
+                    }
+                } else {
+                    // We have precondition or deviation flaws
+                    flaws.insert(flaws.end(), operator_flaws.begin(), operator_flaws.end());
+                }
+            }
+
+            if (!flaws.empty()) {
+                return flaws;
+            }
+            step_num++;
+            continue;
+        }
+
+        // execute_entire_plan mode: keep executing even if flaws are found.
+        // Try to find an applicable operator; otherwise, fall back to the first valid one.
+        int chosen_op_id = -1;
+        int fallback_op_id = -1;
         for (int op_id : equivalent_ops) {
-            // Be defensive: some abstract plans may contain invalid operator IDs
-            // (e.g., -1 as a sentinel). Avoid undefined behavior from indexing
-            // with a negative or out-of-range id.
             if (op_id < 0 || op_id >= static_cast<int>(task_proxy.get_operators().size())) {
                 logger->log(Verbosity::NONE,
                             "CEGAR warning: abstract plan contains invalid operator id ",
                             op_id, " (num_operators=", task_proxy.get_operators().size(), "). Skipping.");
                 continue;
             }
+            if (fallback_op_id == -1) {
+                fallback_op_id = op_id;
+            }
+
             OperatorProxy op = task_proxy.get_operators()[op_id];
             string op_name = op.get_name();
 
@@ -1463,47 +1536,53 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
             vector<Flaw> operator_flaws =
                 get_precondition_flaws(op, current_prop_state, current_numeric_state, task_proxy);
             if (operator_flaws.empty()) {
+                chosen_op_id = op_id;
                 flaws.clear();
-                vector<ap_float> numeric_state_before_op = current_numeric_state;
-                apply_op_to_state(current_prop_state, op);
-                apply_numeric_effects(current_numeric_state, op);
-                g_axiom_evaluator->evaluate_arithmetic_axioms(current_numeric_state);
-                g_axiom_evaluator->evaluate(current_prop_state, current_numeric_state);
-
-                assert(step_num < abstract_prop_states.size());
-                assert(step_num < abstract_numeric_states.size());
-
-                const vector<int> &abstract_state = abstract_prop_states[step_num];
-                const vector<int> &abstract_numeric_state = abstract_numeric_states[step_num];
-                decoded_state = decode_abstract_state_compact(current_prop_state, current_numeric_state);
-
-                logger->log(Verbosity::DEBUG, "[SUCC] ", decoded_state);
-
-
-                if (this->deviation_flaws) {
-                    vector<Flaw> deviation_flaw_list = get_deviation_flaws(
-                        op,
-                        numeric_state_before_op,
-                        current_prop_state, current_numeric_state,
-                        abstract_state, abstract_numeric_state,
-                        domain_mapping, numeric_domain_mapping, task_proxy);
-                    if (deviation_flaw_list.empty()) {
-                        break;
-                    }
-                    logger->log(Verbosity::DEBUG, "Found ", deviation_flaw_list.size(), " deviation flaws after applying operator ", op_name);
-                    flaws.insert(flaws.end(), deviation_flaw_list.begin(), deviation_flaw_list.end());
-                } else {
-                    break;
-                }
+                break;
             } else {
-                // We have precondition or deviation flaws
                 flaws.insert(flaws.end(), operator_flaws.begin(), operator_flaws.end());
             }
         }
-        
+
         if (!flaws.empty()) {
-            return flaws;
+            collected_flaws.insert(collected_flaws.end(), flaws.begin(), flaws.end());
+            flaws.clear();
         }
+
+        if (chosen_op_id == -1) {
+            chosen_op_id = fallback_op_id;
+        }
+        if (chosen_op_id != -1) {
+            OperatorProxy op = task_proxy.get_operators()[chosen_op_id];
+            string op_name = op.get_name();
+            vector<ap_float> numeric_state_before_op = current_numeric_state;
+            apply_op_to_state(current_prop_state, op);
+            apply_numeric_effects(current_numeric_state, op);
+            g_axiom_evaluator->evaluate_arithmetic_axioms(current_numeric_state);
+            g_axiom_evaluator->evaluate(current_prop_state, current_numeric_state);
+
+            assert(step_num < abstract_prop_states.size());
+            assert(step_num < abstract_numeric_states.size());
+
+            const vector<int> &abstract_state = abstract_prop_states[step_num];
+            const vector<int> &abstract_numeric_state = abstract_numeric_states[step_num];
+            string decoded_state = decode_abstract_state_compact(current_prop_state, current_numeric_state);
+            logger->log(Verbosity::DEBUG, "[SUCC] ", decoded_state);
+
+            if (this->deviation_flaws) {
+                vector<Flaw> deviation_flaw_list = get_deviation_flaws(
+                    op,
+                    numeric_state_before_op,
+                    current_prop_state, current_numeric_state,
+                    abstract_state, abstract_numeric_state,
+                    domain_mapping, numeric_domain_mapping, task_proxy);
+                if (!deviation_flaw_list.empty()) {
+                    logger->log(Verbosity::DEBUG, "Found ", deviation_flaw_list.size(), " deviation flaws after applying operator ", op_name);
+                    collected_flaws.insert(collected_flaws.end(), deviation_flaw_list.begin(), deviation_flaw_list.end());
+                }
+            }
+        }
+
         step_num++;
     }
 
@@ -1516,8 +1595,14 @@ vector<CEGAR::Flaw> CEGAR::get_flaws(
 
     vector<Flaw> goal_flaws =
         get_goal_flaws(task_proxy, current_prop_state, current_numeric_state);
-    flaws.insert(flaws.end(), goal_flaws.begin(), goal_flaws.end());
-    return flaws;
+
+    if (execute_entire_plan) {
+        collected_flaws.insert(collected_flaws.end(), goal_flaws.begin(), goal_flaws.end());
+        return collected_flaws;
+    } else {
+        flaws.insert(flaws.end(), goal_flaws.begin(), goal_flaws.end());
+        return flaws;
+    }
 }
 
 bool CEGAR::fix_flaws(
