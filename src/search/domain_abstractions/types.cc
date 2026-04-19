@@ -4,11 +4,53 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <iostream>
 #include <sstream>
 #include <unordered_set>
 
 namespace domain_abstractions {
+
+namespace {
+
+bool range_contains_zero(ap_float lower, ap_float upper) {
+    return lower <= 0.0 && upper >= 0.0;
+}
+
+bool range_contains_zero(const NumericRange &range) {
+    bool allows_below_or_at_zero =
+        (range.lower < 0.0) || (range.lower == 0.0 && range.lower_inclusive);
+    bool allows_above_or_at_zero =
+        (range.upper > 0.0) || (range.upper == 0.0 && range.upper_inclusive);
+    return allows_below_or_at_zero && allows_above_or_at_zero;
+}
+
+ap_float safe_mul_endpoint(ap_float a, ap_float b) {
+    // Avoid NaN from 0 * inf. For interval extrema this value should be treated as 0.
+    if ((a == 0.0 && std::isinf(b)) || (b == 0.0 && std::isinf(a))) {
+        return 0.0;
+    }
+    return a * b;
+}
+
+std::pair<ap_float, ap_float> multiply_bounds(
+    ap_float left_lower,
+    ap_float left_upper,
+    ap_float right_lower,
+    ap_float right_upper) {
+
+    ap_float vals[4] = {
+        safe_mul_endpoint(left_lower, right_lower),
+        safe_mul_endpoint(left_lower, right_upper),
+        safe_mul_endpoint(left_upper, right_lower),
+        safe_mul_endpoint(left_upper, right_upper)
+    };
+
+    auto [min_it, max_it] = std::minmax_element(vals, vals + 4);
+    return {*min_it, *max_it};
+}
+
+} // namespace
 
 bool NumericRange::overlaps_with(ap_float other_lower, ap_float other_upper,
                                    bool other_lower_inclusive, bool other_upper_inclusive) const {
@@ -414,51 +456,27 @@ std::pair<ap_float, ap_float> NumericDomainMapping::apply_range_operation(
             break;
             
         case mult: // left * right
-            // Handle multiplication by zero explicitly to avoid NaN with infinity
-            if ((left_lower == 0 && left_upper == 0) || (right_lower == 0 && right_upper == 0)) {
-                result_lower = 0;
-                result_upper = 0;
-                break;
-            }
-
-            // Need to consider all four combinations and take min/max
-            {
-                ap_float products[4] = {
-                    left_lower * right_lower,
-                    left_lower * right_upper,
-                    left_upper * right_lower,
-                    left_upper * right_upper
-                };
-                auto [min_it, max_it] = std::minmax_element(products, products + 4);
-                result_lower = *min_it;
-                result_upper = *max_it;
-            }
+            std::tie(result_lower, result_upper) =
+                multiply_bounds(left_lower, left_upper, right_lower, right_upper);
             break;
             
         case divi: // left / right
-            // Need to check for division by zero
+            // Any overlap of denominator with 0 => undefined division interval.
+            // Required behavior: return full range instead of NaN.
+            if (range_contains_zero(right_lower, right_upper)) {
+                result_lower = -std::numeric_limits<ap_float>::infinity();
+                result_upper = std::numeric_limits<ap_float>::infinity();
+                break;
+            }
+
+            // x / y == x * (1 / y), and reciprocal of a non-zero interval flips bounds.
             {
-                // If right range contains zero, result is undefined
-                if (right_lower < 0 && right_upper > 0) {
-                    // Range spans zero - return infinite range
-                    result_lower = -std::numeric_limits<ap_float>::infinity();
-                    result_upper = std::numeric_limits<ap_float>::infinity();
-                } else if (right_lower == 0 && right_upper == 0) {
-                    // Division by zero - undefined
-                    result_lower = -std::numeric_limits<ap_float>::infinity();
-                    result_upper = std::numeric_limits<ap_float>::infinity();
-                } else {
-                    // Safe to divide - check all four combinations
-                    ap_float quotients[4] = {
-                        left_lower / right_lower,
-                        left_lower / right_upper,
-                        left_upper / right_lower,
-                        left_upper / right_upper
-                    };
-                    auto [min_it, max_it] = std::minmax_element(quotients, quotients + 4);
-                    result_lower = *min_it;
-                    result_upper = *max_it;
-                }
+                ap_float recip_1 = 1.0 / right_lower;
+                ap_float recip_2 = 1.0 / right_upper;
+                ap_float recip_lower = std::min(recip_1, recip_2);
+                ap_float recip_upper = std::max(recip_1, recip_2);
+                std::tie(result_lower, result_upper) =
+                    multiply_bounds(left_lower, left_upper, recip_lower, recip_upper);
             }
             break;
             
@@ -496,22 +514,13 @@ NumericRange NumericDomainMapping::apply_range_operation(
             break;
             
         case mult: // left * right
-            // Handle multiplication by zero explicitly to avoid NaN with infinity
-            if ((left.lower == 0 && left.upper == 0) || (right.lower == 0 && right.upper == 0)) {
-                result_lower = 0;
-                result_upper = 0;
-                result_lower_inclusive = true;
-                result_upper_inclusive = true;
-                break;
-            }
-
             // Need to consider all four combinations and take min/max
             {
                 ap_float products[4] = {
-                    left.lower * right.lower,
-                    left.lower * right.upper,
-                    left.upper * right.lower,
-                    left.upper * right.upper
+                    safe_mul_endpoint(left.lower, right.lower),
+                    safe_mul_endpoint(left.lower, right.upper),
+                    safe_mul_endpoint(left.upper, right.lower),
+                    safe_mul_endpoint(left.upper, right.upper)
                 };
                 
                 // Determine which product is min/max
@@ -568,62 +577,30 @@ NumericRange NumericDomainMapping::apply_range_operation(
             break;
             
         case divi: // left / right
-            // Need to check for division by zero
+            // Required behavior: division by an interval containing 0 yields full range.
+            if (range_contains_zero(right)) {
+                result_lower = -std::numeric_limits<ap_float>::infinity();
+                result_upper = std::numeric_limits<ap_float>::infinity();
+                result_lower_inclusive = false;
+                result_upper_inclusive = false;
+                break;
+            }
+
+            // x / y == x * (1 / y). Reciprocal flips interval bounds for negative y.
             {
-                // If right range contains zero, result is undefined
-                if (right.lower < 0 && right.upper > 0) {
-                    // Range spans zero - return infinite range
-                    result_lower = -std::numeric_limits<ap_float>::infinity();
-                    result_upper = std::numeric_limits<ap_float>::infinity();
-                    result_lower_inclusive = false;
-                    result_upper_inclusive = false;
-                } else if (right.lower == 0 && right.upper == 0) {
-                    // Division by zero - undefined
-                    result_lower = -std::numeric_limits<ap_float>::infinity();
-                    result_upper = std::numeric_limits<ap_float>::infinity();
-                    result_lower_inclusive = false;
-                    result_upper_inclusive = false;
+                ap_float rec_a = 1.0 / right.lower;
+                ap_float rec_b = 1.0 / right.upper;
+                bool rec_a_inc = right.lower_inclusive;
+                bool rec_b_inc = right.upper_inclusive;
+
+                NumericRange reciprocal;
+                if (rec_a <= rec_b) {
+                    reciprocal = NumericRange(rec_a, rec_b, rec_a_inc, rec_b_inc, right.partition_index);
                 } else {
-                    // Safe to divide - check all four combinations
-                    ap_float quotients[4] = {
-                        left.lower / right.lower,
-                        left.lower / right.upper,
-                        left.upper / right.lower,
-                        left.upper / right.upper
-                    };
-                    
-                    int min_idx = 0;
-                    int max_idx = 0;
-                    for (int i = 1; i < 4; ++i) {
-                        if (quotients[i] < quotients[min_idx]) min_idx = i;
-                        if (quotients[i] > quotients[max_idx]) max_idx = i;
-                    }
-                    
-                    result_lower = quotients[min_idx];
-                    result_upper = quotients[max_idx];
-                    
-                    auto get_inclusivity = [&](int idx) {
-                        switch(idx) {
-                            case 0: return left.lower_inclusive && right.lower_inclusive;
-                            case 1: return left.lower_inclusive && right.upper_inclusive;
-                            case 2: return left.upper_inclusive && right.lower_inclusive;
-                            case 3: return left.upper_inclusive && right.upper_inclusive;
-                            default: return false;
-                        }
-                    };
-                    
-                    result_lower_inclusive = get_inclusivity(min_idx);
-                    result_upper_inclusive = get_inclusivity(max_idx);
-                    
-                    for (int i = 0; i < 4; ++i) {
-                        if (quotients[i] == result_lower) {
-                            result_lower_inclusive = result_lower_inclusive || get_inclusivity(i);
-                        }
-                        if (quotients[i] == result_upper) {
-                            result_upper_inclusive = result_upper_inclusive || get_inclusivity(i);
-                        }
-                    }
+                    reciprocal = NumericRange(rec_b, rec_a, rec_b_inc, rec_a_inc, right.partition_index);
                 }
+
+                return apply_range_operation(left, reciprocal, cal_operator::mult);
             }
             break;
             

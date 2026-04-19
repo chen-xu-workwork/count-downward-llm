@@ -298,34 +298,13 @@ size_t compute_abstract_state_hash_backup(
             }
             
             ap_float derived_lower, derived_upper;
-            
-            switch (axiom.get_arithmetic_operator_type()) {
-                case cal_operator::sum:
-                    derived_lower = left_lower + right_lower;
-                    derived_upper = left_upper + right_upper;
-                    break;
-                case cal_operator::diff:
-                    derived_lower = left_lower - right_upper;
-                    derived_upper = left_upper - right_lower;
-                    break;
-                case cal_operator::mult:
-                    {
-                        ap_float vals[4] = {
-                            left_lower * right_lower,
-                            left_lower * right_upper,
-                            left_upper * right_lower,
-                            left_upper * right_upper
-                        };
-                        derived_lower = *min_element(vals, vals + 4);
-                        derived_upper = *max_element(vals, vals + 4);
-                    }
-                    break;
-                case cal_operator::divi:
-                    // Division - skip for now
-                    continue;
-                default:
-                    continue;
-            }
+            std::tie(derived_lower, derived_upper) =
+                NumericDomainMapping::apply_range_operation(
+                    left_lower,
+                    left_upper,
+                    right_lower,
+                    right_upper,
+                    axiom.get_arithmetic_operator_type());
             
             computed_ranges[derived_var_id] = {derived_lower, derived_upper};
             affected_numeric_vars.insert(derived_var_id);
