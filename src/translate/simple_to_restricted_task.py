@@ -557,16 +557,9 @@ def update_var_with_formula(var):
                 # computation together with another real variable, we fail
                 # fast (requested behavior).
                 if var1 in mixed_real_vars_in_linear_computation:
-                    # Hard failure: this is a "wrong" assignment effect that we
-                    # must not silently keep. Exit with code 33 so callers can
-                    # distinguish this case from other errors.
-                    msg = (
-                        "Unsupported assignment-like numeric effect: variable "
-                        f"{var1} participates in a linear computation with another real variable. "
-                        f"Offending effect: '{effect}' in operator '{operator.get('name')}'."
-                    )
-                    sys.stderr.write(msg + "\n")
-                    sys.exit(33)
+                    # Keep original assignment-like effect as-is and skip
+                    # derived linear-delta compilation for this variable.
+                    pass
 
                 # Otherwise, leave the effect as-is and do not try to derive an
                 # additional linear delta for the current compiled variable.
@@ -643,12 +636,18 @@ def _compute_mixed_real_vars_in_linear_computation() -> set:
 
 
 def _validate_assignment_like_numeric_effects():
-    """Validate assignment-like numeric effects according to the requested rule.
+    """Assert if assignment-effect targets are also used in comparison axioms."""
+    comparison_numeric_vars = set()
+    for line in axioms.get('comparison', []):
+        parts = line.split()
+        if len(parts) != 4:
+            continue
+        for pos in (2, 3):
+            try:
+                comparison_numeric_vars.add(int(parts[pos]))
+            except ValueError:
+                continue
 
-    Rule: if a numeric effect is assignment-like (i.e., not '+' or '-') and its
-    affected variable participates in any other linear computation with at least
-    one other real variable, throw; otherwise leave the effect as-is.
-    """
     for op in operators:
         for eff in op.get('effects', []):
             parts = eff.split()
@@ -661,22 +660,10 @@ def _validate_assignment_like_numeric_effects():
                 target = int(parts[1])
             except ValueError:
                 continue
-
-            # Only meaningful for real variables (the rule talks about "other real variables").
-            if not is_real_variable(target):
-                continue
-
-            if target in mixed_real_vars_in_linear_computation:
-                # Hard failure: this is a "wrong" assignment effect that we
-                # must not silently keep. Exit with code 33 so callers can
-                # distinguish this case from other errors.
-                msg = (
-                    "Unsupported assignment-like numeric effect: affected variable "
-                    f"{target} participates in a linear computation with another real variable. "
-                    f"Offending effect: '{eff}' in operator '{op.get('name')}'."
-                )
-                sys.stderr.write(msg + "\n")
-                sys.exit(33)
+            assert target not in comparison_numeric_vars, (
+                "Unsupported overlap: numeric variable appears in both comparison axioms "
+                f"and assignment-like effects. var={target}, effect='{eff}', operator='{op.get('name')}'."
+            )
 #print_all()
 
 # After formulas are known and all comparison LHS vars have been marked as real,
