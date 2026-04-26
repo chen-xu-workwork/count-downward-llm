@@ -384,7 +384,8 @@ private:
     std::vector<int> compute_reachable_partitions(
         int numeric_var_id,
         int source_partition,
-        const NumAssProxy &ass_effect) const;
+        const NumAssProxy &ass_effect,
+        const std::vector<Fact> &source_facts) const;
     
     /**
      * Helper: Apply cal_operator to two ranges and return the result range.

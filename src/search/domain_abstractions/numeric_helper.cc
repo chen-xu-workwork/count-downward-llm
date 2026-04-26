@@ -909,7 +909,7 @@ vector<TransitionInfo> DomainAbstractionNumericHelper::compute_hash_effects_with
                     // Compute which target partitions can be reached from this source
                     // in the FORWARD/PROGRESSION direction
                     reachable_targets = compute_reachable_partitions(
-                        var_idx, source_partition, *ass_eff_for_var);
+                        var_idx, source_partition, *ass_eff_for_var, source_facts);
                     
                 } else {
                     if (logger) {
@@ -1273,7 +1273,8 @@ vector<Fact> DomainAbstractionNumericHelper::compute_affected_comparison_axioms(
 vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
     int numeric_var_id,
     int source_partition,
-    const NumAssProxy &ass_effect) const {
+    const NumAssProxy &ass_effect,
+    const vector<Fact> &source_facts) const {
     
     // Get the numeric domain mapping for this variable
     const NumericDomainMapping &mapping = *numeric_domain_mapping[numeric_var_id];
@@ -1282,28 +1283,112 @@ vector<int> DomainAbstractionNumericHelper::compute_reachable_partitions(
     f_operator op_type = ass_effect.get_assigment_operator_type();
     NumericVariableProxy assigned_var = ass_effect.get_assigned_variable();
     ap_float operand_value = assigned_var.get_initial_state_value();
-    //assert that assigned var is always constant!
 
-    assert(assigned_var.get_var_type() == numType::constant);
+    if (assigned_var.get_var_type() == numType::constant) {
+        // Existing behavior for constant RHS.
+        return mapping.compute_reachable_partitions(source_partition, op_type, operand_value);
+    }
 
-    // IMPORTANT: This function computes partition transitions using PROGRESSION semantics.
-    // Even though we're building operators for REGRESSION search, we enumerate transitions
-    // in the forward/progression direction because it's easier to reason about:
-    //   - source_partition = where the operator starts (forward PRE)
-    //   - target_partition = where the operator ends (forward POST)
-    //
-    // Example: For effect "v += 7" with partitions {0: [-inf,1000), 1: [1000,inf)}:
-    //   - Source 0, target 0: v starts in [0, 1000), stays in [0, 1000) after adding 7
-    //   - Source 0, target 1: v starts in [993, 1000), ends in [1000, 1007) after adding 7
-    //   - Source 1, target 1: v starts in [1000, inf), stays in [1000, inf) after adding 7
-    //   - No transition 1→0: can't decrease from 1 to 0 with += operation
-    //
-    // Later, the hash effect will be computed using REGRESSION formula:
-    //   hash_effect = (source - target) * multiplier
-    // This correctly moves from current state (target) to predecessor (source) in regression.
-    
-    // Use NumericDomainMapping method to compute reachable partitions
-    return mapping.compute_reachable_partitions(source_partition, op_type, operand_value);
+    // New behavior: RHS is a numeric variable (e.g., x += y).
+    // We keep all interval pieces produced by partition operations and only then
+    // map them to target partitions via overlap.
+    int rhs_var_id = assigned_var.get_id();
+    if (rhs_var_id < 0 || rhs_var_id >= static_cast<int>(numeric_domain_mapping.size())) {
+        // Conservative fallback.
+        vector<int> all_targets;
+        for (const auto &range : mapping.get_ranges()) {
+            all_targets.push_back(range.partition_index);
+        }
+        return all_targets;
+    }
+
+    vector<int> rhs_partitions;
+    rhs_partitions.reserve(numeric_domain_mapping[rhs_var_id]->get_num_partitions());
+
+    // If RHS is the same variable, we know its source partition exactly.
+    if (rhs_var_id == numeric_var_id) {
+        rhs_partitions.push_back(source_partition);
+    } else {
+        // Try to read RHS partition from already-fixed source facts.
+        int rhs_abstract_var = static_cast<int>(domain_sizes.size()) + rhs_var_id;
+        int fixed_rhs_partition = -1;
+        for (const Fact &f : source_facts) {
+            if (f.var == rhs_abstract_var) {
+                fixed_rhs_partition = f.value;
+                break;
+            }
+        }
+
+        if (fixed_rhs_partition != -1) {
+            rhs_partitions.push_back(fixed_rhs_partition);
+        } else {
+            // Unknown at this recursion point: use all RHS partitions conservatively.
+            int num_rhs_parts = numeric_domain_mapping[rhs_var_id]->get_num_partitions();
+            for (int p = 0; p < num_rhs_parts; ++p) {
+                rhs_partitions.push_back(p);
+            }
+        }
+    }
+
+    const NumericDomainMapping &rhs_mapping = *numeric_domain_mapping[rhs_var_id];
+    Partition source_x = mapping.get_partition(source_partition);
+
+    unordered_set<int> reachable_partitions_set;
+
+    for (int rhs_partition : rhs_partitions) {
+        Partition rhs_part = rhs_mapping.get_partition(rhs_partition);
+        if (rhs_part.is_empty()) {
+            continue;
+        }
+
+        Partition result_part;
+        switch (op_type) {
+            case assign:
+                result_part = rhs_part;
+                break;
+            case increase:
+                result_part = Partition::apply_binary_operation(source_x, rhs_part, cal_operator::sum);
+                break;
+            case decrease:
+                result_part = Partition::apply_binary_operation(source_x, rhs_part, cal_operator::diff);
+                break;
+            case scale_up:
+                result_part = Partition::apply_binary_operation(source_x, rhs_part, cal_operator::mult);
+                break;
+            case scale_down:
+                result_part = Partition::apply_binary_operation(source_x, rhs_part, cal_operator::divi);
+                break;
+            default:
+                break;
+        }
+
+        // Map all resulting intervals to target x partitions by overlap.
+        const vector<NumericRange> &target_ranges = mapping.get_ranges();
+        for (const NumericRange &res_range : result_part.get_ranges()) {
+            for (const NumericRange &tgt_range : target_ranges) {
+                if (tgt_range.overlaps_with(
+                        res_range.lower,
+                        res_range.upper,
+                        res_range.lower_inclusive,
+                        res_range.upper_inclusive)) {
+                    reachable_partitions_set.insert(tgt_range.partition_index);
+                }
+            }
+        }
+    }
+
+    vector<int> reachable_targets(
+        reachable_partitions_set.begin(), reachable_partitions_set.end());
+    sort(reachable_targets.begin(), reachable_targets.end());
+
+    if (reachable_targets.empty()) {
+        // Conservative fallback.
+        for (const auto &range : mapping.get_ranges()) {
+            reachable_targets.push_back(range.partition_index);
+        }
+    }
+
+    return reachable_targets;
 }
 
 pair<ap_float, ap_float> DomainAbstractionNumericHelper::apply_range_operation(
