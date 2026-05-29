@@ -318,10 +318,6 @@ def parse_args():
     components.add_argument(
         "--search", action="store_true",
         help="run search component")
-    components.add_argument(
-        "--restricted-task-transformation", action="store_true",
-        help="run a transformation from simple to restricted numeric task"
-             "on the translator output")
 
     limits = parser.add_argument_group(
         title="time and memory limits", description=LIMITS_HELP)
