@@ -15,12 +15,12 @@ namespace numeric_pdbs {
 PatternCollectionInformation::PatternCollectionInformation(
         shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
         shared_ptr<PatternCollection> patterns,
-        size_t max_number_pdb_states)
+        shared_ptr<PatternDatabaseParameters> params)
         : task_proxy(task_proxy),
           patterns(patterns),
           pdbs(nullptr),
           max_additive_subsets(nullptr),
-          max_number_pdb_states(max_number_pdb_states) {
+          params(params) {
     assert(patterns);
     validate_and_normalize_patterns(*task_proxy, *patterns);
 }
@@ -75,7 +75,10 @@ void PatternCollectionInformation::create_pdbs_if_missing() {
         pdbs = make_shared<PDBCollection>();
         for (const Pattern &pattern : *patterns) {
             shared_ptr<PatternDatabase> pdb =
-                make_shared<PatternDatabase>(task_proxy, pattern, max_number_pdb_states);
+                    make_shared<PatternDatabase>(
+                            task_proxy,
+                            pattern,
+                            params);
             pdbs->push_back(pdb);
         }
     }

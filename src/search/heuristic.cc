@@ -17,6 +17,18 @@
 
 using namespace std;
 
+Heuristic::Heuristic(const shared_ptr<AbstractTask> &task)
+        : description("default options"),
+          initialized(false),
+          multiplicator(0),
+          heuristic_cache(HEntry(NO_VALUE_INT, true)), //TODO: is true really a good idea here?
+          cache_h_values(false),
+          task(task),
+          task_proxy(*task),
+          cost_type(OperatorCost::NORMAL) {
+    numeric_helper::NumericTaskProxy::redundant_constraints = true;
+}
+
 Heuristic::Heuristic(const Options &opts)
     : description(opts.get_unparsed_config()),
       initialized(false),
@@ -26,10 +38,10 @@ Heuristic::Heuristic(const Options &opts)
       task(get_task_from_options(opts)),
       task_proxy(*task),
       cost_type(OperatorCost(opts.get_enum("cost_type"))) {
-          
-          numeric_helper::NumericTaskProxy::redundant_constraints = opts.get<bool>("redundant_constraints");
-          
-          if (opts.get<bool>("rounding_up")) compute_multiplicator(1e-5);
+
+    numeric_helper::NumericTaskProxy::redundant_constraints = opts.get<bool>("redundant_constraints");
+
+    if (opts.get<bool>("rounding_up")) compute_multiplicator(1e-5);
 }
 
 Heuristic::~Heuristic() {

@@ -99,6 +99,18 @@ def run_translate(args):
         translate, args.translate_inputs + args.translate_options,
         time_limit=time_limit, memory_limit=memory_limit)
 
+def restricted_task_transformation(args):
+    logging.info("Running transformation from simple to restricted numeric task.")
+    time_limit = limits.get_time_limit(
+        args.translate_time_limit, args.overall_time_limit)
+    memory_limit = limits.get_memory_limit(
+        args.translate_memory_limit, args.overall_memory_limit)
+    print_component_settings(
+        "restricted task transformation", [args.preprocess_input], [],
+        time_limit, memory_limit)
+    transform = get_executable(args.build, REL_TRANSFORM_RESTRICTED_PATH)
+    call_component(
+        transform, [args.preprocess_input], time_limit=time_limit, memory_limit=memory_limit)
 
 def restricted_task_transformation(args):
     logging.info("Running transformation from simple to restricted numeric task.")

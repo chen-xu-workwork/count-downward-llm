@@ -105,13 +105,21 @@ public:
 
     int get_global_var_id(int regular_num_var_id) const;
 
+    int map_to_derived_variable_id(int var_id) const;
+
+    int map_to_auxiliary_variable_id(int var_id) const;
+
     const std::vector<numeric_condition::RegularNumericCondition> &get_numeric_goals() const;
 
     const std::vector<FactProxy> &get_propositional_goals() const;
 
-    int get_approximate_domain_size(const ResNumericVariableProxy &num_var);
+    int get_approximate_domain_size(const ResNumericVariableProxy &num_var) const;
 
     bool is_derived_variable(const VariableProxy &var) const;
+
+    const std::shared_ptr<AbstractTask> &get_task() const {
+        return task;
+    }
 
     const TaskProxy &get_task_proxy() const {
         // TODO try to get rid of this
@@ -213,6 +221,7 @@ private:
     std::shared_ptr<arithmetic_expression::ArithmeticExpression> parse_arithmetic_expression(NumericVariableProxy num_var);
 
     std::shared_ptr<arithmetic_expression::ArithmeticExpressionVar> create_auxiliary_variable(
+            const int derived_var_id,
             const std::string &name,
             std::shared_ptr<arithmetic_expression::ArithmeticExpression> expr);
 
@@ -222,7 +231,7 @@ private:
 
     std::vector<FactProxy> propositional_goals;
 
-    std::vector<int> approximate_num_var_domain_sizes;
+    mutable std::vector<int> approximate_num_var_domain_sizes; // TODO precompute and make non-mutable
 
     // numeric variables
     size_t n_numeric_variables;  // number of regular numeric variables
@@ -237,6 +246,9 @@ private:
     std::vector<bool> is_derived_num_var; // true for propositional variables that encodes derived numeric facts
 
     std::vector<Action> actions;
+
+    std::vector<int> aux_id_to_derived_id; // map auxiliary variable id to derived variable id
+    std::vector<int> derived_id_to_aux_id; // map auxiliary variable id to derived variable id
 };
 }
 #endif

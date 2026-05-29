@@ -113,7 +113,7 @@ void NumericTaskProxy::build_numeric_variables(const TaskProxy &task_proxy) {
 void NumericTaskProxy::build_artificial_variables(const TaskProxy &task_proxy) {
   // variables initialization
   NumericVariablesProxy num_variables = task_proxy.get_numeric_variables();
-  AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms();
+  AssignmentAxiomsProxy assignment_axioms = task_proxy.get_assignment_axioms(); 
   artificial_variables.assign(num_variables.size(),
                               LinearNumericCondition(n_numeric_variables));
   for (size_t num_id = 0; num_id < num_variables.size(); ++num_id) {
@@ -140,7 +140,7 @@ void NumericTaskProxy::build_artificial_variables(const TaskProxy &task_proxy) {
         assignment_axioms[ax_id].get_assignment_variable().get_id();
     int lhs = assignment_axioms[ax_id].get_left_variable().get_id();
     int rhs = assignment_axioms[ax_id].get_right_variable().get_id();
-
+    
     switch (assignment_axioms[ax_id].get_arithmetic_operator_type()) {
       case sum:
         for (size_t num_id = 0; num_id < n_numeric_variables; ++num_id) {
@@ -719,8 +719,8 @@ void NumericTaskProxy::generate_possible_achievers(const TaskProxy &task) {
 
 void NumericTaskProxy::build_numeric_goals(const TaskProxy &task) {
   // check other axioms
-  numeric_goals.assign(task.get_goals().size(), *(new list<int>()));
-  propositional_goals.assign(task.get_goals().size(), *(new list<pair<int, int>>()));
+  numeric_goals.resize(task.get_goals().size());
+  propositional_goals.resize(task.get_goals().size());
   unordered_map<int, list<int>> axiom_table;
   unordered_map<int, list<pair<int, int>>> fact_table;
   {

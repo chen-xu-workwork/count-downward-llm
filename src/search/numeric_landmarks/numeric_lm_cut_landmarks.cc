@@ -98,7 +98,7 @@ namespace numeric_lm_cut_heuristic {
             }
 
             numeric_bound.calculate_bounds(numeric_state, bound_iterations);
-            if (true) numeric_bound.dump(task_proxy);
+            if (false) numeric_bound.dump(task_proxy);
             auto end = utils::g_timer();
             cout << "Extracting bounds takes " << end - start << endl;
         }
@@ -1399,4 +1399,3 @@ namespace numeric_lm_cut_heuristic {
     }
 
 }
-

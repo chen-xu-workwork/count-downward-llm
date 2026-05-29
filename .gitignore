@@ -17,3 +17,6 @@ __pycache__/
 *old.cc
 *old.h
 *.sas
+
+experiments/numeric-pdbs/data/
+experiments/numeric-pdbs/data/*

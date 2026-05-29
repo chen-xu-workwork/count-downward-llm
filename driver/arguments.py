@@ -309,6 +309,10 @@ def parse_args():
         "--translate", action="store_true",
         help="run translator component")
     components.add_argument(
+        "--restricted-task-transformation", action="store_true",
+        help="run a transformation from simple to restricted numeric task"
+             "on the translator output")
+    components.add_argument(
         "--preprocess", action="store_true",
         help="run preprocessor component")
     components.add_argument(

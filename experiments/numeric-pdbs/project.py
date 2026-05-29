@@ -69,16 +69,54 @@ SUITE_NUMERIC_OTHERS = [
     'zenotravel'
 ]
 
+SUITE_NUMERIC_OTHERS_NO_0_COVERAGE = [
+    'counters-sym', 'depots', 'depots-sym', 'farmland', 'fn-counters-small_instances', 'petri-net', 
+    'plant-watering', 
+    #'rover', # same as IPC instances 
+    'rover-unit', 'sailing', 'satellite', 
+    'zenotravel'
+]
+
+
 SUITE_NUMERIC_OTHERS_NEW = [
     'forestfire', 'minecraft-pogo-advanced', 'minecraft-sword-advanced', 
 ]
 
+SUITE_FARMLAND_NEW = [
+    "farmland-ipc23", "farmland-others"
+]
+
+SUITE_FARMLAND_OTHERS = [
+    "farmland-others"
+]
+
 SUITE_NUMERIC_IPC23_ALL = [
     #'block-grounding', # has axioms because of disjunctive goals
-    'counters', 'delivery', 'drone', 'expedition', 'ext-plant-watering', 'farmland-ipc23', 
+    'counters', 'delivery', 'drone', 
+    'expedition', 'ext-plant-watering', 
+    'farmland-ipc23-adapted-goal-factors', 
     #'fo-counters', 'fo-farmland', 'fo-sailing', # these three domains are not simple 
-    'hydropower', 'markettrader', 'mprime', 'pathwaysmetric', 'rover-ipc23', 'sailing-ipc23', 
-    'settlersnumeric', 'sugar', 
+    'hydropower', 'markettrader', 
+    'mprime', 'pathwaysmetric', 'rover-ipc23', 'sailing-ipc23', 
+    'settlersnumeric', 
+    'sugar', 
+    #'tpp', # not a simple numeric domain
+    'zenotravel-ipc23'
+]
+
+SUITE_NUMERIC_IPC23_ALL_NO_0_COVERAGE = [
+    #'block-grounding', # has axioms because of disjunctive goals
+    'counters', 'delivery', 'drone', 
+    'expedition', 
+    # 'ext-plant-watering', 
+    'farmland-ipc23-adapted-goal-factors', 
+    #'fo-counters', 'fo-farmland', 'fo-sailing', # these three domains are not simple 
+    'hydropower', 
+    # 'markettrader', 
+    'mprime', 'pathwaysmetric', 'rover-ipc23', 
+    'sailing-ipc23', 
+    # 'settlersnumeric', 
+    'sugar', 
     #'tpp', # not a simple numeric domain
     'zenotravel-ipc23'
 ]

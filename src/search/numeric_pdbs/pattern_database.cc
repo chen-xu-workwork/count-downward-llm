@@ -1,14 +1,18 @@
 #include "pattern_database.h"
 
-#include "match_tree.h"
 #include "numeric_condition.h"
 #include "numeric_helper.h"
 #include "numeric_task_proxy.h"
+#include "open_list.h"
+#include "causal_graph.h"
 
 #include "../priority_queue.h"
 
+#include "../tasks/projected_task.h"
+
 #include "../utils/logging.h"
 #include "../utils/math.h"
+#include "types.h"
 
 #include <algorithm>
 #include <cassert>
@@ -17,10 +21,37 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <optional>
 
 using namespace std;
 using namespace numeric_condition;
 using namespace numeric_pdb_helper;
+
+
+inline bool contains_subset(vector<int> &dep_vars, vector<int> &all_variables) {
+    vector<int> overlap;
+    set_intersection(dep_vars.begin(), dep_vars.end(),
+                        all_variables.begin(), all_variables.end(),
+                        back_inserter(overlap));
+    if (overlap.size() == 0) {
+        return true;
+    }
+    return false;
+}
+
+inline void remove_var_from_pattern(numeric_pdbs::Pattern &new_pattern, int pruned_var, size_t num_variables) {
+    if (pruned_var < num_variables) {
+        new_pattern.regular.erase(
+            std::remove(new_pattern.regular.begin(), new_pattern.regular.end(), pruned_var), 
+                        new_pattern.regular.end());
+    } else {
+        pruned_var -= num_variables;
+        new_pattern.numeric.erase(
+            std::remove(new_pattern.numeric.begin(), new_pattern.numeric.end(), pruned_var), 
+                        new_pattern.numeric.end());
+    }
+}
+                    
 
 namespace numeric_pdbs {
 AbstractOperator::AbstractOperator(const vector<pair<int, int>> &prev_pairs,
@@ -89,13 +120,14 @@ void AbstractOperator::dump(const Pattern &pattern,
 
 
 PatternDatabase::PatternDatabase(
-        const shared_ptr<NumericTaskProxy> task_proxy,
+        const shared_ptr<NumericTaskProxy> &task_proxy,
         const Pattern &pattern,
-        size_t max_number_states,
-        bool dump,
-        const vector<ap_float> &operator_costs)
+        shared_ptr<PatternDatabaseParameters> params,
+        const vector<ap_float> &operator_costs,
+        bool dump)
         : task_proxy(task_proxy),
           pattern(pattern),
+          params(params),
           min_action_cost(numeric_limits<ap_float>::max()),
           exhausted_abstract_state_space(false) {
 
@@ -103,7 +135,7 @@ PatternDatabase::PatternDatabase(
            operator_costs.size() == task_proxy->get_operators().size());
     assert(utils::is_sorted_unique(pattern.regular));
     assert(utils::is_sorted_unique(pattern.numeric));
-
+    
     utils::Timer timer;
     prop_hash_multipliers.reserve(pattern.regular.size());
     size_t domain_size_product = 1;
@@ -119,14 +151,211 @@ PatternDatabase::PatternDatabase(
             utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
         }
     }
+    size_t max_number_states = params->max_number_pdb_states;
 
     if (pattern.numeric.empty()){
         create_pdb_propositional(domain_size_product, operator_costs);
     } else {
-        create_pdb(max_number_states, operator_costs, dump);
+        create_pdb(max_number_states, std::nullopt, operator_costs, dump);
     }
     if (dump)
         cout << "PDB construction time: " << timer << endl;
+}
+
+void PatternDatabase::construct_inner_heuristics(size_t max_number_states,
+                                                 const vector<int> &variable_to_index,
+                                                 const vector<ap_float> &operator_costs) {
+        InnerHeuristic exploration_h = params->exploration_h;
+        InnerHeuristic frontier_h = params->frontier_h;
+        InnerHeuristic failed_lookup_h = params->failed_lookup_h;
+        bool extend_abstract_state_space = params->extend_abstract_state_space;
+    
+        if (exploration_h == InnerHeuristic::LMCUT ||
+        frontier_h == InnerHeuristic::LMCUT ||
+        failed_lookup_h == InnerHeuristic::LMCUT) {
+
+        assert(!inner_h_task || extend_abstract_state_space);
+        if (!inner_h_task) {
+            inner_h_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern, task_proxy);
+        }
+
+        assert(!lmc || extend_abstract_state_space);
+        if (!lmc) {
+            lmc = unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(
+                    new lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic(inner_h_task));
+
+            lmc->initialize();
+        }
+    }
+    if (exploration_h == InnerHeuristic::HRMAX ||
+        frontier_h == InnerHeuristic::HRMAX ||
+        failed_lookup_h == InnerHeuristic::HRMAX) {
+
+        if (!inner_h_task) {
+            inner_h_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern, task_proxy);
+        }
+
+        assert(!hrmax || extend_abstract_state_space);
+        if (!hrmax) {
+            hrmax = unique_ptr<rmax_heuristic::RMaxHeuristic>(new rmax_heuristic::RMaxHeuristic(inner_h_task));
+
+            hrmax->initialize();
+        }
+    }
+    if (exploration_h == InnerHeuristic::PDB ||
+        frontier_h == InnerHeuristic::PDB ||
+        failed_lookup_h == InnerHeuristic::PDB) {
+
+        assert(!pdb || extend_abstract_state_space);
+
+        if (!pdb) {
+            if (pattern.regular.size() + pattern.numeric.size() > 1) {
+                Pattern new_pattern;
+                new_pattern.regular.insert(new_pattern.regular.end(),
+                                        pattern.regular.begin(),
+                                        pattern.regular.end());
+                new_pattern.numeric.insert(new_pattern.numeric.end(),
+                                        pattern.numeric.begin(),
+                                        pattern.numeric.end());
+
+                int num_variables = task_proxy->get_num_variables();
+                const CausalGraph &cg = task_proxy->get_numeric_causal_graph();
+                int num_goals = 0;
+                vector<int> regular_goal_vars;
+                vector<int> numeric_goal_vars;
+                for (const auto &num_goal: task_proxy->get_numeric_goals()) {
+                    if (num_variable_to_index[num_goal.get_var_id()] != -1) {
+                        regular_goal_vars.push_back(num_goal.get_var_id());
+                        num_goals++;
+                    }
+                }
+                for (const auto &goal: task_proxy->get_propositional_goals()) {
+                    int var = goal.get_variable().get_id();
+                    if (variable_to_index[var] != -1) {
+                        numeric_goal_vars.push_back(var);
+                        num_goals++;
+                    }
+                }
+                vector<int> all_variables;
+                vector<int> regular_variables;
+                vector<int> numeric_variables;
+                for (const int var_id : pattern.regular) {
+                    all_variables.push_back(var_id);
+                    regular_variables.push_back(var_id);
+                }
+                for (const int numeric_var_id : pattern.numeric) {
+                    all_variables.push_back(numeric_var_id + num_variables);
+                    numeric_variables.push_back(numeric_var_id);
+                }
+                g_rng()->shuffle(all_variables);
+
+                if (num_goals == new_pattern.regular.size() + new_pattern.numeric.size()) {
+                    //NOTE: we must remove a goal var
+                    assert(all_variables.size() > 0);
+                    int pruned_var = all_variables[0];
+                    remove_var_from_pattern(new_pattern, pruned_var, num_variables);
+                } else {
+                    
+
+                    //randomize all_variables
+                    int pruned_var = -1;
+
+                    for (int var_id : all_variables) {
+                        if (find(regular_goal_vars.begin(), regular_goal_vars.end(), var_id) != regular_goal_vars.end()) {
+                            continue;
+                        }
+                        if (std::find(numeric_goal_vars.begin(), numeric_goal_vars.end(), var_id) != numeric_goal_vars.end()) {
+                            continue;
+                        }
+                        bool can_be_pruned = false; 
+
+                        if (var_id < num_variables) {
+                            vector<int> dep_vars = cg.get_prop_eff_to_prop_pre(var_id);
+                            can_be_pruned = contains_subset(dep_vars, regular_variables);
+                            if (can_be_pruned) {
+                                pruned_var = var_id;
+                                break;
+                            }
+
+                            dep_vars = cg.get_prop_eff_to_num_pre(var_id);
+                            can_be_pruned = contains_subset(dep_vars, numeric_variables);
+                            if (can_be_pruned) {
+                                pruned_var = var_id;
+                                break;
+                            }
+
+                        } else {
+                            int numeric_var_id = var_id - num_variables;
+                            vector<int> dep_vars = cg.get_num_eff_to_prop_pre(numeric_var_id);
+                            can_be_pruned = contains_subset(dep_vars, regular_variables);
+                            if (can_be_pruned) {
+                                pruned_var = var_id;
+                                break;
+                            }
+
+                            dep_vars = cg.get_num_eff_to_num_pre(numeric_var_id);
+                            can_be_pruned = contains_subset(dep_vars, numeric_variables);
+                            if (can_be_pruned) {
+                                pruned_var = var_id;
+                                break;
+                            }
+
+                        }
+                        
+                    }
+                    if (pruned_var != -1) {
+                        remove_var_from_pattern(new_pattern, pruned_var, num_variables);
+                    } 
+
+                    sort(new_pattern.regular.begin(), new_pattern.regular.end());
+                    sort(new_pattern.numeric.begin(), new_pattern.numeric.end());
+                }
+
+                double f_layer_offset_ratio = params->f_layer_offset_ratio;
+                double max_h_factor = params->max_h_factor;
+
+
+                shared_ptr<PatternDatabaseParameters> new_params =
+                    make_shared<PatternDatabaseParameters>();
+
+                new_params->max_number_pdb_states = max((size_t) 1000, max_number_states / 10);
+                new_params->need_goal = false;
+                new_params->extend_abstract_state_space = false;
+                new_params->f_layer_offset_ratio = f_layer_offset_ratio;
+                new_params->keep_parent_pointers = params->keep_parent_pointers;
+                new_params->max_h_factor = max_h_factor;
+                new_params->exploration_h = InnerHeuristic::BLIND;
+                new_params->frontier_h = InnerHeuristic::BLIND;
+                new_params->failed_lookup_h = InnerHeuristic::BLIND;
+
+                pdb = std::make_unique<PatternDatabase>(
+                        task_proxy,
+                        new_pattern,
+                        move(new_params),
+                        operator_costs,
+                        false);
+            } else {
+                cout << "WARNING: no variables in inner pattern, fall back to blind" << endl;
+                if (exploration_h == InnerHeuristic::PDB){
+                    exploration_h = InnerHeuristic::BLIND;
+                }
+                if (frontier_h == InnerHeuristic::PDB){
+                    frontier_h = InnerHeuristic::BLIND;
+                }
+                if (failed_lookup_h == InnerHeuristic::PDB){
+                    failed_lookup_h = InnerHeuristic::BLIND;
+                }
+            }
+        }
+    }
+}
+
+std::pair<bool, ap_float> PatternDatabase::compute_heuristic(const State &state) {
+    return get_value(state);
+}
+
+std::pair<bool, ap_float> PatternDatabase::compute_heuristic(const NumericState &state) {
+    return get_value(state);
 }
 
 void PatternDatabase::multiply_out(
@@ -221,8 +450,7 @@ void PatternDatabase::build_abstract_operators(
 }
 
 bool PatternDatabase::is_applicable(const NumericState &state,
-                                    const NumericOperatorProxy &op,
-                                    const vector<int> &num_variable_to_index) const {
+                                    const NumericOperatorProxy &op) const {
     for (const auto &num_pre : op.get_numeric_preconditions()){
         if (num_pre->is_constant()) {
             // TODO remove such preconditions from the op
@@ -242,8 +470,7 @@ bool PatternDatabase::is_applicable(const NumericState &state,
 }
 
 vector<ap_float> PatternDatabase::get_numeric_successor(vector<ap_float> state,
-                                                        const NumericOperatorProxy &op,
-                                                        const vector<int> &num_variable_to_index) const {
+                                                        const NumericOperatorProxy &op) const {
     const vector<ap_float> &num_effs = task_proxy->get_action_eff_list(op.get_id());
     for (int var: pattern.numeric) {
         int num_index = num_variable_to_index[var];
@@ -258,8 +485,12 @@ vector<ap_float> PatternDatabase::get_numeric_successor(vector<ap_float> state,
     return state;
 }
 
-void PatternDatabase::build_goals(const vector<int> &variable_to_index,
-                                  const vector<int> &num_variable_to_index) {
+void PatternDatabase::build_goals(const vector<int> &variable_to_index) {
+    bool extend_abstract_state_space = params->extend_abstract_state_space;
+    if (extend_abstract_state_space && (!propositional_goals.empty() || !numeric_goals.empty())){
+        // already built goals in first exploration
+        return;
+    }
     // compute abstract goal var-val pairs
     for (FactProxy goal: task_proxy->get_propositional_goals()) {
         int var_id = goal.get_variable().get_id();
@@ -277,7 +508,118 @@ void PatternDatabase::build_goals(const vector<int> &variable_to_index,
     }
 }
 
+NumericState PatternDatabase::project_numeric_state(const NumericState &state,
+                                                    const Pattern &superset_pattern,
+                                                    const vector<size_t> &sup_hash_multipliers) const {
+    assert(std::all_of(pattern.regular.begin(),
+                       pattern.regular.end(),
+                       [&superset_pattern] (int var) {
+        return std::find(superset_pattern.regular.begin(),
+                         superset_pattern.regular.end(),
+                         var) != superset_pattern.regular.end();
+    }));
+    assert(std::all_of(pattern.numeric.begin(),
+                       pattern.numeric.end(),
+                       [&superset_pattern] (int var) {
+                           return std::find(superset_pattern.numeric.begin(),
+                                            superset_pattern.numeric.end(),
+                                            var) != superset_pattern.numeric.end();
+                       }));
+
+    vector<int> prop_state(task_proxy->get_variables().size(), -1);
+    for (size_t i = 0; i < superset_pattern.regular.size(); ++i){
+        int var = superset_pattern.regular[i];
+        int tmp = state.prop_hash / sup_hash_multipliers[i];
+        int val = tmp % task_proxy->get_variables()[var].get_domain_size();
+        prop_state[var] = val;
+    }
+
+    size_t prop_hash = 0;
+    for (size_t i = 0; i < pattern.regular.size(); ++i) {
+        int var = pattern.regular[i];
+        assert(prop_state[var] >= 0 && prop_state[var] < task_proxy->get_variables()[var].get_domain_size());
+        prop_hash += prop_hash_multipliers[i] * prop_state[var];
+    }
+
+    vector<ap_float> proj_num_state;
+    for (int var : pattern.numeric) {
+        auto it = find(superset_pattern.numeric.begin(), superset_pattern.numeric.end(), var);
+        assert(it != superset_pattern.numeric.end());
+        proj_num_state.push_back(state.num_state[it - superset_pattern.numeric.begin()]);
+    }
+    return {prop_hash, proj_num_state};
+}
+
+pair<bool, ap_float> PatternDatabase::compute_inner_h(InnerHeuristic h_type,
+                                                      const NumericState &succ_state, int index) {
+    if (!is_constructed && (h_type == InnerHeuristic::LMCUT || h_type == InnerHeuristic::HRMAX)) {
+
+        assert(index >= 0);
+        //NOTE: it can(?) make sense to use caching for PDBs but only if they use failed lookup
+        if (index >= tmp_h_cache.size()) {
+            tmp_h_cache.resize(index + 1, -1.0);
+        }
+        if (tmp_h_cache[index] != -1) {
+            bool is_deadend = numeric_limits<ap_float>::max() == tmp_h_cache[index];
+            //cout << "State ID: " << index << ", " << tmp_h_cache[index] << endl;
+            return {is_deadend, tmp_h_cache[index]};
+        }
+    }
+
+    switch (h_type) {
+        case InnerHeuristic::LMCUT:
+        case InnerHeuristic::HRMAX: {
+            State proj_state = inner_h_task->get_projected_state(
+                    unpack_prop_state(succ_state.prop_hash),
+                    succ_state.num_state,
+                    pattern);
+            ap_float h;
+            if (h_type == InnerHeuristic::LMCUT) {
+                if (!lmc->is_initialized()) {
+                    lmc->initialize();
+                }
+                h = lmc->compute_heuristic(proj_state);
+            } else {
+                if (!hrmax->is_initialized()) {
+                    hrmax->initialize();
+                }
+                h = hrmax->compute_heuristic(proj_state);
+            }
+            bool dead_end = false;
+            if (h == numeric_limits<ap_float>::min()){
+                dead_end = true;
+            }
+            if (!is_constructed) {
+                tmp_h_cache[index] = h;
+            }
+            return {dead_end, h};
+        }
+        case InnerHeuristic::PDB:
+        {
+            if (pdb == nullptr) {
+                return {false, 0};
+            } 
+            NumericState proj_state = pdb->project_numeric_state(succ_state,
+                                                                 pattern,
+                                                                 prop_hash_multipliers);
+            ap_float h = pdb->compute_heuristic(proj_state).second;
+            bool dead_end = false;
+            if (h == numeric_limits<ap_float>::max()){
+                dead_end = true;
+            }
+            return {dead_end, h};
+        }
+        case InnerHeuristic::BLIND:
+            return {false, 0};
+        default:
+            InnerHeuristic failed_lookup_h = params->failed_lookup_h;
+            cerr << "ERROR: unknown inner heuristic type " << int(failed_lookup_h) << endl;
+            utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+    }
+}
+
 void PatternDatabase::create_pdb(size_t max_number_states,
+                                 std::optional<size_t> initial_state_opt,
                                  const std::vector<ap_float> &operator_costs,
                                  bool dump) {
 
@@ -292,28 +634,29 @@ void PatternDatabase::create_pdb(size_t max_number_states,
     // TODO: we could try perfect hashing in all cases, where we sort reached numeric values such that the PDB vector
     //  is as dense as possible, and only having it just large enough to fit the abstract state with highest ID that has
     //  a finite heuristic value, with all others being deadends or mapped to min_action_cost by convention.
-
-    auto tmp_state_registry = new NumericStateRegistry();
+    bool extend_abstract_state_space = params->extend_abstract_state_space;
+    InnerHeuristic exploration_h = params->exploration_h;
+    assert(!state_registry || extend_abstract_state_space);
+    if (!state_registry) {
+        state_registry = make_unique<NumericStateRegistry>();
+    }
 
     VariablesProxy vars = task_proxy->get_variables();
-    vector<int> variable_to_index(vars.size(), -1);
-    for (size_t i = 0; i < pattern.regular.size(); ++i) {
-        variable_to_index[pattern.regular[i]] = i;
-    }
     ResNumericVariablesProxy num_vars = task_proxy->get_numeric_variables();
-    vector<int> num_variable_to_index(num_vars.size(), -1);
-    for (size_t i = 0; i < pattern.numeric.size(); ++i) {
-        num_variable_to_index[pattern.numeric[i]] = i;
-    }
 
-    AdaptiveQueue<size_t> pq;
-    // size 1 prevents segfault in Dijkstra loop in case no new states are reached
-    vector<vector<pair<int, size_t>>> parent_pointers(1);
+    if (!is_init) {
+        is_init = true;
+        variable_to_index.resize(vars.size(), -1);
+        for (size_t i = 0; i < pattern.regular.size(); ++i) {
+            variable_to_index[pattern.regular[i]] = i;
+        }
+        num_variable_to_index = vector<int>(num_vars.size(), -1);
+        for (size_t i = 0; i < pattern.numeric.size(); ++i) {
+            num_variable_to_index[pattern.numeric[i]] = i;
+        }
 
-    {
-        // compute all abstract operators
-        vector<AbstractOperator> operators;
-        vector<int> num_operators;
+        construct_inner_heuristics(max_number_states, variable_to_index, operator_costs);
+
         for (NumericOperatorProxy op: task_proxy->get_operators()) {
             ap_float op_cost;
             if (operator_costs.empty()) {
@@ -347,13 +690,22 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         }
 
         // build the match tree
-        MatchTree match_tree(task_proxy, pattern, prop_hash_multipliers);
+        match_tree = std::make_unique<MatchTree>(task_proxy, pattern, prop_hash_multipliers);
         for (const AbstractOperator &op: operators) {
-            match_tree.insert(op);
+            match_tree.get()->insert(op);
         }
 
-        build_goals(variable_to_index, num_variable_to_index);
+        build_goals(variable_to_index);
+    }
 
+    
+
+
+    size_t original_distance_size = distances.size();
+    assert(extend_abstract_state_space || original_distance_size == 0);
+
+    AdaptiveQueue<size_t> pq;
+    {
         vector<bool> closed;
         vector<bool> is_open_or_closed(1, true);
         vector<size_t> goal_states;
@@ -361,19 +713,31 @@ void PatternDatabase::create_pdb(size_t max_number_states,
         size_t num_reached_states = 0;
 
         // first implicit entry: priority, second entry: index for an abstract state
-        AdaptiveQueue<size_t> open;
+        //AdaptiveQueue<pair<size_t, ap_float>> open; // TODO implement proper A* exploration order, preferring states with lower h
+        bool ignore_h_value = exploration_h == InnerHeuristic::BLIND;
+        OpenList<size_t> open = OpenList<size_t>(ignore_h_value);
 
         // initialize queue
-        size_t prop_init = 0;
-        for (size_t i = 0; i < pattern.regular.size(); ++i) {
-            prop_init += prop_hash_multipliers[i] * task_proxy->get_restricted_initial_state()[pattern.regular[i]];
+        size_t init_state_id;
+        if (initial_state_opt.has_value()) {
+            init_state_id = initial_state_opt.value();
+            assert(init_state_id != numeric_limits<size_t>::max());
+        } else {
+            size_t prop_init = 0;
+            for (size_t i = 0; i < pattern.regular.size(); ++i) {
+                prop_init += prop_hash_multipliers[i] * task_proxy->get_restricted_initial_state()[pattern.regular[i]];
+            }
+            vector<ap_float> num_init(pattern.numeric.size());
+            for (int var: pattern.numeric) {
+                num_init[num_variable_to_index[var]] = num_vars[var].get_initial_state_value();
+            }
+
+            init_state_id = state_registry->insert_state(NumericState(prop_init, std::move(num_init)));
         }
-        vector<ap_float> num_init(pattern.numeric.size());
-        for (int var: pattern.numeric) {
-            num_init[num_variable_to_index[var]] = num_vars[var].get_initial_state_value();
-        }
-        size_t init_state_id = tmp_state_registry->insert_state(NumericState(prop_init, std::move(num_init)));
-        open.push(0, init_state_id);
+        //open.push(0, {init_state_id, 0});
+        open.push(0, 0, init_state_id);
+
+        parent_pointers.resize(state_registry->size());
 
         /*
          * A) forward exploration:
@@ -402,8 +766,37 @@ void PatternDatabase::create_pdb(size_t max_number_states,
          *
          */
 
-        while (!open.empty() && num_reached_states < max_number_states) {
-            auto [cost, state_id] = open.pop();
+
+        ap_float goal_g = numeric_limits<ap_float>::max();
+        ap_float last_cost = 0;
+        bool need_goal = params->need_goal;
+        double f_layer_offset_ratio = params->f_layer_offset_ratio;
+
+        while (!open.empty() && (num_reached_states < max_number_states || need_goal)) {
+
+            if (need_goal && last_cost >= goal_g) {
+                // stop when goal reached
+                break;
+            }
+            if (need_goal && num_reached_states >= 10 * max_number_states) {
+                // stop when we are way above the limit
+                break;
+            }
+
+            //auto [cost, state_pair] = open.pop();
+
+            Entry<size_t> state_entry = open.top();
+            open.pop();
+            ap_float cost = state_entry.get_f();
+
+            //print f, g, h
+            last_cost = cost;
+
+            size_t state_id = state_entry.data;
+            ap_float g_value = state_entry.get_g();
+
+            //cout << "Exploring state with state ID: " << state_id << ", f: " << state_entry.get_f() << ", g: " << state_entry.get_g() << ", h: " << state_entry.get_h() << endl;
+
             assert(cost >= 0 && cost < numeric_limits<ap_float>::max());
 
             if (state_id >= closed.size()) {
@@ -412,30 +805,42 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                 // we don't do duplicate checking in the open list
                 continue;
             }
+
             closed[state_id] = true;
 
-            const NumericState &state = tmp_state_registry->lookup_state(state_id);
+            const NumericState &state = state_registry->lookup_state(state_id);
 
-            if (is_goal_state(state, num_variable_to_index)) {
+            if (is_goal_state(state)) {
                 goal_states.push_back(state_id);
+                if (goal_g == numeric_limits<ap_float>::max() && need_goal) {
+                    goal_g = cost;
+                    // TODO this does not actually do what we want.
+                    //  we need to be two *steps* behind the goal, not 2 * any cost
+                    if (f_layer_offset_ratio > 0) {
+                        goal_g += f_layer_offset_ratio * cost;
+                    } else {
+                        // TODO fix this hack
+                        goal_g += abs(f_layer_offset_ratio) * min_action_cost;
+                    }
+                }
             }
 
             vector<const AbstractOperator *> applicable_operators;
-            match_tree.get_applicable_operators(state.prop_hash, applicable_operators);
+            match_tree.get()->get_applicable_operators(state.prop_hash, applicable_operators);
 
             for (auto abs_op: applicable_operators) {
                 const auto &op = task_proxy->get_operators()[abs_op->get_op_id()];
-                if (!is_applicable(state, op, num_variable_to_index)) {
+                if (!is_applicable(state, op)) {
                     continue;
                 }
 
                 size_t prop_successor = state.prop_hash + abs_op->get_hash_effect();
 
-                vector<ap_float> num_successor = get_numeric_successor(state.num_state,
-                                                                       op,
-                                                                       num_variable_to_index);
+                vector<ap_float> num_successor = get_numeric_successor(state.num_state, op);
 
-                size_t succ_id = tmp_state_registry->insert_state(NumericState(prop_successor, std::move(num_successor)));
+                NumericState succ_state(prop_successor, std::move(num_successor));
+
+                size_t succ_id = state_registry->insert_state(succ_state);
 
                 if (succ_id == state_id) {
                     // no need to keep self-loops
@@ -454,21 +859,26 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                         is_open_or_closed[succ_id] = true;
                         ++num_reached_states;
                     }
-                    open.push(cost + abs_op->get_cost(), succ_id);
+
+                    auto [dead_end, h] = compute_inner_h(exploration_h, succ_state, succ_id);
+                    if (!dead_end) {
+                        //open.push(g_value + abs_op->get_cost() + h, {succ_id, g_value + abs_op->get_cost()});
+                        //cout << "g: " << g_value << ", " << abs_op->get_cost() << endl;;
+                        open.push(g_value + abs_op->get_cost(), h, succ_id);
+                    }
                 }
             }
-
             for (auto op_id: num_operators) {
                 const auto &op = task_proxy->get_operators()[op_id];
-                if (!is_applicable(state, op, num_variable_to_index)) {
+                if (!is_applicable(state, op)) {
                     continue;
                 }
 
-                vector<ap_float> num_successor = get_numeric_successor(state.num_state,
-                                                                       op,
-                                                                       num_variable_to_index);
+                vector<ap_float> num_successor = get_numeric_successor(state.num_state, op);
 
-                size_t succ_id = tmp_state_registry->insert_state(NumericState(state.prop_hash, std::move(num_successor)));
+                NumericState succ_state(state.prop_hash, std::move(num_successor));
+
+                size_t succ_id = state_registry->insert_state(succ_state);
 
                 if (succ_id == state_id) {
                     // no need to keep self-loops
@@ -493,105 +903,191 @@ void PatternDatabase::create_pdb(size_t max_number_states,
                     } else {
                         op_cost = operator_costs[op_id];
                     }
-                    open.push(cost + op_cost, succ_id);
+
+                    auto [dead_end, h] = compute_inner_h(exploration_h, succ_state, succ_id);
+                    if (!dead_end) {
+                        //open.push(g_value + op_cost + h, {succ_id, g_value + op_cost});
+                        //cout << "g: " << g_value << ", " << op_cost << endl;
+                        open.push(g_value + op_cost, h, succ_id);
+                    }
                 }
             }
         }
 
-        if (num_reached_states < max_number_states) {
+        if (open.empty() && !initial_state_opt.has_value()) {
             exhausted_abstract_state_space = true;
         }
 
-        assert(distances.empty());
-        distances.resize(tmp_state_registry->size(), numeric_limits<ap_float>::max());
+        if (!initial_state_opt.has_value()) {
+            assert(distances.empty());
+        }
+        distances.resize(state_registry->size(), numeric_limits<ap_float>::max());
 
         for (const auto &goal_state_id: goal_states) {
             pq.push(0, goal_state_id);
         }
 
+        InnerHeuristic frontier_h = params->frontier_h;
+
         size_t num_open_goal_states = 0;
-        size_t num_open_states = 0;
         while (!open.empty()) {
-            size_t state_id = open.pop().second;
+            //size_t state_id = open.pop().second.first;
+            Entry<size_t> state_entry = open.top();
+            open.pop();
+            size_t state_id = state_entry.data;
             if (state_id < closed.size() && closed[state_id]) {
-                // open lists may contain closed states
+                // open list may contain closed states
                 continue;
             }
-            const NumericState &state = tmp_state_registry->lookup_state(state_id);
-            num_open_states++;
-            if (is_goal_state(state, num_variable_to_index)) {
+            const NumericState &state = state_registry->lookup_state(state_id);
+            if (is_goal_state(state)) {
                 // we have not checked this for states in open
                 pq.push(0, state_id);
                 num_open_goal_states++;
             } else {
-                // TODO instead of min_action_cost, compute another heuristic here
-                pq.push(min_action_cost, state_id);
+                auto [dead_end, h] = compute_inner_h(frontier_h, state, state_id);
+                if (state_id < original_distance_size) {
+                    assert(extend_abstract_state_space);
+                    h = max(distances[state_id], h);
+                }
+                h = max(h, min_action_cost);
+
+                if (!dead_end && h != numeric_limits<ap_float>::max()) {
+                    pq.push(h, state_id);
+                }
             }
         }
-
+        assert(open.size() == 0);
         if (dump) {
-            cout << "Generated abstract states: " << tmp_state_registry->size() + num_open_states << endl;
+            cout << "Generated abstract states: " << state_registry->size() << endl;
             cout << "Reached abstract goal states: " << goal_states.size() + num_open_goal_states << endl;
         }
     }
 
-
     size_t num_bwd_reached_states = 0;
+    vector<bool> updated(original_distance_size, false);
+
     // Dijkstra loop
     while (!pq.empty()) {
         auto [distance, state_id] = pq.pop();
         assert(distance >= 0);
-        if (distance >= distances[state_id]) {
+        if (state_id < original_distance_size && updated[state_id]) {
+            // we have already updated this state
+            continue;
+        }
+        if (state_id < original_distance_size) {
+            updated[state_id] = true;
+        }
+        if (state_id >= original_distance_size && distance >= distances[state_id]) {
+            // new state but worse distance
             continue;
         }
         ++num_bwd_reached_states;
-        distances[state_id] = distance;
+        if (state_id >= original_distance_size && distance < distances[state_id]) {
+            // new state with better distance
+            distances[state_id] = distance;
+        }
+        distance = distances[state_id];
 
         // regress state
         for (const auto &[op_id, parent_state_id] : parent_pointers[state_id]) {
+            assert(state_id < parent_pointers.size());
             ap_float alternative_cost = distance;
             if (operator_costs.empty()) {
                 alternative_cost += task_proxy->get_operators()[op_id].get_cost();
             } else {
                 alternative_cost += operator_costs[op_id];
             }
-            if (alternative_cost < distances[parent_state_id]) {
+            if (parent_state_id >= original_distance_size && alternative_cost < distances[parent_state_id]) {
+                assert(alternative_cost >= 0);
                 pq.push(alternative_cost, parent_state_id);
+            } else if (parent_state_id < original_distance_size && !updated[parent_state_id]) {
+                pq.push(distances[parent_state_id], parent_state_id);
             }
         }
     }
+
+    int initial_state_id = 0;
+    assert(initial_state_id < distances.size()); //NOTE: probably impossible to have 0 states. 
+    ap_float initial_state_h = distances[initial_state_id];
+
+    double max_h_factor = params->max_h_factor;
+    assert(max_h_factor >= 0);
+    if (max_h_factor != 0 && !exhausted_abstract_state_space && !initial_state_opt.has_value()) {
+        ap_float cutoff_h = initial_state_h * max_h_factor;
+        vector<ap_float> distances2;
+        unique_ptr<NumericStateRegistry> tmp_state_registry = make_unique<NumericStateRegistry>();
+        size_t state_id = 0;
+        for (size_t old_state_id = 0; old_state_id < distances.size(); ++old_state_id) {
+            ap_float dist = distances[old_state_id];
+            if (dist == numeric_limits<ap_float>::max() || dist <=  cutoff_h) {
+                const NumericState &state = state_registry->lookup_state(old_state_id);
+                size_t new_state_id = tmp_state_registry->insert_state(state);
+                assert(new_state_id == state_id);
+                distances2.push_back(dist);
+                state_id++;
+            } 
+        }
+        distances = std::move(distances2);
+        state_registry.reset(tmp_state_registry.release());
+    }
+
     if (dump) {
         cout << "Number backwards reachable abstract states: " << num_bwd_reached_states << endl;
+        cout << "Initial state h: " << compute_heuristic(task_proxy->get_original_initial_state()).second << endl;
     }
 
-    if (num_bwd_reached_states < 0.75 * tmp_state_registry->size()) {
-        state_registry = make_unique<NumericStateRegistry>();
-        size_t state_id = 0;
-        for (size_t i = 0; i < distances.size(); ++i) {
-            ap_float dist = distances[i];
-            if (dist != numeric_limits<ap_float>::max()) {
-                const NumericState &state = tmp_state_registry->lookup_state(i);
-                state_registry->insert_state(state);
-                distances[state_id++]  = dist;
-            }
-        }
-        distances.resize(state_id);
-        distances.shrink_to_fit();
-        if (dump) {
-            cout << "Shrink size of state registry from " << tmp_state_registry->size() << " to " << distances.size() << endl;
-        }
-        delete tmp_state_registry;
-    } else {
-        state_registry.reset(tmp_state_registry);
+    if (!params->keep_parent_pointers) {
+        parent_pointers.clear();
+        parent_pointers.shrink_to_fit();
     }
 
-    if (dump) {
-        cout << "Initial state h: " << get_value(task_proxy->get_original_initial_state()) << endl;
+    if (!extend_abstract_state_space) {
+        operators.clear();
+        operators.shrink_to_fit();
+        num_operators.clear();
+        num_operators.shrink_to_fit();
+        match_tree.reset();
+
+        InnerHeuristic failed_lookup_h = params->failed_lookup_h;
+        //inner_h_task = make_shared<tasks::ProjectedTask>(task_proxy->get_task(), pattern, task_proxy);
+        switch (failed_lookup_h) {
+            case InnerHeuristic::LMCUT:
+                hrmax.reset();
+                pdb.reset();
+                lmc = unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic>(
+                    new lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic(inner_h_task));
+                //lmc->initialize();
+                break;
+            case InnerHeuristic::HRMAX:
+                pdb.reset();
+                lmc.reset();
+                hrmax = unique_ptr<rmax_heuristic::RMaxHeuristic>(new rmax_heuristic::RMaxHeuristic(inner_h_task));
+                //hrmax->initialize();
+                break;
+            case InnerHeuristic::PDB:
+                hrmax.reset();
+                lmc.reset();
+                inner_h_task.reset();
+                break;
+            case InnerHeuristic::BLIND:
+                hrmax.reset();
+                pdb.reset();
+                lmc.reset();
+                inner_h_task.reset();
+                break;
+            default:
+                cerr << "ERROR: unknown inner heuristic type " << int(failed_lookup_h) << endl;
+                utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
+        }
     }
+
+    vector<ap_float>().swap(tmp_h_cache);
+    is_constructed = true;
 }
 
 void PatternDatabase::create_pdb_propositional(size_t size,
-                                               const std::vector<ap_float> &operator_costs) {
+                                               const vector<ap_float> &operator_costs) {
 
     exhausted_abstract_state_space = true;
 
@@ -619,7 +1115,7 @@ void PatternDatabase::create_pdb_propositional(size_t size,
         match_tree.insert(op);
     }
 
-    build_goals(variable_to_index, vector<int>());
+    build_goals(variable_to_index);
 
     distances.reserve(size);
     // first implicit entry: priority, second entry: index for an abstract state
@@ -627,8 +1123,7 @@ void PatternDatabase::create_pdb_propositional(size_t size,
 
     // initialize queue
     for (size_t state_index = 0; state_index < size; ++state_index) {
-        if (is_goal_state(NumericState(state_index, vector<ap_float>()),
-                          vector<int>())) {
+        if (is_goal_state(NumericState(state_index, vector<ap_float>()))) {
             pq.push(0, state_index);
             distances.push_back(0);
         } else {
@@ -660,8 +1155,7 @@ void PatternDatabase::create_pdb_propositional(size_t size,
 }
 
 bool PatternDatabase::is_goal_state(
-        const NumericState &state,
-        const vector<int> &num_variable_to_index) const {
+        const NumericState &state) const {
     for (const pair<int, int> &abstract_goal : propositional_goals) {
         int pattern_var_id = abstract_goal.first;
         int var_id = pattern.regular[pattern_var_id];
@@ -706,6 +1200,18 @@ size_t PatternDatabase::prop_hash_index(const State &state) const {
     return index;
 }
 
+vector<int> PatternDatabase::unpack_prop_state(size_t prop_hash) const {
+    vector<int> prop_state(pattern.regular.size(), -1);
+    for (size_t i = 0; i < pattern.regular.size(); ++i) {
+        int var_id = pattern.regular[i];
+        VariableProxy var = task_proxy->get_variables()[var_id];
+        int temp = prop_hash / prop_hash_multipliers[i];
+        int val = temp % var.get_domain_size();
+        prop_state[i] = val;
+    }
+    return prop_state;
+}
+
 const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State &state) const {
     tmp_abstract_numeric_state.resize(pattern.numeric.size());
     for (size_t i = 0; i < pattern.numeric.size(); ++i){
@@ -716,13 +1222,18 @@ const vector<ap_float> &PatternDatabase::get_abstract_numeric_state(const State 
     return tmp_abstract_numeric_state;
 }
 
-pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
+pair<bool, ap_float> PatternDatabase::get_value(const State &state) {
     if (pattern.numeric.empty()){
         // purely propositional pattern
         return {true, distances[prop_hash_index(state)]};
     }
-    size_t abs_state_id = state_registry->get_id(NumericState(prop_hash_index(state),
-                                                               get_abstract_numeric_state(state)));
+
+    bool extend_abstract_state_space = params->extend_abstract_state_space;
+    InnerHeuristic failed_lookup_h = params->failed_lookup_h;
+
+    NumericState abs_state = NumericState(prop_hash_index(state),
+                                          get_abstract_numeric_state(state));
+    size_t abs_state_id = state_registry->get_id(abs_state);
     if (abs_state_id == numeric_limits<size_t>::max()) {
         // we have not seen an abstract state that corresponds to state
         if (exhausted_abstract_state_space) {
@@ -732,40 +1243,163 @@ pair<bool, ap_float> PatternDatabase::get_value(const State &state) const {
             // abstract goals are satisfied
             return {false, 0};
         } else {
-            // we don't know any better
-            return {false, min_action_cost};
+            if (extend_abstract_state_space) {
+                abs_state_id = state_registry->insert_state(abs_state);
+                // TODO don't hard-code the limit here
+                create_pdb(1000, abs_state_id);
+                return {false, distances[abs_state_id]};
+            }
+
+            auto [dead_end, h] = compute_inner_h(failed_lookup_h, abs_state, abs_state_id);
+            if (dead_end) {
+                return {false, numeric_limits<ap_float>::max()};
+            }
+            return {false, max(h, min_action_cost)};
+        }
+    }
+    return {true, distances[abs_state_id]};
+}
+
+pair<bool, ap_float> PatternDatabase::get_value(const NumericState &state) {
+    if (pattern.numeric.empty()){
+        // purely propositional pattern
+        return {true, distances[state.prop_hash]};
+    }
+    size_t abs_state_id = state_registry->get_id(state);
+    bool extend_abstract_state_space = params->extend_abstract_state_space;
+    InnerHeuristic failed_lookup_h = params->failed_lookup_h;
+
+    if (abs_state_id == numeric_limits<size_t>::max()) {
+        // we have not seen an abstract state that corresponds to state
+        if (exhausted_abstract_state_space) {
+            // here we can guarantee that state is indeed a deadend
+            return {true, numeric_limits<ap_float>::max()};
+        }
+        if (is_goal_state(state)) {
+            // abstract goals are satisfied
+            return {true, 0};
+        } else {
+            if (extend_abstract_state_space) {
+                abs_state_id = state_registry->insert_state(state);
+                // TODO don't hard-code the limit here
+                create_pdb(1000, abs_state_id);
+                return {false, distances[abs_state_id]};
+            }
+
+            auto [dead_end, h] = compute_inner_h(failed_lookup_h, state, abs_state_id);
+            if (dead_end) {
+                return {false, numeric_limits<ap_float>::max()};
+            }
+            return {false, max(h, min_action_cost)};
         }
     }
     return {true, distances[abs_state_id]};
 }
 
 ap_float PatternDatabase::compute_mean_finite_h() const {
-    cerr << "Not yet implemented: numeric PatternDatabase::compute_mean_finite_h()" << endl;
-    utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-//    double sum = 0;
-//    int size = 0;
-//    for (size_t i = 0; i < distances.size(); ++i) {
-//        if (distances[i] != numeric_limits<int>::max()) {
-//            sum += distances[i];
-//            ++size;
-//        }
-//    }
-//    if (size == 0) { // All states are dead ends.
-//        return numeric_limits<double>::infinity();
-//    } else {
-//        return sum / size;
-//    }
+    ap_float sum = 0;
+    int size = 0;
+    for (size_t i = 0; i < distances.size(); ++i) {
+        if (distances[i] != numeric_limits<ap_float>::max()) {
+            assert(distances[i] >= 0);
+            sum += distances[i];
+            ++size;
+        }
+    }
+//    cout << "Pattern: " << pattern << endl;
+//    cout << "sum: " << sum << endl;
+    if (size == 0) { // All states are dead ends.
+        return numeric_limits<ap_float>::max();
+    } else {
+        return sum; // NOTE: Daniel prefers sum over mean. Test if that makes a difference.
+    }
 }
 
-bool PatternDatabase::is_operator_relevant(const OperatorProxy &op) const {
-    cerr << "Not yet implemented: numeric PatternDatabase::is_operator_relevant()" << endl;
-    utils::exit_with(utils::ExitCode::CRITICAL_ERROR);
-    for (EffectProxy effect : op.get_effects()) {
+bool PatternDatabase::is_operator_relevant(const NumericOperatorProxy &op) const {
+    for (EffectProxy effect : op.get_propositional_effects()) {
         int var_id = effect.get_fact().get_variable().get_id();
         if (binary_search(pattern.regular.begin(), pattern.regular.end(), var_id)) {
             return true;
         }
     }
+    for (const auto &num_effect: op.get_assign_effects()) {
+        int var_id = num_effect.first;
+        if (binary_search(pattern.numeric.begin(), pattern.numeric.end(), var_id)) {
+            return true;
+        }
+    }
+    for (const auto &add_effect: op.get_additive_effects()) {
+        int var_id = add_effect.first;
+        if (binary_search(pattern.numeric.begin(), pattern.numeric.end(), var_id)) {
+            return true;
+        }
+    }
     return false;
+}
+
+void PatternDatabase::add_pdb_options(OptionParser &parser) {
+    parser.add_option<bool>(
+            "extend_abstract_state_space",
+            "extend abstract PDB state spaces on misses.",
+            "false");
+
+    parser.add_enum_option(
+            "exploration_heuristic",
+            {"BLIND", "HRMAX", "LMCUT", "PDB"},
+            "TODO",
+            "BLIND", {});
+
+    parser.add_enum_option(
+            "frontier_heuristic",
+            {"BLIND", "HRMAX", "LMCUT", "PDB"},
+            "TODO",
+            "BLIND", {});
+
+    parser.add_enum_option(
+            "failed_lookup_heuristic",
+            {"BLIND", "HRMAX", "LMCUT", "PDB"},
+            "TODO",
+            "BLIND", {});
+
+    parser.add_option<double>(
+            "f_layer_offset_ratio",
+            "stop A* in abstract state space until all states in the open list have f value >= f(goal) + x * g(goal) .",
+            "0.0",
+            Bounds("-1000", "infinity"));
+
+    parser.add_option<bool>(
+            "need_goal",
+            "Ignore max_states and continue searching in the abstract state space until an abstract goal is found.",
+            "false");
+
+    parser.add_option<bool>(
+            "keep_parent_pointers",
+            "keep parent pointers for the abstract states, so that we can compute the cost of the abstract state.",
+            "false");
+
+    parser.add_option<double>(
+            "max_h_factor",
+            "initial h * this factor: all abstract states with higher value get pruned. 0.0 to disable",
+            "0.0");
+}
+
+shared_ptr<PatternDatabaseParameters> PatternDatabase::parse_static_pdb_parameters(const Options &opts) {
+    auto params = std::make_shared<PatternDatabaseParameters>();
+    params->max_number_pdb_states = opts.get<int>("max_number_pdb_states");
+    if (opts.contains("max_pdb_size")) {
+        // max_pdb_size is deprecated, but we still support it for backwards compatibility
+        params->max_pdb_size = opts.get<int>("max_pdb_size");
+    } else {
+        params->max_pdb_size = 0; // some default value that is hopefully never accessed.
+    }
+    params->need_goal = opts.get<bool>("need_goal");
+    params->extend_abstract_state_space = opts.get<bool>("extend_abstract_state_space");
+    params->f_layer_offset_ratio = opts.get<double>("f_layer_offset_ratio");
+    params->keep_parent_pointers = opts.get<bool>("keep_parent_pointers");
+    params->max_h_factor = opts.get<double>("max_h_factor");
+    params->exploration_h = InnerHeuristic(opts.get_enum("exploration_heuristic"));
+    params->frontier_h = InnerHeuristic(opts.get_enum("frontier_heuristic"));
+    params->failed_lookup_h = InnerHeuristic(opts.get_enum("failed_lookup_heuristic"));
+    return params;
 }
 }

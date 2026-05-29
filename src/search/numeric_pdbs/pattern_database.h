@@ -5,10 +5,15 @@
 #include "numeric_state_registry.h"
 #include "types.h"
 
-#include "../task_proxy.h" // TODO get rid of this
+#include "../numeric/rmax_heuristic.h"
+#include "../numeric_landmarks/lm_cut_numeric_heuristic.h"
+#include "../tasks/projected_task.h"
 
 #include <utility>
 #include <vector>
+#include <optional>
+
+#include "match_tree.h"
 
 
 namespace numeric_pdb_helper {
@@ -17,6 +22,21 @@ class NumericTaskProxy;
 }
 
 namespace numeric_pdbs {
+
+
+struct PatternDatabaseParameters {
+    size_t max_number_pdb_states;
+    size_t max_pdb_size; 
+    bool extend_abstract_state_space;
+    double f_layer_offset_ratio;
+    bool need_goal;
+    bool keep_parent_pointers;
+    double max_h_factor;
+    InnerHeuristic exploration_h;
+    InnerHeuristic frontier_h;
+    InnerHeuristic failed_lookup_h;
+};
+
 
 class AbstractOperator {
     /*
@@ -89,8 +109,23 @@ public:
 // Implements a single pattern database
 class PatternDatabase {
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
+    std::shared_ptr<PatternDatabaseParameters> params;
 
     Pattern pattern;
+
+    std::vector<ap_float> tmp_h_cache; //NOTE: the heuristic cache in the Heuristic class is broken since it stores integers rather than doubles
+    bool is_constructed = false;
+
+    bool is_init = false;
+    std::vector<int> variable_to_index;
+    std::vector<AbstractOperator> operators;
+    std::vector<int> num_operators;
+    std::unique_ptr<numeric_pdbs::MatchTree> match_tree;
+
+    std::shared_ptr<tasks::ProjectedTask> inner_h_task;
+    std::unique_ptr<lm_cut_numeric_heuristic::LandmarkCutNumericHeuristic> lmc;
+    std::unique_ptr<rmax_heuristic::RMaxHeuristic> hrmax;
+    std::unique_ptr<PatternDatabase> pdb;
 
     std::unique_ptr<NumericStateRegistry> state_registry;
 
@@ -99,11 +134,13 @@ class PatternDatabase {
 
     // multipliers for each propositional variable for perfect hash function
     std::vector<std::size_t> prop_hash_multipliers;
+    std::vector<int> num_variable_to_index;
 
     std::vector<std::pair<int, int>> propositional_goals;
     std::vector<numeric_condition::RegularNumericCondition> numeric_goals;
 
     ap_float min_action_cost;
+    std::vector<std::vector<std::pair<int, size_t>>> parent_pointers;
 
     bool exhausted_abstract_state_space;
 
@@ -139,15 +176,12 @@ class PatternDatabase {
         bool regression);
 
     bool is_applicable(const NumericState &state,
-                       const numeric_pdb_helper::NumericOperatorProxy &op,
-                       const std::vector<int> &num_variable_to_index) const;
+                       const numeric_pdb_helper::NumericOperatorProxy &op) const;
 
     std::vector<ap_float> get_numeric_successor(std::vector<ap_float> state,
-                                                const numeric_pdb_helper::NumericOperatorProxy &op,
-                                                const std::vector<int> &num_variable_to_index) const;
+                                                const numeric_pdb_helper::NumericOperatorProxy &op) const;
 
-    void build_goals(const std::vector<int> &variable_to_index,
-                     const std::vector<int> &num_variable_to_index);
+    void build_goals(const std::vector<int> &variable_to_index);
 
     /*
       Computes all abstract operators, builds the match tree (successor
@@ -158,21 +192,12 @@ class PatternDatabase {
     */
     void create_pdb(
             std::size_t max_number_states,
+            std::optional<size_t> initial_state_opt,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>(),
             bool dump = false);
 
     void create_pdb_propositional(
             size_t number_states,
-            const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
-
-    /*
-      Sets the pattern for the PDB and initializes prop_hash_multipliers and
-      num_states. operator_costs can specify individual operator costs
-      for each operator for action cost partitioning. If left empty,
-      default operator costs are used.
-    */
-    void set_pattern(
-            const Pattern &pattern,
             const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
 
     /*
@@ -182,8 +207,7 @@ class PatternDatabase {
       state is a goal state.
     */
     bool is_goal_state(
-            const NumericState &state,
-            const std::vector<int> &num_variable_to_index) const;
+            const NumericState &state) const;
 
     bool is_abstract_goal_state(const State &state) const;
 
@@ -194,7 +218,19 @@ class PatternDatabase {
     */
     std::size_t prop_hash_index(const State &state) const;
 
+    std::vector<int> unpack_prop_state(size_t prop_hash) const;
+
     const std::vector<ap_float> &get_abstract_numeric_state(const State &state) const;
+
+    NumericState project_numeric_state(const NumericState &state,
+                                       const Pattern &superset_pattern,
+                                       const std::vector<size_t> &sup_hash_multipliers) const;
+
+    void construct_inner_heuristics(size_t max_number_states,
+                                    const std::vector<int> &variable_to_index,
+                                    const std::vector<ap_float> &operator_costs);
+
+    std::pair<bool, ap_float> compute_inner_h(InnerHeuristic h_type, const NumericState &succ_state, int index);
 
 public:
     /*
@@ -208,15 +244,21 @@ public:
        empty, default operator costs are used.
     */
     PatternDatabase(
-            const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
+            const std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> &task_proxy,
             const Pattern &pattern,
-            std::size_t max_number_states,
-            bool dump = false,
-            const std::vector<ap_float> &operator_costs = std::vector<ap_float>());
+            std::shared_ptr<PatternDatabaseParameters> params,
+            const std::vector<ap_float> &operator_costs = std::vector<ap_float>(),
+            bool dump = false);
 
     ~PatternDatabase() = default;
 
-    std::pair<bool, ap_float> get_value(const State &state) const;
+    std::pair<bool, ap_float> get_value(const State &state);
+
+    std::pair<bool, ap_float> get_value(const NumericState &state);
+
+    std::pair<bool, ap_float> compute_heuristic(const State &state);
+
+    std::pair<bool, ap_float> compute_heuristic(const NumericState &state);
 
     // Returns the pattern (i.e. all variables used) of the PDB
     const Pattern &get_pattern() const {
@@ -239,7 +281,12 @@ public:
     ap_float compute_mean_finite_h() const;
 
     // Returns true iff op has an effect on a variable in the pattern.
-    bool is_operator_relevant(const OperatorProxy &op) const;
+    bool is_operator_relevant(const numeric_pdb_helper::NumericOperatorProxy &op) const;
+
+    static void add_pdb_options(OptionParser &parser);
+
+    static std::shared_ptr<PatternDatabaseParameters> parse_static_pdb_parameters(
+        const Options &opts);
 };
 }
 

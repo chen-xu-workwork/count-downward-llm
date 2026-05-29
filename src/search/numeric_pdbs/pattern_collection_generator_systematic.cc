@@ -3,6 +3,7 @@
 #include "causal_graph.h"
 #include "numeric_condition.h"
 #include "numeric_helper.h"
+#include "pattern_database.h"
 #include "validation.h"
 
 #include "../option_parser.h"
@@ -67,9 +68,11 @@ static void compute_union_pattern(
 
 PatternCollectionGeneratorSystematic::PatternCollectionGeneratorSystematic(
     const Options &opts)
-    : PatternCollectionGenerator(opts.get<int>("max_number_pdb_states")),
-      pattern_max_size(opts.get<int>("pattern_max_size")),
-      only_interesting_patterns(opts.get<bool>("only_interesting_patterns")) {
+        : PatternCollectionGenerator(
+        opts.get<int>("max_number_pdb_states")),
+          pattern_max_size(opts.get<int>("pattern_max_size")),
+          params(PatternDatabase::parse_static_pdb_parameters(opts)),
+          only_interesting_patterns(opts.get<bool>("only_interesting_patterns")) {
 }
 
 void PatternCollectionGeneratorSystematic::compute_eff_pre_neighbors(
@@ -367,7 +370,9 @@ PatternCollectionInformation PatternCollectionGeneratorSystematic::generate(
     } else {
         build_patterns_naive(*task_proxy);
     }
-    return {task_proxy, patterns, max_number_pdb_states};
+    return {task_proxy,
+            patterns,
+            params};
 }
 
 static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
@@ -401,6 +406,8 @@ static shared_ptr<PatternCollectionGenerator> _parse(OptionParser &parser) {
             "Only consider the union of two disjoint patterns if the union has "
             "more information than the individual patterns.",
             "true");
+
+    PatternDatabase::add_pdb_options(parser);
 
     Options opts = parser.parse();
     if (parser.dry_run())
