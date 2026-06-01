@@ -73,6 +73,7 @@ bool has_axioms();
 bool has_logic_axioms();
 bool has_numeric_axioms();
 void verify_no_axioms();
+void verify_no_logic_axioms();
 bool has_conditional_effects();
 void verify_no_conditional_effects();
 void verify_no_axioms_no_conditional_effects();

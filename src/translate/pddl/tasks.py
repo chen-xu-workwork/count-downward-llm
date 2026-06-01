@@ -163,7 +163,10 @@ class DerivedFunctionAdministrator:
         for axiom in self.functions.values():
             axiom.dump(indent)
     def get_all_axioms(self):
-        return list(self.functions.values())
+        # Ensure deterministic iteration independent of dict insertion order.
+        # The translator assigns IDs/names based on traversal order in multiple
+        # places; sorting here avoids run-to-run differences.
+        return sorted(self.functions.values(), key=lambda ax: ax.name)
     def get_derived_function(self,exp):
         def get_default_variables(nr):
             varlist = [("?v%s" % varnr) for varnr in range(nr)]

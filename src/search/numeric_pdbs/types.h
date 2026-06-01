@@ -7,6 +7,10 @@
 namespace numeric_pdbs {
 class PatternDatabase;
 
+enum class InnerHeuristic {
+    BLIND, HRMAX, LMCUT, PDB
+};
+
 struct Pattern {
     std::vector<int> regular;
     std::vector<int> numeric;

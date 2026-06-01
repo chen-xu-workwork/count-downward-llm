@@ -2,6 +2,7 @@
 
 #include "numeric_helper.h"
 #include "pattern_generator.h"
+#include "pattern_database.h"
 
 #include "../option_parser.h"
 #include "../plugin.h"
@@ -17,9 +18,15 @@ PatternDatabase get_pdb_from_options(const shared_ptr<AbstractTask> &task,
                                      const Options &opts) {
     auto pattern_generator =
         opts.get<shared_ptr<PatternGenerator>>("pattern");
+
+    shared_ptr<PatternDatabaseParameters> params =
+        PatternDatabase::parse_static_pdb_parameters(opts);
+
     shared_ptr<NumericTaskProxy> task_proxy = make_shared<NumericTaskProxy>(task);
     Pattern pattern = pattern_generator->generate(task, task_proxy);
-    return {task_proxy, pattern, pattern_generator->get_max_number_pdb_states(), true};
+    return {task_proxy,
+            pattern,
+            params};
 }
 
 NumericPDBHeuristic::NumericPDBHeuristic(const Options &opts)
@@ -33,7 +40,7 @@ ap_float NumericPDBHeuristic::compute_heuristic(const GlobalState &global_state)
     return compute_heuristic(state);
 }
 
-ap_float NumericPDBHeuristic::compute_heuristic(const State &state) const {
+ap_float NumericPDBHeuristic::compute_heuristic(const State &state) {
     auto [found_state, h] = pdb.get_value(state);
     if (!found_state){
         number_lookup_misses++;
@@ -59,11 +66,12 @@ static Heuristic *_parse(OptionParser &parser) {
     parser.document_property("preferred operators", "no");
 
     parser.add_option<shared_ptr<PatternGenerator>>(
-        "pattern",
-        "pattern generation method",
-        "greedy_numeric()");
+            "pattern",
+            "pattern generation method",
+            "greedy_numeric()");
 
     Heuristic::add_options_to_parser(parser);
+    PatternDatabase::add_pdb_options(parser);
 
     Options opts = parser.parse();
     if (parser.dry_run())

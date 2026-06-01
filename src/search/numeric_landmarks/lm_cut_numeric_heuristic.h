@@ -13,8 +13,16 @@ namespace options {
     class Options;
 }
 
+namespace numeric_pdbs {
+class CanonicalPDBs;
+class PatternDatabase;
+}
+
 namespace lm_cut_numeric_heuristic {
     class LandmarkCutNumericHeuristic : public Heuristic {
+        friend class numeric_pdbs::CanonicalPDBs;
+        friend class numeric_pdbs::PatternDatabase;
+
         std::unique_ptr<numeric_lm_cut_heuristic::LandmarkCutLandmarks> landmark_generator;
         //std::unique_ptr<lm_cut_repetition_heuristic::LandmarkCutLandmarks> landmark_generator;
         //std::unique_ptr<LandmarkCutNumericLandmarks> landmark_generator;
@@ -31,9 +39,10 @@ namespace lm_cut_numeric_heuristic {
         virtual void initialize() override;
         virtual ap_float compute_heuristic(const GlobalState &global_state) override;
         ap_float compute_heuristic(const State &state);
+        explicit LandmarkCutNumericHeuristic(const std::shared_ptr<AbstractTask> &task);
     public:
         explicit LandmarkCutNumericHeuristic(const options::Options &opts);
-        virtual ~LandmarkCutNumericHeuristic() override;
+        ~LandmarkCutNumericHeuristic() override = default;
     };
 }
 

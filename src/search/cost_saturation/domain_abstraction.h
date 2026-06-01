@@ -1,0 +1,291 @@
+#ifndef COST_SATURATION_DOMAIN_ABSTRACTION_H
+#define COST_SATURATION_DOMAIN_ABSTRACTION_H
+
+#include "abstraction.h"
+
+#include "projection.h" // for TaskInfo and RankedOperator
+
+#include "../abstract_task.h"
+
+#include "../algorithms/array_pool.h"
+#include "../domain_abstractions/types.h"
+#include "../domain_abstractions/numeric_helper.h"
+#include "../pdbs/types.h"
+#include "../task_proxy.h"
+
+#include <algorithm>
+#include <functional>
+#include <vector>
+
+class OperatorProxy;
+class VariablesProxy;
+
+namespace domain_abstractions {
+class MatchTreeWithPattern;
+}
+
+namespace utils {
+class LogProxy;
+}
+
+namespace cost_saturation {
+
+// Helper functions for comparison axiom handling (defined in domain_abstraction.cc)
+int reset_comparison_vars_to_unknown_except(
+    int state_index,
+    const domain_abstractions::DomainMapping &domain_mapping,
+    const std::vector<int> &hash_multipliers_by_var_id,
+    const TaskProxy &task_proxy,
+    const std::vector<Fact> &fixed_comparisons);
+
+int reset_all_comparison_vars_to_unknown(
+    int state_index,
+    const domain_abstractions::DomainMapping &domain_mapping,
+    const std::vector<int> &hash_multipliers_by_var_id,
+    const TaskProxy &task_proxy);
+
+class DomainAbstractionFunction : public AbstractionFunction {
+    const domain_abstractions::DomainMapping domain_mapping;
+    domain_abstractions::NumericDomainMappings numeric_domain_mapping;
+    struct VariableAndMultiplier {
+        int pattern_var;
+        int hash_multiplier;
+
+        VariableAndMultiplier(int pattern_var, int hash_multiplier)
+            : pattern_var(pattern_var),
+              hash_multiplier(hash_multiplier) {
+        }
+    };
+    std::vector<VariableAndMultiplier> variables_and_multipliers;
+
+public:
+    DomainAbstractionFunction(
+        const pdbs::Pattern &pattern,
+        const std::vector<int> &hash_multipliers,
+        domain_abstractions::DomainMapping domain_mapping,
+        const domain_abstractions::NumericDomainMappings &numeric_domain_mapping);
+
+    virtual int get_abstract_state_id(const State &concrete_state) const override;
+};
+
+
+class DomainAbstraction : public Abstraction {
+    using Facts = std::vector<Fact>;
+    using OperatorCallback =
+        std::function<void (Facts &, Facts &, Facts &, const std::vector<int> &)>;
+
+    TaskProxy task_proxy;
+    std::shared_ptr<TaskInfo> task_info;
+    domain_abstractions::DomainMapping domain_mapping;
+    domain_abstractions::NumericDomainMappings numeric_domain_mapping;
+    pdbs::Pattern pattern;
+    array_pool_template::ArrayPool<int> label_to_operators;
+
+    std::vector<bool> looping_operators;
+
+    std::vector<RankedOperator> ranked_operators;
+    std::unique_ptr<domain_abstractions::MatchTreeWithPattern> match_tree_backward;
+
+    // Number of abstract states in the projection.
+    int num_states;
+
+    bool use_int_costs = false;
+
+    // Multipliers for each variable for perfect hash function (indexed by pattern position).
+    std::vector<int> hash_multipliers;
+
+    // Hash multipliers indexed by original variable ID (for functions that iterate by var_id)
+    std::vector<int> hash_multipliers_by_var_id;
+
+    // Domain size of each variable in the pattern.
+    std::vector<int> pattern_domain_sizes;
+
+    std::vector<int> goal_states;
+
+    std::vector<int> compute_goal_states(
+        const std::vector<int> &variable_to_pattern_index) const;
+
+    std::vector<int> enumerate_states_with_evaluated_comparisons(
+        int base_state_index,
+        const std::vector<Fact> &fixed_comparisons = {}) const;
+
+    // Output parameter version to avoid repeated allocations.
+    void enumerate_states_with_evaluated_comparisons(
+        int base_state_index,
+        const std::vector<Fact> &fixed_comparisons,
+        std::vector<int> &result) const;
+
+    /*
+      Given an abstract state (represented as a vector of facts), compute the
+      "next" fact. Return true iff there is a next fact.
+    */
+    bool increment_to_next_state(std::vector<Fact> &facts) const;
+
+    /*
+      Apply a function to all state-changing transitions in the projection
+      (including unreachable and unsolvable transitions).
+      
+      This implementation iterates over all abstract states as potential successors,
+      finds applicable operators via regression (match_tree_backward), and computes
+      predecessors. This mirrors the Dijkstra loop in compute_goal_distances.
+    */
+    template<class Callback>
+    void for_each_label_transition(const Callback &callback) const {
+        // Iterate over all abstract states as potential successor states.
+        // For each state, find applicable operators (in regression) and compute predecessors.
+        // This gives us all transitions: predecessor --op--> state
+        std::vector<int> applicable_operators;
+        
+        for (int state_index = 0; state_index < num_states; ++state_index) {
+            // Check if this state is comparison-feasible (matches its numeric context)
+            std::vector<int> alt_states = enumerate_states_with_evaluated_comparisons(state_index);
+            if (std::find(alt_states.begin(), alt_states.end(), state_index) == alt_states.end()) {
+                // This state is not comparison-feasible, skip it
+                continue;
+            }
+            
+            // Find operators applicable in regression from this state
+            applicable_operators.clear();
+            int base_state = reset_all_comparison_vars_to_unknown(
+                state_index, domain_mapping, hash_multipliers_by_var_id, task_proxy);
+            match_tree_backward->get_applicable_operator_ids(
+                base_state, applicable_operators);
+            
+            for (int ranked_op_id : applicable_operators) {
+                const RankedOperator &op = ranked_operators[ranked_op_id];
+                
+                // Compute predecessors using comparison preconditions
+                int predecessor_base = reset_comparison_vars_to_unknown_except(
+                    base_state, domain_mapping, hash_multipliers_by_var_id, task_proxy,
+                    op.comparison_preconditions);
+                predecessor_base = predecessor_base - op.hash_effect;
+                
+                std::vector<int> predecessors = enumerate_states_with_evaluated_comparisons(
+                    predecessor_base, op.comparison_preconditions);
+                
+                for (int predecessor : predecessors) {
+                    if (predecessor < 0 || predecessor >= num_states) {
+                        continue; // Invalid predecessor, skip
+                    }
+                    if (predecessor == state_index) {
+                        continue; // Skip self-loops
+                    }
+                    // Emit transition: predecessor --label--> state_index
+                    callback(Transition(predecessor, op.label, state_index));
+                }
+            }
+        }
+    }
+
+    // Backup of original implementation (kept for reference/debugging)
+    template<class Callback>
+    void for_each_label_transition2(const Callback &callback) const {
+        // Reuse vector to save allocations.
+        std::vector<Fact> abstract_facts;
+
+        for (const RankedOperator &ranked_operator : ranked_operators) {
+            
+            int concrete_op_id = *label_to_operators.get_slice(ranked_operator.label).begin();
+            
+            abstract_facts.clear();
+            for (size_t i = 0; i < pattern.size(); ++i) {
+                int var = pattern[i];
+                if (!task_info->operator_mentions_variable(concrete_op_id, var)) {
+                    abstract_facts.emplace_back(i, 0);
+                }
+            }
+            abstract_facts.clear();
+
+            bool has_next_match = true;
+            while (has_next_match) {
+                int state = ranked_operator.precondition_hash;
+                for (const Fact &fact : abstract_facts) {
+                    state += hash_multipliers[fact.var] * fact.value;
+                    if ( hash_multipliers[fact.var] * fact.value != 0 ) {
+                    }
+                }
+                
+                if (state >= num_states || state < 0) {
+                }
+                assert(state < num_states && state >= 0);
+
+                bool is_possible_state = false; 
+                //TODO: Can be optimized by only considering most optimistic comparison evaluations
+                //      and doing logic comparisons instead of enumerating all states.
+                std::vector<int> possible_states = enumerate_states_with_evaluated_comparisons(state);
+                for (int ps : possible_states) {
+                    if (ps == state) {
+                        is_possible_state = true;
+                        break;
+                    }
+                }
+                if (is_possible_state) {
+                    int base_target = state + ranked_operator.hash_effect;
+                    //std::cout << "DEBUG base target: " << decode_state(base_target) << std::endl;
+                    std::vector<int> successors = enumerate_states_with_evaluated_comparisons(base_target);
+                    for (int succ : successors) {
+                        //std::cout << "DEBUG succ state: " << decode_state(succ) << std::endl;
+                        //std::cout << "Successor: " << succ << ", Num states: " << num_states << std::endl;
+                        assert(succ < num_states && succ >= 0);
+                        if (succ == state) {
+                            //std::cout << "DEBUG self-loop detected." << std::endl;
+                            continue; // Skip self-loops
+                        }
+                        callback(Transition(state,
+                                            ranked_operator.label,
+                                            succ));
+                    }
+                
+                } 
+                break;
+                has_next_match = increment_to_next_state(abstract_facts);
+                //std::cout << std::endl;
+            }
+        }
+    }
+
+    /*
+      Return true iff all abstract facts hold in the given state.
+    */
+    bool is_consistent(
+        int state_index,
+        const std::vector<Fact> &abstract_facts) const;
+
+public:
+    DomainAbstraction(
+        const TaskProxy &task_proxy,
+        const std::shared_ptr<TaskInfo> &task_info,
+        domain_abstractions::DomainAbstraction &domain_abstraction,
+        bool combine_labels,
+        utils::Log &log);
+    virtual ~DomainAbstraction() override;
+
+    virtual std::vector<ap_float> compute_goal_distances(
+        const std::vector<ap_float> &operator_costs) const override;
+    virtual std::vector<ap_float> compute_saturated_costs(
+        const std::vector<ap_float> &h_values) const override;
+    virtual int get_num_operators() const override;
+    virtual bool operator_is_active(int op_id) const override;
+    virtual bool operator_induces_self_loop(int op_id) const override;
+    virtual void for_each_transition(const TransitionCallback &callback) const override;
+    virtual int get_num_states() const override;
+    virtual const std::vector<int> &get_goal_states() const override;
+
+    const pdbs::Pattern &get_pattern() const;
+    virtual void dump() const override;
+    
+    // Debug helper: decode state index into human-readable variable->value mapping
+    std::string decode_state(int state_index) const;
+    
+    // Debug helper: decode ranked operator into human-readable format
+    std::string decode_ranked_operator(const RankedOperator &ranked_op) const;
+    
+    // Debug helper: print names of variables mentioned by an operator (complement of abstract_facts)
+    std::string decode_mentioned_variables(int concrete_op_id) const;
+    
+    // Debug helper: print complete domain abstraction info (domains, numeric ranges, partitions)
+    std::string decode_domain_abstraction() const;
+};
+}
+
+#endif

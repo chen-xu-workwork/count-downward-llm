@@ -3,6 +3,7 @@
 
 #include "numeric_helper.h"
 #include "types.h"
+#include "pattern_database.h"
 
 #include <memory>
 
@@ -17,6 +18,9 @@ namespace numeric_pdbs {
   (consumers of pattern collections like heuristics).
 */
 class PatternCollectionInformation {
+
+    std::shared_ptr<PatternDatabaseParameters> params;
+
     std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy;
     std::shared_ptr<PatternCollection> patterns;
     std::shared_ptr<PDBCollection> pdbs;
@@ -33,7 +37,7 @@ public:
     PatternCollectionInformation(
             std::shared_ptr<numeric_pdb_helper::NumericTaskProxy> task_proxy,
             std::shared_ptr<PatternCollection> patterns,
-            size_t max_number_pdb_states);
+            std::shared_ptr<PatternDatabaseParameters> params);
     ~PatternCollectionInformation() = default;
 
     void set_pdbs(std::shared_ptr<PDBCollection> pdbs);

@@ -389,7 +389,7 @@ fast_downward_plugin(
         tasks/domain_abstracted_task_factory.cc
         tasks/modified_goals_task.cc
         tasks/modified_operator_costs_task.cc
-        tasks/projected_task.cpp
+        tasks/projected_task.cc
     DEPENDENCY_ONLY
 )
 
@@ -609,6 +609,7 @@ fast_downward_plugin(
         numeric_pdbs/numeric_task_proxy.cc
         numeric_pdbs/pattern_collection_generator_hillclimbing.cc
         numeric_pdbs/pattern_collection_generator_systematic.cc
+        numeric_pdbs/pattern_collection_generator_genetic.cc
         numeric_pdbs/pattern_collection_information.cc
         numeric_pdbs/pattern_database.cc
         numeric_pdbs/pattern_generator.cc
@@ -618,6 +619,8 @@ fast_downward_plugin(
         numeric_pdbs/types.cc
         numeric_pdbs/validation.cc
         numeric_pdbs/variable_order_finder.cc
+        numeric_pdbs/zero_one_pdbs.cc
+    DEPENDS EXTRA_TASKS
 )
 
 fast_downward_plugin(
@@ -654,7 +657,36 @@ fast_downward_plugin(
         numeric_landmarks/numeric_bound.cc
 )
 
+fast_downward_plugin(
+    NAME COST_SATURATION
+    HELP "Saturated cost partitioning for domain abstractions"
+    SOURCES
+        cost_saturation/abstraction.cc
+        cost_saturation/abstraction_generator.cc
+        cost_saturation/canonical_heuristic.cc
+        cost_saturation/cost_partitioning_heuristic.cc
+        cost_saturation/cost_partitioning_heuristic_collection_generator.cc
+        cost_saturation/diversifier.cc
+        cost_saturation/domain_abstraction.cc
+        cost_saturation/domain_abstraction_generator.cc
+        cost_saturation/max_cost_partitioning_heuristic.cc
+        cost_saturation/order_generator.cc
+        cost_saturation/order_generator_greedy.cc
+        cost_saturation/greedy_order_utils.cc
+        cost_saturation/order_optimizer.cc
+        cost_saturation/projection.cc
+        cost_saturation/match_tree.cc
+        cost_saturation/saturated_cost_partitioning_heuristic.cc
+        cost_saturation/unsolvability_heuristic.cc
+        cost_saturation/utils.cc
+        algorithms/max_cliques.cc
+        algorithms/partial_state_tree.cc
+    DEPENDS DOMAIN_ABSTRACTIONS
+)
+
 fast_downward_add_plugin_sources(PLANNER_SOURCES)
+
+
 
 # The order in PLANNER_SOURCES influences the order in which object
 # files are given to the linker, which can have a significant influence
@@ -664,3 +696,25 @@ fast_downward_add_plugin_sources(PLANNER_SOURCES)
 # first, followed by the core files, followed by the main file.
 # This is certainly not optimal, but works well enough in practice.
 list(REVERSE PLANNER_SOURCES)
+
+
+# --- domain_abstractions ---
+set(DOMAIN_ABSTRACTIONS_SOURCES
+    domain_abstractions/types
+    domain_abstractions/numeric_helper
+    domain_abstractions/cegar
+    domain_abstractions/domain_abstraction
+    domain_abstractions/domain_abstraction_state_registry
+    domain_abstractions/domain_abstraction_factory
+    domain_abstractions/match_tree
+    domain_abstractions/match_tree_with_pattern
+    domain_abstractions/domain_abstraction_heuristic
+    domain_abstractions/domain_abstraction_generator
+    domain_abstractions/domain_abstraction_generator_cegar
+    domain_abstractions/domain_abstraction_collection_generator
+    domain_abstractions/domain_abstraction_collection_generator_multiple
+    domain_abstractions/domain_abstraction_collection_generator_multiple_cegar
+    domain_abstractions/max_heuristic
+    domain_abstractions/utils
+)
+list(APPEND PLANNER_SOURCES ${DOMAIN_ABSTRACTIONS_SOURCES})
