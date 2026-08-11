@@ -376,9 +376,6 @@ public:
     }
 
     NumericVariableProxy operator[](std::size_t index) const {
-        if (index >= size()) {
-            std::cout << "DEBUG NumericVariablesProxy::operator[]: index = " << index << ", size = " << size() << std::endl;
-        }
         assert(index < size());
         return NumericVariableProxy(*task, index);
     }

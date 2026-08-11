@@ -684,9 +684,30 @@ fast_downward_plugin(
     DEPENDS DOMAIN_ABSTRACTIONS
 )
 
+fast_downward_plugin(
+    NAME DOMAIN_ABSTRACTIONS
+    HELP "Numeric Domain Abstractions"
+    SOURCES
+        domain_abstractions/types.cc
+        domain_abstractions/numeric_helper.cc
+        domain_abstractions/cegar.cc
+        domain_abstractions/domain_abstraction.cc
+        domain_abstractions/domain_abstraction_state_registry.cc
+        domain_abstractions/domain_abstraction_factory.cc
+        domain_abstractions/match_tree.cc
+        domain_abstractions/match_tree_with_pattern.cc
+        domain_abstractions/domain_abstraction_heuristic.cc
+        domain_abstractions/domain_abstraction_generator.cc
+        domain_abstractions/domain_abstraction_generator_cegar.cc
+        domain_abstractions/domain_abstraction_collection_generator.cc
+        domain_abstractions/domain_abstraction_collection_generator_multiple.cc
+        domain_abstractions/domain_abstraction_collection_generator_multiple_cegar.cc
+        domain_abstractions/max_heuristic.cc
+        domain_abstractions/utils.cc
+)
+
+
 fast_downward_add_plugin_sources(PLANNER_SOURCES)
-
-
 
 # The order in PLANNER_SOURCES influences the order in which object
 # files are given to the linker, which can have a significant influence
@@ -698,23 +719,3 @@ fast_downward_add_plugin_sources(PLANNER_SOURCES)
 list(REVERSE PLANNER_SOURCES)
 
 
-# --- domain_abstractions ---
-set(DOMAIN_ABSTRACTIONS_SOURCES
-    domain_abstractions/types
-    domain_abstractions/numeric_helper
-    domain_abstractions/cegar
-    domain_abstractions/domain_abstraction
-    domain_abstractions/domain_abstraction_state_registry
-    domain_abstractions/domain_abstraction_factory
-    domain_abstractions/match_tree
-    domain_abstractions/match_tree_with_pattern
-    domain_abstractions/domain_abstraction_heuristic
-    domain_abstractions/domain_abstraction_generator
-    domain_abstractions/domain_abstraction_generator_cegar
-    domain_abstractions/domain_abstraction_collection_generator
-    domain_abstractions/domain_abstraction_collection_generator_multiple
-    domain_abstractions/domain_abstraction_collection_generator_multiple_cegar
-    domain_abstractions/max_heuristic
-    domain_abstractions/utils
-)
-list(APPEND PLANNER_SOURCES ${DOMAIN_ABSTRACTIONS_SOURCES})

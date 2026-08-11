@@ -332,8 +332,8 @@ def parse_args():
         help="run a config with an alias (e.g. seq-sat-lama-2011)")
     driver_other.add_argument(
         "--build",
-        help="BUILD can be a predefined build name like release32 "
-            "(default), debug32, release64 and debug64, a custom build "
+        help="BUILD can be a predefined build name like release32, "
+            "debug32, release64 (default) and debug64, a custom build "
             "name, or the path to a directory holding the planner "
             "binaries. The driver first looks for the planner binaries "
             "under 'BUILD'. If this path does not exist, it tries the "
@@ -341,7 +341,7 @@ def parse_args():
             "script creates them by default.")
     driver_other.add_argument(
         "--debug", action="store_true",
-        help="alias for --build=debug32")
+        help="alias for --build=debug64")
     driver_other.add_argument(
         "--validate", action="store_true",
         help='validate plans (implied by --debug); needs "validate" (VAL) on PATH')
@@ -376,13 +376,13 @@ def parse_args():
     args = parser.parse_args()
 
     if args.build and args.debug:
-        parser.error("The option --debug is an alias for --build=debug32. "
+        parser.error("The option --debug is an alias for --build=debug64. "
                      "Do no specify both --debug and --build.")
     if not args.build:
         if args.debug:
-            args.build = "debug32"
+            args.build = "debug64"
         else:
-            args.build = "release32"
+            args.build = "release64"
 
     _split_planner_args(parser, args)
 
