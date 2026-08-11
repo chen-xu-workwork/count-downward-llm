@@ -1,6 +1,6 @@
 # Count Downward & Count Downward Together
 
-Several planners built on this repository participated in the International Planning Competition 2026. 
+Several planners that are based on this repository participated in the International Planning Competition 2026. 
 
 You can run its ``Count Downward'' configurations using:
 ```
