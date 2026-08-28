@@ -141,6 +141,10 @@ extern IntPacker *g_state_packer;
 // Use the state registry to obtain the real initial state.
 extern std::vector<container_int> g_initial_state_data;
 extern std::vector<ap_float> g_initial_state_numeric;
+// Static facts/functions from the original PDDL init that are eliminated
+// from the dynamic SAS state but are needed when exporting an intermediate
+// state for the LLM.
+extern std::vector<std::string> g_init_constant_facts;
 
 
 // TODO The following function returns the initial state that is registered

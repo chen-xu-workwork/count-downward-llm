@@ -1,0 +1,47 @@
+{
+  "domain": "/data/generated-pddl/depots-numeric-new/domain.pddl",
+  "problem_dir": "/data/generated-pddl/depots-numeric-new/problems",
+  "default_mode": "live",
+  "jobs": [
+    {
+      "id": "scale30-572-live",
+      "problem": "problem_scale_30_id_572.pddl",
+      "mode": "live"
+    },
+    {
+      "id": "scale30-572-off",
+      "problem": "problem_scale_30_id_572.pddl",
+      "mode": "off"
+    },
+    {
+      "id": "scale30-806-live",
+      "problem": "problem_scale_30_id_806.pddl",
+      "mode": "live"
+    },
+    {
+      "id": "scale30-806-off",
+      "problem": "problem_scale_30_id_806.pddl",
+      "mode": "off"
+    },
+    {
+      "id": "scale40-176-live",
+      "problem": "problem_scale_40_id_176.pddl",
+      "mode": "live"
+    },
+    {
+      "id": "scale40-176-off",
+      "problem": "problem_scale_40_id_176.pddl",
+      "mode": "off"
+    },
+    {
+      "id": "scale40-222-live",
+      "problem": "problem_scale_40_id_222.pddl",
+      "mode": "live"
+    },
+    {
+      "id": "scale40-222-off",
+      "problem": "problem_scale_40_id_222.pddl",
+      "mode": "off"
+    }
+  ]
+}

@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <iostream>
+#include <string>
 #include <vector>
 
 class GlobalOperator;
@@ -53,7 +54,9 @@ public:
 
     std::vector<ap_float> get_numeric_vars() const;
     void dump_pddl() const;
+    void dump_pddl_init() const;
     void dump_fdr() const;
+    std::string get_pddl_init_string() const;
     std::string get_numeric_state_vals_string() const;
     std::string dump_plan_vis_log() const;
     std::string dump_plan_vis_log(const GlobalState& parent) const;

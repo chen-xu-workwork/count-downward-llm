@@ -105,6 +105,29 @@ void read_global_constraint(istream &in, const vector<Variable *> &variables, Gl
 	check_magic(in, "end_global_constraint");
 }
 
+static void read_init_constant_facts(
+    istream &in, vector<string> &init_constant_facts) {
+    string marker_or_count;
+    if (!(in >> marker_or_count)) {
+        in.clear();
+        return;
+    }
+    if (marker_or_count == "begin_SG")
+        return;
+
+    int count = atoi(marker_or_count.c_str());
+    check_magic(in, "begin_init_constant_facts");
+    in >> ws;
+    init_constant_facts.clear();
+    init_constant_facts.reserve(count);
+    for (int i = 0; i < count; ++i) {
+        string fact;
+        getline(in, fact);
+        init_constant_facts.push_back(fact);
+    }
+    check_magic(in, "end_init_constant_facts");
+}
+
 void read_goal(istream &in, const vector<Variable *> &variables,
                vector<pair<Variable *, int>> &goals) {
     check_magic(in, "begin_goal");
@@ -230,7 +253,8 @@ void read_preprocessed_problem_description(istream &in,
                                            vector<Axiom_relational> &axioms_rel,
                                            vector<Axiom_numeric_computation> &axioms_func_ass,
                                            vector<Axiom_functional_comparison> &axioms_func_comp,
-										   GlobalConstraint &gconstraint) {
+										   GlobalConstraint &gconstraint,
+                                           vector<string> &init_constant_facts) {
 	if (DEBUG) cout << "reading version..." << endl;
     read_and_verify_version(in);
     if (DEBUG) cout << "reading metric..." << endl;
@@ -254,6 +278,7 @@ void read_preprocessed_problem_description(istream &in,
     read_axioms_numeric(in, numeric_variables, axioms_func_ass);
     if (DEBUG) cout << "reading global constraint" << endl;
     read_global_constraint(in, variables, gconstraint);
+    read_init_constant_facts(in, init_constant_facts);
 
 //    if (DEBUG) {
 //    	cout << "Dumping Variables" << endl;
@@ -314,7 +339,8 @@ void generate_cpp_input(bool /*solvable_in_poly_time*/,
                         const vector<Axiom_relational> &axioms_rel,
                         const vector<Axiom_numeric_computation> &axioms_func_ass,
                         const vector<Axiom_functional_comparison> &axioms_func_comp,
-			const GlobalConstraint &constraint) {
+			const GlobalConstraint &constraint,
+                        const vector<string> &init_constant_facts) {
     /* NOTE: solvable_in_poly_time flag is no longer included in output,
        since the planner doesn't handle it specially any more anyway. */
 
@@ -406,6 +432,12 @@ void generate_cpp_input(bool /*solvable_in_poly_time*/,
     outfile << "begin_global_constraint" << endl;
     outfile << constraint.var->get_level() << " " << constraint.val << endl;
     outfile << "end_global_constraint" << endl;
+
+    outfile << init_constant_facts.size() << endl;
+    outfile << "begin_init_constant_facts" << endl;
+    for (const string &fact : init_constant_facts)
+        outfile << fact << endl;
+    outfile << "end_init_constant_facts" << endl;
 
     outfile << "begin_SG" << endl;
 

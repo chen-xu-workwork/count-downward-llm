@@ -5,6 +5,7 @@
 from collections import defaultdict
 
 import build_model
+import grounded_static_facts
 import pddl_to_prolog
 import pddl
 import timers
@@ -132,6 +133,12 @@ def instantiate(task, model):
             relaxed_reachable = True 
 
     instantiated_numeric_axioms |= new_constant_numeric_axioms
+
+    # Preserve initially true grounded facts that no reachable action can
+    # delete, even when the predicate is mutable for other object tuples.
+    init_constant_predicate_facts.update(
+        grounded_static_facts.collect_grounded_static_init_facts(
+            task.init, instantiated_actions))
 
     # Ensure deterministic output ordering across runs (PYTHONHASHSEED).
     instantiated_numeric_axioms = sorted(instantiated_numeric_axioms, key=lambda ax: ax.name)

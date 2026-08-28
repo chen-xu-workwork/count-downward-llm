@@ -35,6 +35,7 @@ int main(int argc, const char **argv) {
     vector<Axiom_functional_comparison> axioms_func_comp;
     vector<DomainTransitionGraph> transition_graphs;
     GlobalConstraint global_constraint;
+    vector<string> init_constant_facts;
 
     /**
      * The following block generates a stream that will be further processed.
@@ -65,7 +66,8 @@ int main(int argc, const char **argv) {
 
     read_preprocessed_problem_description(result, metric, internal_variables, variables,
         		internal_numeric_variables, numeric_variables, mutexes, initial_state, goals,
-        		operators, axioms_rel, axioms_numeric, axioms_func_comp, global_constraint);
+				operators, axioms_rel, axioms_numeric, axioms_func_comp, global_constraint,
+                init_constant_facts);
     //dump_preprocessed_problem_description
     //  (variables, initial_state, goals, operators, axioms);
 
@@ -147,7 +149,8 @@ int main(int argc, const char **argv) {
     cout << "Writing output..." << endl;
     generate_cpp_input(solveable_in_poly_time, ordering, numeric_ordering, metric,
                        mutexes, initial_state, goals, operators, axioms_rel,
-					   axioms_numeric, axioms_func_comp, global_constraint);
+					   axioms_numeric, axioms_func_comp, global_constraint,
+                       init_constant_facts);
     cout << "done" << endl;
 
 //    cout << "-----------------------------------------------\n Eliminated Variables : \n--------------------------------------------------" << endl;

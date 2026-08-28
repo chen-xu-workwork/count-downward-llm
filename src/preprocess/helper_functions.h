@@ -46,7 +46,8 @@ void read_preprocessed_problem_description(istream &in,
                                            vector<Axiom_relational> &axioms_rel,
                                            vector<Axiom_numeric_computation> &axioms_func_ass,
                                            vector<Axiom_functional_comparison> &axioms_func_comp,
-										   GlobalConstraint &gconstraint);
+										   GlobalConstraint &gconstraint,
+                                           vector<string> &init_constant_facts);
 
 //void dump_everything
 void dump_preprocessed_problem_description(const vector<Variable *> &variables,
@@ -70,7 +71,8 @@ void generate_cpp_input(bool causal_graph_acyclic,
                         const vector<Axiom_relational> &axioms_rel,
                         const vector<Axiom_numeric_computation> &axioms_func_ass,
                         const vector<Axiom_functional_comparison> &axioms_func_comp,
-			const GlobalConstraint &constraint);
+			const GlobalConstraint &constraint,
+                        const vector<string> &init_constant_facts);
 void check_magic(istream &in, string magic);
 
 enum foperator

@@ -12,6 +12,7 @@ set(PLANNER_SOURCES
 
 set(CORE_SOURCES
         abstract_task.cc
+        action_chain_evaluator.cc
         axioms.cc
         causal_graph.cc
         equivalence_relation.cc
@@ -44,6 +45,11 @@ set(CORE_SOURCES
         task_proxy.cc
         task_tools.cc
         variable_order_finder.cc
+
+        llm/llm_protocol.cc
+        llm/llm_bridge.cc
+        llm/llm_trigger_monitor.cc
+        llm/llm_proposal.cc
 
         open_lists/alternation_open_list.cc
         open_lists/bucket_open_list.cc

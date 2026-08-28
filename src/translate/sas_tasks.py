@@ -5,6 +5,43 @@ SAS_FILE_VERSION = 4
 DEBUG = False
 
 
+def _pddl_atom_string(atom):
+    return "(%s%s)" % (
+        atom.predicate,
+        "".join(" %s" % arg for arg in atom.args))
+
+
+def _pddl_numeric_assignment_string(assignment):
+    fluent = assignment.fluent
+    expression = assignment.expression
+    return "(= (%s%s) %s)" % (
+        fluent.symbol,
+        "".join(" %s" % arg for arg in fluent.args),
+        expression.value)
+
+
+def _constant_init_fact_strings(predicates, numerics):
+    """Serialize PDDL init facts that do not become SAS state variables."""
+    exportable_predicates = [
+        atom for atom in predicates if str(atom.predicate) != "="
+    ]
+    facts = [
+        _pddl_atom_string(atom)
+        for atom in sorted(
+            exportable_predicates,
+            key=lambda atom: (str(atom.predicate), tuple(atom.args)))
+    ]
+    facts.extend(
+        _pddl_numeric_assignment_string(assignment)
+        for assignment in sorted(
+            numerics,
+            key=lambda assignment: (
+                assignment.fluent.symbol,
+                tuple(assignment.fluent.args)))
+    )
+    return facts
+
+
 class SASTask:
     """Planning task in finite-domain representation.
 
@@ -123,7 +160,15 @@ class SASTask:
         print("end_numeric_axioms", file=stream)
         print("begin_global_constraint", file=stream)             
         print("%s %s"%self.global_constraint, file=stream)
-        print("end_global_constraint", file=stream)        
+        print("end_global_constraint", file=stream)
+        constant_init_facts = _constant_init_fact_strings(
+            self.init_constant_predicates,
+            self.init_constant_numerics)
+        print(len(constant_init_facts), file=stream)
+        print("begin_init_constant_facts", file=stream)
+        for fact in constant_init_facts:
+            print(fact, file=stream)
+        print("end_init_constant_facts", file=stream)
 #        print("DEBUG: constant numerics %s " % self.init_constant_numerics)
 
     def get_encoding_size(self):

@@ -1,0 +1,6 @@
+# Reproducible sample from the available files, selected with
+# random.Random(20260827): two scale-30 and two scale-40 instances.
+problem_scale_30_id_572.pddl
+problem_scale_30_id_806.pddl
+problem_scale_40_id_176.pddl
+problem_scale_40_id_222.pddl
