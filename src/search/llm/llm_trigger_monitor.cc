@@ -139,22 +139,17 @@ struct TriggerMonitor::PlateauState {
     }
 };
 
-struct TriggerMonitor::PendingInfo {
-    chrono::steady_clock::time_point submitted_at;
-    int expansions_at_submit;
-    string reason;
+TriggerMonitor::PendingInfo::PendingInfo()
+    : submitted_at(chrono::steady_clock::now()),
+      expansions_at_submit(0) {
+}
 
-    PendingInfo()
-        : submitted_at(chrono::steady_clock::now()),
-          expansions_at_submit(0) {
-    }
-
-    PendingInfo(int expansions, const string &reason_)
-        : submitted_at(chrono::steady_clock::now()),
-          expansions_at_submit(expansions),
-          reason(reason_) {
-    }
-};
+TriggerMonitor::PendingInfo::PendingInfo(
+    int expansions, const string &reason_)
+    : submitted_at(chrono::steady_clock::now()),
+      expansions_at_submit(expansions),
+      reason(reason_) {
+}
 
 TriggerMonitor::TriggerMonitor()
     : config(new Config()),

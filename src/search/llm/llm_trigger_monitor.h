@@ -14,7 +14,14 @@ namespace llm {
 
 class TriggerMonitor {
     struct Config;
-    struct PendingInfo;
+    struct PendingInfo {
+        std::chrono::steady_clock::time_point submitted_at;
+        int expansions_at_submit;
+        std::string reason;
+
+        PendingInfo();
+        PendingInfo(int expansions, const std::string &reason_);
+    };
     struct PlateauState;
 
     Config *config;
