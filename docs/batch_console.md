@@ -86,3 +86,37 @@ as a prefix, so concurrent small jobs remain distinguishable.
 `unsolvable`, `incomplete`, or `timeout`.  A planned 30/60-minute cutoff is
 therefore not treated as a controller failure; only `failed` makes the batch
 exit unsuccessfully.
+
+## AutoDL validation pilot
+
+The repository includes a thin wrapper with the current AutoDL project,
+validation-dataset, checkpoint and result paths:
+
+```bash
+bash scripts/run_autodl_validation_pilot.sh
+```
+
+It deterministically selects the first five validation problems at scales 10,
+20 and 30, plus the first three at scale 40.  Natural filename ordering is
+used, so repeated launches select the same 18 problems.  Scale-40 jobs retain
+the batch scheduler's one-at-a-time exclusive policy.
+
+The result directory is deliberately stable rather than timestamped.  The
+wrapper enables `--resume`: every child writes `job_result.json` atomically
+when it exits.  `plan_found`, `unsolvable`, `incomplete`, and `timeout` markers
+are skipped on the next launch.  A job interrupted before completion, or a
+job marked `failed`, is retried.  This means a normal time-limit exhaustion
+without a solution still counts as processed.
+
+The editable defaults are grouped at the top of the wrapper and can also be
+overridden without editing it.  For example:
+
+```bash
+COUNT_RUN_MODE=off \
+COUNT_RUN_TAG=pilot-off \
+bash scripts/run_autodl_validation_pilot.sh
+```
+
+Use a new `COUNT_RUN_TAG` or `COUNT_RESULTS_DIR` whenever the model,
+LLM/off mode, sample selection, or experiment parameters change.  Resume is
+intended for continuing the same experiment configuration.

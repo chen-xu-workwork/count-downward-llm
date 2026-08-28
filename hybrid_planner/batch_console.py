@@ -69,6 +69,7 @@ EXPECTED_PLANNER_STATUSES = {
     5: "incomplete",
     7: "timeout",
 }
+RESUMABLE_STATUSES = frozenset(EXPECTED_PLANNER_STATUSES.values())
 
 
 def classify_return_code(return_code, error=""):
@@ -77,6 +78,78 @@ def classify_return_code(return_code, error=""):
     if error:
         return "failed"
     return EXPECTED_PLANNER_STATUSES.get(return_code, "failed")
+
+
+def write_job_result(job_dir, result):
+    """Atomically persist one finished job for interruption-safe resume."""
+
+    marker_path = pathlib.Path(job_dir) / "job_result.json"
+    temporary_path = marker_path.with_name(marker_path.name + ".tmp")
+    with temporary_path.open("w", encoding="utf-8") as stream:
+        json.dump(asdict(result), stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary_path, marker_path)
+
+
+def partition_resumable_jobs(jobs, output_dir):
+    """Split jobs into trusted completed results and jobs that must run."""
+
+    output_dir = pathlib.Path(output_dir)
+    completed = []
+    pending = []
+    for job in jobs:
+        marker_path = output_dir / job.job_id / "job_result.json"
+        try:
+            payload = json.loads(marker_path.read_text(encoding="utf-8"))
+            stored = JobResult(**payload)
+            stored_problem = pathlib.Path(stored.problem).expanduser().resolve()
+            identity_matches = (
+                stored.job_id == job.job_id
+                and stored_problem == job.problem
+                and stored.mode == job.mode
+                and int(stored.scale) == job.scale
+                and math.isclose(
+                    float(stored.time_limit_seconds),
+                    job.time_limit_seconds,
+                    rel_tol=0.0,
+                    abs_tol=1e-9,
+                )
+                and int(stored.max_requests_per_iteration)
+                == job.max_requests_per_iteration
+                and bool(stored.exclusive) == job.exclusive
+            )
+            outcome_is_complete = (
+                not stored.error
+                and stored.status in RESUMABLE_STATUSES
+                and EXPECTED_PLANNER_STATUSES.get(int(stored.return_code))
+                == stored.status
+            )
+            if not identity_matches or not outcome_is_complete:
+                raise ValueError("result marker does not match the current job")
+        except (OSError, ValueError, TypeError, KeyError):
+            pending.append(job)
+            continue
+
+        completed.append(
+            JobResult(
+                index=job.index,
+                job_id=job.job_id,
+                problem=str(job.problem),
+                mode=job.mode,
+                scale=job.scale,
+                time_limit_seconds=job.time_limit_seconds,
+                max_requests_per_iteration=job.max_requests_per_iteration,
+                exclusive=job.exclusive,
+                status=stored.status,
+                return_code=int(stored.return_code),
+                elapsed_seconds=float(stored.elapsed_seconds),
+                output_dir=str(output_dir / job.job_id),
+                error="",
+            )
+        )
+    return completed, pending
 
 
 def _safe_component(value):
@@ -395,7 +468,7 @@ class BatchJobRunner:
             "[COUNT-BATCH] end job=%s status=%s code=%d seconds=%.3f"
             % (job.job_id, status, return_code, elapsed)
         )
-        return JobResult(
+        result = JobResult(
             index=job.index,
             job_id=job.job_id,
             problem=str(job.problem),
@@ -410,6 +483,8 @@ class BatchJobRunner:
             output_dir=str(job_dir),
             error=error,
         )
+        write_job_result(job_dir, result)
+        return result
 
 
 def run_scheduled_jobs(jobs, small_parallelism, run_job):
@@ -454,6 +529,7 @@ def _write_batch_records(output_dir, domain, jobs, results, args, base_url):
         "large_time_limit_seconds": args.large_time_limit,
         "small_max_requests_per_iteration": args.small_max_requests,
         "large_max_requests_per_iteration": args.large_max_requests,
+        "resume_enabled": args.resume,
         "vllm_base_url": base_url,
         "jobs": [
             {**asdict(job), "problem": str(job.problem)} for job in jobs
@@ -508,6 +584,14 @@ def build_argument_parser():
     parser.add_argument("--manifest", default="", help="JSON batch manifest")
     parser.add_argument("--default-mode", choices=("live", "off"), default="live")
     parser.add_argument("--output-dir", default="")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Skip jobs with matching completed job_result.json markers. "
+            "Timeout and incomplete outcomes count as completed; failed jobs retry."
+        ),
+    )
 
     parser.add_argument("--small-scale-max", type=int, default=30)
     parser.add_argument("--small-parallelism", type=int, default=2)
@@ -576,14 +660,6 @@ def main():
         domain, jobs = load_jobs(args)
     except ValueError as exc:
         parser.error(str(exc))
-    live_jobs = [job for job in jobs if job.mode == "live"]
-    if live_jobs and not args.external_vllm:
-        if not args.vllm_model_path and not args.vllm_command:
-            parser.error(
-                "live jobs require --vllm-model-path, --vllm-command, "
-                "or --external-vllm"
-            )
-
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     output_dir = (
         pathlib.Path(args.output_dir).expanduser().resolve()
@@ -592,12 +668,36 @@ def main():
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    resumed_results = []
+    pending_jobs = list(jobs)
+    if args.resume:
+        resumed_results, pending_jobs = partition_resumable_jobs(jobs, output_dir)
+        for result in resumed_results:
+            print(
+                "[COUNT-BATCH] resume skip job=%s status=%s"
+                % (result.job_id, result.status),
+                flush=True,
+            )
+
+    live_jobs = [job for job in pending_jobs if job.mode == "live"]
+    if live_jobs and not args.external_vllm:
+        if not args.vllm_model_path and not args.vllm_command:
+            parser.error(
+                "live jobs require --vllm-model-path, --vllm-command, "
+                "or --external-vllm"
+            )
+
     service = None
     runner = None
-    results = []
+    results = list(resumed_results)
     base_url = ""
     try:
-        if live_jobs:
+        if not pending_jobs:
+            print(
+                "[COUNT-BATCH] resume found all jobs complete; nothing to run",
+                flush=True,
+            )
+        elif live_jobs:
             service = _build_vllm_service(args, output_dir)
             if not args.external_vllm:
                 override = shlex.split(args.vllm_command) if args.vllm_command else None
@@ -624,9 +724,15 @@ def main():
                 flush=True,
             )
 
-        _write_batch_records(output_dir, domain, jobs, [], args, base_url)
-        runner = BatchJobRunner(domain, output_dir, args, base_url)
-        results = run_scheduled_jobs(jobs, args.small_parallelism, runner)
+        _write_batch_records(output_dir, domain, jobs, results, args, base_url)
+        if pending_jobs:
+            runner = BatchJobRunner(domain, output_dir, args, base_url)
+            results.extend(
+                run_scheduled_jobs(
+                    pending_jobs, args.small_parallelism, runner
+                )
+            )
+            results.sort(key=lambda result: result.index)
     except KeyboardInterrupt:
         print("[COUNT-BATCH] interrupted; stopping active planners", flush=True)
         if runner is not None:
@@ -634,6 +740,14 @@ def main():
     finally:
         if service is not None:
             service.stop()
+        if args.resume:
+            marker_results, _ = partition_resumable_jobs(jobs, output_dir)
+            results_by_id = {result.job_id: result for result in results}
+            for result in marker_results:
+                results_by_id.setdefault(result.job_id, result)
+            results = sorted(
+                results_by_id.values(), key=lambda result: result.index
+            )
         _write_batch_records(output_dir, domain, jobs, results, args, base_url)
 
     failures = [result for result in results if result.status == "failed"]

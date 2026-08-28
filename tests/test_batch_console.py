@@ -7,13 +7,16 @@ import types
 import unittest
 
 from hybrid_planner.batch_console import (
+    JobResult,
     JobSpec,
     build_child_command,
     classify_return_code,
     infer_problem_scale,
     load_jobs,
+    partition_resumable_jobs,
     policy_for_scale,
     run_scheduled_jobs,
+    write_job_result,
 )
 
 
@@ -168,6 +171,43 @@ class BatchPolicyTests(unittest.TestCase):
             "small-1", "small-2", "large", "small-3"
         ])
         self.assertEqual(large_observation, [{"large"}])
+
+    def test_resume_skips_timeout_but_retries_failed_job(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = pathlib.Path(temp_dir)
+            problem = output_dir / "problem_scale_40_id_2.pddl"
+            problem.write_text("(define)", encoding="utf-8")
+            job = JobSpec(
+                1, "large-live", problem.resolve(), "live", 40, 3600, 15, True
+            )
+            job_dir = output_dir / job.job_id
+            job_dir.mkdir()
+            timeout_result = {
+                "index": 1,
+                "job_id": job.job_id,
+                "problem": str(job.problem),
+                "mode": job.mode,
+                "scale": job.scale,
+                "time_limit_seconds": job.time_limit_seconds,
+                "max_requests_per_iteration": job.max_requests_per_iteration,
+                "exclusive": job.exclusive,
+                "status": "timeout",
+                "return_code": 7,
+                "elapsed_seconds": 3600.1,
+                "output_dir": str(job_dir),
+                "error": "",
+            }
+            write_job_result(job_dir, JobResult(**timeout_result))
+            completed, pending = partition_resumable_jobs([job], output_dir)
+            self.assertEqual([result.status for result in completed], ["timeout"])
+            self.assertEqual(pending, [])
+
+            failed_result = dict(timeout_result)
+            failed_result.update(status="failed", return_code=1)
+            write_job_result(job_dir, JobResult(**failed_result))
+            completed, pending = partition_resumable_jobs([job], output_dir)
+            self.assertEqual(completed, [])
+            self.assertEqual(pending, [job])
 
 
 if __name__ == "__main__":
