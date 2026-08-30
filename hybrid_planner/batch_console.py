@@ -72,6 +72,109 @@ EXPECTED_PLANNER_STATUSES = {
 RESUMABLE_STATUSES = frozenset(EXPECTED_PLANNER_STATUSES.values())
 
 
+# These settings control how much native Lazy-search work is observed between
+# LLM opportunities. The statistical plateau definition (window size, shares
+# and confirmation windows) is intentionally not scaled here: it is a semantic
+# detector policy rather than a request-cadence policy.
+SCALE_AWARE_EXPANSION_SETTINGS = {
+    "STALL_EXPANSIONS": 500000,
+    "MIN_REQUEST_GAP_EXPANSIONS": 500000,
+    "ANCESTOR_CHECK_INTERVAL": 100000,
+    "PLATEAU_MIN_SINCE_REQUEST_EXPANSIONS": 65536,
+    "PLATEAU_PER_LAYER_REQUEST_GAP_EXPANSIONS": 500000,
+}
+
+RECORDED_PLATEAU_DETECTOR_DEFAULTS = {
+    "PLATEAU_WINDOW_EXPANSIONS": "65536",
+    "PLATEAU_CONFIRM_WINDOWS": "3",
+    "PLATEAU_RESET_WINDOWS": "2",
+    "PLATEAU_MIN_BUCKET_EXPANSIONS": "16384",
+    "PLATEAU_MIN_SHARE": "0.3",
+    "PLATEAU_MAX_LOWER_SHARE": "0.1",
+    "PLATEAU_H_BUCKET_WIDTH": "0.001",
+}
+
+
+def llm_expansion_multiplier_for_scale(scale, args):
+    """Return the configured expansion-cadence multiplier for one scale."""
+
+    if not getattr(args, "scale_aware_llm_thresholds", False) or scale <= 20:
+        return 1.0
+    if scale <= 30:
+        return float(getattr(args, "scale_30_expansion_multiplier", 0.5))
+    return float(getattr(args, "scale_40_expansion_multiplier", 0.25))
+
+
+def _read_llm_integer_setting(environment, name, default):
+    for prefix in ("HYBRID_LLM_", "NLM_LLM_"):
+        key = prefix + name
+        if key in environment:
+            try:
+                value = int(environment[key])
+            except (TypeError, ValueError) as exc:
+                raise ValueError("%s must be an integer" % key) from exc
+            if value < 1:
+                raise ValueError("%s must be positive" % key)
+            return value
+    return int(default)
+
+
+def _read_llm_setting(environment, name, default):
+    for prefix in ("HYBRID_LLM_", "NLM_LLM_"):
+        key = prefix + name
+        if key in environment:
+            return str(environment[key])
+    return str(default)
+
+
+def build_job_environment(job, args, base_environment=None):
+    """Build an isolated child environment and resolve its LLM scale policy."""
+
+    environment = dict(os.environ if base_environment is None else base_environment)
+    budget = str(job.max_requests_per_iteration)
+    environment["HYBRID_LLM_MAX_REQUESTS"] = budget
+    environment["NLM_LLM_MAX_REQUESTS"] = budget
+
+    policy = {
+        "enabled": False,
+        "expansion_multiplier": 1.0,
+        "settings": {},
+        "plateau_detector_settings": {},
+    }
+    if job.mode != "live":
+        environment["HYBRID_LLM_TRIGGER"] = "0"
+        environment["NLM_LLM_TRIGGER"] = "0"
+        return environment, policy
+
+    environment["HYBRID_LLM_TRIGGER"] = "1"
+    environment["NLM_LLM_TRIGGER"] = "1"
+    policy["plateau_detector_settings"] = {
+        name: _read_llm_setting(environment, name, default)
+        for name, default in RECORDED_PLATEAU_DETECTOR_DEFAULTS.items()
+    }
+    if not getattr(args, "scale_aware_llm_thresholds", False):
+        return environment, policy
+
+    multiplier = llm_expansion_multiplier_for_scale(job.scale, args)
+    resolved = {}
+    for name, default in SCALE_AWARE_EXPANSION_SETTINGS.items():
+        base_value = _read_llm_integer_setting(environment, name, default)
+        scaled_value = max(1, int(math.floor(base_value * multiplier + 0.5)))
+        environment["HYBRID_LLM_" + name] = str(scaled_value)
+        environment["NLM_LLM_" + name] = str(scaled_value)
+        resolved[name] = {
+            "base_value": base_value,
+            "resolved_value": scaled_value,
+        }
+
+    policy.update(
+        enabled=True,
+        expansion_multiplier=multiplier,
+        settings=resolved,
+    )
+    return environment, policy
+
+
 def classify_return_code(return_code, error=""):
     """Map Fast Downward's normal experiment exits to readable statuses."""
 
@@ -391,16 +494,7 @@ class BatchJobRunner:
         command = build_child_command(
             job, self.domain, job_dir, self.args, self.vllm_base_url
         )
-        environment = os.environ.copy()
-        budget = str(job.max_requests_per_iteration)
-        environment["HYBRID_LLM_MAX_REQUESTS"] = budget
-        environment["NLM_LLM_MAX_REQUESTS"] = budget
-        if job.mode == "live":
-            environment["HYBRID_LLM_TRIGGER"] = "1"
-            environment["NLM_LLM_TRIGGER"] = "1"
-        else:
-            environment["HYBRID_LLM_TRIGGER"] = "0"
-            environment["NLM_LLM_TRIGGER"] = "0"
+        environment, llm_scale_policy = build_job_environment(job, self.args)
 
         (job_dir / "job.json").write_text(
             json.dumps(
@@ -409,6 +503,7 @@ class BatchJobRunner:
                     "problem": str(job.problem),
                     "domain": str(self.domain),
                     "command": command,
+                    "llm_scale_policy": llm_scale_policy,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -421,13 +516,15 @@ class BatchJobRunner:
         error = ""
         return_code = -1
         self._print(
-            "[COUNT-BATCH] start job=%s scale=%d mode=%s limit=%ss budget=%d"
+            "[COUNT-BATCH] start job=%s scale=%d mode=%s limit=%ss budget=%d "
+            "llm_expansion_multiplier=%.6g"
             % (
                 job.job_id,
                 job.scale,
                 job.mode,
                 "%.12g" % job.time_limit_seconds,
                 job.max_requests_per_iteration,
+                llm_scale_policy["expansion_multiplier"],
             )
         )
         try:
@@ -529,6 +626,15 @@ def _write_batch_records(output_dir, domain, jobs, results, args, base_url):
         "large_time_limit_seconds": args.large_time_limit,
         "small_max_requests_per_iteration": args.small_max_requests,
         "large_max_requests_per_iteration": args.large_max_requests,
+        "scale_aware_llm_thresholds": getattr(
+            args, "scale_aware_llm_thresholds", False
+        ),
+        "scale_30_expansion_multiplier": getattr(
+            args, "scale_30_expansion_multiplier", 0.5
+        ),
+        "scale_40_expansion_multiplier": getattr(
+            args, "scale_40_expansion_multiplier", 0.25
+        ),
         "resume_enabled": args.resume,
         "vllm_base_url": base_url,
         "jobs": [
@@ -599,6 +705,26 @@ def build_argument_parser():
     parser.add_argument("--large-time-limit", type=float, default=3600.0)
     parser.add_argument("--small-max-requests", type=int, default=10)
     parser.add_argument("--large-max-requests", type=int, default=15)
+    parser.add_argument(
+        "--scale-aware-llm-thresholds",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Scale Lazy-search expansion cadence settings per problem size. "
+            "Scales up to 20 keep the base values; scales up to 30 and above "
+            "30 use their configured multipliers."
+        ),
+    )
+    parser.add_argument(
+        "--scale-30-expansion-multiplier",
+        type=float,
+        default=0.5,
+    )
+    parser.add_argument(
+        "--scale-40-expansion-multiplier",
+        type=float,
+        default=0.25,
+    )
 
     parser.add_argument("--build", default="release64")
     parser.add_argument("--planner-python", default="python3")
@@ -653,6 +779,12 @@ def main():
         parser.error("--small-parallelism must be positive")
     if args.small_max_requests < 0 or args.large_max_requests < 0:
         parser.error("request budgets must not be negative")
+    for name, multiplier in (
+        ("--scale-30-expansion-multiplier", args.scale_30_expansion_multiplier),
+        ("--scale-40-expansion-multiplier", args.scale_40_expansion_multiplier),
+    ):
+        if not math.isfinite(multiplier) or multiplier <= 0:
+            parser.error("%s must be positive and finite" % name)
     if args.llm_samples_per_state < 1 or args.llm_max_concurrency < 1:
         parser.error("LLM samples and concurrency must be positive")
 

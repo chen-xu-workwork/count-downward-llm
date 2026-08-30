@@ -8,7 +8,7 @@ import urllib.request
 from dataclasses import dataclass
 from http.server import ThreadingHTTPServer
 
-from hybrid_planner.console import make_handler
+from hybrid_planner.console import make_handler, save_prompt_debug_record
 from hybrid_planner.llm.client import (
     LLMGenerationResult,
     ReplayLLMRuntime,
@@ -131,6 +131,25 @@ class ConsoleHandlerTests(unittest.TestCase):
             [["(drive truck0 depot0 distributor0)"]] * 3,
         )
         self.assertEqual(result["request_id"], "7-1")
+
+    def test_prompt_debug_record_saves_the_complete_runtime_problem(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = save_prompt_debug_record(
+                temp_dir,
+                {
+                    "request_id": "state-9",
+                    "state_id": 9,
+                    "problem_id": "problem",
+                    "init": "(:init (ready a))",
+                },
+                FakePrompts(),
+            )
+            record = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(record["init"], "(:init (ready a))")
+        self.assertEqual(record["runtime_problem"], FakePrompts.runtime_problem)
+        self.assertEqual(record["system"], FakePrompts.system)
+        self.assertEqual(record["user"], FakePrompts.user)
 
     @unittest.skipUnless(
         HAS_PLANNING_RUNTIME,

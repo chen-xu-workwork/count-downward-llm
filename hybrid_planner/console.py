@@ -127,7 +127,7 @@ def _safe_filename_component(value):
 
 
 def save_prompt_debug_record(debug_dir, request, built):
-    """把请求 init 和最终 prompt 持久化为一个 UTF-8 JSON 文件。
+    """把请求 init、完整 runtime PDDL 和最终 prompt 保存为 UTF-8 JSON。
 
     文件在 HTTP 回包前写入，因此即使搜索器已经退出，调试记录也不会依赖响应
     是否成功送达。
@@ -161,6 +161,7 @@ def save_prompt_debug_record(debug_dir, request, built):
         "g": request.get("g"),
         "h": request.get("h"),
         "init": request.get("init", ""),
+        "runtime_problem": built.runtime_problem,
         "system": built.system,
         "user": built.user,
         "problem_description": built.problem_description,

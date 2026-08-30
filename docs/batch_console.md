@@ -120,3 +120,48 @@ bash scripts/run_autodl_validation_pilot.sh
 Use a new `COUNT_RUN_TAG` or `COUNT_RESULTS_DIR` whenever the model,
 LLM/off mode, sample selection, or experiment parameters change.  Resume is
 intended for continuing the same experiment configuration.
+
+## Full validation baseline and scale-aware live run
+
+Run every scale-10/20/30/40 problem in the validation directory without
+starting vLLM or enabling any LLM trigger/state probe:
+
+```bash
+bash scripts/run_validation_baseline_all.sh
+```
+
+The wrapper auto-detects the local WSL dataset or uses the AutoDL dataset by
+default. It keeps stable output paths and enables `--resume`. The default
+parallelism is two for scale 10/20/30 so that an AutoDL baseline can match the
+live scheduler; use `COUNT_BASELINE_PARALLELISM=1` for an uncontended local
+machine benchmark.
+
+Run the complete AutoDL validation set with one persistent vLLM and
+scale-aware LLM cadence:
+
+```bash
+bash scripts/run_validation_live_scale_aware_all.sh
+```
+
+The live wrapper applies expansion multipliers 1.0, 1.0, 0.5 and 0.25 to
+scales 10, 20, 30 and 40. It scales global-stall spacing, the common request
+gap, ancestor checks, plateau rearming and the per-plateau request gap. The
+65,536-expansion plateau observation window is not scaled. Based on the pilot,
+the shared plateau detector profile uses two confirmation windows, a minimum
+bucket share of 0.25 and a maximum lower-h share of 0.15. Every job records its
+resolved cadence and plateau settings in `job.json`.
+
+The main overrides are:
+
+```bash
+COUNT_SCALE_30_EXPANSION_MULTIPLIER=0.5 \
+COUNT_SCALE_40_EXPANSION_MULTIPLIER=0.25 \
+COUNT_PLATEAU_CONFIRM_WINDOWS=2 \
+COUNT_PLATEAU_MIN_SHARE=0.25 \
+COUNT_PLATEAU_MAX_LOWER_SHARE=0.15 \
+bash scripts/run_validation_live_scale_aware_all.sh
+```
+
+Changing any policy value requires a new `COUNT_RUN_TAG` or
+`COUNT_RESULTS_DIR`; otherwise `--resume` intentionally trusts existing
+completed markers.

@@ -9,9 +9,11 @@ import unittest
 from hybrid_planner.batch_console import (
     JobResult,
     JobSpec,
+    build_job_environment,
     build_child_command,
     classify_return_code,
     infer_problem_scale,
+    llm_expansion_multiplier_for_scale,
     load_jobs,
     partition_resumable_jobs,
     policy_for_scale,
@@ -48,6 +50,9 @@ def make_args(**overrides):
         "validation_workers": 4,
         "pending_behavior": "normal",
         "llm_extra_params": "",
+        "scale_aware_llm_thresholds": False,
+        "scale_30_expansion_multiplier": 0.5,
+        "scale_40_expansion_multiplier": 0.25,
     }
     values.update(overrides)
     return types.SimpleNamespace(**values)
@@ -142,6 +147,88 @@ class BatchPolicyTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:8091/v1", live_command)
         self.assertNotIn("--external-vllm", off_command)
         self.assertEqual(off_command[off_command.index("--llm-mode") + 1], "off")
+
+    def test_scale_aware_llm_policy_changes_only_expansion_cadence(self):
+        args = make_args(scale_aware_llm_thresholds=True)
+        problem = pathlib.Path("/tmp/problem.pddl")
+        expected = {
+            20: (1.0, 500000, 100000, 65536),
+            30: (0.5, 250000, 50000, 32768),
+            40: (0.25, 125000, 25000, 16384),
+        }
+
+        for scale, values in expected.items():
+            with self.subTest(scale=scale):
+                multiplier, gap, ancestor_interval, plateau_rearm = values
+                job = JobSpec(
+                    scale,
+                    "scale-%d" % scale,
+                    problem,
+                    "live",
+                    scale,
+                    1,
+                    15,
+                    scale > 30,
+                )
+                environment, policy = build_job_environment(
+                    job,
+                    args,
+                    base_environment={
+                        # Statistical plateau evidence must pass through without
+                        # being multiplied by the cadence policy.
+                        "NLM_LLM_PLATEAU_WINDOW_EXPANSIONS": "65536",
+                    },
+                )
+
+                self.assertEqual(
+                    llm_expansion_multiplier_for_scale(scale, args), multiplier
+                )
+                self.assertEqual(policy["expansion_multiplier"], multiplier)
+                self.assertEqual(
+                    environment["NLM_LLM_MIN_REQUEST_GAP_EXPANSIONS"], str(gap)
+                )
+                self.assertEqual(
+                    environment["HYBRID_LLM_STALL_EXPANSIONS"], str(gap)
+                )
+                self.assertEqual(
+                    environment["NLM_LLM_ANCESTOR_CHECK_INTERVAL"],
+                    str(ancestor_interval),
+                )
+                self.assertEqual(
+                    environment[
+                        "NLM_LLM_PLATEAU_MIN_SINCE_REQUEST_EXPANSIONS"
+                    ],
+                    str(plateau_rearm),
+                )
+                self.assertEqual(
+                    environment["NLM_LLM_PLATEAU_WINDOW_EXPANSIONS"], "65536"
+                )
+                self.assertEqual(
+                    policy["plateau_detector_settings"][
+                        "PLATEAU_WINDOW_EXPANSIONS"
+                    ],
+                    "65536",
+                )
+
+    def test_off_job_forces_trigger_off_without_scale_policy(self):
+        args = make_args(scale_aware_llm_thresholds=True)
+        job = JobSpec(
+            1,
+            "off",
+            pathlib.Path("/tmp/problem.pddl"),
+            "off",
+            40,
+            3600,
+            0,
+            True,
+        )
+
+        environment, policy = build_job_environment(job, args, {})
+
+        self.assertEqual(environment["HYBRID_LLM_TRIGGER"], "0")
+        self.assertEqual(environment["NLM_LLM_TRIGGER"], "0")
+        self.assertEqual(environment["HYBRID_LLM_MAX_REQUESTS"], "0")
+        self.assertFalse(policy["enabled"])
 
     def test_large_job_is_an_exclusive_barrier(self):
         problem = pathlib.Path("/tmp/problem.pddl")
