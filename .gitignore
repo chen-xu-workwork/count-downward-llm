@@ -8,7 +8,7 @@ src/search/bliss-0.73/*.o
 *.pddl
 output
 output.sas
-sas_plan
+sas_plan*
 .idea/
 build/
 builds/
@@ -20,3 +20,24 @@ __pycache__/
 
 experiments/numeric-pdbs/data/
 experiments/numeric-pdbs/data/*
+
+# Generated experiment runs. Keep experiment code/configuration under
+# experiments/, but never commit per-run logs, plans, prompts or CSV/JSON data.
+experiments/**/results/*
+!experiments/**/results/.gitignore
+experiments/**/logs/*
+
+# Runtime logs and temporary process files outside experiment result trees.
+logs/
+*.log
+*.tmp
+*.pid
+nohup.out
+
+# Python tooling caches and local coverage output.
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/

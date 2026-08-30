@@ -3,12 +3,17 @@ import json
 import pathlib
 import tempfile
 import threading
+import types
 import unittest
 import urllib.request
 from dataclasses import dataclass
 from http.server import ThreadingHTTPServer
 
-from hybrid_planner.console import make_handler, save_prompt_debug_record
+from hybrid_planner.console import (
+    build_planner_command,
+    make_handler,
+    save_prompt_debug_record,
+)
 from hybrid_planner.llm.client import (
     LLMGenerationResult,
     ReplayLLMRuntime,
@@ -150,6 +155,25 @@ class ConsoleHandlerTests(unittest.TestCase):
         self.assertEqual(record["runtime_problem"], FakePrompts.runtime_problem)
         self.assertEqual(record["system"], FakePrompts.system)
         self.assertEqual(record["user"], FakePrompts.user)
+
+    def test_planner_command_uses_absolute_paths_for_isolated_work_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            args = types.SimpleNamespace(
+                python2="python3",
+                build="release64",
+                plan=str(root / "job" / "sas_plan"),
+                domain=str(root / "domain.pddl"),
+                problem=str(root / "problem.pddl"),
+                heuristic="h=demo()",
+                search="demo_search()",
+            )
+
+            command = build_planner_command(args, root)
+
+        self.assertEqual(command[command.index("--plan-file") + 1], args.plan)
+        self.assertIn(str(pathlib.Path(args.domain).resolve()), command)
+        self.assertIn(str(pathlib.Path(args.problem).resolve()), command)
 
     @unittest.skipUnless(
         HAS_PLANNING_RUNTIME,

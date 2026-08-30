@@ -15,6 +15,7 @@ from hybrid_planner.batch_console import (
     infer_problem_scale,
     llm_expansion_multiplier_for_scale,
     load_jobs,
+    parse_resume_problem_path_maps,
     partition_resumable_jobs,
     policy_for_scale,
     run_scheduled_jobs,
@@ -295,6 +296,56 @@ class BatchPolicyTests(unittest.TestCase):
             completed, pending = partition_resumable_jobs([job], output_dir)
             self.assertEqual(completed, [])
             self.assertEqual(pending, [job])
+
+    def test_resume_accepts_an_explicit_cross_machine_problem_path_map(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = pathlib.Path(temp_dir)
+            remote_root = output_dir / "remote-data"
+            remote_root.mkdir()
+            problem = remote_root / "problem_scale_20_id_2.pddl"
+            problem.write_text("(define)", encoding="utf-8")
+            job = JobSpec(
+                1,
+                "relocated",
+                problem.resolve(),
+                "off",
+                20,
+                1800,
+                0,
+                False,
+            )
+            job_dir = output_dir / job.job_id
+            job_dir.mkdir()
+            write_job_result(
+                job_dir,
+                JobResult(
+                    index=1,
+                    job_id=job.job_id,
+                    problem=(
+                        "/mnt/e/local-data/problem_scale_20_id_2.pddl"
+                    ),
+                    mode="off",
+                    scale=20,
+                    time_limit_seconds=1800,
+                    max_requests_per_iteration=0,
+                    exclusive=False,
+                    status="plan_found",
+                    return_code=0,
+                    elapsed_seconds=1,
+                    output_dir=str(job_dir),
+                    error="",
+                ),
+            )
+            mappings = parse_resume_problem_path_maps(
+                ["/mnt/e/local-data=%s" % remote_root]
+            )
+
+            completed, pending = partition_resumable_jobs(
+                [job], output_dir, mappings
+            )
+
+        self.assertEqual([result.status for result in completed], ["plan_found"])
+        self.assertEqual(pending, [])
 
 
 if __name__ == "__main__":

@@ -196,7 +196,41 @@ def write_job_result(job_dir, result):
     os.replace(temporary_path, marker_path)
 
 
-def partition_resumable_jobs(jobs, output_dir):
+def parse_resume_problem_path_maps(values):
+    """Parse explicit OLD=NEW mappings used for cross-machine resume."""
+
+    mappings = []
+    for raw_value in values or ():
+        if "=" not in raw_value:
+            raise ValueError(
+                "resume problem path map must use OLD=NEW: %s" % raw_value
+            )
+        source, destination = raw_value.split("=", 1)
+        source = source.rstrip("/\\")
+        destination = destination.rstrip("/\\")
+        if not source or not destination:
+            raise ValueError(
+                "resume problem path map must use non-empty OLD=NEW paths"
+            )
+        mappings.append((source, destination))
+    return tuple(mappings)
+
+
+def _remap_resume_problem_path(value, mappings):
+    text = str(value)
+    for source, destination in mappings:
+        if text == source:
+            return destination
+        for separator in ("/", "\\"):
+            prefix = source + separator
+            if text.startswith(prefix):
+                return destination + text[len(source):]
+    return text
+
+
+def partition_resumable_jobs(
+    jobs, output_dir, resume_problem_path_maps=()
+):
     """Split jobs into trusted completed results and jobs that must run."""
 
     output_dir = pathlib.Path(output_dir)
@@ -207,7 +241,11 @@ def partition_resumable_jobs(jobs, output_dir):
         try:
             payload = json.loads(marker_path.read_text(encoding="utf-8"))
             stored = JobResult(**payload)
-            stored_problem = pathlib.Path(stored.problem).expanduser().resolve()
+            stored_problem = pathlib.Path(
+                _remap_resume_problem_path(
+                    stored.problem, resume_problem_path_maps
+                )
+            ).expanduser().resolve()
             identity_matches = (
                 stored.job_id == job.job_id
                 and stored_problem == job.problem
@@ -636,6 +674,9 @@ def _write_batch_records(output_dir, domain, jobs, results, args, base_url):
             args, "scale_40_expansion_multiplier", 0.25
         ),
         "resume_enabled": args.resume,
+        "resume_problem_path_maps": list(
+            getattr(args, "resolved_resume_problem_path_maps", ())
+        ),
         "vllm_base_url": base_url,
         "jobs": [
             {**asdict(job), "problem": str(job.problem)} for job in jobs
@@ -696,6 +737,16 @@ def build_argument_parser():
         help=(
             "Skip jobs with matching completed job_result.json markers. "
             "Timeout and incomplete outcomes count as completed; failed jobs retry."
+        ),
+    )
+    parser.add_argument(
+        "--resume-problem-path-map",
+        action="append",
+        default=[],
+        metavar="OLD=NEW",
+        help=(
+            "Explicitly remap stored problem paths when resuming results moved "
+            "between machines. May be repeated."
         ),
     )
 
@@ -789,6 +840,9 @@ def main():
         parser.error("LLM samples and concurrency must be positive")
 
     try:
+        args.resolved_resume_problem_path_maps = (
+            parse_resume_problem_path_maps(args.resume_problem_path_map)
+        )
         domain, jobs = load_jobs(args)
     except ValueError as exc:
         parser.error(str(exc))
@@ -803,7 +857,11 @@ def main():
     resumed_results = []
     pending_jobs = list(jobs)
     if args.resume:
-        resumed_results, pending_jobs = partition_resumable_jobs(jobs, output_dir)
+        resumed_results, pending_jobs = partition_resumable_jobs(
+            jobs,
+            output_dir,
+            args.resolved_resume_problem_path_maps,
+        )
         for result in resumed_results:
             print(
                 "[COUNT-BATCH] resume skip job=%s status=%s"
@@ -873,7 +931,11 @@ def main():
         if service is not None:
             service.stop()
         if args.resume:
-            marker_results, _ = partition_resumable_jobs(jobs, output_dir)
+            marker_results, _ = partition_resumable_jobs(
+                jobs,
+                output_dir,
+                args.resolved_resume_problem_path_maps,
+            )
             results_by_id = {result.job_id: result for result in results}
             for result in marker_results:
                 results_by_id.setdefault(result.job_id, result)

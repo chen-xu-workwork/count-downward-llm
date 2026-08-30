@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+# Keep this entry point minimal: all experiment policy lives in batch_console.
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_root="$(cd "$script_dir/.." && pwd)"
 cd "$project_root"

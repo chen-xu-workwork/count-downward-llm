@@ -165,3 +165,19 @@ bash scripts/run_validation_live_scale_aware_all.sh
 Changing any policy value requires a new `COUNT_RUN_TAG` or
 `COUNT_RESULTS_DIR`; otherwise `--resume` intentionally trusts existing
 completed markers.
+
+Results copied between machines retain the absolute problem path stored in
+each `job_result.json`. Resume can validate an explicit relocation without
+rewriting the original records:
+
+```bash
+bash scripts/run_validation_baseline_all.sh \
+  --resume-problem-path-map \
+  "/mnt/e/Python Projects/PyPACE/data/generated-pddl/depots-numeric-validation-original=/root/PyPACE/data/generated-pddl/depots-numeric-validation-original"
+```
+
+Only normal completed outcomes are skipped after the mapped path and all other
+job identity fields match. Failed jobs and jobs without an atomic completion
+marker are rerun. Concurrent jobs use their own result directories for Fast
+Downward's `output.sas` and `output` intermediates, so translators no longer
+share mutable files.

@@ -699,9 +699,9 @@ def build_planner_command(args, project_root):
         "--build",
         args.build,
         "--plan-file",
-        args.plan,
-        args.domain,
-        args.problem,
+        str(pathlib.Path(args.plan).expanduser().resolve()),
+        str(pathlib.Path(args.domain).expanduser().resolve()),
+        str(pathlib.Path(args.problem).expanduser().resolve()),
         "--heuristic",
         getattr(args, "heuristic", DEFAULT_SATISFICING_HEURISTIC),
         "--search",
@@ -1423,13 +1423,24 @@ def main():
 
         env = configure_planner_environment(args, problem_id)
         command = build_planner_command(args, project_root)
+        # The legacy Fast Downward driver always writes intermediate files named
+        # output.sas and output in its current working directory. Batch jobs must
+        # therefore run in their own plan directory; sharing project_root makes
+        # concurrent translators corrupt one another's input.
+        planner_work_dir = pathlib.Path(args.plan).expanduser().resolve().parent
+        planner_work_dir.mkdir(parents=True, exist_ok=True)
         print(
             "[NLM-PY-CONSOLE] launching planner: %s" % " ".join(command),
             flush=True,
         )
+        print(
+            "[NLM-PY-CONSOLE] planner work directory: %s"
+            % planner_work_dir,
+            flush=True,
+        )
         planner_process = subprocess.Popen(
             command,
-            cwd=str(project_root),
+            cwd=str(planner_work_dir),
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
