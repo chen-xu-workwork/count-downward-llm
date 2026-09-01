@@ -36,25 +36,25 @@ Lazy-specific plateau detector observes only finite states that native base
 search actually expands, after their real `llm_h` value has been computed.
 
 Expansions are grouped into fixed-size windows and quantized h buckets. A
-bucket becomes active when it dominates a configured share of several
-consecutive windows and only a limited share of expansions escape below it.
-Activation arms the bucket; the first later base expansion in the same bucket
-that satisfies the shared request gap and per-layer cooldown becomes the LLM
-request source. The state that completes the confirmation window is never used
-for that activation's request. Rollout expansions are excluded from these
-windows.
+bucket becomes active when it independently reaches a configured share of
+several consecutive windows. When multiple active buckets qualify, the one
+with the most expansions in the latest window is selected; ties prefer the
+lower h bucket. Activation arms the bucket, and the first later base expansion
+in the selected bucket that satisfies the shared request gap and per-layer
+cooldown becomes the LLM request source. The state that completes the
+confirmation window is never used for that activation's request. Rollout
+expansions are excluded from these windows.
 
 The main settings are `ENABLE_EXPANSION_PLATEAU`,
 `PLATEAU_WINDOW_EXPANSIONS`, `PLATEAU_CONFIRM_WINDOWS`,
 `PLATEAU_RESET_WINDOWS`, `PLATEAU_MIN_BUCKET_EXPANSIONS`,
-`PLATEAU_MIN_SHARE`, `PLATEAU_MAX_LOWER_SHARE`,
-`PLATEAU_H_BUCKET_WIDTH`, and
+`PLATEAU_MIN_SHARE`, `PLATEAU_H_BUCKET_WIDTH`, and
 `PLATEAU_PER_LAYER_REQUEST_GAP_EXPANSIONS`. Structured
 `HYBRID-LLM-PLATEAU` records expose each window and lifecycle transition for
 shadow-run calibration.
 
 The current calibrated defaults use 65536 base expansions per window, three
-consecutive qualifying windows, a minimum bucket share of 0.3, and at least
+consecutive qualifying windows, a minimum bucket share of 0.25, and at least
 16384 observations from that bucket. Two consecutive misses deactivate a
 layer. In expansion units, this increases confirmation evidence from 24576 to
 196608 and deactivation evidence from 16384 to 131072, bringing detector

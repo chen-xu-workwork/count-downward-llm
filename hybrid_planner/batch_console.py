@@ -3,10 +3,9 @@
 
 The batch console starts (or attaches to) one OpenAI-compatible vLLM service.
 Each planning job still receives an isolated ``hybrid_planner.console`` child
-process, HTTP bridge, anytime registry and artifact directory.  Small jobs may
-run concurrently.  A problem above the small-scale threshold is an exclusive
-barrier: all previously submitted jobs finish before it starts, and no other
-job runs beside it.
+process, HTTP bridge, anytime registry and artifact directory. Small and large
+jobs use separate bounded-concurrency groups. A scale-class transition remains
+a barrier, so small and large jobs never compete with each other directly.
 
 Jobs can mix ``live`` and ``off`` modes in one manifest.  The vLLM process
 remains available while off-mode baselines run, but those planners set
@@ -89,8 +88,7 @@ RECORDED_PLATEAU_DETECTOR_DEFAULTS = {
     "PLATEAU_CONFIRM_WINDOWS": "3",
     "PLATEAU_RESET_WINDOWS": "2",
     "PLATEAU_MIN_BUCKET_EXPANSIONS": "16384",
-    "PLATEAU_MIN_SHARE": "0.3",
-    "PLATEAU_MAX_LOWER_SHARE": "0.1",
+    "PLATEAU_MIN_SHARE": "0.25",
     "PLATEAU_H_BUCKET_WIDTH": "0.001",
 }
 
@@ -622,35 +620,54 @@ class BatchJobRunner:
         return result
 
 
-def run_scheduled_jobs(jobs, small_parallelism, run_job):
-    """Run small jobs concurrently and large jobs as exclusive barriers."""
+def run_scheduled_jobs(
+    jobs, small_parallelism, run_job, large_parallelism=2
+):
+    """Run small and large job groups with separate concurrency limits.
+
+    ``JobSpec.exclusive`` is retained in the persisted schema for compatibility
+    with earlier result markers. It now identifies the large-job scheduling
+    class: class transitions are barriers, while jobs within the large class
+    may run concurrently up to ``large_parallelism``.
+    """
 
     results = []
     pending = []
-    executor = concurrent.futures.ThreadPoolExecutor(
+    pending_large_class = None
+    small_executor = concurrent.futures.ThreadPoolExecutor(
         max_workers=max(1, int(small_parallelism)),
         thread_name_prefix="count-small",
     )
+    large_executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=max(1, int(large_parallelism)),
+        thread_name_prefix="count-large",
+    )
 
     def drain_pending():
+        nonlocal pending_large_class
         for future in concurrent.futures.as_completed(pending):
             results.append(future.result())
         pending.clear()
+        pending_large_class = None
 
     completed_normally = False
     try:
         for job in jobs:
-            if job.exclusive:
+            if (
+                pending_large_class is not None
+                and pending_large_class != job.exclusive
+            ):
                 drain_pending()
-                results.append(run_job(job))
-            else:
-                pending.append(executor.submit(run_job, job))
+            executor = large_executor if job.exclusive else small_executor
+            pending.append(executor.submit(run_job, job))
+            pending_large_class = job.exclusive
         drain_pending()
         completed_normally = True
     finally:
         # On interruption, propagate promptly so the caller can terminate the
         # active child consoles before waiting for worker threads to unwind.
-        executor.shutdown(wait=completed_normally, cancel_futures=True)
+        small_executor.shutdown(wait=completed_normally, cancel_futures=True)
+        large_executor.shutdown(wait=completed_normally, cancel_futures=True)
     return sorted(results, key=lambda result: result.index)
 
 
@@ -660,6 +677,7 @@ def _write_batch_records(output_dir, domain, jobs, results, args, base_url):
         "output_dir": str(output_dir),
         "small_scale_max": args.small_scale_max,
         "small_parallelism": args.small_parallelism,
+        "large_parallelism": args.large_parallelism,
         "small_time_limit_seconds": args.small_time_limit,
         "large_time_limit_seconds": args.large_time_limit,
         "small_max_requests_per_iteration": args.small_max_requests,
@@ -751,7 +769,8 @@ def build_argument_parser():
     )
 
     parser.add_argument("--small-scale-max", type=int, default=30)
-    parser.add_argument("--small-parallelism", type=int, default=2)
+    parser.add_argument("--small-parallelism", type=int, default=8)
+    parser.add_argument("--large-parallelism", type=int, default=2)
     parser.add_argument("--small-time-limit", type=float, default=1800.0)
     parser.add_argument("--large-time-limit", type=float, default=3600.0)
     parser.add_argument("--small-max-requests", type=int, default=10)
@@ -828,6 +847,8 @@ def main():
         parser.error("--small-scale-max must be positive")
     if args.small_parallelism < 1:
         parser.error("--small-parallelism must be positive")
+    if args.large_parallelism < 1:
+        parser.error("--large-parallelism must be positive")
     if args.small_max_requests < 0 or args.large_max_requests < 0:
         parser.error("request budgets must not be negative")
     for name, multiplier in (
@@ -919,7 +940,10 @@ def main():
             runner = BatchJobRunner(domain, output_dir, args, base_url)
             results.extend(
                 run_scheduled_jobs(
-                    pending_jobs, args.small_parallelism, runner
+                    pending_jobs,
+                    args.small_parallelism,
+                    runner,
+                    args.large_parallelism,
                 )
             )
             results.sort(key=lambda result: result.index)

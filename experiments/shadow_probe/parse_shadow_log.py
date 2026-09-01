@@ -215,8 +215,9 @@ def main():
         [
             "problem", "scale", "run_id", "iteration", "event",
             "window", "expansions", "dominant_h", "dominant_count",
-            "window_expansions", "share", "lower_share", "streak", "active",
-            "armed", "h", "state", "reason",
+            "window_expansions", "share", "lower_share",
+            "qualifying_buckets", "selected_h", "selected_count",
+            "streak", "active", "armed", "h", "state", "reason",
         ],
         plateau_events,
     )

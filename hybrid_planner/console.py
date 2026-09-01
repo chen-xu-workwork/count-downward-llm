@@ -836,8 +836,7 @@ def configure_planner_environment(args, problem_id):
     env.setdefault("NLM_LLM_PLATEAU_RESET_WINDOWS", "2")
     env.setdefault("NLM_LLM_PLATEAU_MIN_BUCKET_EXPANSIONS", "16384")
     env.setdefault("NLM_LLM_PLATEAU_MIN_SINCE_REQUEST_EXPANSIONS", "65536")
-    env.setdefault("NLM_LLM_PLATEAU_MIN_SHARE", "0.3")
-    env.setdefault("NLM_LLM_PLATEAU_MAX_LOWER_SHARE", "0.1")
+    env.setdefault("NLM_LLM_PLATEAU_MIN_SHARE", "0.25")
     env.setdefault("NLM_LLM_PLATEAU_H_BUCKET_WIDTH", "0.001")
     env.setdefault(
         "NLM_LLM_PLATEAU_PER_LAYER_REQUEST_GAP_EXPANSIONS", "500000"

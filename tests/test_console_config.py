@@ -76,8 +76,8 @@ class ConsoleEnvironmentTests(unittest.TestCase):
         self.assertEqual(
             env["NLM_LLM_PLATEAU_MIN_SINCE_REQUEST_EXPANSIONS"], "65536"
         )
-        self.assertEqual(env["NLM_LLM_PLATEAU_MIN_SHARE"], "0.3")
-        self.assertEqual(env["NLM_LLM_PLATEAU_MAX_LOWER_SHARE"], "0.1")
+        self.assertEqual(env["NLM_LLM_PLATEAU_MIN_SHARE"], "0.25")
+        self.assertNotIn("NLM_LLM_PLATEAU_MAX_LOWER_SHARE", env)
         self.assertEqual(env["NLM_LLM_PLATEAU_H_BUCKET_WIDTH"], "0.001")
         self.assertEqual(
             env["NLM_LLM_PLATEAU_PER_LAYER_REQUEST_GAP_EXPANSIONS"],

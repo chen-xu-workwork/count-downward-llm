@@ -9,6 +9,7 @@ import unittest
 from hybrid_planner.batch_console import (
     JobResult,
     JobSpec,
+    build_argument_parser,
     build_job_environment,
     build_child_command,
     classify_return_code,
@@ -60,6 +61,12 @@ def make_args(**overrides):
 
 
 class BatchPolicyTests(unittest.TestCase):
+    def test_default_parallelism_doubles_the_completed_baseline_policy(self):
+        args = build_argument_parser().parse_args([])
+
+        self.assertEqual(args.small_parallelism, 8)
+        self.assertEqual(args.large_parallelism, 2)
+
     def test_normal_time_limit_exit_is_not_reported_as_a_batch_failure(self):
         self.assertEqual(classify_return_code(0), "plan_found")
         self.assertEqual(classify_return_code(5), "incomplete")
@@ -231,34 +238,46 @@ class BatchPolicyTests(unittest.TestCase):
         self.assertEqual(environment["HYBRID_LLM_MAX_REQUESTS"], "0")
         self.assertFalse(policy["enabled"])
 
-    def test_large_job_is_an_exclusive_barrier(self):
+    def test_large_jobs_use_their_own_bounded_parallel_group(self):
         problem = pathlib.Path("/tmp/problem.pddl")
         jobs = [
             JobSpec(1, "small-1", problem, "off", 30, 1, 0, False),
             JobSpec(2, "small-2", problem, "off", 30, 1, 0, False),
-            JobSpec(3, "large", problem, "live", 40, 1, 15, True),
-            JobSpec(4, "small-3", problem, "off", 30, 1, 0, False),
+            JobSpec(3, "large-1", problem, "live", 40, 1, 15, True),
+            JobSpec(4, "large-2", problem, "live", 40, 1, 15, True),
+            JobSpec(5, "small-3", problem, "off", 30, 1, 0, False),
         ]
         active = set()
         lock = threading.Lock()
         large_observation = []
+        large_started = threading.Barrier(2)
+        large_observed = threading.Barrier(2)
 
         def run_job(job):
             with lock:
                 active.add(job.job_id)
-                if job.exclusive:
+            if job.exclusive:
+                large_started.wait(timeout=1)
+                with lock:
                     large_observation.append(set(active))
+                large_observed.wait(timeout=1)
             time.sleep(0.03)
             with lock:
                 active.remove(job.job_id)
             return types.SimpleNamespace(index=job.index, job_id=job.job_id)
 
-        results = run_scheduled_jobs(jobs, 2, run_job)
+        results = run_scheduled_jobs(jobs, 2, run_job, large_parallelism=2)
 
         self.assertEqual([result.job_id for result in results], [
-            "small-1", "small-2", "large", "small-3"
+            "small-1", "small-2", "large-1", "large-2", "small-3"
         ])
-        self.assertEqual(large_observation, [{"large"}])
+        self.assertEqual(len(large_observation), 2)
+        self.assertTrue(
+            all(
+                observation == {"large-1", "large-2"}
+                for observation in large_observation
+            )
+        )
 
     def test_resume_skips_timeout_but_retries_failed_job(self):
         with tempfile.TemporaryDirectory() as temp_dir:

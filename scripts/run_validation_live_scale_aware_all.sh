@@ -8,10 +8,11 @@ default_project_root="$(cd "$script_dir/.." && pwd)"
 COUNT_PROJECT_ROOT="${COUNT_PROJECT_ROOT:-$default_project_root}"
 COUNT_DATASET_ROOT="${COUNT_DATASET_ROOT:-/root/PyPACE/data/generated-pddl/depots-numeric-validation-original}"
 COUNT_MODEL_PATH="${COUNT_MODEL_PATH:-/root/autodl-tmp/Qwen3_5-9B/dapo/data_260811_resume_193/global_step_350/actor/huggingface}"
-COUNT_RUN_TAG="${COUNT_RUN_TAG:-validation-all-live-scale-aware-v1}"
+COUNT_RUN_TAG="${COUNT_RUN_TAG:-validation-all-live-scale-aware-v2}"
 COUNT_RESULTS_DIR="${COUNT_RESULTS_DIR:-/root/autodl-tmp/count-results/depots-numeric-validation-original/qwen3_5-9b-global_step_350/$COUNT_RUN_TAG}"
 
-COUNT_SMALL_PARALLELISM="${COUNT_SMALL_PARALLELISM:-2}"
+COUNT_SMALL_PARALLELISM="${COUNT_SMALL_PARALLELISM:-8}"
+COUNT_LARGE_PARALLELISM="${COUNT_LARGE_PARALLELISM:-2}"
 COUNT_SMALL_TIME_LIMIT="${COUNT_SMALL_TIME_LIMIT:-1800}"
 COUNT_LARGE_TIME_LIMIT="${COUNT_LARGE_TIME_LIMIT:-3600}"
 COUNT_SMALL_MAX_REQUESTS="${COUNT_SMALL_MAX_REQUESTS:-10}"
@@ -20,12 +21,13 @@ COUNT_SCALE_30_EXPANSION_MULTIPLIER="${COUNT_SCALE_30_EXPANSION_MULTIPLIER:-0.5}
 COUNT_SCALE_40_EXPANSION_MULTIPLIER="${COUNT_SCALE_40_EXPANSION_MULTIPLIER:-0.25}"
 
 # The pilot produced only two plateau requests. Keep the 65,536-expansion
-# observation window, but require two rather than three qualifying windows and
-# relax the distribution thresholds slightly. These values apply uniformly;
+# observation window, but require two rather than three qualifying windows.
+# A bucket qualifies independently at 25% share; among confirmed qualifying
+# buckets, only the busiest is selected as the next plateau request source.
+# These values apply uniformly;
 # only the request-cadence settings are multiplied by problem scale.
 COUNT_PLATEAU_CONFIRM_WINDOWS="${COUNT_PLATEAU_CONFIRM_WINDOWS:-2}"
 COUNT_PLATEAU_MIN_SHARE="${COUNT_PLATEAU_MIN_SHARE:-0.25}"
-COUNT_PLATEAU_MAX_LOWER_SHARE="${COUNT_PLATEAU_MAX_LOWER_SHARE:-0.15}"
 
 COUNT_VLLM_GPUS="${COUNT_VLLM_GPUS:-0}"
 COUNT_LLM_MODEL_NAME="${COUNT_LLM_MODEL_NAME:-Qwen3.5-9B}"
@@ -72,8 +74,6 @@ export HYBRID_LLM_PLATEAU_CONFIRM_WINDOWS="$COUNT_PLATEAU_CONFIRM_WINDOWS"
 export NLM_LLM_PLATEAU_CONFIRM_WINDOWS="$COUNT_PLATEAU_CONFIRM_WINDOWS"
 export HYBRID_LLM_PLATEAU_MIN_SHARE="$COUNT_PLATEAU_MIN_SHARE"
 export NLM_LLM_PLATEAU_MIN_SHARE="$COUNT_PLATEAU_MIN_SHARE"
-export HYBRID_LLM_PLATEAU_MAX_LOWER_SHARE="$COUNT_PLATEAU_MAX_LOWER_SHARE"
-export NLM_LLM_PLATEAU_MAX_LOWER_SHARE="$COUNT_PLATEAU_MAX_LOWER_SHARE"
 
 mkdir -p "$COUNT_RESULTS_DIR"
 
@@ -82,8 +82,9 @@ echo "[COUNT-VALIDATION-LIVE] dataset=$COUNT_DATASET_ROOT"
 echo "[COUNT-VALIDATION-LIVE] model=$COUNT_MODEL_PATH"
 echo "[COUNT-VALIDATION-LIVE] results=$COUNT_RESULTS_DIR"
 echo "[COUNT-VALIDATION-LIVE] jobs=${#selected_problems[@]} mode=live resume=on"
+echo "[COUNT-VALIDATION-LIVE] parallelism: scale<=30=$COUNT_SMALL_PARALLELISM scale>30=$COUNT_LARGE_PARALLELISM"
 echo "[COUNT-VALIDATION-LIVE] cadence multipliers: scale10/20=1 scale30=$COUNT_SCALE_30_EXPANSION_MULTIPLIER scale40=$COUNT_SCALE_40_EXPANSION_MULTIPLIER"
-echo "[COUNT-VALIDATION-LIVE] plateau: window=65536 confirm=$COUNT_PLATEAU_CONFIRM_WINDOWS min_share=$COUNT_PLATEAU_MIN_SHARE max_lower_share=$COUNT_PLATEAU_MAX_LOWER_SHARE"
+echo "[COUNT-VALIDATION-LIVE] plateau: window=65536 confirm=$COUNT_PLATEAU_CONFIRM_WINDOWS min_share=$COUNT_PLATEAU_MIN_SHARE candidate_policy=busiest_qualifying_bucket"
 
 batch_arguments=(
     "$COUNT_DATASET_ROOT/domain.pddl"
@@ -92,6 +93,7 @@ batch_arguments=(
     --output-dir "$COUNT_RESULTS_DIR"
     --resume
     --small-parallelism "$COUNT_SMALL_PARALLELISM"
+    --large-parallelism "$COUNT_LARGE_PARALLELISM"
     --small-time-limit "$COUNT_SMALL_TIME_LIMIT"
     --large-time-limit "$COUNT_LARGE_TIME_LIMIT"
     --small-max-requests "$COUNT_SMALL_MAX_REQUESTS"

@@ -21,6 +21,8 @@ __pycache__/
 experiments/numeric-pdbs/data/
 experiments/numeric-pdbs/data/*
 
+experiments_results/
+
 # Generated experiment runs. Keep experiment code/configuration under
 # experiments/, but never commit per-run logs, plans, prompts or CSV/JSON data.
 experiments/**/results/*

@@ -78,8 +78,7 @@ HYBRID_LLM_PLATEAU_CONFIRM_WINDOWS=3
 HYBRID_LLM_PLATEAU_RESET_WINDOWS=2
 HYBRID_LLM_PLATEAU_MIN_BUCKET_EXPANSIONS=16384
 HYBRID_LLM_PLATEAU_MIN_SINCE_REQUEST_EXPANSIONS=65536
-HYBRID_LLM_PLATEAU_MIN_SHARE=0.3
-HYBRID_LLM_PLATEAU_MAX_LOWER_SHARE=0.1
+HYBRID_LLM_PLATEAU_MIN_SHARE=0.25
 HYBRID_LLM_PLATEAU_H_BUCKET_WIDTH=0.001
 HYBRID_LLM_PLATEAU_PER_LAYER_REQUEST_GAP_EXPANSIONS=500000
 HYBRID_LLM_STALL_EXPANSIONS=500000
@@ -92,17 +91,18 @@ HYBRID_LLM_MAX_REQUESTS=10
 
 Lazy expansion plateau 只统计基础搜索真正展开成功的状态 h，不读取继承父状态
 上下文的 Edge OpenList key。每 65536 次有限基础扩展形成一个窗口；同一个 h 桶在
-连续 3 个窗口中占比至少 0.3、至少出现 16384 次，且低于该桶的扩展占比不超过
-0.1 时，桶进入
-`active/armed`。确认窗口本身的最后一个状态不会触发；后续第一个落入该桶且满足
-共享请求间隔和同桶冷却的真实展开状态才成为请求源。LLM rollout 状态不进入窗口。
+连续 3 个窗口中占比至少 0.25、至少出现 16384 次时，桶进入
+`active/armed`。各桶独立累计证据；若同一窗口有多个已确认的合格桶，只选择其中
+展开次数最多的桶作为下一次平台请求来源，并列时选择较低 h。确认窗口本身的最后
+一个状态不会触发；后续第一个落入被选中桶且满足共享请求间隔和同桶冷却的真实
+展开状态才成为请求源。LLM rollout 状态不进入窗口。
 
 这组平台参数来自首个频率复测的校准：原 8192 窗口在该问题上约只有 1--3 秒，
 而共享 LLM 间隔约为 500000 次扩展。新设置把连续确认覆盖量从 24576 提高到
 196608 次扩展，把连续两个坏窗口的失活证据从 16384 提高到 131072 次扩展；
-同时将 dominant share 从“绝对多数”0.5 降到 0.3。这样平台需要更长时间持续，
-但允许 Lazy 展开流中同一 h 与邻近 h 状态交错出现。`max_lower_share=0.1` 保持不变，
-继续要求平台期间很少真正逃逸到更低 h。检测器最多保留 16 个 h 桶；满载时优先
+同时将单桶 share 从“绝对多数”0.5 降到 0.25。这样平台需要更长时间持续，
+但允许 Lazy 展开流中同一 h 与邻近 h 状态交错出现。较低 h 桶的占比继续写入
+日志用于诊断，但不再否决其他桶。检测器最多保留 16 个 h 桶；满载时优先
 淘汰最久未出现的 inactive 桶，淘汰次数记录在 `plateau_layer_evictions` 中。
 
 触发仲裁顺序为 expansion plateau、global stall、ancestor stagnation。平台与 global

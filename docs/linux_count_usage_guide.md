@@ -272,7 +272,8 @@ bash scripts/run_batch_linux.sh \
   --vllm-tensor-parallel-size 1 \
   --vllm-gpu-memory-utilization 0.90 \
   --vllm-max-model-len 32768 \
-  --small-parallelism 2
+  --small-parallelism 8 \
+  --large-parallelism 2
 ```
 
 启动顺序为：
@@ -280,14 +281,15 @@ bash scripts/run_batch_linux.sh \
 1. 启动一个 `vllm serve`；
 2. 轮询 `/v1/models`，直到 `Qwen3.5-9B` 就绪；
 3. 按 manifest 启动规划问题；
-4. 30 及以下问题最多 2 个并行；
-5. 遇到 40 规模问题时，先等已提交的小问题全部结束，再单独运行它；
+4. 30 及以下问题最多 8 个并行；
+5. 遇到 40 规模问题时，先等已提交的小问题全部结束，再最多并行运行 2 题；
 6. 批次全部结束后关闭由控制台创建的 vLLM。
 
-默认每个搜索器的 LLM concurrency 为 6，每个状态 3 个 sample。两个 30 规模 live 搜索并行时，理论上可向同一 vLLM 提交最多 12 个 generation slot，实际排队和 batching 由 vLLM 决定。如果显存压力或尾延迟过高，优先降低：
+默认每个搜索器的 LLM concurrency 为 6，每个状态 3 个 sample。八个 30 规模 live 搜索并行时，理论上可向同一 vLLM 提交最多 48 个 generation slot，实际排队和 batching 由 vLLM 决定。如果显存压力或尾延迟过高，优先降低：
 
 ```bash
---small-parallelism 1
+--small-parallelism 4
+--large-parallelism 1
 --llm-max-concurrency 3
 ```
 
@@ -324,7 +326,8 @@ bash scripts/run_batch_linux.sh \
   --external-vllm \
   --vllm-base-url http://127.0.0.1:8091/v1 \
   --llm-model Qwen3.5-9B \
-  --small-parallelism 2
+  --small-parallelism 8 \
+  --large-parallelism 2
 ```
 
 `--external-vllm` 模式下，批处理器会检查服务就绪，但不会启动或关闭它。`--vllm-base-url` 应包含 `/v1`。
@@ -337,7 +340,8 @@ bash scripts/run_batch_linux.sh \
 bash scripts/run_batch_linux.sh \
   --manifest /root/autodl-tmp/config/count-off.json \
   --output-dir "$COUNT_RESULTS_ROOT/off-run-001" \
-  --small-parallelism 1
+  --small-parallelism 1 \
+  --large-parallelism 1
 ```
 
 全 off manifest 使用：
@@ -370,8 +374,8 @@ bash scripts/run_batch_linux.sh \
 
 | 问题类别 | 搜索时限 | 并行度 | 每 anytime phase LLM 请求预算 |
 |---|---:|---:|---:|
-| `scale <= 30` | 1800 s | 2（live 默认） | 10 |
-| `scale > 30` | 3600 s | 1，exclusive | 15 |
+| `scale <= 30` | 1800 s | 8，同规模组内并行 | 10 |
+| `scale > 30` | 3600 s | 2，同规模组内并行 | 15 |
 | all-off 性能基线 | 按 scale | 建议 1 | 0 |
 
 这些参数可用以下选项改写：
@@ -379,6 +383,7 @@ bash scripts/run_batch_linux.sh \
 ```text
 --small-scale-max
 --small-parallelism
+--large-parallelism
 --small-time-limit
 --large-time-limit
 --small-max-requests
@@ -534,7 +539,7 @@ curl http://127.0.0.1:8091/v1/models
 
 按以下顺序调整：
 
-1. 将 `--small-parallelism 2` 降为 1；
+1. 将 `--small-parallelism 8` 降为 4，或将 `--large-parallelism 2` 降为 1；
 2. 将 `--llm-max-concurrency 6` 降为 3；
 3. 适当降低 `--vllm-max-model-len`；
 4. 调整 `--vllm-gpu-memory-utilization`；
@@ -586,8 +591,8 @@ validation
 - [ ] 一次 `--small-max-requests 1` 的 live 冒烟测试能收到回包并启动 rollout。
 - [ ] vLLM served model name 与 `--llm-model` 一致。
 - [ ] manifest 内全部路径在容器中存在。
-- [ ] 30 规模实际可以并行 2 个且不发生 GPU OOM。
-- [ ] 40 规模开始时终端中已没有其他 active job。
+- [ ] 30 规模实际可以并行 8 个且不发生 CPU/内存/GPU OOM。
+- [ ] 40 规模可以并行 2 个，且开始时终端中没有小规模 active job。
 - [ ] off 和 live 使用独立输出目录。
 - [ ] 保存 `nvidia-smi`、Python/PyTorch/vLLM 版本、`pip freeze`、代码 commit/diff 和完整启动命令。
 - [ ] 每个批次结束后检查 `batch_results.csv`，不只看终端最后一行。

@@ -8,10 +8,13 @@ entry point for mixed live-LLM and near-native baseline experiments.
 
 - Problems with `scale <= 30` use 1800 seconds, 10 LLM state requests per
   anytime iteration, and may run concurrently.  The default planner
-  parallelism is 2 and can be changed with `--small-parallelism`.
+  parallelism is 8 and can be changed with `--small-parallelism`.
 - Problems with `scale > 30` use 3600 seconds and 15 LLM state requests per
-  anytime iteration.  They are exclusive barriers: all previously submitted
-  jobs finish before one starts, and no other problem runs beside it.
+  anytime iteration. They run two at a time by default, controlled by
+  `--large-parallelism`.
+- A transition between the small and large groups remains a barrier. Small and
+  large problems do not run at the same time, but jobs within either group use
+  their own concurrency limit.
 - `live` jobs connect to the one shared vLLM service.
 - `off` jobs force `NLM_LLM_TRIGGER=0`, start no per-job HTTP bridge, build no
   prompts, and perform no state serialization for LLM requests.
@@ -33,7 +36,8 @@ bash scripts/run_batch_linux.sh \
   --output-dir /data/count-results/run-001 \
   --vllm-model-path /data/models/Qwen3.5-9B \
   --vllm-gpus 0 \
-  --small-parallelism 2
+  --small-parallelism 8 \
+  --large-parallelism 2
 ```
 
 The batch starts vLLM once before the first problem and stops it after every
@@ -65,9 +69,9 @@ bash scripts/run_batch_linux.sh \
 An all-off batch does not start or contact vLLM.
 
 For a clean single-run performance baseline, use an all-off batch with
-`--small-parallelism 1`.  Parallel off jobs are supported, but then their CPU
-and memory contention is part of the measurement.  Live scale-30 throughput
-experiments can keep the default parallelism of 2.
+`--small-parallelism 1 --large-parallelism 1`. Parallel off jobs are
+supported, but then their CPU and memory contention is part of the measurement.
+Formal throughput experiments currently use 8 small or 2 large jobs at once.
 
 ## Outputs
 
@@ -97,9 +101,10 @@ bash scripts/run_autodl_validation_pilot.sh
 ```
 
 It deterministically selects the first five validation problems at scales 10,
-20 and 30, plus the first three at scale 40.  Natural filename ordering is
-used, so repeated launches select the same 18 problems.  Scale-40 jobs retain
-the batch scheduler's one-at-a-time exclusive policy.
+20 and 30, plus the first three at scale 40. Natural filename ordering is
+used, so repeated launches select the same 18 problems. This historical pilot
+wrapper explicitly retains its original 2-small/1-large policy for
+reproducibility, even though the formal scheduler now defaults to 8/2.
 
 The result directory is deliberately stable rather than timestamped.  The
 wrapper enables `--resume`: every child writes `job_result.json` atomically
@@ -132,9 +137,9 @@ bash scripts/run_validation_baseline_all.sh
 
 The wrapper auto-detects the local WSL dataset or uses the AutoDL dataset by
 default. It keeps stable output paths and enables `--resume`. The default
-parallelism is two for scale 10/20/30 so that an AutoDL baseline can match the
-live scheduler; use `COUNT_BASELINE_PARALLELISM=1` for an uncontended local
-machine benchmark.
+parallelism is eight for scale 10/20/30 and two for scale 40. Use
+`COUNT_BASELINE_PARALLELISM=1 COUNT_BASELINE_LARGE_PARALLELISM=1` for an
+uncontended local-machine benchmark.
 
 Run the complete AutoDL validation set with one persistent vLLM and
 scale-aware LLM cadence:
@@ -143,12 +148,32 @@ scale-aware LLM cadence:
 bash scripts/run_validation_live_scale_aware_all.sh
 ```
 
+For the formal SSH-launched run, use the detached tmux wrapper instead:
+
+```bash
+bash scripts/start_validation_live_scale_aware_tmux.sh
+```
+
+It creates session `count-validation-live-v2`, appends the complete terminal
+transcript to `<results>/tmux-run.log`, and invokes the same resumable live
+runner. Attach with `tmux attach -t count-validation-live-v2`; detach without
+stopping it with `Ctrl-b`, then `d`. tmux protects against SSH disconnects, not
+container shutdowns. After a restart, launch the wrapper again with the same
+run tag and result directory to resume completed markers.
+
+The live wrapper uses eight concurrent scale-10/20/30 jobs and two concurrent
+scale-40 jobs. Override these with `COUNT_SMALL_PARALLELISM` and
+`COUNT_LARGE_PARALLELISM`. A scale-class transition still drains the current
+group before the next group starts.
+
 The live wrapper applies expansion multipliers 1.0, 1.0, 0.5 and 0.25 to
 scales 10, 20, 30 and 40. It scales global-stall spacing, the common request
 gap, ancestor checks, plateau rearming and the per-plateau request gap. The
 65,536-expansion plateau observation window is not scaled. Based on the pilot,
 the shared plateau detector profile uses two confirmation windows, a minimum
-bucket share of 0.25 and a maximum lower-h share of 0.15. Every job records its
+bucket share of 0.25, with no lower-h-share veto. Buckets accumulate evidence
+independently; when several confirmed buckets qualify in the same window, only
+the busiest is selected for the next plateau request. Every job records its
 resolved cadence and plateau settings in `job.json`.
 
 The main overrides are:
@@ -158,7 +183,6 @@ COUNT_SCALE_30_EXPANSION_MULTIPLIER=0.5 \
 COUNT_SCALE_40_EXPANSION_MULTIPLIER=0.25 \
 COUNT_PLATEAU_CONFIRM_WINDOWS=2 \
 COUNT_PLATEAU_MIN_SHARE=0.25 \
-COUNT_PLATEAU_MAX_LOWER_SHARE=0.15 \
 bash scripts/run_validation_live_scale_aware_all.sh
 ```
 

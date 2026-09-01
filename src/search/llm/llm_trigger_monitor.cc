@@ -35,7 +35,6 @@ struct TriggerMonitor::Config {
     int plateau_min_since_request_expansions;
     int plateau_per_layer_request_gap_expansions;
     ap_float plateau_min_share;
-    ap_float plateau_max_lower_share;
     ap_float plateau_h_bucket_width;
 
     Config()
@@ -72,10 +71,7 @@ struct TriggerMonitor::Config {
               setting_int(
                   "PLATEAU_PER_LAYER_REQUEST_GAP_EXPANSIONS", 500000))),
           plateau_min_share(min(
-              1.0, max(0.0, setting_float("PLATEAU_MIN_SHARE", 0.3)))),
-          plateau_max_lower_share(min(
-              1.0,
-              max(0.0, setting_float("PLATEAU_MAX_LOWER_SHARE", 0.1)))),
+              1.0, max(0.0, setting_float("PLATEAU_MIN_SHARE", 0.25)))),
           plateau_h_bucket_width(max(
               0.000001,
               setting_float("PLATEAU_H_BUCKET_WIDTH", 0.001))) {
@@ -97,6 +93,7 @@ struct TriggerMonitor::PlateauState {
         int miss_streak;
         bool active;
         bool armed;
+        bool selected;
         StateID representative_state;
         ap_float representative_g;
 
@@ -112,6 +109,7 @@ struct TriggerMonitor::PlateauState {
               miss_streak(0),
               active(false),
               armed(false),
+              selected(false),
               representative_state(StateID::no_state),
               representative_g(0) {
         }
@@ -213,8 +211,7 @@ void TriggerMonitor::start() {
              << " min_bucket_expansions="
              << config->plateau_min_bucket_expansions
              << " min_share=" << config->plateau_min_share
-             << " max_lower_share="
-             << config->plateau_max_lower_share
+             << " candidate_policy=busiest_qualifying_bucket"
              << " bucket_width=" << config->plateau_h_bucket_width
              << " per_layer_gap="
              << config->plateau_per_layer_request_gap_expansions
@@ -347,7 +344,7 @@ bool TriggerMonitor::maybe_request_expansion_plateau(
             break;
         }
     }
-    if (!layer || !layer->active || !layer->armed)
+    if (!layer || !layer->active || !layer->armed || !layer->selected)
         return false;
     if (layer->last_request_expansion >= 0 &&
         base_expansions - layer->last_request_expansion <
@@ -442,10 +439,15 @@ void TriggerMonitor::record_expansion_plateau_observation(
     ++plateau->window_index;
     ++plateau->windows_analyzed;
     PlateauState::Layer *dominant = nullptr;
+    PlateauState::Layer *selected = nullptr;
+    int qualifying_buckets = 0;
     for (PlateauState::Layer &candidate : plateau->layers) {
+        candidate.selected = false;
         if (candidate.occupied &&
             (!dominant || candidate.current_expansions >
-                              dominant->current_expansions)) {
+                              dominant->current_expansions ||
+             (candidate.current_expansions == dominant->current_expansions &&
+              candidate.key < dominant->key))) {
             dominant = &candidate;
         }
     }
@@ -465,10 +467,10 @@ void TriggerMonitor::record_expansion_plateau_observation(
         bool qualifies =
             candidate.current_expansions >=
                 config->plateau_min_bucket_expansions &&
-            share >= config->plateau_min_share &&
-            lower_share <= config->plateau_max_lower_share;
+            share >= config->plateau_min_share;
 
         if (qualifies) {
+            ++qualifying_buckets;
             ++candidate.qualifying_streak;
             candidate.miss_streak = 0;
             if (!candidate.active &&
@@ -497,6 +499,14 @@ void TriggerMonitor::record_expansion_plateau_observation(
                      << candidate.expansions_since_request
                      << " expansions=" << base_expansions << endl;
             }
+            if (candidate.active &&
+                (!selected || candidate.current_expansions >
+                                  selected->current_expansions ||
+                 (candidate.current_expansions ==
+                      selected->current_expansions &&
+                  candidate.key < selected->key))) {
+                selected = &candidate;
+            }
         } else {
             candidate.qualifying_streak = 0;
             ++candidate.miss_streak;
@@ -516,6 +526,9 @@ void TriggerMonitor::record_expansion_plateau_observation(
             }
         }
     }
+
+    if (selected)
+        selected->selected = true;
 
     if (dominant) {
         int dominant_lower_expansions = 0;
@@ -538,6 +551,11 @@ void TriggerMonitor::record_expansion_plateau_observation(
              << " dominant_count=" << dominant->current_expansions
              << " share=" << dominant_share
              << " lower_share=" << dominant_lower_share
+             << " qualifying_buckets=" << qualifying_buckets
+             << " selected_h="
+             << (selected ? selected->h : -1)
+             << " selected_count="
+             << (selected ? selected->current_expansions : 0)
              << " streak=" << dominant->qualifying_streak
              << " active=" << (dominant->active ? 1 : 0)
              << " armed=" << (dominant->armed ? 1 : 0)

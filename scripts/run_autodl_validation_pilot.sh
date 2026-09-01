@@ -12,6 +12,10 @@ COUNT_RUN_TAG="${COUNT_RUN_TAG:-pilot-${COUNT_RUN_MODE}}"
 COUNT_RESULTS_DIR="${COUNT_RESULTS_DIR:-/root/autodl-tmp/count-results/depots-numeric-validation-original/qwen3_5-9b-global_step_350/${COUNT_RUN_TAG}}"
 
 COUNT_SMALL_PARALLELISM="${COUNT_SMALL_PARALLELISM:-2}"
+# Preserve the original pilot's one-at-a-time scale-40 policy so its early
+# parameter results remain reproducible after the formal scheduler default
+# moves to two concurrent large jobs.
+COUNT_LARGE_PARALLELISM="${COUNT_LARGE_PARALLELISM:-1}"
 COUNT_VLLM_GPUS="${COUNT_VLLM_GPUS:-0}"
 COUNT_LLM_MODEL_NAME="${COUNT_LLM_MODEL_NAME:-Qwen3.5-9B}"
 
@@ -85,6 +89,7 @@ batch_arguments=(
     --output-dir "$COUNT_RESULTS_DIR"
     --resume
     --small-parallelism "$COUNT_SMALL_PARALLELISM"
+    --large-parallelism "$COUNT_LARGE_PARALLELISM"
     --small-time-limit 1800
     --large-time-limit 3600
     --small-max-requests 10

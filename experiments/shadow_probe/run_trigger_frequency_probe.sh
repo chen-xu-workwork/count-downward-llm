@@ -19,14 +19,13 @@ plateau_confirm_windows="${COUNT_SHADOW_PLATEAU_CONFIRM_WINDOWS:-3}"
 plateau_reset_windows="${COUNT_SHADOW_PLATEAU_RESET_WINDOWS:-2}"
 plateau_min_bucket="${COUNT_SHADOW_PLATEAU_MIN_BUCKET_EXPANSIONS:-16384}"
 plateau_min_since_request="${COUNT_SHADOW_PLATEAU_MIN_SINCE_REQUEST_EXPANSIONS:-65536}"
-plateau_min_share="${COUNT_SHADOW_PLATEAU_MIN_SHARE:-0.3}"
-plateau_max_lower_share="${COUNT_SHADOW_PLATEAU_MAX_LOWER_SHARE:-0.1}"
+plateau_min_share="${COUNT_SHADOW_PLATEAU_MIN_SHARE:-0.25}"
 
 echo "Count LLM 触发频率 shadow probe"
 echo "每 phase 请求预算=${max_requests}；目标相邻触发间隔约=${target_seconds}s"
 echo "共享间隔=${min_request_gap} expansions；global stall=${stall_expansions} expansions"
 echo "ancestor: interval=${ancestor_interval} depth=${ancestor_depth} min_depth=${ancestor_min_depth}"
-echo "plateau: window=${plateau_window} confirm=${plateau_confirm_windows} reset=${plateau_reset_windows} min_bucket=${plateau_min_bucket} rearm_evidence=${plateau_min_since_request} min_share=${plateau_min_share} max_lower_share=${plateau_max_lower_share}"
+echo "plateau: window=${plateau_window} confirm=${plateau_confirm_windows} reset=${plateau_reset_windows} min_bucket=${plateau_min_bucket} rearm_evidence=${plateau_min_since_request} min_share=${plateau_min_share} candidate_policy=busiest_qualifying_bucket"
 
 COUNT_SHADOW_MIN_REQUEST_GAP="$min_request_gap" \
 COUNT_SHADOW_STALL_EXPANSIONS="$stall_expansions" \
@@ -40,7 +39,6 @@ COUNT_SHADOW_PLATEAU_RESET_WINDOWS="$plateau_reset_windows" \
 COUNT_SHADOW_PLATEAU_MIN_BUCKET_EXPANSIONS="$plateau_min_bucket" \
 COUNT_SHADOW_PLATEAU_MIN_SINCE_REQUEST_EXPANSIONS="$plateau_min_since_request" \
 COUNT_SHADOW_PLATEAU_MIN_SHARE="$plateau_min_share" \
-COUNT_SHADOW_PLATEAU_MAX_LOWER_SHARE="$plateau_max_lower_share" \
 bash "$script_dir/run_selected_depots_shadow.sh" "$time_limit" "$results_root"
 
 "$python_bin" "$script_dir/analyze_trigger_frequency.py" \

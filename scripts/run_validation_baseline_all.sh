@@ -24,7 +24,8 @@ else
 fi
 COUNT_RESULTS_DIR="${COUNT_RESULTS_DIR:-$default_results_dir}"
 
-COUNT_BASELINE_PARALLELISM="${COUNT_BASELINE_PARALLELISM:-2}"
+COUNT_BASELINE_PARALLELISM="${COUNT_BASELINE_PARALLELISM:-8}"
+COUNT_BASELINE_LARGE_PARALLELISM="${COUNT_BASELINE_LARGE_PARALLELISM:-2}"
 COUNT_SMALL_TIME_LIMIT="${COUNT_SMALL_TIME_LIMIT:-1800}"
 COUNT_LARGE_TIME_LIMIT="${COUNT_LARGE_TIME_LIMIT:-3600}"
 
@@ -69,7 +70,7 @@ echo "[COUNT-VALIDATION-BASELINE] project=$COUNT_PROJECT_ROOT"
 echo "[COUNT-VALIDATION-BASELINE] dataset=$dataset_root"
 echo "[COUNT-VALIDATION-BASELINE] results=$COUNT_RESULTS_DIR"
 echo "[COUNT-VALIDATION-BASELINE] jobs=${#selected_problems[@]} mode=off resume=on"
-echo "[COUNT-VALIDATION-BASELINE] small_parallelism=$COUNT_BASELINE_PARALLELISM limits=${COUNT_SMALL_TIME_LIMIT}s/${COUNT_LARGE_TIME_LIMIT}s"
+echo "[COUNT-VALIDATION-BASELINE] parallelism: scale<=30=$COUNT_BASELINE_PARALLELISM scale>30=$COUNT_BASELINE_LARGE_PARALLELISM limits=${COUNT_SMALL_TIME_LIMIT}s/${COUNT_LARGE_TIME_LIMIT}s"
 echo "[COUNT-VALIDATION-BASELINE] LLM trigger, bridge, prompt construction and state emission are forced off"
 
 batch_arguments=(
@@ -79,6 +80,7 @@ batch_arguments=(
     --output-dir "$COUNT_RESULTS_DIR"
     --resume
     --small-parallelism "$COUNT_BASELINE_PARALLELISM"
+    --large-parallelism "$COUNT_BASELINE_LARGE_PARALLELISM"
     --small-time-limit "$COUNT_SMALL_TIME_LIMIT"
     --large-time-limit "$COUNT_LARGE_TIME_LIMIT"
     --small-max-requests 0
