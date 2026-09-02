@@ -53,6 +53,8 @@ apt-get install -y build-essential cmake make python3-dev
 
 当前默认 `irhff` satisficing 配置在我们已有编译中不需要 CPLEX/OSI 后端。只有将来切换到依赖 LP 求解器的 Count 插件时，才需要额外安装 CPLEX 或 COIN-OR OSI/Clp 并设置 `DOWNWARD_CPLEX_ROOT`/`DOWNWARD_COIN_ROOT`。控制台向 `LD_LIBRARY_PATH` 添加的 `/opt/ibm/...` 和 `/opt/osi/...` 是兼容性默认路径；目录不存在本身不会影响当前 hFF 运行。
 
+LLM 通信桥使用 C++ 标准线程。CMake 会声明标准 `Threads::Threads` 依赖，并在 Linux 上显式传入 `-pthread` 以兼容 Conda GCC 的混合 sysroot；不需要手工安装额外的 Python 包。如果旧源码在最终链接阶段报告 `undefined reference to pthread_create`，应更新源码并重新运行 CMake，而不是修改 LLM 参数。
+
 ### 2.2 Python 控制层
 
 如果容器已有 PyPACE 的 Conda 环境，优先复用，不要随意覆盖其 CUDA/PyTorch 组合：

@@ -25,6 +25,22 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/ext)
 
 ## == Libraries ==
 
+# The LLM bridge uses std::thread. Relying on the compiler to add the native
+# thread library implicitly is not portable (in particular with Conda GCC on
+# Linux), so make the dependency explicit for every platform.
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+target_link_libraries(downward Threads::Threads)
+
+# Some Conda GCC toolchains run CMake's feature checks against a host glibc
+# where pthread symbols are part of libc, but link the final executable with a
+# sysroot that still needs the compiler's pthread option. In that mixed setup
+# Threads::Threads can be empty, so pass -pthread explicitly on Linux.
+if(UNIX AND NOT APPLE)
+    target_compile_options(downward PRIVATE -pthread)
+    target_link_libraries(downward -pthread)
+endif()
+
 # On Linux, find the rt library for clock_gettime().
 if(UNIX AND NOT APPLE)
     target_link_libraries(downward rt)
