@@ -98,21 +98,21 @@ vLLM 没有写入 `requirements/hybrid.txt`，因为它与 CUDA/PyTorch/镜像�
 
 ## 3. 在 Linux 上重新编译 Count
 
-Windows/WSL 产生的 `builds/release64` 不应直接当作 AutoDL 二进制使用，因为 CMake cache 包含编译器、库和绝对路径。最稳妥的做法是只上传源码，在容器中重新生成 build。
+Windows/WSL 产生的 `builds/release64` 不应直接当作 AutoDL 二进制使用，因为 CMake cache 包含编译器、库和绝对路径。最稳妥的做法是只上传源码，在容器中重新生成 build。当前正式实验使用 `irhff`，不依赖 LP/CPLEX；项目的标准构建配置会显式关闭可选 OSI 探测，避免容器中不完整的 COIN/CPLEX 安装误触发 `OsiCpxSolverInterface.hpp` 编译。
 
 如果上传内容已经包含旧 build，可先将它改名保留：
 
 ```bash
 cd "$COUNT_PROJECT_ROOT"
-mv builds/release64 builds/release64.pre-autodl
-python build.py release64 -j"$(nproc)" downward
+mv builds/release64 "builds/release64.pre-autodl-$(date +%Y%m%d-%H%M%S)"
+python build.py release64 -j"$(nproc)"
 ```
 
 如果没有旧 build，直接运行编译命令：
 
 ```bash
 cd "$COUNT_PROJECT_ROOT"
-python build.py release64 -j"$(nproc)" downward
+python build.py release64 -j"$(nproc)"
 ```
 
 期望结尾包含：
@@ -129,6 +129,8 @@ test -x builds/release64/bin/downward
 builds/release64/bin/downward --help >/dev/null
 echo "Count binary: OK"
 ```
+
+这里不只构建 `downward` 单个目标，而是完整构建 translator、preprocessor 和搜索器，确保移走旧 build 后运行脚本所需的三个阶段都存在。
 
 `Clock skew detected` 通常是上传/解压后的文件时间戳与容器时钟不一致。如果已看到 `Built target downward` 且二进制存在，可先继续功能验证；正式实验前建议仍使用容器内的新鲜 build 消除该警告。
 
