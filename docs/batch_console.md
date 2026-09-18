@@ -195,6 +195,21 @@ directory. The batch also records and checks the seed in `batch_config.json`,
 and refuses to resume a directory created with another seed. Run different
 seeds sequentially because each repetition owns the same GPU and vLLM port.
 
+If one repetition is already running, queue the next seed without starting a
+second vLLM immediately:
+
+```bash
+COUNT_CURRENT_SEED=73 \
+COUNT_NEXT_SEED=74 \
+bash scripts/queue_validation_live_scale30_40_next_seed_tmux.sh
+```
+
+The queue uses a lightweight detached tmux watcher. It starts the next seed
+only after the current tmux session exits with a newly written `status=0`
+completion record. A failed, killed or incomplete current run leaves the next
+seed stopped. The queue transcript is stored beside the per-seed result
+directories as `queue_<current>_to_<next>.log`.
+
 The live wrapper uses eight concurrent scale-10/20/30 jobs and two concurrent
 scale-40 jobs. Override these with `COUNT_SMALL_PARALLELISM` and
 `COUNT_LARGE_PARALLELISM`. A scale-class transition still drains the current
