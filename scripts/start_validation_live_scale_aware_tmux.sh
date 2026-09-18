@@ -14,6 +14,41 @@ COUNT_RUN_TAG="${COUNT_RUN_TAG:-validation-all-live-scale-aware-v2}"
 COUNT_RESULTS_DIR="${COUNT_RESULTS_DIR:-/root/autodl-tmp/count-results/depots-numeric-validation-original/qwen3_5-9b-global_step_350/$COUNT_RUN_TAG}"
 COUNT_TMUX_SESSION="${COUNT_TMUX_SESSION:-count-validation-live-v2}"
 COUNT_TMUX_LOG="${COUNT_TMUX_LOG:-$COUNT_RESULTS_DIR/tmux-run.log}"
+COUNT_RUNTIME_LIB_DIR="${COUNT_RUNTIME_LIB_DIR:-}"
+
+# flash-attn and other compiled packages in the model environment may require
+# a newer libstdc++ than the container image provides. Resolve a compatible
+# environment library before tmux snapshots this shell's environment.
+runtime_lib_is_compatible() {
+    local candidate="$1"
+    [[ -e "$candidate/libstdc++.so.6" ]] || return 1
+    if command -v grep >/dev/null 2>&1; then
+        grep -aFq 'CXXABI_1.3.15' "$candidate/libstdc++.so.6"
+    fi
+}
+
+if [[ -n "$COUNT_RUNTIME_LIB_DIR" ]]; then
+    if ! runtime_lib_is_compatible "$COUNT_RUNTIME_LIB_DIR"; then
+        echo "COUNT_RUNTIME_LIB_DIR does not provide libstdc++.so.6 with CXXABI_1.3.15: $COUNT_RUNTIME_LIB_DIR" >&2
+        exit 1
+    fi
+else
+    runtime_lib_candidates=()
+    if [[ -n "${CONDA_PREFIX:-}" ]]; then
+        runtime_lib_candidates+=("$CONDA_PREFIX/lib")
+    fi
+    runtime_lib_candidates+=("/root/miniconda3/envs/verl_env/lib")
+    for candidate in "${runtime_lib_candidates[@]}"; do
+        if runtime_lib_is_compatible "$candidate"; then
+            COUNT_RUNTIME_LIB_DIR="$candidate"
+            break
+        fi
+    done
+fi
+
+if [[ -n "$COUNT_RUNTIME_LIB_DIR" ]]; then
+    export LD_LIBRARY_PATH="$COUNT_RUNTIME_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 
 if ! command -v tmux >/dev/null 2>&1; then
     echo "Missing required command: tmux" >&2
@@ -46,6 +81,7 @@ forward_variables=(
     NLM_VLLM_EXECUTABLE
     COUNT_DATASET_ROOT
     COUNT_MODEL_PATH
+    COUNT_RUNTIME_LIB_DIR
     COUNT_SCALES
     COUNT_EXPERIMENT_SEED
     COUNT_SMALL_PARALLELISM
@@ -91,5 +127,8 @@ tmux new-session -d -s "$COUNT_TMUX_SESSION" "$launch_command"
 echo "Started detached tmux session: $COUNT_TMUX_SESSION"
 echo "Results: $COUNT_RESULTS_DIR"
 echo "Batch transcript: $COUNT_TMUX_LOG"
+if [[ -n "$COUNT_RUNTIME_LIB_DIR" ]]; then
+    echo "Runtime C++ libraries: $COUNT_RUNTIME_LIB_DIR"
+fi
 echo "Attach: tmux attach -t '$COUNT_TMUX_SESSION'"
 echo "Detach without stopping: Ctrl-b, then d"
