@@ -19,6 +19,7 @@ class VLLMServiceTests(unittest.TestCase):
                 port=8091,
                 gpus="0,1",
                 tensor_parallel_size=2,
+                seed=73,
             )
         )
         command = service.build_command()
@@ -29,6 +30,8 @@ class VLLMServiceTests(unittest.TestCase):
         self.assertIn("--max-model-len", command)
         tp_index = command.index("--tensor-parallel-size")
         self.assertEqual(command[tp_index + 1], "2")
+        seed_index = command.index("--seed")
+        self.assertEqual(command[seed_index + 1], "73")
 
     def test_owned_server_preserves_or_overrides_visible_devices(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -50,11 +50,13 @@ class AsyncLLMClientTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.active = 0
         self.max_active = 0
+        self.payloads = []
 
         async def completions(request):
             self.active += 1
             self.max_active = max(self.max_active, self.active)
             payload = await request.json()
+            self.payloads.append(payload)
             content = payload["messages"][0]["content"]
             delay = 0.2 if content == "return-slow" else 0.03
             try:
@@ -134,6 +136,36 @@ class AsyncLLMClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(results), 3)
         self.assertTrue(all(result.ok for result in results))
         self.assertEqual(self.max_active, 3)
+
+    async def test_experiment_seed_derives_distinct_reproducible_sample_seeds(self):
+        config = LLMClientConfig(
+            base_url="http://127.0.0.1:%d/v1" % self.port,
+            max_concurrency=3,
+            max_retries=0,
+            request_timeout=5,
+            experiment_seed=42,
+        )
+        client = AsyncLLMClient(config)
+        await client.start()
+        try:
+            await client.generate_many(
+                [{"role": "user", "content": "seeded-state"}],
+                3,
+                request_id="run-p1-state-7",
+            )
+        finally:
+            await client.close()
+
+        observed = {payload["seed"] for payload in self.payloads}
+        expected_client = AsyncLLMClient(config)
+        expected = {
+            expected_client._request_seed(
+                "run-p1-state-7-sample-%d" % index
+            )
+            for index in range(3)
+        }
+        self.assertEqual(observed, expected)
+        self.assertEqual(len(observed), 3)
 
     async def test_rejects_empty_model_content(self):
         client = AsyncLLMClient(

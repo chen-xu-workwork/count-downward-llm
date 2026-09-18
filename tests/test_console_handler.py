@@ -167,6 +167,7 @@ class ConsoleHandlerTests(unittest.TestCase):
                 problem=str(root / "problem.pddl"),
                 heuristic="h=demo()",
                 search="demo_search()",
+                experiment_seed=73,
             )
 
             command = build_planner_command(args, root)
@@ -174,6 +175,9 @@ class ConsoleHandlerTests(unittest.TestCase):
         self.assertEqual(command[command.index("--plan-file") + 1], args.plan)
         self.assertIn(str(pathlib.Path(args.domain).resolve()), command)
         self.assertIn(str(pathlib.Path(args.problem).resolve()), command)
+        seed_index = command.index("--random-seed")
+        self.assertEqual(command[seed_index + 1], "73")
+        self.assertLess(seed_index, command.index("--heuristic"))
 
     @unittest.skipUnless(
         HAS_PLANNING_RUNTIME,

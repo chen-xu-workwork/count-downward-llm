@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class VLLMServiceConfig:
     startup_timeout: float = 600.0
     poll_interval: float = 2.0
     log_path: str = "logs/vllm.log"
+    seed: Optional[int] = None
     extra_args: tuple = field(default_factory=tuple)
 
     @property
@@ -73,6 +75,8 @@ class VLLMService:
         ]
         if self.config.trust_remote_code:
             command.append("--trust-remote-code")
+        if self.config.seed is not None:
+            command.extend(["--seed", str(self.config.seed)])
         command.extend(self.config.extra_args)
         return command
 

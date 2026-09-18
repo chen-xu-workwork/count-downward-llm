@@ -20,6 +20,7 @@ from hybrid_planner.batch_console import (
     partition_resumable_jobs,
     policy_for_scale,
     run_scheduled_jobs,
+    validate_resume_experiment_seed,
     write_job_result,
 )
 
@@ -52,6 +53,7 @@ def make_args(**overrides):
         "validation_workers": 4,
         "pending_behavior": "normal",
         "llm_extra_params": "",
+        "experiment_seed": None,
         "scale_aware_llm_thresholds": False,
         "scale_30_expansion_multiplier": 0.5,
         "scale_40_expansion_multiplier": 0.25,
@@ -137,7 +139,7 @@ class BatchPolicyTests(unittest.TestCase):
         self.assertTrue(jobs[0].exclusive)
 
     def test_child_commands_share_external_vllm_only_in_live_mode(self):
-        args = make_args()
+        args = make_args(experiment_seed=73)
         problem = pathlib.Path("/tmp/problem_scale_30_id_1.pddl")
         domain = pathlib.Path("/tmp/domain.pddl")
         output = pathlib.Path("/tmp/job")
@@ -155,6 +157,23 @@ class BatchPolicyTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:8091/v1", live_command)
         self.assertNotIn("--external-vllm", off_command)
         self.assertEqual(off_command[off_command.index("--llm-mode") + 1], "off")
+        self.assertEqual(
+            live_command[live_command.index("--experiment-seed") + 1], "73"
+        )
+        self.assertEqual(
+            off_command[off_command.index("--experiment-seed") + 1], "73"
+        )
+
+    def test_resume_rejects_a_different_experiment_seed(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = pathlib.Path(temp_dir)
+            (output_dir / "batch_config.json").write_text(
+                json.dumps({"experiment_seed": 73}), encoding="utf-8"
+            )
+
+            validate_resume_experiment_seed(output_dir, 73)
+            with self.assertRaisesRegex(ValueError, "resume seed mismatch"):
+                validate_resume_experiment_seed(output_dir, 74)
 
     def test_scale_aware_llm_policy_changes_only_expansion_cadence(self):
         args = make_args(scale_aware_llm_thresholds=True)

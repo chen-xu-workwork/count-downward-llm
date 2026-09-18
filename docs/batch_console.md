@@ -161,6 +161,28 @@ stopping it with `Ctrl-b`, then `d`. tmux protects against SSH disconnects, not
 container shutdowns. After a restart, launch the wrapper again with the same
 run tag and result directory to resume completed markers.
 
+For seeded repetitions restricted to the complete scale-30 and scale-40
+validation subsets, use the dedicated tmux entry point:
+
+```bash
+COUNT_EXPERIMENT_SEED=73 \
+COUNT_MODEL_PATH=/root/autodl-tmp/Qwen3_5-9B/dapo/data_260811_resume_193/global_step_350/actor/huggingface \
+bash scripts/start_validation_live_scale30_40_repeat_tmux.sh
+```
+
+This still owns the vLLM lifecycle: it launches the configured checkpoint,
+waits for `/v1/models`, runs all selected planners, and stops vLLM at the end.
+The root seed is passed to Fast Downward and the vLLM server. Each individual
+LLM sample receives a stable derived seed based on the root seed, request ID
+and sample index, so the three samples for one state remain distinct.
+
+The default output is grouped under
+`validation-live-scale30-40-repeat-v1/seed_<seed>`. Relaunching the same seed
+there resumes its completed jobs; a different seed receives a different
+directory. The batch also records and checks the seed in `batch_config.json`,
+and refuses to resume a directory created with another seed. Run different
+seeds sequentially because each repetition owns the same GPU and vLLM port.
+
 The live wrapper uses eight concurrent scale-10/20/30 jobs and two concurrent
 scale-40 jobs. Override these with `COUNT_SMALL_PARALLELISM` and
 `COUNT_LARGE_PARALLELISM`. A scale-class transition still drains the current

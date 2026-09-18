@@ -184,6 +184,7 @@ def update_prompt_debug_record(debug_path, generation, processed=None):
         "error": generation.error,
         "attempts": generation.attempts,
         "elapsed_seconds": generation.elapsed_seconds,
+        "sampling_seed": generation.sampling_seed,
     }
     if processed is not None:
         record["processed_response"] = processed.as_dict()
@@ -210,6 +211,7 @@ def update_prompt_debug_samples(debug_path, generations, processed_results):
                 "error": generation.error,
                 "attempts": generation.attempts,
                 "elapsed_seconds": generation.elapsed_seconds,
+                "sampling_seed": generation.sampling_seed,
             },
         }
         if processed is not None:
@@ -471,18 +473,20 @@ def make_handler(
                         sample["sample_index"] = sample_index
                         sample["llm_attempts"] = generation.attempts
                         sample["llm_seconds"] = generation.elapsed_seconds
+                        sample["llm_seed"] = generation.sampling_seed
                         sample_results.append(sample)
                         action_chains.append(list(sample.get("actions", [])))
                         print(
                             "[NLM-PY-CONSOLE] model sample finished "
                             "request_id=%s sample=%d status=%s legal=%d "
-                            "seconds=%.3f"
+                            "seconds=%.3f seed=%s"
                             % (
                                 request_id,
                                 sample_index,
                                 sample["status"],
                                 len(action_chains[-1]),
                                 generation.elapsed_seconds,
+                                generation.sampling_seed,
                             ),
                             flush=True,
                         )
@@ -693,7 +697,7 @@ def build_planner_command(args, project_root):
         可直接传给 :class:`subprocess.Popen` 的参数列表。
     """
 
-    return [
+    command = [
         args.python2,
         str(project_root / "fast-downward.py"),
         "--build",
@@ -702,11 +706,19 @@ def build_planner_command(args, project_root):
         str(pathlib.Path(args.plan).expanduser().resolve()),
         str(pathlib.Path(args.domain).expanduser().resolve()),
         str(pathlib.Path(args.problem).expanduser().resolve()),
-        "--heuristic",
-        getattr(args, "heuristic", DEFAULT_SATISFICING_HEURISTIC),
-        "--search",
-        args.search,
     ]
+    experiment_seed = getattr(args, "experiment_seed", None)
+    if experiment_seed is not None:
+        command.extend(["--random-seed", str(experiment_seed)])
+    command.extend(
+        [
+            "--heuristic",
+            getattr(args, "heuristic", DEFAULT_SATISFICING_HEURISTIC),
+            "--search",
+            args.search,
+        ]
+    )
+    return command
 
 
 def prepend_ld_library_path(env, entries):
@@ -917,6 +929,7 @@ def build_vllm_service_config(args):
         startup_timeout=args.vllm_startup_timeout,
         poll_interval=args.vllm_poll_interval,
         log_path=args.vllm_log,
+        seed=getattr(args, "experiment_seed", None),
         extra_args=tuple(args.vllm_extra_arg),
     )
 
@@ -938,6 +951,7 @@ def build_llm_client_config(args):
         temperature=args.llm_temperature,
         top_p=args.llm_top_p,
         max_tokens=args.llm_max_tokens,
+        experiment_seed=getattr(args, "experiment_seed", None),
         extra_params=args.llm_extra_params_object,
     )
 
@@ -1098,6 +1112,16 @@ def main():
     parser.add_argument("--llm-top-p", type=float, default=0.9)
     parser.add_argument("--llm-max-tokens", type=int, default=16384)
     parser.add_argument(
+        "--experiment-seed",
+        type=int,
+        default=None,
+        help=(
+            "Seed both the planner RNG and live LLM sampling. Each model "
+            "generation receives a stable seed derived from this value and "
+            "its request/sample ID."
+        ),
+    )
+    parser.add_argument(
         "--prompt-workers",
         type=int,
         default=4,
@@ -1203,6 +1227,14 @@ def main():
         args.llm_extra_params,
         "--llm-extra-params",
     )
+    if args.experiment_seed is not None:
+        if not 0 <= args.experiment_seed < 2 ** 31:
+            parser.error("--experiment-seed must be in [0, 2147483647]")
+        if "seed" in args.llm_extra_params_object:
+            parser.error(
+                "do not set seed in --llm-extra-params together with "
+                "--experiment-seed"
+            )
 
     if args.prompt_workers < 1:
         parser.error("--prompt-workers must be at least 1")
@@ -1304,6 +1336,7 @@ def main():
             "heuristic": args.heuristic,
             "search": args.search,
             "search_time_limit_seconds": args.search_time_limit,
+            "experiment_seed": args.experiment_seed,
             "llm_samples_per_state": args.llm_samples_per_state,
             "llm_max_requests_per_iteration": (
                 "0"

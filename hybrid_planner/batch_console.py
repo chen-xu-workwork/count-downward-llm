@@ -291,6 +291,27 @@ def partition_resumable_jobs(
     return completed, pending
 
 
+def validate_resume_experiment_seed(output_dir, experiment_seed):
+    """Reject resume when the result directory belongs to another seed."""
+
+    config_path = pathlib.Path(output_dir) / "batch_config.json"
+    if not config_path.is_file():
+        return
+    try:
+        stored_config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(
+            "cannot validate the existing resume configuration: %s" % exc
+        ) from exc
+    stored_seed = stored_config.get("experiment_seed")
+    if stored_seed != experiment_seed:
+        raise ValueError(
+            "resume seed mismatch: result directory stores %r, requested %r; "
+            "use the matching seed or a different output directory"
+            % (stored_seed, experiment_seed)
+        )
+
+
 def _safe_component(value):
     normalized = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value).strip())
     return normalized[:120] or "job"
@@ -461,6 +482,9 @@ def build_child_command(job, domain, job_dir, args, vllm_base_url):
     ]
     if args.prompt_domain_code:
         command.extend(["--prompt-domain-code", args.prompt_domain_code])
+    experiment_seed = getattr(args, "experiment_seed", None)
+    if experiment_seed is not None:
+        command.extend(["--experiment-seed", str(experiment_seed)])
 
     if job.mode == "live":
         command.extend(
@@ -539,6 +563,9 @@ class BatchJobRunner:
                     "problem": str(job.problem),
                     "domain": str(self.domain),
                     "command": command,
+                    "experiment_seed": getattr(
+                        self.args, "experiment_seed", None
+                    ),
                     "llm_scale_policy": llm_scale_policy,
                 },
                 ensure_ascii=False,
@@ -691,6 +718,7 @@ def _write_batch_records(output_dir, domain, jobs, results, args, base_url):
         "scale_40_expansion_multiplier": getattr(
             args, "scale_40_expansion_multiplier", 0.25
         ),
+        "experiment_seed": getattr(args, "experiment_seed", None),
         "resume_enabled": args.resume,
         "resume_problem_path_maps": list(
             getattr(args, "resolved_resume_problem_path_maps", ())
@@ -733,6 +761,7 @@ def _build_vllm_service(args, output_dir):
             startup_timeout=args.vllm_startup_timeout,
             poll_interval=args.vllm_poll_interval,
             log_path=log_path,
+            seed=getattr(args, "experiment_seed", None),
             extra_args=tuple(args.vllm_extra_arg),
         )
     )
@@ -813,6 +842,15 @@ def build_argument_parser():
     parser.add_argument("--llm-temperature", type=float, default=0.7)
     parser.add_argument("--llm-top-p", type=float, default=0.9)
     parser.add_argument("--llm-max-tokens", type=int, default=16384)
+    parser.add_argument(
+        "--experiment-seed",
+        type=int,
+        default=None,
+        help=(
+            "Seed planner randomness and derive stable, distinct seeds for "
+            "all live LLM generations."
+        ),
+    )
     parser.add_argument("--llm-extra-params", default="")
 
     parser.add_argument("--vllm-model-path", default=os.environ.get("NLM_VLLM_MODEL_PATH", ""))
@@ -859,6 +897,23 @@ def main():
             parser.error("%s must be positive and finite" % name)
     if args.llm_samples_per_state < 1 or args.llm_max_concurrency < 1:
         parser.error("LLM samples and concurrency must be positive")
+    if (
+        args.experiment_seed is not None
+        and not 0 <= args.experiment_seed < 2 ** 31
+    ):
+        parser.error("--experiment-seed must be in [0, 2147483647]")
+    if args.llm_extra_params:
+        try:
+            llm_extra_params = json.loads(args.llm_extra_params)
+        except json.JSONDecodeError as exc:
+            parser.error("--llm-extra-params is not valid JSON: %s" % exc)
+        if not isinstance(llm_extra_params, dict):
+            parser.error("--llm-extra-params must be a JSON object")
+        if args.experiment_seed is not None and "seed" in llm_extra_params:
+            parser.error(
+                "do not set seed in --llm-extra-params together with "
+                "--experiment-seed"
+            )
 
     try:
         args.resolved_resume_problem_path_maps = (
@@ -878,6 +933,12 @@ def main():
     resumed_results = []
     pending_jobs = list(jobs)
     if args.resume:
+        try:
+            validate_resume_experiment_seed(
+                output_dir, args.experiment_seed
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
         resumed_results, pending_jobs = partition_resumable_jobs(
             jobs,
             output_dir,

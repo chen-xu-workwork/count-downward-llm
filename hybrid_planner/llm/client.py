@@ -6,6 +6,7 @@ exposing a request-oriented API suitable for the online search loop.
 """
 
 import asyncio
+import hashlib
 import threading
 import time
 from dataclasses import dataclass, field
@@ -31,6 +32,7 @@ class LLMClientConfig:
     temperature: float = 0.7
     top_p: float = 0.9
     max_tokens: int = 16384
+    experiment_seed: Optional[int] = None
     extra_params: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -43,6 +45,7 @@ class LLMGenerationResult:
     error: Optional[str]
     attempts: int
     elapsed_seconds: float
+    sampling_seed: Optional[int] = None
 
     @property
     def ok(self):
@@ -160,7 +163,31 @@ class AsyncLLMClient:
             "Content-Type": "application/json",
         }
 
-    def _payload(self, messages):
+    def _request_seed(self, request_id):
+        """Derive a stable, distinct sampling seed for one generation."""
+
+        if self.config.experiment_seed is None:
+            return None
+        stable_request_id = str(request_id)
+        sample_index = 0
+        request_prefix, separator, sample_suffix = stable_request_id.rpartition(
+            "-sample-"
+        )
+        if separator and sample_suffix.isdigit():
+            stable_request_id = request_prefix
+            sample_index = int(sample_suffix)
+        material = "%d\0%s" % (
+            self.config.experiment_seed,
+            stable_request_id,
+        )
+        digest = hashlib.sha256(material.encode("utf-8")).digest()
+        # vLLM accepts signed 32-bit sampling seeds. Avoid Python's hash(),
+        # whose randomization would make the same experiment vary by process.
+        # Adding the sample index guarantees distinct seeds within one state's
+        # parallel sample group (whose size is far below the seed modulus).
+        return (int.from_bytes(digest[:8], "big") + sample_index) % (2 ** 31)
+
+    def _payload(self, messages, request_id=""):
         if not messages:
             raise ValueError("messages must not be empty")
         payload = {
@@ -172,6 +199,9 @@ class AsyncLLMClient:
             "max_tokens": self.config.max_tokens,
         }
         payload.update(self.config.extra_params)
+        request_seed = self._request_seed(request_id)
+        if request_seed is not None:
+            payload["seed"] = request_seed
         return payload
 
     async def generate(self, messages, request_id=""):
@@ -185,7 +215,7 @@ class AsyncLLMClient:
         started_at = time.monotonic()
         try:
             return await asyncio.wait_for(
-                self._generate_with_retries(messages, started_at),
+                self._generate_with_retries(messages, started_at, request_id),
                 timeout=self.config.request_timeout,
             )
         except asyncio.TimeoutError:
@@ -196,6 +226,7 @@ class AsyncLLMClient:
                 % self.config.request_timeout,
                 attempts=0,
                 elapsed_seconds=time.monotonic() - started_at,
+                sampling_seed=self._request_seed(request_id),
             )
 
     async def generate_many(self, messages, count, request_id=""):
@@ -215,9 +246,10 @@ class AsyncLLMClient:
             )
         )
 
-    async def _generate_with_retries(self, messages, started_at):
+    async def _generate_with_retries(self, messages, started_at, request_id=""):
         url = "%s/chat/completions" % self.config.base_url.rstrip("/")
-        payload = self._payload(messages)
+        payload = self._payload(messages, request_id)
+        sampling_seed = payload.get("seed")
         attempts = 0
 
         for attempt in range(self.config.max_retries + 1):
@@ -241,6 +273,7 @@ class AsyncLLMClient:
                                     error="malformed model response: %s" % exc,
                                     attempts=attempts,
                                     elapsed_seconds=time.monotonic() - started_at,
+                                    sampling_seed=sampling_seed,
                                 )
                             if not isinstance(content, str) or not content.strip():
                                 return LLMGenerationResult(
@@ -249,6 +282,7 @@ class AsyncLLMClient:
                                     error="malformed model response: content is empty",
                                     attempts=attempts,
                                     elapsed_seconds=time.monotonic() - started_at,
+                                    sampling_seed=sampling_seed,
                                 )
                             return LLMGenerationResult(
                                 content=content,
@@ -256,6 +290,7 @@ class AsyncLLMClient:
                                 error=None,
                                 attempts=attempts,
                                 elapsed_seconds=time.monotonic() - started_at,
+                                sampling_seed=sampling_seed,
                             )
 
                         error_text = await response.text()
@@ -271,6 +306,7 @@ class AsyncLLMClient:
                             error="HTTP %d: %s" % (response.status, error_text),
                             attempts=attempts,
                             elapsed_seconds=time.monotonic() - started_at,
+                            sampling_seed=sampling_seed,
                         )
             except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
                 if attempt < self.config.max_retries:
@@ -282,6 +318,7 @@ class AsyncLLMClient:
                     error="%s: %s" % (type(exc).__name__, exc),
                     attempts=attempts,
                     elapsed_seconds=time.monotonic() - started_at,
+                    sampling_seed=sampling_seed,
                 )
 
         return LLMGenerationResult(
@@ -290,6 +327,7 @@ class AsyncLLMClient:
             error="request exhausted retries",
             attempts=attempts,
             elapsed_seconds=time.monotonic() - started_at,
+            sampling_seed=sampling_seed,
         )
 
 
