@@ -115,6 +115,12 @@ class ActiveIterationRegistry:
 class AnytimeRunRecorder:
     """Collect planner/LLM events and write graph-ready CSV artifacts."""
 
+    FILTER_COUNT_FIELDS = [
+        "goal_reaching_sample_count", "non_goal_sample_count",
+        "goal_unknown_sample_count", "filtered_goal_sample_count",
+        "filtered_unknown_sample_count", "pre_filter_usable_sample_count",
+        "returned_action_count",
+    ]
     PHASE_FIELDS = [
         "run_id", "iteration", "bound", "result", "elapsed_seconds",
         "phase_seconds", "plan_cost", "plan_length", "phase_expanded",
@@ -127,7 +133,8 @@ class AnytimeRunRecorder:
         "cancelled_inflight",
         "python_cancel_requested", "python_cancel_accepted",
         "model_generations", "completed_samples", "usable_samples",
-        "stale_requests",
+        "stale_requests", "llm_partial_only",
+        *FILTER_COUNT_FIELDS,
         "cumulative_submitted", "cumulative_model_generations",
         "cumulative_usable_samples", "cumulative_injected_states",
         "base_expansions", "request_attempts", "requests_submitted",
@@ -157,6 +164,7 @@ class AnytimeRunRecorder:
         "reason", "g", "h", "search_expansions", "received_seconds",
         "finished_seconds", "status", "sample_count",
         "usable_sample_count", "model_generations_started",
+        "llm_partial_only", *FILTER_COUNT_FIELDS,
         "model_wall_seconds", "applied_actions", "inserted_states",
         "rollout_aborts", "seen_previous_iteration", "error",
     ]
@@ -233,6 +241,8 @@ class AnytimeRunRecorder:
                     "status": "received",
                     "applied_actions": 0,
                     "inserted_states": 0,
+                    "llm_partial_only": 0,
+                    **dict.fromkeys(self.FILTER_COUNT_FIELDS, 0),
                     "seen_previous_iteration": int(
                         first_iteration is not None
                         and first_iteration < iteration
@@ -252,6 +262,9 @@ class AnytimeRunRecorder:
             row["status"] = status
             row["finished_seconds"] = self.elapsed()
             row.update(values)
+            if status in {"stale_iteration", "discarded_phase_end"}:
+                row["returned_action_count"] = 0
+                row["usable_sample_count"] = 0
 
     def model_started(self, request_id, generation_count):
         with self._lock:
@@ -265,11 +278,13 @@ class AnytimeRunRecorder:
                 continue
             if row.get("status") in {
                 "ok", "partial", "mock", "prompt_error", "llm_error",
-                "internal_error",
+                "internal_error", "filtered_goal", "goal_unknown",
             }:
                 continue
             row["status"] = "stale_iteration"
             row["finished_seconds"] = self.elapsed()
+            row["returned_action_count"] = 0
+            row["usable_sample_count"] = 0
             request_id = str(row.get("request_id", ""))
             if request_id in cancellation_map:
                 row["error"] = "phase ended; model future cancellation=%s" % (
@@ -380,9 +395,13 @@ class AnytimeRunRecorder:
         ):
             with self._lock:
                 row = self._requests.setdefault(values["request_id"], {})
-                if row.get("status") != "stale_iteration":
+                if row.get("status") not in {
+                    "stale_iteration", "filtered_goal", "goal_unknown"
+                }:
                     row["status"] = "discarded_phase_end"
                     row["finished_seconds"] = self.elapsed()
+                    row["returned_action_count"] = 0
+                    row["usable_sample_count"] = 0
         elif marker == "NLM-ANYTIME-RUN-TIMEOUT":
             with self._lock:
                 self._metadata["termination_reason"] = (
@@ -445,7 +464,12 @@ class AnytimeRunRecorder:
             total_model_generations = 0
             total_completed_samples = 0
             total_usable_samples = 0
+            total_filter_counts = dict.fromkeys(self.FILTER_COUNT_FIELDS, 0)
+            partial_only_seen = False
             for row in self._requests.values():
+                row.setdefault("llm_partial_only", 0)
+                for name in self.FILTER_COUNT_FIELDS:
+                    row.setdefault(name, 0)
                 try:
                     iteration = int(row.get("iteration", -1))
                     started_count = int(
@@ -471,6 +495,18 @@ class AnytimeRunRecorder:
                 phase["usable_samples"] = int(
                     phase.get("usable_samples", 0)
                 ) + usable_count
+                partial_only = bool(row["llm_partial_only"])
+                partial_only_seen = partial_only_seen or partial_only
+                phase["llm_partial_only"] = int(
+                    bool(phase.get("llm_partial_only", 0)) or partial_only
+                )
+                for name in self.FILTER_COUNT_FIELDS:
+                    try:
+                        count = int(row.get(name, 0) or 0)
+                    except (TypeError, ValueError):
+                        count = 0
+                    total_filter_counts[name] += count
+                    phase[name] = int(phase.get(name, 0) or 0) + count
                 if row.get("status") in {
                     "stale_iteration", "discarded_phase_end"
                 }:
@@ -486,6 +522,9 @@ class AnytimeRunRecorder:
             }
             for iteration in sorted(self._phases):
                 phase = self._phases[iteration]
+                phase.setdefault("llm_partial_only", 0)
+                for name in self.FILTER_COUNT_FIELDS:
+                    phase.setdefault(name, 0)
                 for name in cumulative_llm:
                     try:
                         increment = int(float(phase.get(name, 0) or 0))
@@ -552,7 +591,9 @@ class AnytimeRunRecorder:
                     "model_generation_count": total_model_generations,
                     "completed_sample_count": total_completed_samples,
                     "usable_sample_count": total_usable_samples,
+                    **total_filter_counts,
                 }
             )
+            self._metadata.setdefault("llm_partial_only", partial_only_seen)
             self._write_run_json()
             self._planner_log.close()

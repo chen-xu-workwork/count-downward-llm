@@ -39,6 +39,7 @@ COUNT_RESULTS_ROOT="${COUNT_RESULTS_ROOT:-/root/autodl-tmp/count-results/depots-
 COUNT_RESULTS_DIR="${COUNT_RESULTS_DIR:-$COUNT_RESULTS_ROOT/seed_$COUNT_EXPERIMENT_SEED}"
 COUNT_TMUX_SESSION="${COUNT_TMUX_SESSION:-count-validation-30-40-seed-$COUNT_EXPERIMENT_SEED}"
 COUNT_TMUX_LOG="${COUNT_TMUX_LOG:-$COUNT_RESULTS_DIR/tmux-run.log}"
+COUNT_LLM_PARTIAL_ONLY="${COUNT_LLM_PARTIAL_ONLY:-0}"
 
 # This dedicated entry point deliberately fixes its experiment scope and keeps
 # the proven owned-vLLM lifecycle. Model path/GPU/model-name overrides are
@@ -54,6 +55,7 @@ export \
     COUNT_TMUX_LOG \
     COUNT_SCALES \
     COUNT_EXPERIMENT_SEED \
+    COUNT_LLM_PARTIAL_ONLY \
     COUNT_EXTERNAL_VLLM
 
 exec bash "$COUNT_PROJECT_ROOT/scripts/start_validation_live_scale_aware_tmux.sh"

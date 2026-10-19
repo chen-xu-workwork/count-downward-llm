@@ -12,6 +12,7 @@ COUNT_RUN_TAG="${COUNT_RUN_TAG:-validation-all-live-scale-aware-v2}"
 COUNT_RESULTS_DIR="${COUNT_RESULTS_DIR:-/root/autodl-tmp/count-results/depots-numeric-validation-original/qwen3_5-9b-global_step_350/$COUNT_RUN_TAG}"
 COUNT_SCALES="${COUNT_SCALES:-10,20,30,40}"
 COUNT_EXPERIMENT_SEED="${COUNT_EXPERIMENT_SEED:-}"
+COUNT_LLM_PARTIAL_ONLY="${COUNT_LLM_PARTIAL_ONLY:-0}"
 
 COUNT_SMALL_PARALLELISM="${COUNT_SMALL_PARALLELISM:-8}"
 COUNT_LARGE_PARALLELISM="${COUNT_LARGE_PARALLELISM:-2}"
@@ -35,6 +36,14 @@ COUNT_VLLM_GPUS="${COUNT_VLLM_GPUS:-0}"
 COUNT_LLM_MODEL_NAME="${COUNT_LLM_MODEL_NAME:-Qwen3.5-9B}"
 COUNT_EXTERNAL_VLLM="${COUNT_EXTERNAL_VLLM:-0}"
 COUNT_VLLM_BASE_URL="${COUNT_VLLM_BASE_URL:-http://127.0.0.1:8091/v1}"
+
+case "$COUNT_LLM_PARTIAL_ONLY" in
+    0|1) ;;
+    *)
+        echo "COUNT_LLM_PARTIAL_ONLY must be 0 or 1" >&2
+        exit 1
+        ;;
+esac
 
 case "${COUNT_EXTERNAL_VLLM,,}" in
     1|true|yes|on)
@@ -131,6 +140,7 @@ echo "[COUNT-VALIDATION-LIVE] model=$COUNT_MODEL_PATH"
 echo "[COUNT-VALIDATION-LIVE] results=$COUNT_RESULTS_DIR"
 echo "[COUNT-VALIDATION-LIVE] scales=${requested_scales[*]} experiment_seed=${COUNT_EXPERIMENT_SEED:-unfixed}"
 echo "[COUNT-VALIDATION-LIVE] jobs=${#selected_problems[@]} mode=live resume=on"
+echo "[COUNT-VALIDATION-LIVE] llm_partial_only=$COUNT_LLM_PARTIAL_ONLY"
 echo "[COUNT-VALIDATION-LIVE] parallelism: scale<=30=$COUNT_SMALL_PARALLELISM scale>30=$COUNT_LARGE_PARALLELISM"
 echo "[COUNT-VALIDATION-LIVE] cadence multipliers: scale10/20=1 scale30=$COUNT_SCALE_30_EXPANSION_MULTIPLIER scale40=$COUNT_SCALE_40_EXPANSION_MULTIPLIER"
 echo "[COUNT-VALIDATION-LIVE] plateau: window=65536 confirm=$COUNT_PLATEAU_CONFIRM_WINDOWS min_share=$COUNT_PLATEAU_MIN_SHARE candidate_policy=busiest_qualifying_bucket"
@@ -160,6 +170,10 @@ batch_arguments=(
 
 if [[ -n "$COUNT_EXPERIMENT_SEED" ]]; then
     batch_arguments+=(--experiment-seed "$COUNT_EXPERIMENT_SEED")
+fi
+
+if [[ "$COUNT_LLM_PARTIAL_ONLY" == "1" ]]; then
+    batch_arguments+=(--llm-partial-only)
 fi
 
 if (( use_external_vllm )); then

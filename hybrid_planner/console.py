@@ -194,7 +194,10 @@ def update_prompt_debug_record(debug_path, generation, processed=None):
     )
 
 
-def update_prompt_debug_samples(debug_path, generations, processed_results):
+def update_prompt_debug_samples(
+    debug_path, generations, processed_results, admissions=None,
+    response_status=None, llm_partial_only=False,
+):
     """Persist every independently generated sample for one state request."""
 
     if debug_path is None:
@@ -216,8 +219,13 @@ def update_prompt_debug_samples(debug_path, generations, processed_results):
         }
         if processed is not None:
             sample["processed_response"] = processed.as_dict()
+        if admissions is not None:
+            sample["admission"] = admissions[index]
         samples.append(sample)
     record["samples"] = samples
+    record["llm_partial_only"] = bool(llm_partial_only)
+    if response_status is not None:
+        record["response_status"] = response_status
     pathlib.Path(debug_path).write_text(
         json.dumps(record, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -261,6 +269,7 @@ def make_handler(
     samples_per_state=3,
     anytime_registry=None,
     anytime_recorder=None,
+    llm_partial_only=False,
 ):
     """创建绑定了 endpoint 和 prompt 构造器的 HTTP handler 类。
 
@@ -279,6 +288,7 @@ def make_handler(
         print_prompts: 是否把 init/system/user 全文打印到 Python 控制台。
         prompt_debug_dir: 可选持久化目录；设置后每个请求写入一个 JSON 文件。
         samples_per_state: 每个状态并行提交给模型的独立采样数。
+        llm_partial_only: 排除符号回放曾达到目标的整条样本，不补采样。
 
     Returns:
         可交给 :class:`ThreadingHTTPServer` 的 handler 类。
@@ -351,6 +361,8 @@ def make_handler(
                 flush=True,
             )
 
+            debug_path = None
+            admissions = None
             try:
                 ensure_active_iteration(first_check=True)
                 if prompt_semaphore is None:
@@ -402,6 +414,7 @@ def make_handler(
                     "prompt_ready": True,
                     "system_bytes": len(built.system.encode("utf-8")),
                     "user_bytes": len(built.user.encode("utf-8")),
+                    "llm_partial_only": bool(llm_partial_only),
                 }
                 if llm_runtime is None:
                     response.update(
@@ -454,6 +467,9 @@ def make_handler(
                     processed_results = []
                     sample_results = []
                     action_chains = []
+                    pre_filter_usable_count = 0
+                    filtered_goal_count = 0
+                    filtered_unknown_count = 0
                     for sample_index, generation in enumerate(generations):
                         ensure_active_iteration()
                         if generation.ok:
@@ -474,12 +490,37 @@ def make_handler(
                         sample["llm_attempts"] = generation.attempts
                         sample["llm_seconds"] = generation.elapsed_seconds
                         sample["llm_seed"] = generation.sampling_seed
+                        usable = (
+                            sample["status"] in ("ok", "partial")
+                            and bool(sample.get("actions"))
+                        )
+                        pre_filter_usable_count += int(usable)
+                        sample["admission_status"] = (
+                            "retained" if usable else "unusable"
+                        )
+                        # Classify the original validated response before any
+                        # proposal/burst length cap. A truncated complete plan
+                        # must not become a partial-only candidate.
+                        if llm_partial_only and sample.get("goal_reached") is True:
+                            sample["actions"] = []
+                            sample["admission_status"] = "filtered_goal"
+                            filtered_goal_count += 1
+                        elif (
+                            llm_partial_only
+                            and usable
+                            and sample.get("goal_reached") is not False
+                        ):
+                            # Older simulators may not expose is_goal. Unknown
+                            # is not evidence of a non-goal continuation.
+                            sample["actions"] = []
+                            sample["admission_status"] = "filtered_goal_unknown"
+                            filtered_unknown_count += 1
                         sample_results.append(sample)
                         action_chains.append(list(sample.get("actions", [])))
                         print(
                             "[NLM-PY-CONSOLE] model sample finished "
                             "request_id=%s sample=%d status=%s legal=%d "
-                            "seconds=%.3f seed=%s"
+                            "seconds=%.3f seed=%s admission=%s goal=%s"
                             % (
                                 request_id,
                                 sample_index,
@@ -487,6 +528,8 @@ def make_handler(
                                 len(action_chains[-1]),
                                 generation.elapsed_seconds,
                                 generation.sampling_seed,
+                                sample["admission_status"],
+                                sample.get("goal_reached"),
                             ),
                             flush=True,
                         )
@@ -501,6 +544,11 @@ def make_handler(
                     primary = dict(sample_results[primary_index])
                     primary.pop("sample_index", None)
                     response.update(primary)
+                    if not usable_indices:
+                        if filtered_goal_count:
+                            response["status"] = "filtered_goal"
+                        elif filtered_unknown_count:
+                            response["status"] = "goal_unknown"
                     max_proposals = int(
                         os.environ.get(
                             "HYBRID_LLM_MAX_PROPOSALS_PER_RESPONSE",
@@ -540,19 +588,57 @@ def make_handler(
                     )
                     response["sample_count"] = len(sample_results)
                     response["usable_sample_count"] = len(usable_indices)
-                    response["samples"] = sample_results
-                    update_prompt_debug_samples(
-                        debug_path,
-                        generations,
-                        processed_results,
+                    response["pre_filter_usable_sample_count"] = (
+                        pre_filter_usable_count
                     )
+                    response["goal_reaching_sample_count"] = sum(
+                        sample.get("goal_reached") is True
+                        for sample in sample_results
+                    )
+                    response["non_goal_sample_count"] = sum(
+                        sample.get("goal_reached") is False
+                        for sample in sample_results
+                    )
+                    response["goal_unknown_sample_count"] = (
+                        len(sample_results)
+                        - response["goal_reaching_sample_count"]
+                        - response["non_goal_sample_count"]
+                    )
+                    response["filtered_goal_sample_count"] = filtered_goal_count
+                    response["filtered_unknown_sample_count"] = (
+                        filtered_unknown_count
+                    )
+                    response["returned_action_count"] = sum(
+                        len(chain) for chain in bounded_chains
+                    )
+                    response["samples"] = sample_results
+                    admissions = [
+                        {
+                            "admission_status": sample["admission_status"],
+                            "goal_reached": sample.get("goal_reached"),
+                            "original_action_count": (
+                                len(processed_results[index].actions)
+                                if processed_results[index] is not None else 0
+                            ),
+                            "returned_action_count": (
+                                len(bounded_chains[index])
+                                if index < len(bounded_chains) else 0
+                            ),
+                            "actions": (
+                                bounded_chains[index]
+                                if index < len(bounded_chains) else []
+                            ),
+                        }
+                        for index, sample in enumerate(sample_results)
+                    ]
                     if echo_model_output:
                         response["model_outputs"] = [
                             generation.content for generation in generations
                         ]
                     print(
                         "[NLM-PY-CONSOLE] model request finished request_id=%s "
-                        "samples=%d usable=%d wall_proxy_seconds=%.3f"
+                        "samples=%d usable=%d wall_proxy_seconds=%.3f "
+                        "partial_only=%d filtered_goal=%d filtered_unknown=%d"
                         % (
                             request_id,
                             len(sample_results),
@@ -561,6 +647,9 @@ def make_handler(
                                 generation.elapsed_seconds
                                 for generation in generations
                             ),
+                            int(llm_partial_only),
+                            filtered_goal_count,
+                            filtered_unknown_count,
                         ),
                         flush=True,
                     )
@@ -643,6 +732,7 @@ def make_handler(
                         "actions": [],
                         "action_chains": [],
                         "usable_sample_count": 0,
+                        "returned_action_count": 0,
                         "error": "iteration ended before HTTP response",
                     }
                 )
@@ -656,11 +746,45 @@ def make_handler(
                     usable_sample_count=response.get(
                         "usable_sample_count", 0
                     ),
+                    llm_partial_only=int(llm_partial_only),
+                    goal_reaching_sample_count=response.get(
+                        "goal_reaching_sample_count", 0
+                    ),
+                    non_goal_sample_count=response.get("non_goal_sample_count", 0),
+                    goal_unknown_sample_count=response.get(
+                        "goal_unknown_sample_count", 0
+                    ),
+                    filtered_goal_sample_count=response.get(
+                        "filtered_goal_sample_count", 0
+                    ),
+                    filtered_unknown_sample_count=response.get(
+                        "filtered_unknown_sample_count", 0
+                    ),
+                    pre_filter_usable_sample_count=response.get(
+                        "pre_filter_usable_sample_count", 0
+                    ),
+                    returned_action_count=response.get("returned_action_count", 0),
                     model_wall_seconds=max(
                         [sample.get("llm_seconds", 0.0) for sample in samples]
                         or [0.0]
                     ),
                     error=response.get("error", ""),
+                )
+
+            if admissions is not None and debug_path is not None:
+                # Debug records describe the final outgoing payload, rather
+                # than candidates discarded by the last phase-validity check.
+                if response.get("status") == "stale_iteration":
+                    for admission in admissions:
+                        admission["returned_action_count"] = 0
+                        admission["actions"] = []
+                        if admission["admission_status"] == "retained":
+                            admission["admission_status"] = "discarded_stale"
+                update_prompt_debug_samples(
+                    debug_path, generations, processed_results,
+                    admissions=admissions,
+                    response_status=response.get("status"),
+                    llm_partial_only=llm_partial_only,
                 )
 
             # HTTP 200 表示桥接通信本身成功；应用层错误由 status 字段表达，便于
@@ -1101,6 +1225,15 @@ def main():
         help="Independent parallel model samples generated for each state.",
     )
     parser.add_argument(
+        "--llm-partial-only",
+        action="store_true",
+        help=(
+            "Discard each goal-reaching model response before rollout limits "
+            "are applied; keep only verified non-goal continuations, without "
+            "replacement sampling. Disabled by default."
+        ),
+    )
+    parser.add_argument(
         "--llm-max-qps",
         type=float,
         default=0.0,
@@ -1338,6 +1471,7 @@ def main():
             "search_time_limit_seconds": args.search_time_limit,
             "experiment_seed": args.experiment_seed,
             "llm_samples_per_state": args.llm_samples_per_state,
+            "llm_partial_only": args.llm_partial_only,
             "llm_max_requests_per_iteration": (
                 "0"
                 if args.llm_mode == "off"
@@ -1429,6 +1563,7 @@ def main():
                     samples_per_state=args.llm_samples_per_state,
                     anytime_registry=anytime_registry,
                     anytime_recorder=anytime_recorder,
+                    llm_partial_only=args.llm_partial_only,
                 ),
             )
             # Phase-end cancellation makes model waits bounded. Join request

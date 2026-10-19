@@ -5,8 +5,10 @@ import threading
 import time
 import types
 import unittest
+from unittest import mock
 
 from hybrid_planner.batch_console import (
+    _write_batch_records,
     JobResult,
     JobSpec,
     build_argument_parser,
@@ -16,6 +18,7 @@ from hybrid_planner.batch_console import (
     infer_problem_scale,
     llm_expansion_multiplier_for_scale,
     load_jobs,
+    main,
     parse_resume_problem_path_maps,
     partition_resumable_jobs,
     policy_for_scale,
@@ -40,6 +43,7 @@ def make_args(**overrides):
         "planner_python": "python3",
         "prompt_domain_code": "",
         "llm_model": "Qwen3.5-9B",
+        "llm_partial_only": False,
         "llm_max_concurrency": 6,
         "llm_samples_per_state": 3,
         "llm_max_qps": 0.0,
@@ -68,6 +72,46 @@ class BatchPolicyTests(unittest.TestCase):
 
         self.assertEqual(args.small_parallelism, 8)
         self.assertEqual(args.large_parallelism, 2)
+
+    def test_partial_only_is_an_opt_in_cli_flag(self):
+        parser = build_argument_parser()
+
+        self.assertFalse(parser.parse_args([]).llm_partial_only)
+        self.assertTrue(parser.parse_args(["--llm-partial-only"]).llm_partial_only)
+
+    def test_partial_only_is_forwarded_only_to_live_children_when_enabled(self):
+        problem = pathlib.Path("/tmp/problem_scale_30_id_1.pddl")
+        domain = pathlib.Path("/tmp/domain.pddl")
+        output = pathlib.Path("/tmp/job")
+        for mode in ("live", "off"):
+            for enabled in (False, True):
+                with self.subTest(mode=mode, enabled=enabled):
+                    job = JobSpec(1, "job", problem, mode, 30, 1800, 10, False)
+                    command = build_child_command(
+                        job, domain, output,
+                        make_args(llm_partial_only=enabled),
+                        "http://127.0.0.1:8091/v1",
+                    )
+
+                    self.assertEqual(
+                        "--llm-partial-only" in command, mode == "live" and enabled
+                    )
+
+    def test_batch_config_records_the_partial_only_policy(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = pathlib.Path(temp_dir)
+            parser = build_argument_parser()
+            for flags in ([], ["--llm-partial-only"]):
+                with self.subTest(flags=flags):
+                    args = parser.parse_args(flags)
+                    _write_batch_records(
+                        output_dir, pathlib.Path("domain.pddl"), [], [], args, ""
+                    )
+                    config = json.loads(
+                        (output_dir / "batch_config.json").read_text(encoding="utf-8")
+                    )
+
+                    self.assertEqual(config["llm_partial_only"], bool(flags))
 
     def test_normal_time_limit_exit_is_not_reported_as_a_batch_failure(self):
         self.assertEqual(classify_return_code(0), "plan_found")
@@ -174,6 +218,79 @@ class BatchPolicyTests(unittest.TestCase):
             validate_resume_experiment_seed(output_dir, 73)
             with self.assertRaisesRegex(ValueError, "resume seed mismatch"):
                 validate_resume_experiment_seed(output_dir, 74)
+
+    def test_resume_legacy_config_defaults_to_full_replies(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = pathlib.Path(temp_dir)
+            (output_dir / "batch_config.json").write_text(
+                json.dumps({"experiment_seed": 73}), encoding="utf-8"
+            )
+
+            # The existing two-argument API remains compatible.
+            validate_resume_experiment_seed(output_dir, 73)
+            validate_resume_experiment_seed(output_dir, 73, llm_partial_only=False)
+            with self.assertRaisesRegex(ValueError, "resume llm_partial_only mismatch"):
+                validate_resume_experiment_seed(output_dir, 73, llm_partial_only=True)
+
+    def test_resume_requires_the_same_partial_only_policy(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = pathlib.Path(temp_dir)
+            config_path = output_dir / "batch_config.json"
+            for stored_flag in (False, True):
+                with self.subTest(stored_flag=stored_flag):
+                    config_path.write_text(
+                        json.dumps({
+                            "experiment_seed": 73,
+                            "llm_partial_only": stored_flag,
+                        }), encoding="utf-8"
+                    )
+
+                    validate_resume_experiment_seed(output_dir, 73, stored_flag)
+                    with self.assertRaisesRegex(ValueError, "resume llm_partial_only mismatch"):
+                        validate_resume_experiment_seed(output_dir, 73, not stored_flag)
+
+    def test_partial_only_resume_rejects_saved_jobs_without_batch_config(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = pathlib.Path(temp_dir)
+            job_dir = output_dir / "finished-job"
+            job_dir.mkdir()
+            (job_dir / "job_result.json").write_text("{}", encoding="utf-8")
+
+            # Preserve the legacy policy's existing resume behavior.
+            validate_resume_experiment_seed(output_dir, 73)
+            with self.assertRaisesRegex(ValueError, "saved job results have no batch_config"):
+                validate_resume_experiment_seed(output_dir, 73, llm_partial_only=True)
+
+    def test_partial_only_resume_allows_an_empty_directory_without_config(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            validate_resume_experiment_seed(temp_dir, 73, llm_partial_only=True)
+
+    def test_policy_is_saved_before_service_startup(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = pathlib.Path(temp_dir)
+            domain = pathlib.Path("/tmp/domain.pddl")
+            job = JobSpec(
+                1, "live", pathlib.Path("/tmp/problem_scale_30_id_1.pddl"),
+                "live", 30, 1800, 10, False,
+            )
+
+            def check_startup(args, configured_output_dir):
+                config = json.loads(
+                    (configured_output_dir / "batch_config.json").read_text(encoding="utf-8")
+                )
+                self.assertTrue(config["llm_partial_only"])
+                self.assertEqual(config["jobs"][0]["job_id"], job.job_id)
+                raise RuntimeError("simulated service startup failure")
+
+            with mock.patch("sys.argv", [
+                "batch_console", "--output-dir", str(output_dir),
+                "--external-vllm", "--llm-partial-only",
+            ]), mock.patch(
+                "hybrid_planner.batch_console.load_jobs", return_value=(domain, [job])
+            ), mock.patch(
+                "hybrid_planner.batch_console._build_vllm_service", side_effect=check_startup
+            ), self.assertRaisesRegex(RuntimeError, "simulated service startup failure"):
+                main()
 
     def test_scale_aware_llm_policy_changes_only_expansion_cadence(self):
         args = make_args(scale_aware_llm_thresholds=True)

@@ -170,17 +170,19 @@ COUNT_MODEL_PATH=/root/autodl-tmp/Qwen3_5-9B/dapo/data_260811_resume_193/global_
 bash scripts/start_validation_live_scale30_40_repeat_tmux.sh
 ```
 
-The tmux launcher also prefers a compatible `libstdc++.so.6` from the active
-Conda environment. If the environment is not active, select it explicitly:
+The tmux launcher also keeps the vLLM executable, Python and compiled
+libraries in one Conda environment. If the environment is not active, select
+it explicitly:
 
 ```bash
 COUNT_EXPERIMENT_SEED=73 \
-COUNT_RUNTIME_LIB_DIR=/root/miniconda3/envs/verl_env/lib \
+COUNT_RUNTIME_ENV_PREFIX=/root/miniconda3/envs/verl_env \
 bash scripts/start_validation_live_scale30_40_repeat_tmux.sh
 ```
 
-The selected library must expose `CXXABI_1.3.15`; its directory is prepended
-to `LD_LIBRARY_PATH` before the value is forwarded into tmux and vLLM.
+This prepends `verl_env/bin` to `PATH`, uses its absolute `bin/vllm`, and
+prepends `verl_env/lib` to `LD_LIBRARY_PATH`. The selected `libstdc++.so.6`
+must expose `CXXABI_1.3.15` before the values are forwarded into tmux.
 
 This still owns the vLLM lifecycle: it launches the configured checkpoint,
 waits for `/v1/models`, runs all selected planners, and stops vLLM at the end.

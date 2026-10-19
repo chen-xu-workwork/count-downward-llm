@@ -14,7 +14,43 @@ COUNT_RUN_TAG="${COUNT_RUN_TAG:-validation-all-live-scale-aware-v2}"
 COUNT_RESULTS_DIR="${COUNT_RESULTS_DIR:-/root/autodl-tmp/count-results/depots-numeric-validation-original/qwen3_5-9b-global_step_350/$COUNT_RUN_TAG}"
 COUNT_TMUX_SESSION="${COUNT_TMUX_SESSION:-count-validation-live-v2}"
 COUNT_TMUX_LOG="${COUNT_TMUX_LOG:-$COUNT_RESULTS_DIR/tmux-run.log}"
+COUNT_RUNTIME_ENV_PREFIX="${COUNT_RUNTIME_ENV_PREFIX:-}"
 COUNT_RUNTIME_LIB_DIR="${COUNT_RUNTIME_LIB_DIR:-}"
+COUNT_LLM_PARTIAL_ONLY="${COUNT_LLM_PARTIAL_ONLY:-0}"
+
+# Keep Python, vLLM and compiled extension libraries in one environment. A
+# queued tmux launch may inherit the base Conda PATH even when the first run
+# was started from verl_env, so do not rely on the tmux server's old PATH.
+if [[ -z "$COUNT_RUNTIME_ENV_PREFIX" ]]; then
+    runtime_env_candidates=()
+    if [[ -n "${CONDA_PREFIX:-}" ]]; then
+        runtime_env_candidates+=("$CONDA_PREFIX")
+    fi
+    runtime_env_candidates+=("/root/miniconda3/envs/verl_env")
+    for candidate in "${runtime_env_candidates[@]}"; do
+        if [[ -x "$candidate/bin/vllm" ]]; then
+            COUNT_RUNTIME_ENV_PREFIX="$candidate"
+            break
+        fi
+    done
+fi
+
+if [[ -n "$COUNT_RUNTIME_ENV_PREFIX" ]]; then
+    if [[ ! -x "$COUNT_RUNTIME_ENV_PREFIX/bin/vllm" ]]; then
+        echo "Runtime environment does not contain an executable bin/vllm: $COUNT_RUNTIME_ENV_PREFIX" >&2
+        exit 1
+    fi
+    export PATH="$COUNT_RUNTIME_ENV_PREFIX/bin:$PATH"
+    export CONDA_PREFIX="$COUNT_RUNTIME_ENV_PREFIX"
+    export CONDA_DEFAULT_ENV="$(basename "$COUNT_RUNTIME_ENV_PREFIX")"
+    NLM_VLLM_EXECUTABLE="${NLM_VLLM_EXECUTABLE:-$COUNT_RUNTIME_ENV_PREFIX/bin/vllm}"
+    COUNT_RUNTIME_LIB_DIR="${COUNT_RUNTIME_LIB_DIR:-$COUNT_RUNTIME_ENV_PREFIX/lib}"
+elif [[ -z "${NLM_VLLM_EXECUTABLE:-}" ]]; then
+    resolved_vllm="$(command -v vllm 2>/dev/null || true)"
+    if [[ -n "$resolved_vllm" ]]; then
+        NLM_VLLM_EXECUTABLE="$resolved_vllm"
+    fi
+fi
 
 # flash-attn and other compiled packages in the model environment may require
 # a newer libstdc++ than the container image provides. Resolve a compatible
@@ -81,9 +117,11 @@ forward_variables=(
     NLM_VLLM_EXECUTABLE
     COUNT_DATASET_ROOT
     COUNT_MODEL_PATH
+    COUNT_RUNTIME_ENV_PREFIX
     COUNT_RUNTIME_LIB_DIR
     COUNT_SCALES
     COUNT_EXPERIMENT_SEED
+    COUNT_LLM_PARTIAL_ONLY
     COUNT_SMALL_PARALLELISM
     COUNT_LARGE_PARALLELISM
     COUNT_SMALL_TIME_LIMIT
@@ -129,6 +167,12 @@ echo "Results: $COUNT_RESULTS_DIR"
 echo "Batch transcript: $COUNT_TMUX_LOG"
 if [[ -n "$COUNT_RUNTIME_LIB_DIR" ]]; then
     echo "Runtime C++ libraries: $COUNT_RUNTIME_LIB_DIR"
+fi
+if [[ -n "$COUNT_RUNTIME_ENV_PREFIX" ]]; then
+    echo "Runtime Python environment: $COUNT_RUNTIME_ENV_PREFIX"
+fi
+if [[ -n "${NLM_VLLM_EXECUTABLE:-}" ]]; then
+    echo "vLLM executable: $NLM_VLLM_EXECUTABLE"
 fi
 echo "Attach: tmux attach -t '$COUNT_TMUX_SESSION'"
 echo "Detach without stopping: Ctrl-b, then d"

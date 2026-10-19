@@ -4,6 +4,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 default_project_root="$(cd "$script_dir/.." && pwd)"
+COUNT_LLM_PARTIAL_ONLY="${COUNT_LLM_PARTIAL_ONLY:-0}"
 
 count_end_records() {
     local log_path="$1"
@@ -137,6 +138,7 @@ forward_variables=(
     COUNT_PROJECT_ROOT
     COUNT_DATASET_ROOT
     COUNT_MODEL_PATH
+    COUNT_RUNTIME_ENV_PREFIX
     COUNT_RUNTIME_LIB_DIR
     COUNT_RESULTS_ROOT
     COUNT_REPEAT_TAG
@@ -152,6 +154,7 @@ forward_variables=(
     COUNT_PLATEAU_MIN_SHARE
     COUNT_VLLM_GPUS
     COUNT_LLM_MODEL_NAME
+    COUNT_LLM_PARTIAL_ONLY
     COUNT_QUEUE_POLL_SECONDS
 )
 

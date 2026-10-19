@@ -291,11 +291,17 @@ def partition_resumable_jobs(
     return completed, pending
 
 
-def validate_resume_experiment_seed(output_dir, experiment_seed):
-    """Reject resume when the result directory belongs to another seed."""
+def validate_resume_experiment_seed(output_dir, experiment_seed, llm_partial_only=False):
+    """Reject resume when the seed or proposal-filter policy has changed."""
 
     config_path = pathlib.Path(output_dir) / "batch_config.json"
     if not config_path.is_file():
+        if llm_partial_only and any(pathlib.Path(output_dir).glob("*/job_result.json")):
+            raise ValueError(
+                "cannot resume llm_partial_only=True: saved job results have no "
+                "batch_config.json to establish their proposal policy; "
+                "use a different output directory"
+            )
         return
     try:
         stored_config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -309,6 +315,14 @@ def validate_resume_experiment_seed(output_dir, experiment_seed):
             "resume seed mismatch: result directory stores %r, requested %r; "
             "use the matching seed or a different output directory"
             % (stored_seed, experiment_seed)
+        )
+    # Older batches predate the ablation and accepted goal-reaching replies.
+    stored_partial_only = stored_config.get("llm_partial_only", False)
+    if stored_partial_only != llm_partial_only:
+        raise ValueError(
+            "resume llm_partial_only mismatch: result directory stores %r, "
+            "requested %r; use the matching policy or a different output directory"
+            % (stored_partial_only, llm_partial_only)
         )
 
 
@@ -487,6 +501,8 @@ def build_child_command(job, domain, job_dir, args, vllm_base_url):
         command.extend(["--experiment-seed", str(experiment_seed)])
 
     if job.mode == "live":
+        if getattr(args, "llm_partial_only", False):
+            command.append("--llm-partial-only")
         command.extend(
             [
                 "--external-vllm",
@@ -719,6 +735,7 @@ def _write_batch_records(output_dir, domain, jobs, results, args, base_url):
             args, "scale_40_expansion_multiplier", 0.25
         ),
         "experiment_seed": getattr(args, "experiment_seed", None),
+        "llm_partial_only": getattr(args, "llm_partial_only", False),
         "resume_enabled": args.resume,
         "resume_problem_path_maps": list(
             getattr(args, "resolved_resume_problem_path_maps", ())
@@ -834,6 +851,11 @@ def build_argument_parser():
     parser.add_argument("--validation-workers", type=int, default=4)
 
     parser.add_argument("--llm-model", default="Qwen3.5-9B")
+    parser.add_argument(
+        "--llm-partial-only",
+        action="store_true",
+        help="Reject each goal-reaching LLM sample and keep only verified incomplete prefixes",
+    )
     parser.add_argument("--llm-max-concurrency", type=int, default=6)
     parser.add_argument("--llm-samples-per-state", type=int, default=3)
     parser.add_argument("--llm-max-qps", type=float, default=0.0)
@@ -935,7 +957,7 @@ def main():
     if args.resume:
         try:
             validate_resume_experiment_seed(
-                output_dir, args.experiment_seed
+                output_dir, args.experiment_seed, args.llm_partial_only
             )
         except ValueError as exc:
             parser.error(str(exc))
@@ -958,6 +980,12 @@ def main():
                 "live jobs require --vllm-model-path, --vllm-command, "
                 "or --external-vllm"
             )
+
+    # Persist the policy before service startup or planner execution. A process
+    # killed during startup must not leave resumable artifacts without it.
+    _write_batch_records(
+        output_dir, domain, jobs, resumed_results, args, args.vllm_base_url
+    )
 
     service = None
     runner = None
