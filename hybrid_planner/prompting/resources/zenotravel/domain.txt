@@ -1,0 +1,73 @@
+1. 物理世界对象 (Entities)
+在这个航空运输世界中，存在以下层级的实体：
+   City (城市): 飞机起降以及乘客上下机的地点。
+   Locatable (可定位对象): 包含 Aircraft (飞机) 和 Person (乘客)。飞机与未登机乘客都可以位于某座城市；登机后的乘客改为位于飞机内部。
+
+2. 状态查询 API (State Query API)
+下面这些函数接口可以辅助你理解世界的初始状态和目标状态，并在动作的前提条件中至关重要。
+
+逻辑状态查询 (返回 bool):
+    is_at(obj: Locatable, c: City) : 检查可定位对象 obj 是否位于城市 c。
+    is_in(p: Person, a: Aircraft) : 检查乘客 p 是否已经登上飞机 a。
+
+数值状态查询 (返回 float):
+    get_fuel(a: Aircraft) : 获取飞机 a 当前剩余的燃油。
+    get_distance(c1: City, c2: City) : 获取城市 c1 到城市 c2 的飞行距离。
+    get_slow_burn(a: Aircraft) : 获取飞机 a 使用普通 Fly 模式时的单位距离耗油量。
+    get_fast_burn(a: Aircraft) : 获取飞机 a 使用快速 Zoom 模式时的单位距离耗油量。
+    get_capacity(a: Aircraft) : 获取飞机 a 加满燃油后的油箱容量。
+    get_onboard(a: Aircraft) : 获取飞机 a 当前的机上乘客人数。
+    get_zoom_limit(a: Aircraft) : 获取飞机 a 使用 Zoom 模式时允许的最大机上人数。
+    get_total_fuel_used() : 获取全局累计消耗的燃油量，也是本领域需要最小化的指标。
+
+3. 动作 API 手册 (Action API Reference)
+你可以调用以下 5 个预定义的动作函数。调用前必须保证满足所有前提条件；调用后，世界状态会发生相应的变化。
+
+1. action_Zoom(a: Aircraft, c1: City, c2: City)
+语义: 飞机 a 使用快速模式从城市 c1 飞往城市 c2。
+前提:
+	位置要求：飞机 a 当前必须位于城市 c1 (is_at(a, c1) == True)。
+	【燃油验算】: 当前燃油必须不少于 get_distance(c1, c2) × get_fast_burn(a)。
+	【载客限制】: 当前机上人数不能超过快速飞行上限 (get_onboard(a) <= get_zoom_limit(a))。
+效果:
+	飞机离开 c1，到达 c2 (is_at(a, c1) == False，is_at(a, c2) == True)。
+	飞机燃油get_fuel(a)减少 get_distance(c1, c2) * get_fast_burn(a) 即里程和单位油耗的乘积。
+	全局累计油耗get_total_fuel_used()增加相同数值。
+
+2. action_Refuel(a: Aircraft, c: City)
+语义: 位于城市 c 的飞机 a 将油箱加满。
+前提:
+	飞机 a 当前必须位于城市 c (is_at(a, c) == True)。
+	油箱必须尚未加满 (get_capacity(a) > get_fuel(a))。
+效果:
+	飞机当前燃油被直接设置为油箱容量 (get_fuel(a) = get_capacity(a))。
+	加油本身不会增加 get_total_fuel_used()。
+
+3. action_Board(p: Person, a: Aircraft, c: City)
+语义: 乘客 p 在城市 c 登上飞机 a。
+前提:
+	乘客 p 与飞机 a 都必须位于城市 c (is_at(p, c) == True 且 is_at(a, c) == True)。
+效果:
+	乘客 p 不再具有城市 c 的位置，转为位于飞机内部 (is_at(p, c) == False，is_in(p, a) == True)。
+	飞机的机上人数 get_onboard(a) 增加 1。
+	注意：Board 本身不检查 Zoom 的载客上限；但超出上限后不能执行 Zoom，必须先让足够的乘客下机，或改用 Fly。
+
+4. action_Fly(a: Aircraft, c1: City, c2: City)
+语义: 飞机 a 使用普通模式从城市 c1 飞往城市 c2。
+前提:
+	位置要求：飞机 a 当前必须位于城市 c1 (is_at(a, c1) == True)。
+	【燃油验算】: 当前燃油必须不少于 get_distance(c1, c2) × get_slow_burn(a)。
+效果:
+	飞机离开 c1，到达 c2 (is_at(a, c1) == False，is_at(a, c2) == True)。
+	飞机燃油减少 get_distance(c1, c2) × get_slow_burn(a)。
+	全局累计油耗增加相同数值。
+	Fly 没有机上人数限制，但通常比 Zoom 消耗更多燃油。
+
+5. action_Debark(p: Person, a: Aircraft, c: City)
+语义: 乘客 p 从当前位于城市 c 的飞机 a 下机。
+前提:
+	乘客 p 必须在飞机 a 内 (is_in(p, a) == True)。
+	飞机 a 当前必须位于城市 c (is_at(a, c) == True)。
+效果:
+	乘客 p 离开飞机并位于城市 c (is_in(p, a) == False，is_at(p, c) == True)。
+	飞机的机上人数 get_onboard(a) 减少 1。
