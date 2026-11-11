@@ -21,6 +21,7 @@
 #include <limits>
 #include <sstream>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using namespace std;
@@ -45,6 +46,13 @@ LazySearch::LazySearch(const Options &opts)
       current_origin(WorkOrigin::INITIAL),
       has_current_work(true),
       llm_trigger_monitor(new llm::TriggerMonitor()),
+      llm_initial_preparing(false),
+      llm_initial_preparation_reported(false),
+      llm_initial_state_id(StateID::no_state),
+      llm_initial_g(0),
+      llm_initial_h(0),
+      llm_initial_submitted(0),
+      llm_initial_completed(0),
       llm_base_expansions(0),
       llm_ancestor_check_interval(max(
           1, llm::setting_int("ANCESTOR_CHECK_INTERVAL", 100000))),
@@ -267,11 +275,17 @@ llm::ExpansionOutcome LazySearch::process_current_work() {
                 ap_float h = current_llm_h();
                 if (current_origin == WorkOrigin::INITIAL) {
                     llm_trigger_monitor->record_rollout_expansion(h);
-                    llm_trigger_monitor->maybe_request_initial(
-                        current_state.get_id(), node.get_g(), h);
+                    if (llm_trigger_monitor->initial_only()) {
+                        begin_initial_preparation(
+                            current_state.get_id(), node.get_g(), h);
+                    } else {
+                        llm_trigger_monitor->maybe_request_initial(
+                            current_state.get_id(), node.get_g(), h);
+                    }
                 } else if (current_origin == WorkOrigin::BASE_OPEN_LIST) {
                     ++llm_base_expansions;
                     bool ancestor_stagnant =
+                        !llm_trigger_monitor->initial_only() &&
                         llm_base_expansions % llm_ancestor_check_interval == 0 &&
                         llm_ancestor_stagnant(node, h);
                     llm_trigger_monitor->record_base_expansion(
@@ -616,10 +630,72 @@ void LazySearch::poll_llm_responses() {
         accept_llm_response(response);
 }
 
+void LazySearch::begin_initial_preparation(
+    StateID state_id, ap_float g, ap_float h) {
+    llm_initial_state_id = state_id;
+    llm_initial_g = g;
+    llm_initial_h = h;
+    llm_initial_started_at = chrono::steady_clock::now();
+    llm_initial_preparing = true;
+    print_initial_preparation("start");
+}
+
+void LazySearch::print_initial_preparation(const char *event) const {
+    const double elapsed = chrono::duration_cast<chrono::duration<double>>(
+        chrono::steady_clock::now() - llm_initial_started_at).count();
+    cout << "[HYBRID-LLM-INITIAL-PREP]"
+         << " event=" << event
+         << " iteration=" << get_anytime_iteration()
+         << " capability=TRACS_INITIAL_ONLY_PREPARATION_V1"
+         << " budget_groups=" << llm_trigger_monitor->initial_batch_budget()
+         << " submitted_groups=" << llm_initial_submitted
+         << " completed_groups=" << llm_initial_completed
+         << " buffered_responses=" << llm_initial_responses.size()
+         << " elapsed_seconds=" << elapsed << endl;
+}
+
+void LazySearch::advance_initial_preparation() {
+    // Each step is non-blocking so the ordinary shared wall deadline applies
+    // during model inference as well as during native search.
+    vector<llm::Response> responses = llm_trigger_monitor->poll_completed();
+    for (llm::Response &response : responses) {
+        ++llm_initial_completed;
+        llm_initial_responses.push_back(std::move(response));
+    }
+    // Only submit when a state-request slot is available. In particular, do
+    // not start thirty generation timeout clocks behind six model slots.
+    while (llm_trigger_monitor->submit_initial_batch(
+               llm_initial_state_id, llm_initial_g, llm_initial_h)) {
+        ++llm_initial_submitted;
+    }
+    if (llm_trigger_monitor->initial_batch_submitted() &&
+        !llm_trigger_monitor->has_pending()) {
+        llm_initial_preparing = false;
+        print_initial_preparation("end");
+        llm_initial_preparation_reported = true;
+    }
+}
+
 SearchStatus LazySearch::schedule_next_work() {
     if (llm_trigger_monitor->enabled()) {
-        poll_llm_responses();
+        if (llm_initial_preparing) {
+            advance_initial_preparation();
+            if (llm_initial_preparing) {
+                this_thread::sleep_for(chrono::milliseconds(1));
+                return IN_PROGRESS;
+            }
+        }
+        if (!llm_trigger_monitor->initial_only())
+            poll_llm_responses();
         finish_active_burst_if_empty();
+        // Feed the collected batch in arrival order without exceeding the
+        // existing queue capacity. All per-response action caps still apply.
+        while (!llm_initial_responses.empty() &&
+               static_cast<int>(llm_bursts.size()) <
+                   llm_rollout_limits.max_queued_bursts) {
+            accept_llm_response(llm_initial_responses.front());
+            llm_initial_responses.pop_front();
+        }
         if (!llm_bursts.empty()) {
             prepare_next_rollout_edge();
             return IN_PROGRESS;
@@ -665,6 +741,10 @@ void LazySearch::print_statistics() const {
     statistics.print_detailed_statistics();
     search_space.print_statistics();
     if (llm_trigger_monitor->enabled()) {
+        if (llm_initial_preparing && !llm_initial_preparation_reported) {
+            print_initial_preparation("interrupted");
+            llm_initial_preparation_reported = true;
+        }
         llm_rollout_statistics.print(get_anytime_iteration());
         llm_trigger_monitor->finalize_and_print();
     }

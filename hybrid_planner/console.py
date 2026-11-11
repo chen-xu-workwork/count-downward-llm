@@ -871,12 +871,92 @@ def _force_llm_runtime_setting(env, suffix, value):
     env["NLM_LLM_" + suffix] = text
 
 
+def validate_initial_only_binary(project_root, build, working_directory=None):
+    """Reject an old search binary before loading a model or starting a service."""
+
+    build_dir = pathlib.Path(build).expanduser()
+    if not build_dir.is_absolute():
+        build_dir = pathlib.Path(working_directory or pathlib.Path.cwd()) / build_dir
+    if not build_dir.exists():
+        build_dir = pathlib.Path(project_root) / "builds" / build / "bin"
+    executable = build_dir / ("downward.exe" if os.name == "nt" else "downward")
+    marker = b"TRACS_INITIAL_ONLY_PREPARATION_V1"
+    try:
+        with executable.open("rb") as stream:
+            tail = b""
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                data = tail + chunk
+                if marker in data:
+                    return executable
+                tail = data[-(len(marker) - 1):]
+    except OSError as exc:
+        raise ValueError(
+            "initial-only requires the rebuilt search executable %s: %s"
+            % (executable, exc)
+        ) from exc
+    raise ValueError(
+        "initial-only is unsupported by the selected search executable %s; "
+        "rebuild this Count-Downward checkout in the container before running "
+        "the experiment (missing %s)" % (executable, marker.decode("ascii"))
+    )
+
+
+def configure_query_policy(environment, query_policy, enabled=True):
+    """Apply the explicit CLI policy, overriding inherited legacy aliases."""
+
+    if query_policy not in {"adaptive", "initial-only"}:
+        raise ValueError("unknown LLM query policy: %s" % query_policy)
+    _force_llm_runtime_setting(environment, "QUERY_POLICY", query_policy)
+    if query_policy != "initial-only" or not enabled:
+        return
+    for suffix in (
+        "REQUEST_INITIAL", "ENABLE_ANCESTOR_STAGNATION",
+        "ENABLE_EXPANSION_PLATEAU", "ENABLE_GLOBAL_STALL",
+    ):
+        _force_llm_runtime_setting(environment, suffix, "0")
+    for suffix in ("MAX_REQUESTS", "MAX_PENDING"):
+        raw = environment.get(
+            "HYBRID_LLM_" + suffix,
+            environment.get("NLM_LLM_" + suffix, "0"),
+        )
+        try:
+            value = int(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("initial-only requires an integer %s" % suffix) from exc
+        if value <= 0:
+            raise ValueError("initial-only requires %s > 0" % suffix)
+
+
+def validate_run_query_policy(output_dir, query_policy):
+    """Protect direct console runs from overwriting another experiment mode."""
+
+    output_dir = pathlib.Path(output_dir)
+    run_path = output_dir / "run.json"
+    if not run_path.is_file():
+        if query_policy == "initial-only" and (output_dir / "phases.csv").exists():
+            raise ValueError("existing phases have no query policy; use a different --anytime-log-dir")
+        return
+    try:
+        stored = json.loads(run_path.read_text(encoding="utf-8"))
+        stored_policy = stored.get("llm_query_policy", "adaptive")
+    except (OSError, ValueError, AttributeError) as exc:
+        raise ValueError("cannot validate existing run query policy: %s" % exc) from exc
+    if stored_policy != query_policy:
+        raise ValueError(
+            "LLM query policy mismatch: stored %r, requested %r; "
+            "use a different --anytime-log-dir" % (stored_policy, query_policy)
+        )
+
+
 def configure_planner_environment(args, problem_id):
     """构造 C++ 搜索器所需的运行环境和 LLM 桥接配置。
 
     除 CPLEX/COIN 动态库路径外，本函数还把 HTTP 地址、problem_id、挂起策略和
-    触发器默认参数传给搜索器。所有实验参数均通过 ``setdefault`` 设置，因此
-    调用者预先声明的环境变量拥有更高优先级。
+    触发器默认参数传给搜索器。默认参数保留已有环境变量；查询策略则由 CLI
+    显式决定，initial-only 会强制关闭运行中触发器与旧的初始请求开关。
 
     Args:
         args: 控制台命令行参数，其中 ``actual_port`` 已由 HTTP server 回填。
@@ -913,6 +993,9 @@ def configure_planner_environment(args, problem_id):
         )
         _force_llm_runtime_setting(env, "EMIT_STATE", "0")
         _force_llm_runtime_setting(env, "MAX_REQUESTS", "0")
+        configure_query_policy(
+            env, getattr(args, "llm_query_policy", "adaptive"), enabled=False
+        )
         return env
 
     _force_llm_runtime_setting(env, "TRIGGER", "1")
@@ -996,6 +1079,7 @@ def configure_planner_environment(args, problem_id):
     env.setdefault("NLM_LLM_REQUESTS_PER_SLOT", "1")
     env.setdefault("NLM_LLM_HEARTBEAT_INTERVAL", "100000")
     env.setdefault("NLM_LLM_H_RELATIVE_EPSILON", "0.005")
+    configure_query_policy(env, getattr(args, "llm_query_policy", "adaptive"))
     return env
 
 
@@ -1219,6 +1303,14 @@ def main():
     )
     parser.add_argument("--llm-max-concurrency", type=int, default=100)
     parser.add_argument(
+        "--llm-query-policy", choices=("adaptive", "initial-only"),
+        default="adaptive",
+        help=(
+            "Use adaptive requests during search, or spend the same per-phase "
+            "state-request budget on the initial state before native search."
+        ),
+    )
+    parser.add_argument(
         "--llm-samples-per-state",
         type=int,
         default=int(os.environ.get("NLM_LLM_SAMPLES_PER_STATE", "3")),
@@ -1418,6 +1510,18 @@ def main():
             )
 
     problem_id = args.problem_id or pathlib.Path(args.problem).stem
+    if args.llm_query_policy == "initial-only" and args.llm_mode != "off":
+        try:
+            validate_initial_only_binary(
+                project_root, args.build,
+                pathlib.Path(args.plan).expanduser().resolve().parent,
+            )
+            # Resolve pending/group limits before the expensive service startup.
+            # The actual listening port is filled in after the bridge starts.
+            args.actual_port = args.port
+            configure_planner_environment(args, problem_id)
+        except ValueError as exc:
+            parser.error(str(exc))
     if not args.run_id:
         args.run_id = _safe_filename_component(
             "%s-%s-%d"
@@ -1430,6 +1534,10 @@ def main():
         if args.anytime_log_dir
         else project_root / "logs" / "anytime" / args.run_id
     )
+    try:
+        validate_run_query_policy(anytime_log_dir, args.llm_query_policy)
+    except ValueError as exc:
+        parser.error(str(exc))
     prompt_builder = None
     if args.llm_mode != "off":
         prompt_builder = HybridPromptBuilder(
@@ -1472,6 +1580,7 @@ def main():
             "experiment_seed": args.experiment_seed,
             "llm_samples_per_state": args.llm_samples_per_state,
             "llm_partial_only": args.llm_partial_only,
+            "llm_query_policy": args.llm_query_policy,
             "llm_max_requests_per_iteration": (
                 "0"
                 if args.llm_mode == "off"

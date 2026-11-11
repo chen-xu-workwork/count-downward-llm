@@ -148,6 +148,9 @@ class AnytimeRunRecorder:
         "llm_stale_proposals", "llm_normal_edges_generated",
         "llm_responses_rejected_budget", "llm_proposals_completed",
         "llm_proposals_aborted", "llm_burst_wall_seconds",
+        "llm_query_policy", "initial_preparation_status",
+        "initial_preparation_seconds", "initial_budget_groups",
+        "initial_submitted_groups", "initial_completed_groups",
     ]
     INCUMBENT_FIELDS = [
         "run_id", "mode", "iteration", "incumbent", "elapsed_seconds",
@@ -315,6 +318,25 @@ class AnytimeRunRecorder:
                     int(accepted) for _, accepted in cancellations
                 )
                 self._mark_iteration_stale(iteration, cancellations)
+        elif marker == "HYBRID-LLM-INITIAL-PREP" and iteration is not None:
+            with self._lock:
+                phase = self._phases.setdefault(iteration, {})
+                phase.update(run_id=self.run_id, iteration=iteration)
+                phase["llm_query_policy"] = "initial-only"
+                phase["initial_preparation_status"] = {
+                    "start": "running", "end": "completed",
+                    "interrupted": "interrupted",
+                }.get(values.get("event"), values.get("event", "unknown"))
+                # This duration is a component of phase time. Never overwrite
+                # the overall anytime elapsed_seconds with preparation time.
+                for source, target in (
+                    ("elapsed_seconds", "initial_preparation_seconds"),
+                    ("budget_groups", "initial_budget_groups"),
+                    ("submitted_groups", "initial_submitted_groups"),
+                    ("completed_groups", "initial_completed_groups"),
+                ):
+                    if source in values:
+                        phase[target] = values[source]
         elif marker in {
             "NLM-LLM-TRIGGER-STATS",
             "HYBRID-LLM-TRIGGER-STATS",
@@ -522,6 +544,14 @@ class AnytimeRunRecorder:
             }
             for iteration in sorted(self._phases):
                 phase = self._phases[iteration]
+                phase.setdefault(
+                    "llm_query_policy", self._metadata.get("llm_query_policy", "adaptive")
+                )
+                if phase.get("initial_preparation_status") == "running":
+                    # An abruptly killed native process cannot report its final
+                    # preparation time; leave it unknown rather than claim zero.
+                    phase["initial_preparation_status"] = "incomplete"
+                    phase["initial_preparation_seconds"] = ""
                 phase.setdefault("llm_partial_only", 0)
                 for name in self.FILTER_COUNT_FIELDS:
                     phase.setdefault(name, 0)
@@ -595,5 +625,19 @@ class AnytimeRunRecorder:
                 }
             )
             self._metadata.setdefault("llm_partial_only", partial_only_seen)
+            self._metadata.setdefault("llm_query_policy", "adaptive")
+            preparation_phases = [
+                phase for phase in self._phases.values()
+                if "initial_preparation_status" in phase
+            ]
+            if preparation_phases:
+                self._metadata["initial_preparation_seconds"] = sum(
+                    float(phase.get("initial_preparation_seconds", 0) or 0)
+                    for phase in preparation_phases
+                )
+                self._metadata["initial_preparation_incomplete_phases"] = sum(
+                    phase["initial_preparation_status"] == "incomplete"
+                    for phase in preparation_phases
+                )
             self._write_run_json()
             self._planner_log.close()

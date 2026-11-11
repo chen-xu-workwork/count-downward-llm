@@ -28,6 +28,7 @@ import time
 from dataclasses import asdict, dataclass
 
 from .llm.vllm_service import VLLMService, VLLMServiceConfig
+from .console import configure_query_policy, validate_initial_only_binary
 
 
 SCALE_PATTERN = re.compile(r"(?:^|[_-])scale[_-](\d+)(?:[_-]|$)", re.I)
@@ -132,6 +133,14 @@ def build_job_environment(job, args, base_environment=None):
     budget = str(job.max_requests_per_iteration)
     environment["HYBRID_LLM_MAX_REQUESTS"] = budget
     environment["NLM_LLM_MAX_REQUESTS"] = budget
+    query_policy = getattr(args, "llm_query_policy", "adaptive")
+    if job.mode == "live" and query_policy == "initial-only":
+        workers = args.http_workers if args.http_workers > 0 else args.llm_max_concurrency
+        environment.setdefault(
+            "NLM_LLM_MAX_PENDING",
+            str(min(workers, max(1, args.llm_max_concurrency // args.llm_samples_per_state))),
+        )
+    configure_query_policy(environment, query_policy, enabled=job.mode == "live")
 
     policy = {
         "enabled": False,
@@ -227,7 +236,7 @@ def _remap_resume_problem_path(value, mappings):
 
 
 def partition_resumable_jobs(
-    jobs, output_dir, resume_problem_path_maps=()
+    jobs, output_dir, resume_problem_path_maps=(), llm_query_policy="adaptive"
 ):
     """Split jobs into trusted completed results and jobs that must run."""
 
@@ -239,6 +248,13 @@ def partition_resumable_jobs(
         try:
             payload = json.loads(marker_path.read_text(encoding="utf-8"))
             stored = JobResult(**payload)
+            job_metadata_path = output_dir / job.job_id / "job.json"
+            job_metadata = (
+                json.loads(job_metadata_path.read_text(encoding="utf-8"))
+                if job_metadata_path.is_file() else {}
+            )
+            if job_metadata.get("llm_query_policy", "adaptive") != llm_query_policy:
+                raise ValueError("saved job uses a different LLM query policy")
             stored_problem = pathlib.Path(
                 _remap_resume_problem_path(
                     stored.problem, resume_problem_path_maps
@@ -267,7 +283,7 @@ def partition_resumable_jobs(
             )
             if not identity_matches or not outcome_is_complete:
                 raise ValueError("result marker does not match the current job")
-        except (OSError, ValueError, TypeError, KeyError):
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
             pending.append(job)
             continue
 
@@ -291,9 +307,40 @@ def partition_resumable_jobs(
     return completed, pending
 
 
-def validate_resume_experiment_seed(output_dir, experiment_seed, llm_partial_only=False):
-    """Reject resume when the seed or proposal-filter policy has changed."""
+def validate_output_query_policy(output_dir, llm_query_policy="adaptive"):
+    """Never relabel an existing result directory with another request policy."""
 
+    output_dir = pathlib.Path(output_dir)
+    config_path = output_dir / "batch_config.json"
+    metadata_paths = list(output_dir.glob("*/job.json"))
+    metadata_paths.extend(output_dir.glob("*/anytime/run.json"))
+    if config_path.is_file():
+        metadata_paths.insert(0, config_path)
+    elif llm_query_policy == "initial-only" and any(output_dir.glob("*/job_result.json")):
+        raise ValueError(
+            "cannot establish the LLM query policy of existing results without "
+            "batch_config.json; use a different output directory"
+        )
+    for path in metadata_paths:
+        try:
+            stored = json.loads(path.read_text(encoding="utf-8"))
+            stored_policy = stored.get("llm_query_policy", "adaptive")
+        except (OSError, ValueError, AttributeError) as exc:
+            raise ValueError("cannot validate saved query policy in %s: %s" % (path, exc)) from exc
+        if stored_policy != llm_query_policy:
+            raise ValueError(
+                "LLM query policy mismatch in %s: stored %r, requested %r; "
+                "use a different output directory"
+                % (path, stored_policy, llm_query_policy)
+            )
+
+
+def validate_resume_experiment_seed(
+    output_dir, experiment_seed, llm_partial_only=False, llm_query_policy="adaptive"
+):
+    """Reject resume when the seed, filter, or query policy has changed."""
+
+    validate_output_query_policy(output_dir, llm_query_policy)
     config_path = pathlib.Path(output_dir) / "batch_config.json"
     if not config_path.is_file():
         if llm_partial_only and any(pathlib.Path(output_dir).glob("*/job_result.json")):
@@ -489,6 +536,8 @@ def build_child_command(job, domain, job_dir, args, vllm_base_url):
         "%.12g" % job.time_limit_seconds,
         "--llm-mode",
         job.mode,
+        "--llm-query-policy",
+        getattr(args, "llm_query_policy", "adaptive"),
         "--prompt-domain",
         str(domain),
         "--prompt-problem-dir",
@@ -583,6 +632,7 @@ class BatchJobRunner:
                         self.args, "experiment_seed", None
                     ),
                     "llm_scale_policy": llm_scale_policy,
+                    "llm_query_policy": getattr(self.args, "llm_query_policy", "adaptive"),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -736,6 +786,7 @@ def _write_batch_records(output_dir, domain, jobs, results, args, base_url):
         ),
         "experiment_seed": getattr(args, "experiment_seed", None),
         "llm_partial_only": getattr(args, "llm_partial_only", False),
+        "llm_query_policy": getattr(args, "llm_query_policy", "adaptive"),
         "resume_enabled": args.resume,
         "resume_problem_path_maps": list(
             getattr(args, "resolved_resume_problem_path_maps", ())
@@ -852,6 +903,11 @@ def build_argument_parser():
 
     parser.add_argument("--llm-model", default="Qwen3.5-9B")
     parser.add_argument(
+        "--llm-query-policy", choices=("adaptive", "initial-only"),
+        default="adaptive",
+        help="Request LLM guidance during search or only from each phase's initial state.",
+    )
+    parser.add_argument(
         "--llm-partial-only",
         action="store_true",
         help="Reject each goal-reaching LLM sample and keep only verified incomplete prefixes",
@@ -951,13 +1007,18 @@ def main():
         else pathlib.Path.cwd() / "logs" / "batch" / timestamp
     )
     output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        validate_output_query_policy(output_dir, args.llm_query_policy)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     resumed_results = []
     pending_jobs = list(jobs)
     if args.resume:
         try:
             validate_resume_experiment_seed(
-                output_dir, args.experiment_seed, args.llm_partial_only
+                output_dir, args.experiment_seed, args.llm_partial_only,
+                args.llm_query_policy,
             )
         except ValueError as exc:
             parser.error(str(exc))
@@ -965,6 +1026,7 @@ def main():
             jobs,
             output_dir,
             args.resolved_resume_problem_path_maps,
+            llm_query_policy=args.llm_query_policy,
         )
         for result in resumed_results:
             print(
@@ -974,6 +1036,16 @@ def main():
             )
 
     live_jobs = [job for job in pending_jobs if job.mode == "live"]
+    if args.llm_query_policy == "initial-only" and live_jobs:
+        project_root = pathlib.Path(__file__).resolve().parent.parent
+        try:
+            for job in live_jobs:
+                build_job_environment(job, args)
+                validate_initial_only_binary(
+                    project_root, args.build, output_dir / job.job_id
+                )
+        except ValueError as exc:
+            parser.error(str(exc))
     if live_jobs and not args.external_vllm:
         if not args.vllm_model_path and not args.vllm_command:
             parser.error(

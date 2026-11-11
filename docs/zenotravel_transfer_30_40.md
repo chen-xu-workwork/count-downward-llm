@@ -6,7 +6,9 @@
 
 ## 容器中一键启动
 
-将补丁包中的新增模块、脚本、Zenotravel 领域资源和共享 `extrapolation` helper 依赖同步到现有 Count-Downward 项目根目录。不需要重新训练模型或编译 C++，也不要求将旧 baseline 结果放到容器。本地 Windows 上用于准备检查的结果目录不要复制到 Linux 续跑；部署源码和材料后，容器首次启动会用相同抽样 seed 重新生成同一题单。以下假设项目位于 `/root/autodl-tmp/count-downward-llm`，数据根目录为 `/root/PyPACE/data`：
+在本地提交新增模块、脚本和领域资源后，直接使用 Git 同步到容器中的 Count-Downward 项目即可。压缩补丁包只是可选的文件复制方式。Git 应包含 `hybrid_planner/prompting/resources/zenotravel/` 下的 `domain.pddl`、`domain.txt` 和 `baseline_availability.json`；`.gitignore` 已对这份运行时 `domain.pddl` 单独放行，原始题集的 PDDL 仍然忽略。
+
+不需要单独打包或复制数据集子集；容器使用已有完整验证集，在启动时按固定规则生成题单。不需要重新训练模型或编译 C++，也不要求将旧 baseline 结果放到容器。本地 Windows 上用于准备检查的结果目录不要复制到 Linux 续跑。以下假设项目位于 `/root/autodl-tmp/count-downward-llm`，数据根目录为 `/root/PyPACE/data`：
 
 ```bash
 cd /root/autodl-tmp/count-downward-llm

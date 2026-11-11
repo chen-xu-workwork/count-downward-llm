@@ -78,9 +78,15 @@ public:
     TriggerMonitor &operator=(const TriggerMonitor &) = delete;
 
     bool enabled() const;
+    bool initial_only() const;
     void start();
     void set_anytime_iteration(int iteration);
 
+    // One group per call; LazySearch owns preparation, polling and backpressure.
+    // This is the only path that may query the same initial state repeatedly.
+    bool submit_initial_batch(StateID state_id, ap_float g, ap_float h);
+    bool initial_batch_submitted() const;
+    int initial_batch_budget() const;
     void maybe_request_initial(StateID state_id, ap_float g, ap_float h);
     void record_base_expansion(
         StateID state_id, ap_float g, ap_float h,

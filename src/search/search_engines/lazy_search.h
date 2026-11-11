@@ -9,11 +9,13 @@
 #include "../search_space.h"
 
 #include "../llm/llm_proposal.h"
+#include "../llm/llm_bridge.h"
 
 #include "../open_lists/open_list.h"
 
-#include <memory>
+#include <chrono>
 #include <deque>
+#include <memory>
 #include <vector>
 
 class GlobalOperator;
@@ -60,6 +62,17 @@ protected:
     llm::RolloutLimits llm_rollout_limits;
     llm::RolloutStatistics llm_rollout_statistics;
     std::deque<llm::Burst> llm_bursts;
+    // Collect the initial-only batch before either native or guided search.
+    // Keep responses outside the bounded rollout queue until it has room.
+    std::deque<llm::Response> llm_initial_responses;
+    bool llm_initial_preparing;
+    mutable bool llm_initial_preparation_reported;
+    std::chrono::steady_clock::time_point llm_initial_started_at;
+    StateID llm_initial_state_id;
+    ap_float llm_initial_g;
+    ap_float llm_initial_h;
+    std::size_t llm_initial_submitted;
+    std::size_t llm_initial_completed;
     int llm_base_expansions;
     int llm_ancestor_check_interval;
     int llm_ancestor_depth;
@@ -76,6 +89,9 @@ protected:
     SearchStatus schedule_next_work();
 
     void poll_llm_responses();
+    void begin_initial_preparation(StateID state_id, ap_float g, ap_float h);
+    void advance_initial_preparation();
+    void print_initial_preparation(const char *event) const;
     void accept_llm_response(const llm::Response &response);
     void handle_rollout_outcome(const llm::ExpansionOutcome &outcome);
     void abort_active_proposal(llm::ExpansionKind reason);

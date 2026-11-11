@@ -1,7 +1,9 @@
 #include "llm_trigger_monitor.h"
 
 #include "../global_state.h"
+#include "../globals.h"
 #include "../state_registry.h"
+#include "../utils/system.h"
 
 #include <algorithm>
 #include <array>
@@ -18,6 +20,7 @@ namespace llm {
 
 struct TriggerMonitor::Config {
     bool enabled;
+    string query_policy;
     bool request_initial;
     bool enable_ancestor_stagnation;
     bool enable_expansion_plateau;
@@ -39,6 +42,7 @@ struct TriggerMonitor::Config {
 
     Config()
         : enabled(setting_enabled("TRIGGER")),
+          query_policy(setting_string("QUERY_POLICY", "adaptive")),
           request_initial(setting_enabled("REQUEST_INITIAL")),
           enable_ancestor_stagnation(
               setting_enabled("ENABLE_ANCESTOR_STAGNATION", true)),
@@ -75,6 +79,24 @@ struct TriggerMonitor::Config {
           plateau_h_bucket_width(max(
               0.000001,
               setting_float("PLATEAU_H_BUCKET_WIDTH", 0.001))) {
+        if (enabled && query_policy != "adaptive" &&
+            query_policy != "initial-only") {
+            cerr << "Unknown HYBRID_LLM_QUERY_POLICY: " << query_policy << endl;
+            utils::exit_with(utils::ExitCode::INPUT_ERROR);
+        }
+        if (enabled && query_policy == "initial-only") {
+            // Zero means unlimited in the legacy adaptive settings. The
+            // initial preparation must instead have finite work and slots.
+            if (max_requests <= 0 || max_pending <= 0) {
+                cerr << "initial-only requires positive LLM MAX_REQUESTS "
+                     << "and MAX_PENDING" << endl;
+                utils::exit_with(utils::ExitCode::INPUT_ERROR);
+            }
+            request_initial = false;
+            enable_ancestor_stagnation = false;
+            enable_expansion_plateau = false;
+            enable_global_stall = false;
+        }
     }
 };
 
@@ -191,6 +213,10 @@ bool TriggerMonitor::enabled() const {
     return config->enabled;
 }
 
+bool TriggerMonitor::initial_only() const {
+    return enabled() && config->query_policy == "initial-only";
+}
+
 void TriggerMonitor::start() {
     if (!started) {
         started = true;
@@ -198,6 +224,11 @@ void TriggerMonitor::start() {
         if (!enabled())
             return;
         bridge.start();
+        cout << "[HYBRID-LLM-QUERY-POLICY]"
+             << " iteration=" << anytime_iteration
+             << " policy=" << config->query_policy
+             << " request_budget=" << config->max_requests
+             << " pending_limit=" << config->max_pending << endl;
         if (setting_enabled("ENABLE_FRONTIER_PLATEAU", false)) {
             cout << "[HYBRID-LLM-TRIGGER] frontier_plateau_disabled"
                  << " reason=lazy_edge_keys_are_parent_context" << endl;
@@ -257,6 +288,13 @@ bool TriggerMonitor::request_state(
     ++request_attempts;
     if (!enabled() || state_id == StateID::no_state)
         return false;
+    // An initial-only run cannot accidentally fall back to an adaptive source,
+    // even if an old caller or inherited trigger flag attempts a request.
+    const bool initial_batch_request =
+        initial_only() && reason == "initial_batch" &&
+        state_id == g_initial_state().get_id();
+    if (initial_only() && !initial_batch_request)
+        return false;
     if (config->max_requests > 0 &&
         static_cast<int>(requests_submitted) >= config->max_requests) {
         ++requests_rejected_request_limit;
@@ -268,7 +306,7 @@ bool TriggerMonitor::request_state(
         ++requests_rejected_spacing;
         return false;
     }
-    if (requested_states.count(state_id)) {
+    if (requested_states.count(state_id) && !initial_batch_request) {
         ++requests_rejected_duplicate;
         return false;
     }
@@ -322,8 +360,29 @@ bool TriggerMonitor::request_state(
 
 void TriggerMonitor::maybe_request_initial(
     StateID state_id, ap_float g, ap_float h) {
-    if (config->request_initial)
+    if (!initial_only() && config->request_initial)
         request_state(state_id, "initial", g, h, true);
+}
+
+bool TriggerMonitor::submit_initial_batch(
+    StateID state_id, ap_float g, ap_float h) {
+    if (!initial_only() || !request_slot_available(true))
+        return false;
+    if (state_id != g_initial_state().get_id()) {
+        cerr << "initial-only requests must use the original initial state"
+             << endl;
+        utils::exit_with(utils::ExitCode::INPUT_ERROR);
+    }
+    return request_state(state_id, "initial_batch", g, h, true);
+}
+
+bool TriggerMonitor::initial_batch_submitted() const {
+    return initial_only() &&
+        requests_submitted >= static_cast<size_t>(config->max_requests);
+}
+
+int TriggerMonitor::initial_batch_budget() const {
+    return initial_only() ? config->max_requests : 0;
 }
 
 bool TriggerMonitor::maybe_request_expansion_plateau(
@@ -571,6 +630,8 @@ void TriggerMonitor::record_base_expansion(
     StateID state_id, ap_float g, ap_float h,
     bool ancestor_stagnant, bool burst_active) {
     ++base_expansions;
+    if (initial_only())
+        return;
     if (meaningfully_improves(h)) {
         best_h = h;
         have_best_h = true;
@@ -653,6 +714,8 @@ void TriggerMonitor::finalize_and_print() {
         return;
     cout << "[HYBRID-LLM-TRIGGER-STATS]"
          << " iteration=" << anytime_iteration
+         << " query_policy=" << config->query_policy
+         << " request_budget=" << config->max_requests
          << " base_expansions=" << base_expansions
          << " request_attempts=" << request_attempts
          << " requests_submitted=" << requests_submitted
