@@ -198,8 +198,9 @@ SearchStatus IteratedSearch::step() {
 
     // Save/announce an incumbent before bridge cleanup so a process limit
     // cannot lose an already discovered plan. The phase-end event above has
-    // already invalidated its Python futures; printing child statistics now
-    // closes the old C++ sockets and reports final per-phase LLM counters.
+    // announced invalidation to Python, whose stdout reader may lag behind
+    // HTTP. Printing child statistics closes the old phase's C++ sockets;
+    // its separate bridge and iteration checks prevent cross-phase injection.
     current_search->print_statistics();
 
     bool global_time_exhausted = has_anytime_deadline &&

@@ -874,13 +874,27 @@ def _force_llm_runtime_setting(env, suffix, value):
 def validate_initial_only_binary(project_root, build, working_directory=None):
     """Reject an old search binary before loading a model or starting a service."""
 
+    return _validate_initial_only_capability(
+        project_root, build, working_directory, b"TRACS_INITIAL_ONLY_PREPARATION_V1"
+    )
+
+
+def validate_initial_only_async_binary(project_root, build, working_directory=None):
+    """Require explicit asynchronous initial-state support in the selected binary."""
+
+    return _validate_initial_only_capability(
+        project_root, build, working_directory, b"TRACS_INITIAL_ONLY_ASYNC_V1"
+    )
+
+
+def _validate_initial_only_capability(project_root, build, working_directory, marker):
+
     build_dir = pathlib.Path(build).expanduser()
     if not build_dir.is_absolute():
         build_dir = pathlib.Path(working_directory or pathlib.Path.cwd()) / build_dir
     if not build_dir.exists():
         build_dir = pathlib.Path(project_root) / "builds" / build / "bin"
     executable = build_dir / ("downward.exe" if os.name == "nt" else "downward")
-    marker = b"TRACS_INITIAL_ONLY_PREPARATION_V1"
     try:
         with executable.open("rb") as stream:
             tail = b""
@@ -904,12 +918,17 @@ def validate_initial_only_binary(project_root, build, working_directory=None):
     )
 
 
-def configure_query_policy(environment, query_policy, enabled=True):
+def configure_query_policy(environment, query_policy, enabled=True, initial_async=False):
     """Apply the explicit CLI policy, overriding inherited legacy aliases."""
 
     if query_policy not in {"adaptive", "initial-only"}:
         raise ValueError("unknown LLM query policy: %s" % query_policy)
+    if initial_async and query_policy != "initial-only":
+        raise ValueError("--llm-initial-async requires --llm-query-policy initial-only")
     _force_llm_runtime_setting(environment, "QUERY_POLICY", query_policy)
+    _force_llm_runtime_setting(
+        environment, "INITIAL_ASYNC", "1" if initial_async and enabled else "0"
+    )
     if query_policy != "initial-only" or not enabled:
         return
     for suffix in (
@@ -930,7 +949,7 @@ def configure_query_policy(environment, query_policy, enabled=True):
             raise ValueError("initial-only requires %s > 0" % suffix)
 
 
-def validate_run_query_policy(output_dir, query_policy):
+def validate_run_query_policy(output_dir, query_policy, llm_initial_async=False):
     """Protect direct console runs from overwriting another experiment mode."""
 
     output_dir = pathlib.Path(output_dir)
@@ -948,6 +967,10 @@ def validate_run_query_policy(output_dir, query_policy):
         raise ValueError(
             "LLM query policy mismatch: stored %r, requested %r; "
             "use a different --anytime-log-dir" % (stored_policy, query_policy)
+        )
+    if stored.get("llm_initial_async", False) != llm_initial_async:
+        raise ValueError(
+            "LLM initial async mismatch; use a different --anytime-log-dir"
         )
 
 
@@ -994,7 +1017,8 @@ def configure_planner_environment(args, problem_id):
         _force_llm_runtime_setting(env, "EMIT_STATE", "0")
         _force_llm_runtime_setting(env, "MAX_REQUESTS", "0")
         configure_query_policy(
-            env, getattr(args, "llm_query_policy", "adaptive"), enabled=False
+            env, getattr(args, "llm_query_policy", "adaptive"), enabled=False,
+            initial_async=getattr(args, "llm_initial_async", False),
         )
         return env
 
@@ -1079,7 +1103,10 @@ def configure_planner_environment(args, problem_id):
     env.setdefault("NLM_LLM_REQUESTS_PER_SLOT", "1")
     env.setdefault("NLM_LLM_HEARTBEAT_INTERVAL", "100000")
     env.setdefault("NLM_LLM_H_RELATIVE_EPSILON", "0.005")
-    configure_query_policy(env, getattr(args, "llm_query_policy", "adaptive"))
+    configure_query_policy(
+        env, getattr(args, "llm_query_policy", "adaptive"),
+        initial_async=getattr(args, "llm_initial_async", False),
+    )
     return env
 
 
@@ -1307,8 +1334,12 @@ def main():
         default="adaptive",
         help=(
             "Use adaptive requests during search, or spend the same per-phase "
-            "state-request budget on the initial state before native search."
+            "state-request budget on the initial state (serial by default)."
         ),
+    )
+    parser.add_argument(
+        "--llm-initial-async", action="store_true",
+        help="Start initial-only requests alongside native search; discard late-phase replies.",
     )
     parser.add_argument(
         "--llm-samples-per-state",
@@ -1510,12 +1541,19 @@ def main():
             )
 
     problem_id = args.problem_id or pathlib.Path(args.problem).stem
+    if args.llm_initial_async and args.llm_query_policy != "initial-only":
+        parser.error("--llm-initial-async requires --llm-query-policy initial-only")
     if args.llm_query_policy == "initial-only" and args.llm_mode != "off":
         try:
             validate_initial_only_binary(
                 project_root, args.build,
                 pathlib.Path(args.plan).expanduser().resolve().parent,
             )
+            if args.llm_initial_async:
+                validate_initial_only_async_binary(
+                    project_root, args.build,
+                    pathlib.Path(args.plan).expanduser().resolve().parent,
+                )
             # Resolve pending/group limits before the expensive service startup.
             # The actual listening port is filled in after the bridge starts.
             args.actual_port = args.port
@@ -1535,7 +1573,9 @@ def main():
         else project_root / "logs" / "anytime" / args.run_id
     )
     try:
-        validate_run_query_policy(anytime_log_dir, args.llm_query_policy)
+        validate_run_query_policy(
+            anytime_log_dir, args.llm_query_policy, args.llm_initial_async
+        )
     except ValueError as exc:
         parser.error(str(exc))
     prompt_builder = None
@@ -1581,6 +1621,7 @@ def main():
             "llm_samples_per_state": args.llm_samples_per_state,
             "llm_partial_only": args.llm_partial_only,
             "llm_query_policy": args.llm_query_policy,
+            "llm_initial_async": args.llm_initial_async,
             "llm_max_requests_per_iteration": (
                 "0"
                 if args.llm_mode == "off"

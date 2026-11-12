@@ -62,9 +62,11 @@ protected:
     llm::RolloutLimits llm_rollout_limits;
     llm::RolloutStatistics llm_rollout_statistics;
     std::deque<llm::Burst> llm_bursts;
-    // Collect the initial-only batch before either native or guided search.
+    // Serial initial-only collects the full batch before further search;
+    // async initial-only collects alongside search and immediately feeds it.
     // Keep responses outside the bounded rollout queue until it has room.
     std::deque<llm::Response> llm_initial_responses;
+    bool llm_initial_async;
     bool llm_initial_preparing;
     mutable bool llm_initial_preparation_reported;
     std::chrono::steady_clock::time_point llm_initial_started_at;

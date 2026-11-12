@@ -28,7 +28,10 @@ import time
 from dataclasses import asdict, dataclass
 
 from .llm.vllm_service import VLLMService, VLLMServiceConfig
-from .console import configure_query_policy, validate_initial_only_binary
+from .console import (
+    configure_query_policy, validate_initial_only_binary,
+    validate_initial_only_async_binary,
+)
 
 
 SCALE_PATTERN = re.compile(r"(?:^|[_-])scale[_-](\d+)(?:[_-]|$)", re.I)
@@ -140,7 +143,10 @@ def build_job_environment(job, args, base_environment=None):
             "NLM_LLM_MAX_PENDING",
             str(min(workers, max(1, args.llm_max_concurrency // args.llm_samples_per_state))),
         )
-    configure_query_policy(environment, query_policy, enabled=job.mode == "live")
+    configure_query_policy(
+        environment, query_policy, enabled=job.mode == "live",
+        initial_async=getattr(args, "llm_initial_async", False),
+    )
 
     policy = {
         "enabled": False,
@@ -236,7 +242,8 @@ def _remap_resume_problem_path(value, mappings):
 
 
 def partition_resumable_jobs(
-    jobs, output_dir, resume_problem_path_maps=(), llm_query_policy="adaptive"
+    jobs, output_dir, resume_problem_path_maps=(), llm_query_policy="adaptive",
+    llm_initial_async=False,
 ):
     """Split jobs into trusted completed results and jobs that must run."""
 
@@ -255,6 +262,8 @@ def partition_resumable_jobs(
             )
             if job_metadata.get("llm_query_policy", "adaptive") != llm_query_policy:
                 raise ValueError("saved job uses a different LLM query policy")
+            if job_metadata.get("llm_initial_async", False) != llm_initial_async:
+                raise ValueError("saved job uses a different initial async policy")
             stored_problem = pathlib.Path(
                 _remap_resume_problem_path(
                     stored.problem, resume_problem_path_maps
@@ -307,7 +316,9 @@ def partition_resumable_jobs(
     return completed, pending
 
 
-def validate_output_query_policy(output_dir, llm_query_policy="adaptive"):
+def validate_output_query_policy(
+    output_dir, llm_query_policy="adaptive", llm_initial_async=False
+):
     """Never relabel an existing result directory with another request policy."""
 
     output_dir = pathlib.Path(output_dir)
@@ -333,14 +344,20 @@ def validate_output_query_policy(output_dir, llm_query_policy="adaptive"):
                 "use a different output directory"
                 % (path, stored_policy, llm_query_policy)
             )
+        if stored.get("llm_initial_async", False) != llm_initial_async:
+            raise ValueError(
+                "LLM initial async mismatch in %s; use a different output directory"
+                % path
+            )
 
 
 def validate_resume_experiment_seed(
-    output_dir, experiment_seed, llm_partial_only=False, llm_query_policy="adaptive"
+    output_dir, experiment_seed, llm_partial_only=False, llm_query_policy="adaptive",
+    llm_initial_async=False,
 ):
     """Reject resume when the seed, filter, or query policy has changed."""
 
-    validate_output_query_policy(output_dir, llm_query_policy)
+    validate_output_query_policy(output_dir, llm_query_policy, llm_initial_async)
     config_path = pathlib.Path(output_dir) / "batch_config.json"
     if not config_path.is_file():
         if llm_partial_only and any(pathlib.Path(output_dir).glob("*/job_result.json")):
@@ -543,6 +560,8 @@ def build_child_command(job, domain, job_dir, args, vllm_base_url):
         "--prompt-problem-dir",
         str(job.problem.parent),
     ]
+    if getattr(args, "llm_initial_async", False):
+        command.append("--llm-initial-async")
     if args.prompt_domain_code:
         command.extend(["--prompt-domain-code", args.prompt_domain_code])
     experiment_seed = getattr(args, "experiment_seed", None)
@@ -633,6 +652,7 @@ class BatchJobRunner:
                     ),
                     "llm_scale_policy": llm_scale_policy,
                     "llm_query_policy": getattr(self.args, "llm_query_policy", "adaptive"),
+                    "llm_initial_async": getattr(self.args, "llm_initial_async", False),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -787,6 +807,7 @@ def _write_batch_records(output_dir, domain, jobs, results, args, base_url):
         "experiment_seed": getattr(args, "experiment_seed", None),
         "llm_partial_only": getattr(args, "llm_partial_only", False),
         "llm_query_policy": getattr(args, "llm_query_policy", "adaptive"),
+        "llm_initial_async": getattr(args, "llm_initial_async", False),
         "resume_enabled": args.resume,
         "resume_problem_path_maps": list(
             getattr(args, "resolved_resume_problem_path_maps", ())
@@ -908,6 +929,10 @@ def build_argument_parser():
         help="Request LLM guidance during search or only from each phase's initial state.",
     )
     parser.add_argument(
+        "--llm-initial-async", action="store_true",
+        help="Run initial-only requests concurrently with native search.",
+    )
+    parser.add_argument(
         "--llm-partial-only",
         action="store_true",
         help="Reject each goal-reaching LLM sample and keep only verified incomplete prefixes",
@@ -1008,7 +1033,11 @@ def main():
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     try:
-        validate_output_query_policy(output_dir, args.llm_query_policy)
+        if args.llm_initial_async and args.llm_query_policy != "initial-only":
+            raise ValueError("--llm-initial-async requires --llm-query-policy initial-only")
+        validate_output_query_policy(
+            output_dir, args.llm_query_policy, args.llm_initial_async
+        )
     except ValueError as exc:
         parser.error(str(exc))
 
@@ -1019,6 +1048,7 @@ def main():
             validate_resume_experiment_seed(
                 output_dir, args.experiment_seed, args.llm_partial_only,
                 args.llm_query_policy,
+                args.llm_initial_async,
             )
         except ValueError as exc:
             parser.error(str(exc))
@@ -1027,6 +1057,7 @@ def main():
             output_dir,
             args.resolved_resume_problem_path_maps,
             llm_query_policy=args.llm_query_policy,
+            llm_initial_async=args.llm_initial_async,
         )
         for result in resumed_results:
             print(
@@ -1044,6 +1075,10 @@ def main():
                 validate_initial_only_binary(
                     project_root, args.build, output_dir / job.job_id
                 )
+                if args.llm_initial_async:
+                    validate_initial_only_async_binary(
+                        project_root, args.build, output_dir / job.job_id
+                    )
         except ValueError as exc:
             parser.error(str(exc))
     if live_jobs and not args.external_vllm:

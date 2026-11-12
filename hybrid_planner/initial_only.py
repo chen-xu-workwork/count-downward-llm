@@ -86,6 +86,12 @@ def resolve_inputs(args, project_root=PROJECT_ROOT):
 def output_directory(args, project_root=PROJECT_ROOT):
     _, dataset, manual = resolve_inputs(args, project_root)
     output = pathlib.Path(args.output_dir).expanduser().resolve()
+    if getattr(args, "llm_initial_async", False):
+        from .initial_only_async import validate_async_output
+        validate_async_output(output)
+    if getattr(args, "rerun_from", None):
+        from .initial_only_rerun import validate_separate_output
+        validate_separate_output(args.rerun_from, output)
     for source in (dataset, manual.parent):
         if output == source or source in output.parents:
             raise ValueError("output-dir must be outside the dataset and prompt-material directories")
@@ -158,7 +164,7 @@ def source_fingerprints(project_root):
     for source in (project_root / "src").rglob("*"):
         if source.is_file() and (source.suffix in (".cc", ".h", ".cmake") or source.name == "CMakeLists.txt"):
             sources.add(source)
-    for name in ("build.py", "build_configs.py", "scripts/run_depots_initial_only_30_40.sh", "scripts/start_depots_initial_only_30_40_tmux.sh"):
+    for name in ("build.py", "build_configs.py", "scripts/run_depots_initial_only_30_40.sh", "scripts/start_depots_initial_only_30_40_tmux.sh", "scripts/run_depots_initial_only_rerun_11.sh", "scripts/start_depots_initial_only_rerun_11_tmux.sh", "scripts/run_depots_initial_only_async_30_40.sh", "scripts/start_depots_initial_only_async_30_40_tmux.sh"):
         source = project_root / name
         if source.is_file():
             sources.add(source)
@@ -176,6 +182,9 @@ def prepare_experiment(args, project_root=PROJECT_ROOT):
 
 
 def _prepare_experiment(args, project_root):
+    initial_async = bool(getattr(args, "llm_initial_async", False))
+    if initial_async and getattr(args, "rerun_from", None):
+        raise ValueError("async initial-only requires a new full experiment, not the eleven-job serial repair")
     if args.small_parallelism < 1 or args.large_parallelism < 1 or args.build_jobs < 1:
         raise ValueError("parallelism and build-jobs must be positive")
     if not 0 <= args.experiment_seed < 2 ** 31:
@@ -191,9 +200,11 @@ def _prepare_experiment(args, project_root):
     domain_check = validate_domain(dataset / "domain.pddl", manual)
     model_path = str(pathlib.Path(args.model_path).expanduser().resolve())
     result_dir = output / "initial_only_live"
+    trigger_settings = dict(TRIGGER_SETTINGS, INITIAL_ASYNC="1" if initial_async else "0")
     config = {
         "schema_version": 1, "experiment": "depots_initial_only_lazy_30_40",
         "target_domain": "depot", "llm_query_policy": QUERY_POLICY,
+        "llm_initial_async": initial_async,
         "comparison_policy": "reuse_existing_baseline_and_adaptive_results_no_other_stages",
         "data_root": str(data_root), "dataset_root": str(dataset),
         "model_path": model_path, "llm_model": args.llm_model,
@@ -206,11 +217,21 @@ def _prepare_experiment(args, project_root):
         "initial_state_policy": "original_problem_s0_each_anytime_iteration",
         "preparation_policy": "complete_initial_requests_before_native_and_rollout_search",
         "budget_interpretation": "equal_per_iteration_sampling_cap_not_equal_total_tokens_or_calls",
-        "llm_partial_only": False, "trigger_overrides": TRIGGER_SETTINGS,
+        "llm_partial_only": False, "trigger_overrides": trigger_settings,
         "inference": {"samples_per_state": 3, "temperature": 0.7, "top_p": 0.9, "max_tokens": 16384, "max_concurrency_per_solver": 6, "timeout_seconds": 300, "max_retries": 3},
         "runtime": {"python": sys.executable, "planner_python": args.planner_python, "build": args.build, "vllm_executable": args.vllm_executable, "vllm_gpus": args.vllm_gpus, "vllm_port": args.vllm_port},
         "source_sha256": source_fingerprints(project_root),
     }
+    if initial_async:
+        from .initial_only_async import configure_async_experiment
+        configure_async_experiment(config)
+    extra_payloads = {}
+    if getattr(args, "rerun_from", None):
+        from .initial_only_rerun import prepare_rerun_subset
+        selection, manifest, extra_payloads = prepare_rerun_subset(
+            args, selection, manifest, config, result_dir
+        )
+        config["selection_sha256"] = _json_digest(selection)
     command = [
         sys.executable, "-m", "hybrid_planner.batch_console",
         "--manifest", selection["manifest_path"], "--output-dir", str(result_dir), "--resume",
@@ -227,10 +248,13 @@ def _prepare_experiment(args, project_root):
         "--llm-temperature", "0.7", "--llm-top-p", "0.9", "--llm-max-tokens", "16384",
         "--llm-timeout", "300", "--llm-max-retries", "3",
     ]
+    if initial_async:
+        command.append("--llm-initial-async")
     payloads = {
         "selection.json": selection, "manifest_initial_only.json": manifest,
         "initial_only_config.json": config, "command.json": command,
         "comparison_keys.json": [{"problem": item["name"], "scale": item["scale"], "sha256": item["sha256"]} for item in selection["selected"]],
+        **extra_payloads,
     }
     if result_dir.exists() and not (output / "initial_only_config.json").is_file():
         raise ValueError("existing results lack initial_only_config.json; use a new output directory")
@@ -243,19 +267,23 @@ def _prepare_experiment(args, project_root):
             write_json(output / name, value)
     environment = clean_environment()
     for prefix in ("HYBRID_LLM_", "NLM_LLM_"):
-        environment.update({prefix + name: value for name, value in TRIGGER_SETTINGS.items()})
+        environment.update({prefix + name: value for name, value in trigger_settings.items()})
     environment["COUNT_LLM_QUERY_POLICY"] = QUERY_POLICY
     environment["COUNT_LLM_PARTIAL_ONLY"] = "0"
+    environment["COUNT_LLM_INITIAL_ASYNC"] = "1" if initial_async else "0"
     return InitialOnlyPlan(output, project_root, result_dir, selection, config, command, environment)
 
 
 def job_progress(plan):
     args = batch_console.build_argument_parser().parse_args(plan.command[3:])
-    batch_console.validate_resume_experiment_seed(plan.result_dir, plan.config["experiment_seed"], False, QUERY_POLICY)
+    initial_async = bool(plan.config.get("llm_initial_async", False))
+    batch_console.validate_resume_experiment_seed(plan.result_dir, plan.config["experiment_seed"], False, QUERY_POLICY, llm_initial_async=initial_async)
     _, jobs = batch_console.load_jobs(args)
-    if len(jobs) != sum(EXPECTED_COUNTS.values()) or any(job.mode != "live" or job.scale not in (30, 40) for job in jobs):
-        raise ValueError("initial-only manifest must contain exactly the original 63 scale 30/40 live jobs")
-    return batch_console.partition_resumable_jobs(jobs, plan.result_dir, llm_query_policy=QUERY_POLICY)
+    expected = {(item["scale"], item["name"]) for item in plan.selection["selected"]}
+    observed = {(job.scale, job.problem.name) for job in jobs}
+    if len(jobs) != len(expected) or observed != expected or any(job.mode != "live" for job in jobs):
+        raise ValueError("initial-only manifest does not match the frozen live-job selection")
+    return batch_console.partition_resumable_jobs(jobs, plan.result_dir, llm_query_policy=QUERY_POLICY, llm_initial_async=initial_async)
 
 
 def verify_complete(plan):
@@ -311,13 +339,15 @@ def build_and_validate_binary(plan, args, runner=run_batch):
             raise ValueError("planner build failed (exit %s); fix the container build before resuming" % return_code)
     # Never silently use an old binary, including with --skip-build.
     console.validate_initial_only_binary(plan.project_root, args.build)
+    if getattr(args, "llm_initial_async", False):
+        console.validate_initial_only_async_binary(plan.project_root, args.build)
 
 
 def execute_plan(plan, runner=run_batch, *, _lock_held=False):
     with contextlib.nullcontext() if _lock_held else pipeline_lock(plan.output_dir):
         try:
             update_status(plan, status="running", current_stage="initial_only_live", error=None, completed_jobs=None, return_code=None)
-            print("[COUNT-INITIAL-ONLY] starting 63 live jobs; no baseline/adaptive stage will run", flush=True)
+            print("[COUNT-INITIAL-ONLY] starting %d live jobs; no baseline/adaptive stage will run" % len(plan.selection["selected"]), flush=True)
             result = runner(plan.command, plan.environment, plan.project_root)
             if result != 0:
                 update_status(plan, status="failed", return_code=result)
@@ -334,13 +364,13 @@ def execute_plan(plan, runner=run_batch, *, _lock_held=False):
             raise
 
 
-def main(argv=None):
-    parser = build_argument_parser()
+def main(argv=None, parser=None):
+    parser = parser or build_argument_parser()
     args = parser.parse_args(argv)
     try:
         with pipeline_lock(output_directory(args)):
             plan = _prepare_experiment(args, PROJECT_ROOT)
-            print("[COUNT-INITIAL-ONLY] selected=30:50,40:13 total=63 parallelism=30:%d,40:%d seed=%d" % (args.small_parallelism, args.large_parallelism, args.experiment_seed), flush=True)
+            print("[COUNT-INITIAL-ONLY] selected=30:%d,40:%d total=%d parallelism=30:%d,40:%d seed=%d" % (plan.selection["counts"]["30"], plan.selection["counts"]["40"], len(plan.selection["selected"]), args.small_parallelism, args.large_parallelism, args.experiment_seed), flush=True)
             print("[COUNT-INITIAL-ONLY] manual=%s results=%s" % (plan.config["prompt_domain_code"], plan.output_dir), flush=True)
             if args.prepare_only:
                 print("[COUNT-INITIAL-ONLY] prepared only; no build/model/planner started", flush=True)
@@ -356,7 +386,17 @@ def main(argv=None):
                     raise KeyboardInterrupt
                 signal.signal(signal.SIGTERM, interrupted)
                 try:
-                    build_and_validate_binary(plan, args)
+                    if getattr(args, "llm_initial_async", False):
+                        # The async experiment only launches an existing build.
+                        # Neither CLI defaults nor inherited shell settings may
+                        # re-enable compilation or a regression-test subprocess.
+                        from .initial_only_async import validate_existing_binary
+                        validate_existing_binary(plan, args)
+                    else:
+                        build_and_validate_binary(plan, args)
+                        if getattr(args, "rerun_from", None):
+                            from .initial_only_rerun import run_regression_checks
+                            run_regression_checks(plan, args)
                     update_status(plan, status="checking", current_stage="preflight", error=None, return_code=None)
                     validate_runtime(plan, args)
                     validate_prompt_pipeline(plan)

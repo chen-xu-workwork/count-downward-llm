@@ -8,6 +8,10 @@ import threading
 import time
 
 
+ITERATION_SYNC_VERSION = "iteration-lifecycle-v1"
+ITERATION_ASYNC_SYNC_VERSION = "iteration-lifecycle-async-v2"
+
+
 def _parse_structured_line(line):
     """Return ``(marker, key_values)`` for one structured planner line."""
 
@@ -36,42 +40,90 @@ def _parse_structured_line(line):
 
 
 class ActiveIterationRegistry:
-    """Tracks the one phase whose LLM responses may still affect search."""
+    """Merge native HTTP requests and delayed stdout lifecycle notifications.
+
+    Both channels originate from the same sequential search process, but their
+    Python consumers run independently. A request for a newer phase is already
+    evidence that native search entered it; waiting for its stdout START races
+    with initial-only batches. Watermarks make all later log updates monotonic.
+    """
 
     def __init__(self, run_id):
         self.run_id = str(run_id)
         self._lock = threading.Lock()
         self._active_iteration = None
-        self._lifecycle_seen = False
+        self._latest_iteration = 0
+        self._ended_through = 0
+        self._closed = False
         self._futures = {}
+        # Advancing phases cancels old work immediately. Keep its ownership
+        # until END/close drains the cancellation accounting, even if a handler
+        # concurrently unregisters its now-cancelled future.
+        self._retired_futures = {}
+
+    def _activate_locked(self, iteration):
+        """Accept a current/new phase; caller must hold self._lock."""
+
+        if (
+            self._closed
+            or iteration <= self._ended_through
+            or iteration < self._latest_iteration
+        ):
+            return False
+        self._latest_iteration = iteration
+        self._active_iteration = iteration
+        return True
+
+    def _retire_older_locked(self, iteration):
+        futures = []
+        for request_id, (future_iteration, future) in list(self._futures.items()):
+            if future_iteration >= iteration:
+                continue
+            self._retired_futures[request_id] = (future_iteration, future)
+            self._futures.pop(request_id)
+            futures.append(future)
+        return futures
 
     def start_iteration(self, iteration):
         iteration = int(iteration)
         with self._lock:
-            self._lifecycle_seen = True
-            self._active_iteration = iteration
+            # A delayed START must not undo a newer request or revive a phase
+            # whose END has already been observed.
+            accepted = self._activate_locked(iteration)
+            futures = self._retire_older_locked(iteration) if accepted else []
+        for future in futures:
+            future.cancel()
+        return accepted
 
     def accept_request(self, run_id, iteration):
-        """Accept the active phase, including a direct non-iterated search."""
+        """Let a same-run request establish its phase before stdout catches up."""
 
+        iteration = int(iteration)
         with self._lock:
             if str(run_id) != self.run_id:
                 return False
-            if self._active_iteration is None and not self._lifecycle_seen:
-                self._active_iteration = int(iteration)
-            return self._active_iteration == int(iteration)
+            accepted = self._activate_locked(iteration)
+            futures = self._retire_older_locked(iteration) if accepted else []
+        # Cancellation can synchronously invoke callbacks that reenter this
+        # registry. The ledger above also lets END/close race this operation
+        # without losing ownership or counting a request twice.
+        for future in futures:
+            future.cancel()
+        return accepted
 
     def is_active(self, run_id, iteration):
         with self._lock:
             return (
-                str(run_id) == self.run_id
+                not self._closed
+                and str(run_id) == self.run_id
                 and self._active_iteration == int(iteration)
             )
 
     def register_future(self, run_id, iteration, request_id, future):
         with self._lock:
             if (
-                str(run_id) != self.run_id
+                self._closed
+                or str(run_id) != self.run_id
                 or self._active_iteration != int(iteration)
             ):
                 return False
@@ -86,30 +138,45 @@ class ActiveIterationRegistry:
         """Invalidate a phase and request cancellation of all of its futures."""
 
         iteration = int(iteration)
-        cancelled = []
         with self._lock:
-            if self._active_iteration == iteration:
-                self._active_iteration = None
-            for request_id, (future_iteration, future) in list(
-                self._futures.items()
+            self._latest_iteration = max(self._latest_iteration, iteration)
+            self._ended_through = max(self._ended_through, iteration)
+            if (
+                self._active_iteration is not None
+                and self._active_iteration <= iteration
             ):
-                if future_iteration != iteration:
-                    continue
-                cancel_accepted = future.cancel()
-                cancelled.append((request_id, cancel_accepted))
-                self._futures.pop(request_id, None)
-        return cancelled
+                self._active_iteration = None
+            futures = []
+            for pending in (self._retired_futures, self._futures):
+                for request_id, (future_iteration, future) in list(pending.items()):
+                    if future_iteration != iteration:
+                        continue
+                    futures.append((request_id, future))
+                    pending.pop(request_id)
+        # Future.cancel() can run callbacks synchronously. Those callbacks may
+        # unregister the future or inspect this registry, so never hold its lock.
+        # concurrent.futures.Future.cancel() is idempotent: it returns True for
+        # an already-cancelled future. Repeating it here also covers END winning
+        # the race before the advancing thread has actually called cancel().
+        return [(request_id, future.cancel()) for request_id, future in futures]
 
-    def close(self):
+    def close(self, by_iteration=False):
+        """Cancel remaining work once; optionally retain each phase's ownership."""
+
         with self._lock:
-            futures = list(self._futures.items())
+            self._closed = True
+            futures = list(self._retired_futures.items()) + list(self._futures.items())
+            self._retired_futures.clear()
             self._futures.clear()
             active_iteration = self._active_iteration
             self._active_iteration = None
         cancelled = []
+        cancelled_by_iteration = {}
         for request_id, (iteration, future) in futures:
-            cancelled.append((request_id, future.cancel()))
-        return active_iteration, cancelled
+            result = (request_id, future.cancel())
+            cancelled.append(result)
+            cancelled_by_iteration.setdefault(iteration, []).append(result)
+        return active_iteration, cancelled_by_iteration if by_iteration else cancelled
 
 
 class AnytimeRunRecorder:
@@ -151,6 +218,9 @@ class AnytimeRunRecorder:
         "llm_query_policy", "initial_preparation_status",
         "initial_preparation_seconds", "initial_budget_groups",
         "initial_submitted_groups", "initial_completed_groups",
+        "llm_initial_async", "initial_query_execution",
+        "initial_async_status", "initial_async_seconds",
+        "initial_async_base_expansions",
     ]
     INCUMBENT_FIELDS = [
         "run_id", "mode", "iteration", "incumbent", "elapsed_seconds",
@@ -313,30 +383,40 @@ class AnytimeRunRecorder:
                 phase = self._phases.setdefault(iteration, {})
                 phase.update(values)
                 phase["run_id"] = self.run_id
-                phase["python_cancel_requested"] = len(cancellations)
-                phase["python_cancel_accepted"] = sum(
-                    int(accepted) for _, accepted in cancellations
-                )
+                phase["python_cancel_requested"] = int(
+                    phase.get("python_cancel_requested", 0) or 0
+                ) + len(cancellations)
+                phase["python_cancel_accepted"] = int(
+                    phase.get("python_cancel_accepted", 0) or 0
+                ) + sum(int(accepted) for _, accepted in cancellations)
                 self._mark_iteration_stale(iteration, cancellations)
-        elif marker == "HYBRID-LLM-INITIAL-PREP" and iteration is not None:
+        elif marker in {
+            "HYBRID-LLM-INITIAL-PREP", "HYBRID-LLM-INITIAL-ASYNC"
+        } and iteration is not None:
             with self._lock:
                 phase = self._phases.setdefault(iteration, {})
                 phase.update(run_id=self.run_id, iteration=iteration)
                 phase["llm_query_policy"] = "initial-only"
-                phase["initial_preparation_status"] = {
-                    "start": "running", "end": "completed",
+                asynchronous = marker == "HYBRID-LLM-INITIAL-ASYNC"
+                metric = "initial_async" if asynchronous else "initial_preparation"
+                phase["llm_initial_async"] = int(asynchronous)
+                phase["initial_query_execution"] = "async" if asynchronous else "serial"
+                phase[metric + "_status"] = {
+                    "start": "running", "native_progress": "running", "end": "completed",
                     "interrupted": "interrupted",
                 }.get(values.get("event"), values.get("event", "unknown"))
-                # This duration is a component of phase time. Never overwrite
-                # the overall anytime elapsed_seconds with preparation time.
+                # Async duration overlaps search. It is NOT blocked preparation
+                # time and must never be subtracted from the search budget.
                 for source, target in (
-                    ("elapsed_seconds", "initial_preparation_seconds"),
+                    ("elapsed_seconds", metric + "_seconds"),
                     ("budget_groups", "initial_budget_groups"),
                     ("submitted_groups", "initial_submitted_groups"),
                     ("completed_groups", "initial_completed_groups"),
                 ):
                     if source in values:
                         phase[target] = values[source]
+                if asynchronous and "base_expansions" in values:
+                    phase["initial_async_base_expansions"] = values["base_expansions"]
         elif marker in {
             "NLM-LLM-TRIGGER-STATS",
             "HYBRID-LLM-TRIGGER-STATS",
@@ -448,22 +528,27 @@ class AnytimeRunRecorder:
     def planner_stopped(self):
         """Close an unfinished phase when the planner exits or is terminated."""
 
-        iteration, cancellations = self.registry.close()
-        if iteration is None:
+        iteration, cancellations_by_iteration = self.registry.close(by_iteration=True)
+        if iteration is None and not cancellations_by_iteration:
             return
         with self._lock:
-            phase = self._phases.setdefault(iteration, {})
-            phase.setdefault("run_id", self.run_id)
-            phase.setdefault("iteration", iteration)
-            phase.setdefault("result", "process_ended")
-            phase.setdefault("elapsed_seconds", self.elapsed())
-            phase["python_cancel_requested"] = int(
-                phase.get("python_cancel_requested", 0) or 0
-            ) + len(cancellations)
-            phase["python_cancel_accepted"] = int(
-                phase.get("python_cancel_accepted", 0) or 0
-            ) + sum(int(accepted) for _, accepted in cancellations)
-            self._mark_iteration_stale(iteration, cancellations)
+            iterations = set(cancellations_by_iteration)
+            if iteration is not None:
+                iterations.add(iteration)
+            for phase_iteration in sorted(iterations):
+                cancellations = cancellations_by_iteration.get(phase_iteration, [])
+                phase = self._phases.setdefault(phase_iteration, {})
+                phase.setdefault("run_id", self.run_id)
+                phase.setdefault("iteration", phase_iteration)
+                phase.setdefault("result", "process_ended")
+                phase.setdefault("elapsed_seconds", self.elapsed())
+                phase["python_cancel_requested"] = int(
+                    phase.get("python_cancel_requested", 0) or 0
+                ) + len(cancellations)
+                phase["python_cancel_accepted"] = int(
+                    phase.get("python_cancel_accepted", 0) or 0
+                ) + sum(int(accepted) for _, accepted in cancellations)
+                self._mark_iteration_stale(phase_iteration, cancellations)
 
     def close(self, return_code=None):
         self.planner_stopped()
@@ -547,11 +632,14 @@ class AnytimeRunRecorder:
                 phase.setdefault(
                     "llm_query_policy", self._metadata.get("llm_query_policy", "adaptive")
                 )
-                if phase.get("initial_preparation_status") == "running":
-                    # An abruptly killed native process cannot report its final
-                    # preparation time; leave it unknown rather than claim zero.
-                    phase["initial_preparation_status"] = "incomplete"
-                    phase["initial_preparation_seconds"] = ""
+                phase.setdefault(
+                    "llm_initial_async", int(self._metadata.get("llm_initial_async", False))
+                )
+                for metric in ("initial_preparation", "initial_async"):
+                    if phase.get(metric + "_status") == "running":
+                        # A killed process cannot report its final duration.
+                        phase[metric + "_status"] = "incomplete"
+                        phase[metric + "_seconds"] = ""
                 phase.setdefault("llm_partial_only", 0)
                 for name in self.FILTER_COUNT_FIELDS:
                     phase.setdefault(name, 0)
@@ -626,6 +714,21 @@ class AnytimeRunRecorder:
             )
             self._metadata.setdefault("llm_partial_only", partial_only_seen)
             self._metadata.setdefault("llm_query_policy", "adaptive")
+            self._metadata.setdefault("llm_initial_async", False)
+            async_phases = [
+                phase for phase in self._phases.values()
+                if "initial_async_status" in phase
+            ]
+            if async_phases:
+                self._metadata["llm_initial_async"] = True
+                self._metadata["initial_async_seconds"] = sum(
+                    float(phase.get("initial_async_seconds", 0) or 0)
+                    for phase in async_phases
+                )
+                self._metadata["initial_async_incomplete_phases"] = sum(
+                    phase["initial_async_status"] == "incomplete"
+                    for phase in async_phases
+                )
             preparation_phases = [
                 phase for phase in self._phases.values()
                 if "initial_preparation_status" in phase

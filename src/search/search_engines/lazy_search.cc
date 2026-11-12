@@ -46,6 +46,8 @@ LazySearch::LazySearch(const Options &opts)
       current_origin(WorkOrigin::INITIAL),
       has_current_work(true),
       llm_trigger_monitor(new llm::TriggerMonitor()),
+      llm_initial_async(llm_trigger_monitor->initial_only() &&
+                        llm::setting_enabled("INITIAL_ASYNC", false)),
       llm_initial_preparing(false),
       llm_initial_preparation_reported(false),
       llm_initial_state_id(StateID::no_state),
@@ -112,6 +114,16 @@ void LazySearch::initialize() {
     if (llm_trigger_monitor->enabled())
         llm_action_evaluator.reset(new ActionChainEvaluator());
     llm_trigger_monitor->start();
+    if (llm_initial_async && !open_list->is_dead_end(current_eval_context)) {
+        // Start the finite initial-state batch before the root is expanded.
+        // Only submission/polling happens here: responses cannot be replayed
+        // until process_current_work has opened the root SearchNode.
+        // Reuse this evaluation cache when processing the root. A known dead
+        // end needs no request and must not wait on an unreachable prefix.
+        begin_initial_preparation(
+            current_state.get_id(), 0, current_llm_h());
+        advance_initial_preparation();
+    }
 }
 
 void LazySearch::get_successor_operators(vector<const GlobalOperator *> &ops) {
@@ -276,14 +288,20 @@ llm::ExpansionOutcome LazySearch::process_current_work() {
                 if (current_origin == WorkOrigin::INITIAL) {
                     llm_trigger_monitor->record_rollout_expansion(h);
                     if (llm_trigger_monitor->initial_only()) {
-                        begin_initial_preparation(
-                            current_state.get_id(), node.get_g(), h);
+                        if (!llm_initial_async) {
+                            begin_initial_preparation(
+                                current_state.get_id(), node.get_g(), h);
+                        }
                     } else {
                         llm_trigger_monitor->maybe_request_initial(
                             current_state.get_id(), node.get_g(), h);
                     }
                 } else if (current_origin == WorkOrigin::BASE_OPEN_LIST) {
                     ++llm_base_expansions;
+                    if (llm_initial_async && llm_initial_preparing &&
+                        llm_base_expansions == 1) {
+                        print_initial_preparation("native_progress");
+                    }
                     bool ancestor_stagnant =
                         !llm_trigger_monitor->initial_only() &&
                         llm_base_expansions % llm_ancestor_check_interval == 0 &&
@@ -643,14 +661,19 @@ void LazySearch::begin_initial_preparation(
 void LazySearch::print_initial_preparation(const char *event) const {
     const double elapsed = chrono::duration_cast<chrono::duration<double>>(
         chrono::steady_clock::now() - llm_initial_started_at).count();
-    cout << "[HYBRID-LLM-INITIAL-PREP]"
+    cout << (llm_initial_async
+                 ? "[HYBRID-LLM-INITIAL-ASYNC]"
+                 : "[HYBRID-LLM-INITIAL-PREP]")
          << " event=" << event
          << " iteration=" << get_anytime_iteration()
-         << " capability=TRACS_INITIAL_ONLY_PREPARATION_V1"
+         << " capability=" << (llm_initial_async
+                 ? "TRACS_INITIAL_ONLY_ASYNC_V1"
+                 : "TRACS_INITIAL_ONLY_PREPARATION_V1")
          << " budget_groups=" << llm_trigger_monitor->initial_batch_budget()
          << " submitted_groups=" << llm_initial_submitted
          << " completed_groups=" << llm_initial_completed
          << " buffered_responses=" << llm_initial_responses.size()
+         << " base_expansions=" << llm_base_expansions
          << " elapsed_seconds=" << elapsed << endl;
 }
 
@@ -680,7 +703,7 @@ SearchStatus LazySearch::schedule_next_work() {
     if (llm_trigger_monitor->enabled()) {
         if (llm_initial_preparing) {
             advance_initial_preparation();
-            if (llm_initial_preparing) {
+            if (llm_initial_preparing && !llm_initial_async) {
                 this_thread::sleep_for(chrono::milliseconds(1));
                 return IN_PROGRESS;
             }
